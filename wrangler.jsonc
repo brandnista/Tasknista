@@ -1,0 +1,65 @@
+// SeedOffice — worker เดียวเสิร์ฟทั้ง /api/* (Hono) และ static assets ของ SPA
+// SPEC §6/§8 · ห้ามใส่ secret ในไฟล์นี้ (ใช้ `wrangler secret put` / .dev.vars)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // ⚠️ fork จาก SeedOffice — ตัด account_id/routes ของ SeedWebs ออกแล้ว (กัน deploy ไปโดน production จริง)
+  "name": "newtask",
+  "main": "apps/api/src/index.ts",
+  "compatibility_date": "2026-06-10",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // SPA: ทุก path ที่ไม่ใช่ไฟล์จริง → index.html · /api/* วิ่งเข้า worker ก่อนเสมอ
+  "assets": {
+    "directory": "apps/web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // cron: * = sync อีเมลกลางทุกนาที (P3 E2) · */30 = กวาด timer ค้าง + ล้าง session · 0 20 UTC (03:00 ไทย) = backup D1 → R2 (เก็บ 30 ชุด)
+  "triggers": {
+    "crons": ["* * * * *", "*/30 * * * *", "0 20 * * *"]
+  },
+
+  // ค่า production — local override ที่ .dev.vars
+  // ค่าที่ผูกบริษัท/credential ทั้งหมดเป็น secret (`wrangler secret put`): GOOGLE_CLIENT_ID ·
+  // GOOGLE_CLIENT_SECRET (login OAuth) · INBOX_ENC_KEY (กุญแจเข้ารหัส token อีเมลกลาง) — repo public ห้ามมีค่าจริง
+  "vars": {
+    "APP_URL": "https://office.seedwebs.com",
+    "DEV_AUTH": "0"
+  },
+
+  // DO: PRESENCE = timer realtime (SPEC §4.15) · INBOX_HUB = collision อีเมลกลางราย thread (SPEC §4.12)
+  "durable_objects": {
+    "bindings": [
+      { "name": "PRESENCE", "class_name": "PresenceHub" },
+      { "name": "INBOX_HUB", "class_name": "InboxThreadHub" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PresenceHub"] },
+    { "tag": "v2", "new_sqlite_classes": ["InboxThreadHub"] }
+  ],
+
+  // D1: สร้างจริงแล้ว (T02) · local dev ใช้ sqlite ในเครื่อง ไม่แตะ remote · migrate remote = `pnpm db:migrate:remote`
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "seedoffice",
+      "database_id": "a83e812d-362f-41e5-bb79-3a11a45ca7cc",
+      "migrations_dir": "packages/db/migrations"
+    }
+  ],
+
+  // R2: ไฟล์แนบ task/ใบเสร็จ/รูปเอกสาร (T10/D3) · bucket จริงสร้างก่อน deploy
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "seedoffice-files"
+    }
+  ]
+}

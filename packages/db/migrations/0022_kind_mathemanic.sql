@@ -1,0 +1,29 @@
+PRAGMA defer_foreign_keys=ON;--> statement-breakpoint
+CREATE TABLE `__new_tasks` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text,
+	`group_id` text,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	`title` text NOT NULL,
+	`description` text,
+	`assignee_id` text,
+	`status` text DEFAULT 'todo' NOT NULL,
+	`priority` text DEFAULT 'normal' NOT NULL,
+	`estimate_minutes` integer,
+	`start_date` text,
+	`due_date` text,
+	`created_by` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`completed_at` integer,
+	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`group_id`) REFERENCES `task_groups`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`assignee_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+INSERT INTO `__new_tasks`("id", "project_id", "group_id", "sort_order", "title", "description", "assignee_id", "status", "priority", "estimate_minutes", "start_date", "due_date", "created_by", "created_at", "completed_at") SELECT "id", "project_id", "group_id", "sort_order", "title", "description", "assignee_id", "status", "priority", "estimate_minutes", "start_date", "due_date", "created_by", "created_at", "completed_at" FROM `tasks`;--> statement-breakpoint
+DROP TABLE `tasks`;--> statement-breakpoint
+ALTER TABLE `__new_tasks` RENAME TO `tasks`;--> statement-breakpoint
+CREATE INDEX `tasks_project_idx` ON `tasks` (`project_id`);--> statement-breakpoint
+CREATE INDEX `tasks_group_idx` ON `tasks` (`group_id`,`sort_order`);--> statement-breakpoint
+CREATE INDEX `tasks_assignee_idx` ON `tasks` (`assignee_id`,`status`);

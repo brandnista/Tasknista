@@ -1,0 +1,279 @@
+# SeedOffice — P1 Task List
+
+> vertical slices เรียงตาม dependency · ทำจากบนลงล่าง · ภาพรวมที่ [plan.md](./plan.md) · สเปค [SPEC.md](../SPEC.md) v0.9
+> ทุก task DoD = `typecheck + lint + test` เขียว + verify ผ่าน + ขึ้น preview ได้
+
+---
+
+## Phase 0 — Foundation
+
+### ☑ T01 — Monorepo scaffold + tooling ✅ (10 มิ.ย. 69)
+**deps:** —
+- pnpm workspaces: `apps/web` (Vite 8+React 19+React Router 7+Tailwind 3.4.17 ตรง mockup), `apps/api` (Hono 4 Worker), `packages/db` (Drizzle 0.45), `packages/core` (pure + formatSatang/minutesToHoursLabel + 7 tests)
+- `wrangler.jsonc` (แทน .toml — ฟีเจอร์ใหม่ JSON-only) + bindings: D1 `DB` (id จริง = T02), R2 `FILES`; assets เสิร์ฟ SPA dist + `run_worker_first: ["/api/*"]` + SPA fallback; `nodejs_compat` + observability; `wrangler types` → `worker-configuration.d.ts` (commit ไว้)
+- runners: ESLint 10 (flat) + TS 6 strict + Vitest 4; scripts `dev/build/deploy/lint/typecheck/test/cf-typegen`; CI GitHub Actions (lint/typecheck/test)
+- **AC:** `pnpm dev` เปิด SPA + `GET /api/health` → 200 `{ok:true}`; `pnpm test` รันได้ ✓
+- **Verify ✓:** SPA ขึ้นทั้ง :5173 (vite) และ :8787 (worker เสิร์ฟ dist + deep link 200); /api/health = `{"ok":true}` ทั้งสองพอร์ต; lint/typecheck/test เขียวครบ
+
+### ☑ T02 — DB foundation (Drizzle + D1) + config + seed
+**deps:** T01
+- schema เริ่มต้น: `users`, `sessions`, `rates`, **`company_config`** (cutoffDay=25, workHourCapMinutes=480) + migration แรก
+- seed คล้าย mockup: owner (owner@seedwebs.com) + members (ปอนด์/น้ำ/ตูน/บีม/กร…) + vendor (สมชาย) + rates
+- **AC:** migrate กับ local D1 ได้; seed insert ได้; query ผ่าน Drizzle; config อ่านได้
+- **Verify:** `pnpm db:migrate` + `db:seed` สำเร็จ; drizzle studio เห็นตาราง/ข้อมูล
+
+### ☑ T03 — Core money/time/cycle math (pure, TDD)
+**deps:** T01
+- `packages/core`: types สตางค์/นาที; `baseSatang(minutes, rateSatangPerHour)` + กฎปัดเศษ; `cycleOf(date, cutoffDay)` → `{start,end,payDate}` (≥25 → งวดถัดไป, ≤24 → งวดนี้); **`netOf(base, adjustments[])`** = base + Σincome − Σdeduction; `costSatang(entries)` + profit/margin; `capMinutes(perDay, cap)`
+- **เขียนเทสต์ก่อน** ครอบ edge: วันที่ 24/25/26, สิ้นเดือน, ปัดครึ่งสตางค์, adjustment +/−, เกินเพดานชั่วโมง
+- **AC:** ทุกฟังก์ชัน pure (รับ date เข้า ไม่มี Date.now ภายใน); coverage สูง; **สูตรปัดเศษ + net ยืนยันกับเจ้าของ**
+- **Verify:** `pnpm test packages/core` เขียว; ตารางเทียบ 1 งวดจริง
+
+---
+
+## Phase 1 — Auth & identity  →  **CP1**
+
+### ☑ T04 — Google OAuth + session (API)
+**deps:** T02
+- OAuth login/callback (Hono) → session ใน D1 + httpOnly secure cookie; logout (เพิกถอน)
+- allow: domain `seedwebs.com` (member) + vendor allowlist; **email ที่ไม่ถูก provision = ปฏิเสธ**
+- **AC:** อีเมล allowed → session; ไม่ allowed → 403; logout เพิกถอน session
+- **Verify:** e2e login จริง 1 รอบ (manual) + integration mock OAuth ใน CI
+
+### ☑ T05 — Frontend auth + protected routes + role nav
+**deps:** T04
+- auth context (`/api/me`), guard routes, **nav ตาม role** ตาม §2 (owner/member/vendor) — เมนู: ภาพรวม·โปรเจกต์·ค่าตอบแทน·(เงินสดย่อย P2)·ตั้งค่า; **role switcher บน top bar** (mock); logout
+- **AC:** ไม่ login → เด้ง login; **vendor เห็นแค่ ภาพรวม + โปรเจกต์** (+ ค่าตอบแทนของตัวเอง), ไม่เห็นเมนูการเงินทีม
+- **Verify:** login 3 role เห็น nav ต่างกันตาม mockup
+
+### ☑ T06 — Role-guard middleware + audit log
+**deps:** T04
+- middleware ตรวจ role ต่อ endpoint; `audit_logs` + helper เขียน log
+- **AC:** member ยิง endpoint owner-only → 403; **vendor ยิง P&L/payroll → 403**; action การเงินถูก log
+- **Verify:** integration test สิทธิ์ครบ 3 role; ดู `audit_logs` มี record
+
+> **CP1:** login ได้, role กัน nav + API ถูกต้อง + **e2e login (Playwright) เขียว** — รีวิวกับเจ้าของ
+
+---
+
+## Phase 2 — Users, rates & config
+
+### ☑ T07 — Users CRUD + rates (effective-dated) + company config
+**deps:** T06
+- owner provision user (email, role, status); ตั้ง/แก้ **rate effective-dated** (เก็บประวัติ); self เห็น rate ตัวเอง
+- หน้า **ตั้งค่า**: company config (วันตัดรอบ, เพดานชั่วโมง/วัน)
+- **AC:** owner เพิ่ม user/ตั้ง rate (เปลี่ยน rate เก็บประวัติ ไม่ลบของเก่า); แก้ config ได้; non-owner ทำไม่ได้
+- **Verify:** ตั้ง rate 2 ครั้ง → 2 records; member เปิดตั้งค่าไม่ได้
+
+---
+
+## Phase 3 — Projects → tasks  →  **CP2**
+
+### ☑ T08 — Projects (2 ประเภท) + list (timeline / cards / table / search)
+**deps:** T07
+- `projects` (type project|recurring, status incl `archived`, quotedSatang, client, วันที่); CRUD
+- **งานโปรเจกต์**: **timeline ภาพรวม** (12 ด. scroll-x, คอลัมน์ชื่อ/งบ฿K sticky, บาร์+เส้นวันนี้) + **cards** (สถานะ · avatar · ⚠️ **%จ่าย → wired ใน T14 · จุดสีกำไร/health → wired ใน T17** = placeholder ก่อน) ; **งานต่อเนื่อง**: ตารางทุกราย
+- **ค้นหา/กรอง** lightbox (⌘K): active + archived + filter chips
+- **AC:** สร้าง/แก้/ลิสต์ 2 ประเภท; **vendor เห็นชื่อ/สถานะ ไม่เห็นเงิน** (งบ/%จ่าย/กำไร); ค้นหาเจอทั้ง active+archived
+- **Verify:** สร้างโปรเจกต์เห็นใน timeline+cards; สลับ vendor ไม่เห็นคอลัมน์เงิน; ⌘K ค้นเจอ
+
+### ☑ T09 — Task groups + tasks (start/due, sortable) + project-detail timeline + checkbox
+**deps:** T08
+- `task_groups` + `tasks` (groupId, sortOrder, assignee, status, **estimate**, **startDate / dueDate**, ติดดาว); project detail: groups + tasks
+- **โหมดจัดเรียง** (ปุ่มมุมขวาบน เปิด/ปิด grip — ปกติซ่อน) reorder group+task; **checkbox เสร็จ** (line-through); **task-group timeline** (บาร์ = `min(startDate)`–`max(dueDate)` ของ task ในกลุ่ม)
+- **AC:** สร้าง/แก้/ลบ group+task; reorder persist; เช็คเสร็จ; timeline คำนวณช่วงจาก task start/due; assign member/vendor
+- **Verify:** ลากเรียงแล้ว reload คงลำดับ; เช็ค task → done; vendor เห็น task แต่ไม่เห็น P&L
+
+### ☑ T10 — Task detail: comments + attachments (R2) + activity log
+**deps:** T09
+- drawer: รายละเอียด + **comment** (`task_comments`) + **แนบรูป/ไฟล์ (R2)** (`task_attachments`) + **activity log** (กางได้, อ่านจาก `audit_logs`: สร้าง/แก้/มอบหมาย/สถานะ/comment · ลงเวลา/แก้เวลา จะโผล่เมื่อ T12/T13 มา)
+- **AC:** comment โพสต์/แสดง; ไฟล์อัปขึ้น R2 + thumbnail + โหลดได้; activity แสดงเรียงเวลา
+- **Verify:** อัปรูป+ไฟล์ → เห็น/โหลด; comment เรียงเวลา; ทำ action → ขึ้นใน activity
+
+### ☑ T11 — Task stars (ทำวันนี้) + Quick Add + ภาพรวมส่วนตัว (ย่อ)
+**deps:** T09
+- `task_stars` (forDate); **Quick Add modal** (ปุ่ม + คีย์ **N**): project→group→title→ติดดาว
+- **ภาพรวม (ย่อ, P1)**: **งานวันนี้** (task ติดดาว + ปุ่ม play/เวลา — *การเดินเวลาเชื่อมเมื่อ T12 พร้อม*) + **งานเร็วๆ นี้** (≤5) — *team hub (presence/standup/ปฏิทิน) = P2*
+- **AC:** ติดดาว → ขึ้น "งานวันนี้"; Quick Add (N) สร้าง task ใน project/group ที่เลือก
+- **Verify:** ติดดาว task → เห็นบนภาพรวม; กด N เพิ่ม task สำเร็จ
+
+> **CP2:** จัดการงานครบ + timeline + ค้นหา (แทน Notion) — รีวิวกับเจ้าของ
+
+---
+
+## Phase 4 — Time tracking  →  **CP3**
+
+### ☑ T12 — Time entries: timer + manual (จาก task)
+**deps:** T09, T07 (rate), T03
+- `time_entries` (+ `timer_sessions` สำหรับ timer เดินอยู่); ลงเวลาจาก task detail: timer start/stop + manual; **snapshot rate** ตอนสร้าง; edit + soft-delete
+- แสดง **`H:MM:SS`** (ชั่วโมงหลักเดียว) + อ้าง **เพดานชั่วโมง/วัน** (config)
+- **กฎ timer (SPEC §4.5)**: วิ่งทีละตัวต่อคน (start ใหม่ = auto-stop ตัวเดิม) · **ชนเพดานวัน = บล็อก** (timer auto-stop + เริ่มต่อไม่ได้) + **banner เว็บ + อีเมลแจ้ง** (เลือก provider: CF Email Sending/Resend — mock ใน CI) · ข้ามคืนรันต่อได้ จน **session ครบ 8 ชม. → auto-stop** · manual ย้อนหลังลงได้แม้วันนั้นชนเพดาน (เข้า manual%)
+- **AC:** timer stop → entry มี rateSnapshot; manual ได้; แก้/ลบ (soft) ได้; **ทุก role รวม vendor ลงของตัวเองได้**; start timer ตัวที่ 2 → ตัวแรก stop + ได้ entry; ชั่วโมงวันแตะเพดาน → timer หยุด + จับต่อไม่ได้ + มี banner (+ อีเมล mock ถูกยิง)
+- **Verify:** จับเวลา 1 รอบ + manual → เห็น entry + rateSnapshot ถูก; vendor ลงของตัวเองได้; จำลองชนเพดาน → ถูกบล็อก + เตือนโผล่
+
+### ☑ T13 — Time audit + integrity metric (manual%)
+**deps:** T12
+- log manual/แก้/ลบ (ก่อน→หลัง) ลง `audit_logs`; คำนวณ **manual% ต่อคนต่องวด**; team-hours view + **flag สีส้ม >10%** (เห็นทั้งทีม) + จำนวนครั้งที่แก้
+- **AC:** แก้เวลา → มี audit (before/after); manual% ตรงนิยามทั้งงวด; >10% ขึ้นสีส้ม
+- **Verify:** สร้าง manual เกิน 10% ของงวด → แถวส้ม; แก้ entry → เห็น audit
+
+> **CP3:** ลงเวลาได้ครบ (แทน Everhour) — รีวิวกับเจ้าของ
+
+---
+
+## Phase 5 — Milestones · ค่าตอบแทน · P&L  →  **CP4 = P1 done**
+
+### ☑ T14 — Milestones + payments (per project)
+**deps:** T08
+- `milestones` (งบ/กำหนด/สถานะต่องวด) + `payments` (installment, จ่ายแล้ว/ยอด)
+- **AC:** เพิ่ม/แก้งวดงาน + งวดจ่าย; คำนวณ **%ลูกค้าจ่ายแล้ว** (→ card T08) + งบต่องวด (→ P&L T17); owner+member เท่านั้น
+- **Verify:** ใส่ payment → %จ่ายบน card อัปเดต; vendor ไม่เห็น
+
+### ☑ T15 — ค่าตอบแทน (self view): สรุปเวลา + base + รายได้/หัก = สุทธิ
+**deps:** T12, T07, T03
+- `pay_adjustments` (kind: allowance|depreciation|bonus|other_income|sso|wht|other_deduction) + `pay_notes`; **base = core calc**; net = base + Σรายได้ − Σหัก
+- หน้า self **2 คอลัมน์**: ซ้าย = **สรุปเวลาของฉัน** (ชั่วโมงงวด/วันนี้/เป้า/manual%/ตามโปรเจกต์) · ขวา = **โน้ตจากหัวหน้า** (ถ้ามี) + **ค่าตอบแทน** (รายได้−หัก=สุทธิ) + **เงินสดย่อยรอเบิกของตัวเอง** (P1 = ฿0/ซ่อน จนกว่า petty cash P2)
+- **AC:** base/net ตรง core; **เจ้าตัวเห็นของตัวเองครบ**; **member ดู เงินพิเศษ/net/โน้ต คนอื่นไม่ได้ (server 403)**; vendor เห็นของตัวเอง (หัก ณ ที่จ่าย 3%)
+- **Verify:** เทียบ base/net กับ core test; member B เปิดข้อมูล member A → ถูกปฏิเสธ
+
+### ☑ T16 — ค่าตอบแทน (owner overview) + CSV + ปิดงวด + โน้ต
+**deps:** T15
+- หน้า owner: ตารางทั้งทีม (ชม. · manual% · **รายได้** เงินเดือน/เบี้ยเลี้ยง/ค่าสึกหรอ/เงินพิเศษ/อื่นๆ · **หัก** ปกส./ภาษี/อื่นๆ · **สุทธิ** · **โน้ต**); owner ใส่ `pay_adjustments` + **`pay_notes`** รายคน/รายงวด (**เงินพิเศษ + โน้ต = ลับ เห็นเฉพาะเจ้าตัว**)
+- **export CSV** (ทำรายการธนาคารวันที่ 25) + **ปิดงวด → snapshot `payslips`** (breakdown + โน้ต, ไม่เปลี่ยนย้อนหลัง)
+- **AC:** ตารางรวม + total ถูก; CSV ดาวน์โหลดได้; ปิดงวดสร้าง payslip; **non-owner เข้าไม่ได้**
+- **Verify:** export เทียบยอด; ปิดงวด → payslips ถูกสร้าง; member เปิดหน้านี้ไม่ได้
+
+### ☑ T17 — Project cost / profit (P&L)
+**deps:** T12, T08, T14, T03
+- cost = Σ(ชั่วโมง×rateSnapshot)/โปรเจกต์; profit = ราคาขาย − cost; margin; **กำไร/ขาดทุนต่องวด (milestone %)** + **%ลูกค้าจ่าย (payment)**; แถบ P&L ย่อ + **จุดสี health บน card** (เติมจาก placeholder T08)
+- **AC:** cost/profit/margin ตรง core; owner+member เห็น; **vendor ไม่เห็น P&L เลย (server + UI)**; breakdown รายคนโชว์ **ชั่วโมง** (ไม่โชว์เงินรายคน)
+- **Verify:** เทียบ cost กับ core; สลับ vendor → ไม่เห็นเงินทั้ง list + detail
+
+### ☑ T18 — D1 backup (Cron → R2)
+**deps:** T02 *(ทำได้ทุกเมื่อหลัง T02 — ต้องเสร็จก่อนปิดงวดจริงครั้งแรก)*
+- Cron Trigger รายวัน: export D1 (ทุกตารางเวลา/การเงิน) → R2 พร้อม timestamp + retention (เช่นเก็บ 30 ชุดล่าสุด); log ผล/แจ้ง fail
+- **AC:** backup ขึ้น R2 ตาม schedule; **ทดสอบ restore ลง local D1 สำเร็จ 1 ครั้ง** (ไม่ใช่แค่มีไฟล์)
+- **Verify:** trigger cron ใน dev → object โผล่ใน R2; restore แล้ว query ข้อมูลครบ
+
+> **CP4:** ลูปเงินครบ + backup ทำงาน + **e2e ลูปเงิน (login → ลงเวลา → เห็นเงิน → ปิดงวด) เขียว** → **P1 เสร็จ** — รีวิว + ตัดสินใจเข้า P2 (petty cash + team hub)
+> **Cutover:** เริ่มใช้จริง**วันที่ 25 (ต้นงวด)** แบบ fresh — ไม่ import จาก Notion/Everhour · **รันคู่กับวิธีเดิม 1 งวดเต็ม** ยอดตรงกับคิดมือ → ค่อยเลิกของเก่า
+
+---
+
+## Phase 6 (parallel) — เอกสาร (Docs) + ลูกค้า (CRM)  [P1.x]
+
+> **mockup เสร็จ + deploy แล้ว** (source of truth ดีไซน์ = mockup.html) · ทำขนานกับ P1, ไม่แตะ core การเงิน · vendor = 403 ทุก endpoint
+
+### ☑ D1 — Docs: data model + tree CRUD API
+**deps:** T02, T06
+- `docs` (parentId→docs, sortOrder, title, contentMarkdown, createdBy/updatedBy, soft-delete `deletedAt`) + `doc_images`; routes: list-tree / get / create / update(autosave) / move(reparent+reorder) / delete(soft subtree); Zod + role-guard owner/member + audit
+- **AC:** CRUD + nesting ผ่าน parentId + reorder/move persist; vendor → 403; soft-delete subtree; audit มี record
+- **Verify:** สร้างหน้าซ้อน 2–3 ชั้น + reorder → reload คงอยู่; vendor ยิง API → 403
+
+### ☑ D2 — Docs UI: tree + Tiptap (markdown) + autosave
+**deps:** D1, T05
+- nav "เอกสาร" (owner/member) + route 2 ฝั่ง (tree บนพื้นหน้า / editor การ์ดขาว); Tiptap = `starter-kit` + `link` + `task-list/item` + `placeholder` + **`@tiptap/markdown`**; โหลด md→parse, เซฟ `getMarkdown()` → **autosave debounce** + สถานะ
+- scope: หัวข้อ **h2–h4** (title=h1), bold/italic/strike, bullet/ordered, checklist, blockquote, code, link (ตาราง = v1.1)
+- **AC:** เมนูเห็นเฉพาะ owner/member; สร้าง/เปิด/แก้หน้า+หน้าย่อย; **markdown round-trip** (พิมพ์ rich → reload เหมือนเดิม); autosave + ตัวบอกสถานะ
+- **Verify (preview):** สร้างหน้า+หน้าย่อย → พิมพ์ format → รอ autosave → reload เนื้อหาอยู่; row ใน D1 เป็น markdown; vendor ไม่มีเมนู
+
+### ☑ D3 — Docs: image upload → R2
+**deps:** D2 (สร้าง/ใช้ร่วม `apps/api/src/lib/r2.ts` กับ T10)
+- `POST /api/docs/images` (multipart → validate mime/ขนาด → R2 → `{url}`) + `GET /api/docs/images/:key` (stream, auth-gate); Tiptap image + handler paste/drop/เลือกไฟล์ → insert `![](/api/docs/images/:key)`
+- **AC:** วาง/ลาก/เลือกรูป → ขึ้น R2 → โผล่ใน editor → markdown มี URL → reload เห็นรูป; **ไม่รับ SVG** + เกินขนาด = reject; vendor → 403
+- **Verify:** ลากรูปเข้า → เห็น; reload → ยังอยู่; ดู markdown มี image URL; object ใน R2
+
+---
+
+### ☐ (ใน T08) Clients entity
+**deps:** —
+- เพิ่ม `clients` table + เปลี่ยน `projects.clientName` → `clientId→clients` ตั้งแต่ตอนทำ T08 (เลี่ยง refactor) · seed ลูกค้าจาก mockup
+
+### ☑ C1 — recurring_services + core aggregations (TDD)
+**deps:** T08 (clients), T14 (payments), T03
+- `recurring_services` (clientId, projectId?, category, period, amountSatang, nextDueDate, status); **pure fn ใน `packages/core`**: `totalQuoted/totalPaid/outstanding`, `mrr/arr`, `nextExpiry` (รับ `today` เข้า)
+- **AC:** ทุก fn pure (ไม่มี Date.now); coverage edge (overdue, ใกล้หมดอายุ ≤30, ปี); ยอด integer สตางค์
+- **Verify:** `pnpm test packages/core` เขียว; เทียบยอด 1 ลูกค้ากับ mockup
+
+### ☑ C2 — Clients API (list/detail) + recurring/notes CRUD
+**deps:** C1, T06
+- `GET /api/clients` (list + aggregates), `GET /api/clients/:id` (detail: โปรเจกต์/payments/recurring/notes); `recurring-services` + `client_notes` CRUD; Zod + role-guard owner/member + audit
+- **AC:** list/detail รวมยอดถูก (quoted/paid/outstanding/MRR/nextExpiry); **vendor → 403** ทุก endpoint; เพิ่ม/แก้ recurring + note ได้
+- **Verify:** เทียบ aggregate กับ core; vendor ยิง → 403; เพิ่ม note → เห็นใน detail
+
+### ☑ C3 — Clients UI (CRM)
+**deps:** C2, T05
+- nav "ลูกค้า" (owner/member) + **list**: การ์ดสรุป (ยอดขายปีนี้ · MRR/ARR · ต้องตามเงิน · ใกล้หมดอายุ) + แท็บ (ทั้งหมด/ต้องตามเงิน/ใกล้หมดอายุ) + ตาราง + **search (⌘K)**; **detail**: ติดต่อ + สรุปเงิน + โปรเจกต์ + บริการต่อเนื่อง (วันต่ออายุสี) + payments (overdue แดง) + **โน้ต/ข้อควรจำ** + อีเมล (placeholder → P3)
+- **AC:** เมนู owner/member (vendor ไม่เห็น); list/detail ตรง core; overdue แดง · ใกล้หมดอายุส้ม; search เจอ + คลิกไปถูก
+- **Verify (preview):** เปิดลูกค้า → ตาราง+การ์ด; คลิก → detail; เพิ่มโน้ต; vendor → ไม่มีเมนู
+
+> **(P3)** email wire: ผูก `clients.contactEmail` ↔ `inbox_threads` → คอลัมน์/แท็บ "อีเมลล่าสุด" + อีเมลที่ผ่านมาใน detail
+
+---
+
+## Phase P2 (เสร็จ 10 มิ.ย. 69) — petty cash + team hub + realtime + PWA
+
+### ☑ P2-1/2 — เงินสดย่อย (SPEC §4.9)
+- expenses + ใบเสร็จ R2 + สถานะ pending→approved/rejected→reimbursed (owner) + ค้างคืน + CSV FlowAccount + การ์ดรอเบิกใน payroll self + nav
+
+### ☑ P2-3/4 — Team hub (SPEC §4.6/§4.10/§4.14)
+- /api/team-activity + /api/calendar (CRUD + event ตัดรอบ/จ่ายอัตโนมัติจาก config)
+- กล่องทีมงาน: avatar presence (ring+badge นาฬิกาวิ่ง · hover ชม.วันนี้/เดือนนี้ · ลาวันนี้จาง) + standup grid (ดาว=แผนวันนี้ · toggle เมื่อวาน + ชม.) — ไม่ต้องพิมพ์
+- ปฏิทินทีม Day/Week/Month + เพิ่ม event (วันลาเลือกคน) + คลิกลบ — vendor ไม่เห็น team hub
+
+### ☑ P2-5 — Realtime presence (SPEC §4.15)
+- PresenceHub Durable Object (WebSocket Hibernation) + /api/presence/ws (teamOnly) + broadcast ทุก start/stop/auto-stop → TeamBox reload สด (reconnect 5s + ping 30s)
+
+### ☑ P2-6 — PWA
+- manifest + icon (svg+png) + theme-color → add to homescreen ได้
+
+> คงเหลือใน P2 backlog: แจ้งเตือนภายใน (ใกล้ตัดรอบ/overdue/ใกล้หมดอายุ) — รอเคาะ email provider พร้อมกับแจ้งเตือนชนเพดาน (ตัวเลือกใหม่: ส่งผ่าน Gmail API หลัง E1 เชื่อมกล่องแล้ว)
+
+---
+
+## Phase P3 — อีเมลกลาง (Shared Inbox บน Gmail · SPEC §4.12)
+
+> สถาปัตยกรรมเคาะ 10 มิ.ย. 69 (SPEC §5): OAuth ราย mailbox · client Internal ต่อบริษัท (SW/SG คนละ Workspace) · scope `gmail.modify` · **ติดตั้งทั้งหมดผ่าน ตั้งค่า — ไม่มีอีเมล/credential ในโค้ด** (repo public)
+
+### ☑ E1 — ติดตั้ง: schema + ตั้งค่า → อีเมลกลาง + OAuth connect flow ✅ (10 มิ.ย. 69)
+**deps:** —
+- schema: `inbox_google_clients` (secret เข้ารหัส) + `inbox_mailboxes` (token เข้ารหัส · status connected/disconnected/disabled) + migration
+- lib crypto: encrypt/decryptSecret (AES-GCM 256, key = `INBOX_ENC_KEY` wrangler secret)
+- API (owner เท่านั้น + Zod): GET /api/inbox/settings · POST/DELETE clients (soft — กันลบตอนมีกล่องใช้) · POST/PATCH mailboxes + disable/enable · GET mailboxes/:id/connect → Google (`gmail.modify` + offline + consent) · GET google/callback → refresh token เข้ารหัสลง D1 + email จากบัญชีที่ consent จริง
+- UI ตั้งค่า: section อีเมลกลาง — client + กล่อง + ปุ่มเชื่อม/เชื่อมใหม่ + สถานะ + empty/loading
+- **AC:** member/vendor 403 ทุก endpoint · secret/token ไม่หลุดใน response ใดๆ · เชื่อมบัญชีเดิมซ้ำข้ามกล่อง → error · scope โดน untick → error ชัดเจน
+- **Verify ✓:** typecheck+lint+test เขียว (เทสต์ inbox 16 + crypto 5) + manual ผ่าน preview (เพิ่ม client/กล่องผ่าน UI จริง · connect 302 → Google · banner error) · เพิ่มจาก AC: PATCH ย้ายกล่องไป client ใหม่ได้ (กันค้างกับ client ที่ลบ) · migration 0012
+
+### ☑ E2 — Sync ขาเข้า: Cron polling (History API) → threads/messages ลง D1 + body → R2 ✅ (11 มิ.ย. 69)
+- schema: `inbox_threads` (unread/status/ปลุก closed เมื่อมีเมลเข้า) + `inbox_messages` (body → R2 เสมอ) + `inbox_attachments` (metadata · โหลด lazy E3) + `gmail_sync_state` (lastError) — migration 0014
+- `lib/gmail.ts` parser (multipart/RFC2047 ชื่อไทย/charset/entities) + `lib/inbox-sync.ts` (initial backfill 50 · history incremental · 404 → fallback ตามช่วงเวลา · invalid_grant → กล่อง disconnected) — idempotent ทั้งสาย
+- cron `* * * * *` (gate แยกจาก sweep 30 นาที) · เชื่อมเสร็จ sync ทันทีผ่าน waitUntil · ปุ่ม sync + เวลาล่าสุด + error ใน ตั้งค่า
+- **Verify ✓:** เทสต์ 106 ตัวเขียว (parser 5 + sync 9 + settings 17) · manual: UI sync state + error path (token ปลอม → 401 → "sync ติดปัญหา") · **ของจริงผ่าน (11 มิ.ย. 69):** เชื่อม support@ จริง → 42 threads/50 msgs/7 แนบ · ไทย+อีโมจิถอดครบ · history sync รอบสองผ่าน — backfill เปลี่ยนเป็นดึงทั้งกล่อง (ของเคลียร์แล้ว = closed/อ่านแล้ว) จาก insight ข้อมูลจริง
+### ☑ E3 — UI inbox: list + detail + folder bar + ตัวเลือกกล่อง + unread badge ✅ (11 มิ.ย. 69)
+- API teamOnly (แยกสิทธิ์จาก settings ownerOnly): GET threads (folder/counts/ตัวเลือกกล่อง/⌘K q) · GET :id (mark read + body จาก R2 + การ์ดลูกค้าเทียบ contactEmail + อีเมลที่ผ่านมา) · PATCH (status/assignee — vendor เป็น assignee ไม่ได้) · GET attachments/:id/download (lazy Gmail → cache R2 · ชื่อไฟล์ไทย RFC5987)
+- UI ตาม mockup: nav อีเมลกลาง (vendor ❌) · folder bar + counts · ตาราง ลูกค้า/เรื่อง/เลขที่(rowid)/รอแล้ว + จุดสีกล่องโหมดทั้งหมด · detail: status pill + มอบหมาย + **body ใน iframe sandbox (กัน XSS)** + ช่องตอบ (ส่ง = E4) + พาเนลขวา
+- **Verify ✓:** เทสต์ 114 (threads 8 ใหม่) · จริง: 42 threads render ครบ · เปิดเรื่องใหม่/มอบหมาย/ของฉัน อัปเดตสด · console สะอาด
+### ☑ E4 — ตอบ/compose ผ่าน Gmail API ✅ (11 มิ.ย. 69 — โค้ดเสร็จ · **ส่งจริงรอเจ้าของอนุมัติ §11**)
+- `lib/mime.ts` (pure): RFC2047 header ไทย · base64 wrap 76 · In-Reply-To/References ต่อสาย · Re: ไม่ซ้อน
+- POST /threads/:id/reply: ดึง Message-ID/References/Reply-To/Cc สดจาก Gmail ณ ตอนตอบ (ไม่ต้องเก็บเพิ่ม) · To = Reply-To ?? From · Cc คงเดิมตัดตัวเองกันวน · ส่งเข้า gmailThreadId เดิม · บันทึกขาออก (กันซ้ำกับ sync ผ่าน onConflict) + R2 + audit + lastMessageAt
+- POST /compose: thread ใหม่จาก threadId ที่ Gmail คืน (เมลตอบกลับ sync เข้าอัตโนมัติ) · มอบหมายให้คนส่ง
+- UI: ช่องตอบส่งได้จริง (สถานะ sending/error · กล่องหลุด = บล็อกพร้อมคำแนะนำ) + compose modal
+- **Verify ✓:** เทสต์ 162 (mime+send 5) เขียว · UI ผ่าน preview (ไม่กดส่งจริง) — **ค้าง: ทดสอบส่งจริง 1 ฉบับ (ask-first)** · canned replies → ย้ายไป E5
+
+### ☑ E5 — โน้ตภายใน + tags + collision (DO) + canned replies + snooze ✅ (11 มิ.ย. 69)
+- schema 0015: `inbox_notes` + `inbox_canned` (soft-delete) · tags = json บน thread
+- API: POST notes (โผล่ใน detail พร้อมชื่อ) · PATCH tags (≤10) · canned CRUD (team) · snooze = status snoozed + snoozeUntil อนาคต (refine) → **cron นาทีปลุกกลับ open+unread**
+- **collision = `InboxThreadHub` DO ราย thread** (WebSocket Hibernation · idFromName(threadId) · wrangler migration v2) — badge "👀 กำลังดูอยู่ / ✏️ กำลังพิมพ์…" + auto-reconnect 5s · บั๊กที่เจอ: ตอน close ต้อง broadcast แบบ exclude socket ที่กำลังออก (getWebSockets ยังเห็นมัน)
+- UI: timeline ผสมเมล+โน้ตเหลือง · lock toggle โหมดโน้ต · tag chips ใน header · canned picker (⚡ + บันทึกร่างเป็นสำเร็จรูป) · เมนูเลื่อน (พรุ่งนี้/3 วัน/สัปดาห์ — 9:00 BKK)
+- **Verify ✓:** เทสต์ 167 เขียว · จริงบน preview: โน้ต/แท็ก/snooze pill/collision 2 session (ดู→พิมพ์→ออก badge หาย) · console สะอาด
+### ☑ E5.5 — Hybrid search: ค้น Gmail ย้อนหลังทุกกล่อง + import on-demand ✅ (11 มิ.ย. 69)
+- GET /api/inbox/search (local instr + fan-out Gmail ทุกกล่องที่เชื่อมแบบขนาน · กล่องหลุด = ข้าม+partial) · POST /api/inbox/import-thread (threads.get → ingest backfill — idempotent)
+- ⌘K modal ใหม่: ผลสด 2 ส่วน "ในระบบ / จาก Gmail ทั้งกล่อง" + กดดึงเข้าระบบแล้วเปิดเลย · Enter = กรองรายการเดิม
+- **บั๊กจริงที่แก้:** D1 LIKE pattern จำกัด ~50 bytes → คำค้นไทยยาวระเบิด → ใช้ `instr()` แทน (regression test แล้ว)
+- **Verify ✓:** เทสต์ 174 เขียว · จริง: ค้นเมล 3 พ.ค. (ก่อน backfill) → import เป็น #44 → อ่าน/ตอบได้ · console สะอาด
+
+### ☑ E6 — GCal sync (calendar.readonly) + ICS feed ✅ (11 มิ.ย. 69)
+**ICS feed (ครึ่งแรก):** public `GET /api/calendar/feed/:token` (ไม่มี auth · token ลับในพาธ · mount ก่อน middleware auth ของ /api/calendar/*) · `lib/ics.ts` pure RFC5545 (all-day DTEND exclusive · escape TEXT · fold ≤75 octet ไม่ตัดกลางตัวไทย) · owner สร้าง/รีเซ็ต/ปิดที่ ตั้งค่า (`/api/admin/ics-link` · token = `company_config.ics_token` migration 0016 · ไม่หลุดทาง GET /api/config) · refactor calendar.ts แยก `gatherCalendarEvents/payrollEvents` ใช้ร่วม
+**GCal sync (ครึ่งหลัง):** `calendar_connections` (migration 0017 · refresh token เข้ารหัส + syncToken · ใช้ client Internal ตัวเดียวกับอีเมลกลาง SW) · `lib/gcal.ts` map pure (all-day end −1 · timed → วัน BKK · cancelled) · `lib/gcal-sync.ts` (events.list singleEvents · incremental syncToken · 410 → full resync · invalid_grant → disconnected · upsert ด้วย gcalId) · routes owner `calendar-connect` (connect/callback ยืนยัน scope/reconnect · sync · disconnect) · cron `*/30` + UI การ์ดในตั้งค่า
+**Verify ✓:** typecheck/lint เขียว · เทสต์ +19 (ics 7 + gcal 12) รวม 150 api · ของจริงบน preview: feed สาธารณะ (ไม่มี cookie) คืน ICS ถูก/ไทยถอดถูก · token ผิด 404 · connect 302 → Google scope calendar.readonly · การ์ด UI ทั้งสองเรนเดอร์/console สะอาด
+**⏳ เหลือฝั่งเจ้าของ (เหมือน inbox · ไม่บังคับ):** ICS = แค่กด "สร้างลิงก์" ที่ ตั้งค่า แล้วแชร์ทีม (ไม่ต้องแตะ GCP) · GCal = เพิ่ม scope `calendar.readonly` + redirect `https://office.seedwebs.com/api/calendar-connect/callback` ใน OAuth client SW (GCP) แล้วกดเชื่อมที่ ตั้งค่า

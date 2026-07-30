@@ -1,0 +1,44 @@
+{
+  "name": "newtask",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node -e \"require('fs').mkdirSync('apps/web/dist',{recursive:true})\" && concurrently -n web,api -c auto \"corepack pnpm --filter @seedoffice/web dev\" \"corepack pnpm exec wrangler dev\"",
+    "build": "pnpm --filter @seedoffice/web build",
+    "deploy": "pnpm build && wrangler deploy",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "vitest run && pnpm --filter @seedoffice/api run test && pnpm --filter @seedoffice/mcp run test",
+    "cf-typegen": "wrangler types",
+    "db:generate": "pnpm --filter @seedoffice/db exec drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply seedoffice --local",
+    "db:migrate:remote": "wrangler d1 migrations apply seedoffice --remote",
+    "db:seed": "wrangler d1 execute seedoffice --local --file packages/db/seed.sql",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.2",
+    "concurrently": "^10.0.3",
+    "eslint": "^10.4.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "^4.1.8",
+    "wrangler": "^4.99.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "sharp"
+    ],
+    "overrides": {
+      "esbuild": "^0.28.1",
+      "undici": "^7.28.0"
+    }
+  }
+}

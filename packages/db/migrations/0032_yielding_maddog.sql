@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `locked` integer DEFAULT false NOT NULL;

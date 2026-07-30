@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `dispatched_at` integer;

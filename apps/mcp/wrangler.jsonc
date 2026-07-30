@@ -1,0 +1,20 @@
+// SeedOffice MCP (SPEC §4.18 · T2) — Worker แยก หุ้ม REST ของ Worker หลัก (seedoffice) เป็น MCP tools
+// stateless (createMcpHandler · ไม่มี Durable Object) · ไม่มี secret ในไฟล์นี้ (repo public)
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "seedoffice-mcp",
+  // บัญชี SeedWebs (ไม่ใช่ secret — เหมือน D1 id ใน root) · จำเป็นเพราะ worker นี้ไม่มี route ให้ wrangler เดาบัญชี (login มีหลายบัญชี)
+  "account_id": "5d27d6b42089bb94d0311c729ccce6bb",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-10",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // service binding → Worker หลักที่เสิร์ฟ /api/* (ชื่อ "seedoffice") — MCP forward PAT ของ user เข้าไป
+  // permission/scope ทั้งหมดบังคับที่ REST เดิม (MCP = thin wrapper · ไม่ duplicate auth)
+  "services": [{ "binding": "API", "service": "seedoffice" }]
+}

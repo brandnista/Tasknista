@@ -1,0 +1,21 @@
+{
+  "name": "@seedoffice/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@seedoffice/core": "workspace:*",
+    "@seedoffice/db": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "fflate": "^0.8.3",
+    "hono": "^4.12.25",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.14",
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `sprints` ADD `goal` text;

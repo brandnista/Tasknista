@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `cost_buffer_percent` integer;

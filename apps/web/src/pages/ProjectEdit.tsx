@@ -1,0 +1,262 @@
+/** หน้าแก้ไขโปรเจกต์ (SPEC §4.3) — แก้ไอคอน/ชื่อ/ลูกค้า/ราคา/วันที่/สถานะ · owner หรือ member ที่เป็น editor ของโปรเจกต์นี้ */
+import { ChevronLeft } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router'
+import { ClientCombobox } from '../components/ClientCombobox'
+import { IconPicker } from '../components/IconPicker'
+import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { type ProjectRow } from '../lib/project-ui'
+import { useLoad } from '../lib/useLoad'
+
+interface EditableProject extends ProjectRow {
+  type: 'project' | 'recurring'
+}
+interface StatusOpt { id: string; name: string; kind: string }
+interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' }
+
+const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
+
+/**
+ * Tasknista §permission (Jira-style project role) — owner มอบสิทธิ์ viewer/editor ให้ member เป็นรายโปรเจกต์
+ * Tasknista §7 (2026-07-03) — เดิม select แต่ละแถวยิง API บันทึกทันที (แยกจากปุ่ม "บันทึก" ของ Grid แก้ไขโปรเจกต์)
+ * เปลี่ยนเป็น controlled component: แค่เก็บ role ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
+ */
+function MembersSection({ roles, onRoleChange }: { roles: Record<string, 'viewer' | 'editor' | ''>; onRoleChange: (userId: string, role: 'viewer' | 'editor') => void }) {
+  const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
+  const team = (users ?? []).filter((u) => u.role === 'member')
+  return (
+    <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
+      <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
+      <p className="text-xs text-muted mb-4">
+        editor แก้ไขงาน/ข้อมูลโปรเจกต์นี้ได้ทั้งหมด · viewer ดูได้อย่างเดียว (รวมถึงงานที่ตัวเอง assign) · ยังไม่ตั้งค่า = viewer โดยปริยาย · กด "บันทึก" ด้านล่างเพื่อยืนยัน
+      </p>
+      <div className="divide-y divide-divider">
+        {team.map((u) => (
+          <div key={u.id} className="flex items-center gap-3 py-2.5">
+            <span className="flex-1 text-sm text-body">{u.name}</span>
+            <select
+              value={roles[u.id] ?? ''}
+              onChange={(e) => onRoleChange(u.id, e.target.value as 'viewer' | 'editor')}
+              className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
+            >
+              <option value="" disabled>— ยังไม่ใช่สมาชิก —</option>
+              <option value="viewer">ดูอย่างเดียว (viewer)</option>
+              <option value="editor">แก้ไขได้ (editor)</option>
+            </select>
+          </div>
+        ))}
+        {team.length === 0 && <div className="text-sm text-muted py-3">ไม่มีพนักงาน (member) ในระบบ</div>}
+      </div>
+    </div>
+  )
+}
+
+export function ProjectEditPage() {
+  const { id = '' } = useParams()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const { data: project, loading } = useLoad<EditableProject>(() => api.get(`/api/projects/${id}`), [id])
+  const { data: clientsRes } = useLoad<{ rows: { id: string; name: string }[] }>(() => api.get('/api/clients'))
+  const clientList = clientsRes?.rows ?? []
+  const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[] }>(() => api.get('/api/config'))
+  const statusOptions = cfg?.projectStatuses ?? []
+  const isOwner = user?.role === 'owner'
+  const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
+
+  const [form, setForm] = useState({
+    name: '', description: '', url: '', status: 'dev' as ProjectRow['status'], clientId: '', code: '',
+    budgetBaht: '', startDate: '', dueDate: '', recurringPeriod: 'monthly' as 'monthly' | 'yearly',
+  })
+  const [logo, setLogo] = useState<string | null>(null)
+  const [logoDirty, setLogoDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  // Tasknista §7 (2026-07-03) — role ต่อสมาชิกที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
+  const [memberRoles, setMemberRoles] = useState<Record<string, 'viewer' | 'editor' | ''>>({})
+
+  // เติมค่าจากโปรเจกต์ที่โหลดมา (ครั้งเดียวตอนได้ data)
+  useEffect(() => {
+    if (!project) return
+    setForm({
+      name: project.name,
+      description: project.description ?? '',
+      url: project.url ?? '',
+      status: project.status,
+      clientId: project.clientId ?? '',
+      code: project.code ?? '',
+      budgetBaht: project.quotedSatang != null ? String(project.quotedSatang / 100) : '',
+      startDate: project.startDate ?? '',
+      dueDate: project.dueDate ?? '',
+      recurringPeriod: project.recurringPeriod ?? 'monthly',
+    })
+    setLogo(project.logo)
+    setLogoDirty(false)
+    setMemberRoles(Object.fromEntries((project.members ?? []).map((m) => [m.id, m.role ?? ''])))
+  }, [project])
+
+  if (loading) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
+  if (!project) return <div className="p-6 text-sm text-muted">ไม่พบโปรเจกต์นี้</div>
+  if (!canEditProject) {
+    return (
+      <div className="p-3 sm:p-6 max-w-2xl">
+        <button onClick={() => navigate(`/projects/${id}`)} className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
+          <ChevronLeft className="w-4 h-4" /> กลับไปหน้าโปรเจกต์
+        </button>
+        <div className="bg-white rounded-lg shadow-xs p-6 text-sm text-muted">
+          คุณไม่มีสิทธิ์แก้ไขโปรเจกต์นี้ — ต้องเป็น editor ของโปรเจกต์นี้ (ติดต่อหัวหน้าทีมเพื่อขอสิทธิ์)
+        </div>
+      </div>
+    )
+  }
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const body: Record<string, unknown> = {
+        name: form.name,
+        description: form.description || null,
+        url: form.url || null,
+        status: form.status,
+        clientId: form.clientId || null,
+        code: form.code || null,
+      }
+      if (project.type === 'project') {
+        body.quotedSatang = form.budgetBaht ? Math.round(Number(form.budgetBaht) * 100) : null
+        body.startDate = form.startDate || null
+        body.dueDate = form.dueDate || null
+      } else {
+        body.recurringPeriod = form.recurringPeriod
+      }
+      // logo: ส่งเฉพาะตอนเปลี่ยน lucide/เคลียร์ (อัปโหลดบันทึกที่ server แล้ว → ไม่ส่งซ้ำ)
+      if (logoDirty) body.logo = logo
+      await api.patch(`/api/projects/${id}`, body)
+      // Tasknista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
+      if (isOwner) {
+        const before = Object.fromEntries((project.members ?? []).map((m) => [m.id, m.role ?? '']))
+        const changed = Object.entries(memberRoles).filter(([userId, role]) => role && role !== before[userId])
+        await Promise.all(changed.map(([userId, role]) => api.post(`/api/projects/${id}/members`, { userId, role })))
+      }
+      navigate(`/projects/${id}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="p-3 sm:p-6 max-w-2xl">
+      <button onClick={() => navigate(`/projects/${id}`)} className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
+        <ChevronLeft className="w-4 h-4" /> กลับไปหน้าโปรเจกต์
+      </button>
+
+      <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6">
+        <h2 className="font-semibold text-ink mb-5">แก้ไขโปรเจกต์</h2>
+
+        <div className="flex items-start gap-4 mb-5">
+          <div>
+            <div className="text-xs font-medium text-muted mb-1.5">ไอคอน</div>
+            <IconPicker
+              projectId={id}
+              logo={logo}
+              onChange={(l) => { setLogo(l); setLogoDirty(true) }}
+              onUploaded={(l) => { setLogo(l); setLogoDirty(false) }}
+            />
+          </div>
+          <div className="flex-1">
+            <div className="text-xs font-medium text-muted mb-1.5">ชื่อโปรเจกต์</div>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} placeholder="ชื่อโปรเจกต์…" />
+            <div className="text-[11px] text-muted mt-1.5">
+              ประเภท: {project.type === 'project' ? 'งานโปรเจกต์' : 'งานต่อเนื่อง'} — เปลี่ยนประเภทไม่ได้
+            </div>
+          </div>
+        </div>
+
+        <label className="block mb-3">
+          <div className="text-xs font-medium text-muted mb-1.5">คำโปรยสั้นๆ (แสดงใต้ชื่อโปรเจกต์)</div>
+          <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={input} placeholder="เช่น เป็น Delivery app" maxLength={300} />
+        </label>
+        <label className="block mb-5">
+          <div className="text-xs font-medium text-muted mb-1.5">URL (ถ้ามี)</div>
+          <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className={input} placeholder="เช่น https://example.com" />
+        </label>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <label className="block">
+            <div className="text-xs font-medium text-muted mb-1.5">สถานะ</div>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={input}>
+              {statusOptions.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </label>
+          <div className="block">
+            <div className="text-xs font-medium text-muted mb-1.5">ลูกค้า</div>
+            <ClientCombobox
+              clients={clientList}
+              clientId={form.clientId}
+              clientName=""
+              onSelect={(id) => setForm({ ...form, clientId: id })}
+              onClear={() => setForm({ ...form, clientId: '' })}
+              allowClear
+              placeholder="— ไม่ระบุ —"
+            />
+          </div>
+
+          {project.type === 'project' ? (
+            <>
+              <label className="block">
+                <div className="text-xs font-medium text-muted mb-1.5">งบประมาณ (บาท)</div>
+                <input type="number" value={form.budgetBaht} onChange={(e) => setForm({ ...form, budgetBaht: e.target.value })} className={input} placeholder="0" />
+              </label>
+              <label className="block">
+                <div className="text-xs font-medium text-muted mb-1.5">รหัสโปรเจกต์ (code)</div>
+                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={input} placeholder="ไม่บังคับ" maxLength={12} />
+              </label>
+              <label className="block">
+                <div className="text-xs font-medium text-muted mb-1.5">เริ่ม</div>
+                <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={input} />
+              </label>
+              <label className="block">
+                <div className="text-xs font-medium text-muted mb-1.5">กำหนดส่ง</div>
+                <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={input} />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="block">
+                <div className="text-xs font-medium text-muted mb-1.5">รอบ</div>
+                <select value={form.recurringPeriod} onChange={(e) => setForm({ ...form, recurringPeriod: e.target.value as 'monthly' | 'yearly' })} className={input}>
+                  <option value="monthly">รายเดือน</option>
+                  <option value="yearly">รายปี</option>
+                </select>
+              </label>
+              <label className="block">
+                <div className="text-xs font-medium text-muted mb-1.5">รหัสโปรเจกต์ (code)</div>
+                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={input} placeholder="ไม่บังคับ" maxLength={12} />
+              </label>
+            </>
+          )}
+        </div>
+      </div>
+
+      {isOwner && (
+        <MembersSection
+          roles={memberRoles}
+          onRoleChange={(userId, role) => setMemberRoles((r) => ({ ...r, [userId]: role }))}
+        />
+      )}
+
+      {error && <div className="text-xs text-danger-600 mt-4">{error}</div>}
+
+      {/* Tasknista §7 — ปุ่มบันทึกเดียว ครอบทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์ */}
+      <div className="flex justify-end gap-2 mt-6">
+        <button onClick={() => navigate(`/projects/${id}`)} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
+        <button onClick={() => void save()} disabled={!form.name || saving} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">
+          {saving ? 'กำลังบันทึก…' : 'บันทึก'}
+        </button>
+      </div>
+    </div>
+  )
+}
