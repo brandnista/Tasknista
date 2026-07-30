@@ -1196,7 +1196,15 @@ export const auditLogs = sqliteTable(
 )
 
 // Tasknista §My Work/Notification — แจ้งเตือนในระบบ (ไม่ส่งอีเมล) ตอน assign/complete Subtask
-export const NOTIFICATION_TYPES = ['subtask_assigned', 'subtask_completed'] as const
+// Tasknista §Task lifecycle notifications — เพิ่ม 4 ค่าสำหรับ task หลัก (ไม่ใช่แค่ subtask) ตลอด flow จ่ายงาน→ส่งงาน→ปิดงาน/ตีกลับ (คอลัมน์เป็น TEXT ธรรมดา ไม่มี CHECK constraint → ไม่ต้อง migration)
+export const NOTIFICATION_TYPES = [
+  'subtask_assigned',
+  'subtask_completed',
+  'task_dispatched',
+  'task_submitted',
+  'task_approved',
+  'task_bounced',
+] as const
 
 export const notifications = sqliteTable(
   'notifications',

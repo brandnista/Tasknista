@@ -235,7 +235,9 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/projects/:id/backlog', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
-    const rows = await db
+    const me = c.get('user')
+    const myRole = await getProjectRole(db, projectId, me.id, me.role)
+    const rowsAll = await db
       .select({ task: tasks, assigneeName: users.name, epicTitle: epics.title, epicCode: epics.code })
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
@@ -253,6 +255,8 @@ export const taskRoutes = new Hono<AppEnv>()
         ),
       )
       .orderBy(asc(tasks.createdAt))
+    // Tasknista §Backlog ownership — แท็บ "ทั่วไป" (kind='backlog') เป็นของส่วนตัวคนคีย์ · Owner/Editor เห็นของทุกคน ส่วน Member เห็นแค่ของตัวเอง (แท็บเอกสาร/SOW ไม่ใช่ของส่วนตัว ไม่กรอง)
+    const rows = canEditProject(myRole) ? rowsAll : rowsAll.filter((r) => r.task.kind !== 'backlog' || r.task.createdBy === me.id)
 
     // Tasknista §Sprint & Board fix — ซ่อน Task พ่อของ SOW ที่ subtask ทั้งหมดย้ายออกจาก Backlog ไปหมดแล้ว (เข้า Sprint แล้วหรือถูกลบ) — parent ที่ไม่เคยมี subtask เลย (parse ไม่เจอ) ยังโชว์ไว้เหมือนเดิม
     const sowParentIds = rows.filter((r) => r.task.originDocType === 'SOW' && r.task.parentId === null).map((r) => r.task.id)
@@ -472,6 +476,20 @@ export const taskRoutes = new Hono<AppEnv>()
     )
   })
 
+  // Tasknista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
+  .get('/tasks/dispatched-by-me', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const rows = await db
+      .select({ task: tasks, projectName: projects.name, assigneeName: users.name })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(users, eq(tasks.assigneeId, users.id))
+      .where(eq(tasks.assignedBy, me.id))
+      .orderBy(asc(tasks.dueDate))
+    return c.json(rows.map((r) => ({ ...r.task, projectName: r.projectName, assigneeName: r.assigneeName })))
+  })
+
   .patch('/tasks/:id', teamOnly, async (c) => {
     const body = taskPatchSchema.safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -571,6 +589,34 @@ export const taskRoutes = new Hono<AppEnv>()
         })
       }
     }
+    // Tasknista §Task lifecycle notifications — ครบ flow ส่งงาน/อนุมัติ/ตีกลับ ทุก level (ไม่ใช่แค่ subtask เหมือน 2 อันบน)
+    if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test' && before.assignedBy) {
+      await db.insert(notifications).values({
+        userId: before.assignedBy,
+        type: 'task_submitted',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ส่งมารอตรวจแล้ว`,
+      })
+    }
+    if (body.data.status === 'done' && before.status === 'waiting_for_test' && before.assigneeId) {
+      await db.insert(notifications).values({
+        userId: before.assigneeId,
+        type: 'task_approved',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ได้รับการอนุมัติแล้ว`,
+      })
+    }
+    if (body.data.status === 'on_processing' && before.status === 'waiting_for_test' && before.assigneeId) {
+      await db.insert(notifications).values({
+        userId: before.assigneeId,
+        type: 'task_bounced',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ถูกตีกลับให้แก้ไข`,
+      })
+    }
     return c.json(updated[0])
   })
 
@@ -587,10 +633,30 @@ export const taskRoutes = new Hono<AppEnv>()
     } else if (me.role !== 'owner') {
       return c.json({ error: 'forbidden' }, 403)
     }
-    const patch: Record<string, unknown> = { dispatchedAt: new Date() }
-    if (before.status === 'non_start') patch.status = 'on_processing'
-    const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()
+    // Tasknista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
+    const updated = await db.update(tasks).set({ dispatchedAt: new Date() }).where(eq(tasks.id, before.id)).returning()
     await writeAudit(c.env, { actorId: me.id, action: 'task.dispatch', entity: 'task', entityId: before.id, meta: { title: before.title, assigneeId: before.assigneeId } })
+    await db.insert(notifications).values({
+      userId: before.assigneeId,
+      type: 'task_dispatched',
+      taskId: before.id,
+      projectId: before.projectId,
+      message: `คุณได้รับงานใหม่ "${before.title}" — กดรับงานได้เลย`,
+    })
+    return c.json(updated[0])
+  })
+
+  // Tasknista §Task lifecycle accept step — เฉพาะ assignee เอง กดรับงานที่ถูกจ่ายมาแล้ว (dispatchedAt ไม่ว่าง) ให้ status ขยับเป็น on_processing
+  .post('/tasks/:id/accept', teamOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (before.assigneeId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    if (!before.dispatchedAt) return c.json({ error: 'not_dispatched', message: 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ' }, 400)
+    if (before.status !== 'non_start') return c.json({ error: 'already_accepted' }, 400)
+    const updated = await db.update(tasks).set({ status: 'on_processing' }).where(eq(tasks.id, before.id)).returning()
+    await writeAudit(c.env, { actorId: me.id, action: 'task.accept', entity: 'task', entityId: before.id, meta: { title: before.title } })
     return c.json(updated[0])
   })
 
@@ -601,6 +667,8 @@ export const taskRoutes = new Hono<AppEnv>()
       .object({
         to: z.enum(['epic', 'story', 'task', 'subtask', 'defect', 'cr']),
         targetParentId: z.string().optional(), // ต้องมีสำหรับ 'task'/'subtask'/'defect' (เลือก parent จาก TaskPickerModal)
+        // Tasknista §Backlog cross-project convert — โปรเจกต์ปลายทาง (ไม่ระบุ = คงโปรเจกต์เดิม) ใช้กับ epic/story/cr/defect
+        targetProjectId: z.string().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
@@ -610,18 +678,25 @@ export const taskRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     if (!(await canEditTask(db, before, me))) return c.json({ error: 'forbidden' }, 403)
     if (before.projectId === null && me.role !== 'owner' && before.locked) return c.json({ error: 'locked' }, 403)
+    if (body.data.targetProjectId && body.data.targetProjectId !== before.projectId) {
+      const targetRole = await getProjectRole(db, body.data.targetProjectId, me.id, me.role)
+      if (!canEditProject(targetRole)) return c.json({ error: 'forbidden', message: 'ไม่มีสิทธิ์แก้ไขโปรเจกต์ปลายทาง' }, 403)
+    }
 
     // Tasknista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
     const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task' }
     // Tasknista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
     const codePrefix = sanitizeCodePrefix(null, 'TASK')
+    // Tasknista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
+    const effectiveProjectId = body.data.targetProjectId ?? before.projectId
     if (body.data.to === 'epic') {
-      if (!before.projectId) return c.json({ error: 'project_required', message: 'ต้องผูกโปรเจกต์ก่อนถึงจะยกระดับเป็น Epic ได้' }, 400)
-      const project = (await db.select().from(projects).where(eq(projects.id, before.projectId)).limit(1))[0]
+      if (!effectiveProjectId) return c.json({ error: 'project_required', message: 'ต้องผูกโปรเจกต์ก่อนถึงจะยกระดับเป็น Epic ได้' }, 400)
+      const project = (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0]
       const prefix = sanitizeCodePrefix(project?.code, 'TASK')
       const newEpic = (
-        await db.insert(epics).values({ projectId: before.projectId, title: before.title, code: await nextTypedEpicCode(db, prefix), sortOrder: 0 }).returning()
+        await db.insert(epics).values({ projectId: effectiveProjectId, title: before.title, code: await nextTypedEpicCode(db, prefix), sortOrder: 0 }).returning()
       )[0]
+      patch.projectId = effectiveProjectId
       patch.epicId = newEpic!.id
       patch.parentId = null
       // ตัว task เดิมกลายเป็น Story ตัวแรกใต้ Epic ใหม่นี้ — regenerate code ให้ตรง
@@ -629,15 +704,20 @@ export const taskRoutes = new Hono<AppEnv>()
     } else if (body.data.to === 'story' || body.data.to === 'cr' || body.data.to === 'defect') {
       // Tasknista §Back to Basic (ต่อยอด) — Defect ผูกกับ Epic/Story/Task แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ เหมือน CR จึงไม่บังคับเลือก parent (เดิมพลาดไปรวมกับ task/subtask ที่ต้องมี parent จริง)
       patch.parentId = null
-      const project = before.projectId ? (await db.select().from(projects).where(eq(projects.id, before.projectId)).limit(1))[0] : null
+      patch.projectId = effectiveProjectId
+      const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
       const prefix = sanitizeCodePrefix(project?.code, 'TASK')
       if (body.data.to === 'defect' && before.kind !== 'defect') patch.defectStatus = 'reported'
       patch.code = await nextTypedTaskCode(db, prefix, body.data.to === 'cr' ? 'CR' : body.data.to === 'defect' ? 'Defect' : 'Story')
     } else {
-      // task | subtask — ต้องเลือก parent จาก picker
+      // task | subtask — ต้องเลือก parent จาก picker (โปรเจกต์ปลายทางตามที่ parent สังกัดอยู่จริง)
       if (!body.data.targetParentId) return c.json({ error: 'target_parent_required' }, 400)
       const parent = (await db.select().from(tasks).where(eq(tasks.id, body.data.targetParentId)).limit(1))[0]
       if (!parent) return c.json({ error: 'parent_not_found' }, 404)
+      if (parent.projectId && parent.projectId !== before.projectId) {
+        const parentRole = await getProjectRole(db, parent.projectId, me.id, me.role)
+        if (!canEditProject(parentRole)) return c.json({ error: 'forbidden', message: 'ไม่มีสิทธิ์แก้ไขโปรเจกต์ปลายทาง' }, 403)
+      }
       patch.parentId = parent.id
       patch.projectId = parent.projectId
       patch.groupId = parent.groupId
@@ -651,7 +731,7 @@ export const taskRoutes = new Hono<AppEnv>()
       action: 'task.convert',
       entity: 'task',
       entityId: before.id,
-      meta: { title: before.title, to: body.data.to, targetParentId: body.data.targetParentId ?? null, oldCode: before.code, newCode: patch.code ?? before.code },
+      meta: { title: before.title, to: body.data.to, targetParentId: body.data.targetParentId ?? null, targetProjectId: body.data.targetProjectId ?? null, oldCode: before.code, newCode: patch.code ?? before.code },
     })
     return c.json(updated[0])
   })

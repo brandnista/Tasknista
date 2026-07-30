@@ -255,6 +255,7 @@ const ACTION_LABEL: Record<string, string> = {
   'task.attach_delete': 'ลบไฟล์แนบ',
   'task.convert': 'แปลงประเภทงาน',
   'task.dispatch': 'จ่ายงาน',
+  'task.accept': 'รับงาน',
   'time_entry.create': 'ลงเวลา',
   'time_entry.update': 'แก้เวลา',
   'time_entry.delete': 'ลบเวลา',
@@ -316,6 +317,11 @@ export function TaskDetailPage() {
   // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
   const dispatch = async () => {
     await api.post(`/api/tasks/${t.id}/dispatch`, {})
+    await reload()
+  }
+  // Tasknista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
+  const accept = async () => {
+    await api.post(`/api/tasks/${t.id}/accept`, {})
     await reload()
   }
   const addReference = async (picked: PickableTask) => {
@@ -868,13 +874,17 @@ export function TaskDetailPage() {
             {canEdit && (
               <div className="border-t border-border-subtle pt-4 space-y-2">
                 {isAssignee ? (
-                  // Tasknista §Back to Basic (ต่อยอด) — ยังไม่ถูกจ่ายงานอย่างเป็นทางการ (dispatchedAt ว่าง) ยังส่งงานไม่ได้ แม้จะเข้ามาดูหน้านี้ได้ก็ตาม
-                  t.dispatchedAt ? (
+                  // Tasknista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → ข้อความเดิม · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
+                  !t.dispatchedAt ? (
+                    <div className="text-xs text-muted text-center py-2">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ</div>
+                  ) : t.status === 'non_start' ? (
+                    <button onClick={() => void accept()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                      <CheckCircle2 className="w-4 h-4" /> รับงาน
+                    </button>
+                  ) : (
                     <button onClick={() => void patch({ status: 'waiting_for_test' })} disabled={t.status === 'waiting_for_test' || done} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                       <CheckCircle2 className="w-4 h-4" /> ส่งงาน
                     </button>
-                  ) : (
-                    <div className="text-xs text-muted text-center py-2">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ</div>
                   )
                 ) : !t.dispatchedAt ? (
                   // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องกดก่อนงานถึงจะโผล่ในหน้า "งานของฉัน" ของผู้รับผิดชอบ
@@ -882,6 +892,12 @@ export function TaskDetailPage() {
                     <button onClick={() => void dispatch()} disabled={!t.assigneeId} title={!t.assigneeId ? 'เลือกผู้รับผิดชอบก่อน' : undefined} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                       <CheckCircle2 className="w-4 h-4" /> จ่ายงาน
                     </button>
+                    <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
+                  </>
+                ) : t.status === 'non_start' ? (
+                  // Tasknista §Task lifecycle accept step — จ่ายแล้วแต่ assignee ยังไม่กดรับงาน กด "อนุมัติปิดงาน" ก่อนไม่ได้
+                  <>
+                    <div className="text-xs text-muted text-center py-2">รอ{t.assigneeName ? ` ${t.assigneeName}` : ''}กดรับงาน</div>
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
                 ) : (

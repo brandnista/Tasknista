@@ -1,4 +1,4 @@
-import { Bell, Briefcase, CalendarCheck } from 'lucide-react'
+import { Bell, Briefcase, CalendarCheck, CheckCircle2, Send } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { MyWorkSummary } from '../components/MyWorkSummary'
@@ -6,6 +6,7 @@ import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { TASK_STATUS_BADGE, TASK_STATUS_LABEL } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
@@ -14,10 +15,16 @@ interface MyTask extends KanbanTask {
   myRole: 'owner' | 'editor' | 'viewer'
   // Tasknista §SOW Task/Subtask — ใช้กรอง "งานย่อยที่รอทำ" ใน widget My Work ใหม่
   parentId: string | null
+  // Tasknista §Task lifecycle accept step — ใช้เช็คว่างานนี้จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start)
+  dispatchedAt: string | number | null
+}
+interface DispatchedRow extends KanbanTask {
+  projectId: string
+  projectName: string
 }
 interface NotificationRow {
   id: string
-  type: 'subtask_assigned' | 'subtask_completed'
+  type: 'subtask_assigned' | 'subtask_completed' | 'task_dispatched' | 'task_submitted' | 'task_approved' | 'task_bounced'
   taskId: string | null
   projectId: string | null
   message: string
@@ -59,6 +66,51 @@ function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTas
   )
 }
 
+/** Tasknista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน */
+function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onAccept: (id: string) => void }) {
+  const pending = tasks.filter((t) => t.dispatchedAt && t.status === 'non_start')
+  if (pending.length === 0) return null
+  return (
+    <div className="bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-5">
+      <div className="text-sm font-semibold text-body mb-2">งานใหม่ที่รอคุณกดรับ</div>
+      <div className="divide-y divide-divider">
+        {pending.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 py-2.5">
+            <button onClick={() => onOpenTask(t.id)} className="min-w-0 flex-1 text-left">
+              <div className="text-sm text-body truncate">{t.title}</div>
+              <div className="text-[11px] text-muted">{t.projectName}</div>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onAccept(t.id) }}
+              className="shrink-0 flex items-center gap-1 text-xs bg-success-600 hover:bg-success-700 text-white px-2.5 py-1.5 rounded-lg font-medium"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" /> รับงาน
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Tasknista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
+function DispatchedByMeTab({ tasks, onOpenTask }: { tasks: DispatchedRow[]; onOpenTask: (id: string) => void }) {
+  if (tasks.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีงานที่จ่ายให้คนอื่น</div>
+  return (
+    <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
+      {tasks.map((t) => (
+        <button key={t.id} onClick={() => onOpenTask(t.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-hover text-left">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm text-body truncate">{t.title}</div>
+            <div className="text-[11px] text-muted mt-0.5">{t.projectName}{t.assigneeName ? ` · ${t.assigneeName}` : ''}</div>
+          </div>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** Tasknista §My Work/Notification — รายการแจ้งเตือน assign/complete Subtask (ในระบบเท่านั้น ไม่ส่งอีเมล) */
 function NotificationsTab({ notifications, onRead }: { notifications: NotificationRow[]; onRead: (id: string) => void }) {
   if (notifications.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีการแจ้งเตือน</div>
@@ -94,13 +146,19 @@ export function MyTasksPage() {
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const { data, reload } = useLoad<MyTask[]>(() => api.get('/api/tasks/mine'))
   const { data: notifData, reload: reloadNotifications } = useLoad<NotificationRow[]>(() => api.get('/api/notifications'))
+  const { data: dispatchedData, reload: reloadDispatched } = useLoad<DispatchedRow[]>(() => api.get('/api/tasks/dispatched-by-me'))
   const tasks = data ?? []
   const notifications = notifData ?? []
+  const dispatchedByMe = dispatchedData ?? []
   const unreadCount = notifications.filter((n) => !n.isRead).length
-  const [tab, setTab] = useState<'work' | 'notifications'>('work')
+  const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched'>('work')
 
   const changeStatus = async (taskId: string, status: KanbanTask['status']) => {
     await api.patch(`/api/tasks/${taskId}`, { status })
+    await reload()
+  }
+  const acceptTask = async (taskId: string) => {
+    await api.post(`/api/tasks/${taskId}/accept`, {})
     await reload()
   }
   const markRead = async (id: string) => {
@@ -112,6 +170,8 @@ export function MyTasksPage() {
   const assignedProjectsCount = new Set(tasks.map((t) => t.projectId)).size
   const today = bkkToday()
   const assignedTodayCount = notifications.filter((n) => n.type === 'subtask_assigned' && new Date(n.createdAt).toISOString().slice(0, 10) === today).length
+  // Tasknista §Task lifecycle notifications — งานที่ถูกตีกลับล่าสุด (แจ้งเตือนยังไม่อ่าน) โชว์ป้าย "ตีกลับ" ในบอร์ด
+  const bouncedTaskIds = new Set(notifications.filter((n) => n.type === 'task_bounced' && !n.isRead && n.taskId).map((n) => n.taskId!))
 
   return (
     <>
@@ -121,6 +181,9 @@ export function MyTasksPage() {
 
       <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit mb-4">
         <button onClick={() => setTab('work')} className={`px-3 py-1.5 rounded-md ${tab === 'work' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>งานของฉัน</button>
+        <button onClick={() => { setTab('dispatched'); void reloadDispatched() }} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'dispatched' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <Send className="w-3.5 h-3.5" /> งานที่จ่ายให้คนอื่น
+        </button>
         <button onClick={() => setTab('notifications')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'notifications' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
           <Bell className="w-3.5 h-3.5" /> แจ้งเตือน
           {unreadCount > 0 && <span className="text-[10px] bg-danger-500 text-white rounded-full w-4 h-4 grid place-items-center">{unreadCount}</span>}
@@ -148,6 +211,8 @@ export function MyTasksPage() {
 
           <MyWorkSummary tasks={tasks} onOpenTask={(t) => openTask(t.id)} />
 
+          <NewlyDispatchedWidget tasks={tasks} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
+
           <PendingSubtasksWidget tasks={tasks} onOpenTask={openTask} onComplete={(id) => void changeStatus(id, 'done')} />
 
           <StatusKanban
@@ -155,8 +220,11 @@ export function MyTasksPage() {
             canEdit={(t) => (t as MyTask).myRole === 'owner' || (t as MyTask).myRole === 'editor'}
             onOpenTask={openTask}
             onStatusChange={changeStatus}
+            bouncedTaskIds={bouncedTaskIds}
           />
         </>
+      ) : tab === 'dispatched' ? (
+        <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} />
       ) : (
         <NotificationsTab notifications={notifications} onRead={markRead} />
       )}

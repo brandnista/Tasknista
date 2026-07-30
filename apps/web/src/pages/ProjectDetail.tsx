@@ -3,6 +3,7 @@ import { formatSatang, minutesToHoursLabel } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
+import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
@@ -200,25 +201,13 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
   const [title, setTitle] = useState('')
   const [customCode, setCustomCode] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
-  // Tasknista §Project Refactor — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect
-  const [pickerFor, setPickerFor] = useState<{ taskId: string; to: 'task' | 'subtask' } | null>(null)
-  const { data: allProjectTasks } = useLoad<PickableTask[]>(
-    () => (pickerFor ? api.get(`/api/projects/${projectId}/tasks/all`) : Promise.resolve([])),
-    [projectId, pickerFor !== null],
-  )
-  const convert = async (taskId: string, to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr', targetParentId?: string) => {
-    await api.post(`/api/tasks/${taskId}/convert`, { to, targetParentId })
-    void reload()
-  }
-  const convertDirect = (taskId: string, to: 'epic' | 'story' | 'cr' | 'defect') => {
-    if (!confirm(`${CONVERT_LABEL[to]}?`)) return
-    void convert(taskId, to)
-  }
+  // Tasknista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
   const rowManageProps = (taskId: string) =>
     canEdit
       ? {
-          onConvertDirect: (to: 'epic' | 'story' | 'cr' | 'defect') => convertDirect(taskId, to),
-          onConvertPick: (to: 'task' | 'subtask') => setPickerFor({ taskId, to }),
+          onConvertDirect: (to: 'epic' | 'story' | 'cr' | 'defect') => setConvertModal({ taskId, to }),
+          onConvertPick: (to: 'task' | 'subtask') => setConvertModal({ taskId, to }),
         }
       : {}
   const [tab, setTab] = useState<BacklogTab>('regular')
@@ -334,7 +323,7 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
         <>
           {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} />}
           {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} />}
-          {tab === 'task' && <ProjectHierarchyTab projectId={projectId} level="task" canEdit={canEdit} onOpenTask={onOpenTask} />}
+          {tab === 'task' && <ProjectHierarchyTab projectId={projectId} level="task" canEdit={canEdit} onOpenTask={onOpenTask} onCreatedFloating={reload} />}
           {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} />}
           {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} />}
           {tab === 'summary' && <ProjectSummaryTab projectId={projectId} onOpenTask={onOpenTask} />}
@@ -516,12 +505,14 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
       )}
       </>
       )}
-      {pickerFor && (
-        <TaskPickerModal
-          title={CONVERT_LABEL[pickerFor.to]}
-          tasks={(allProjectTasks ?? []).filter((pt) => pt.id !== pickerFor.taskId)}
-          onPick={(picked) => { void convert(pickerFor.taskId, pickerFor.to, picked.id); setPickerFor(null) }}
-          onClose={() => setPickerFor(null)}
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          currentProjectId={projectId}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reload() }}
         />
       )}
     </div>
@@ -1556,11 +1547,13 @@ const HIERARCHY_TAB_META = {
 } as const
 
 /** Tasknista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
-function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask }: {
+function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask, onCreatedFloating }: {
   projectId: string
   level: 'story' | 'task' | 'cr'
   canEdit: boolean
   onOpenTask: (id: string) => void
+  // Tasknista §Back to Basic (ต่อยอด, revamp) — แจ้งพ่อ (ProjectBacklogSection) ให้ reload แท็บ "ทั่วไป" ด้วย เพราะคีย์ลอยจาก Task tab ไปโผล่ที่นั่น (คนละ useLoad กัน ไม่ sync กันเอง)
+  onCreatedFloating?: () => void
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const all = data ?? []
@@ -1575,7 +1568,6 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask }: {
     [all],
   )
   const [title, setTitle] = useState('')
-  const [pickerOpen, setPickerOpen] = useState(false)
   const meta = HIERARCHY_TAB_META[level]
 
   // Tasknista §Back to Basic — เมนู "..." เฉพาะแท็บ Story: "เชื่อมกับ Epic" / "เชื่อมกับ Task" (สร้างใหม่ หรือเลือกที่มีอยู่)
@@ -1612,13 +1604,13 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask }: {
     setTitle('')
     void reload()
   }
-  const createUnderStory = async (parent: PickableTask) => {
-    setPickerOpen(false)
+  // Tasknista §Back to Basic (ต่อยอด, revamp) — แท็บ Task: คีย์ลอยเป็น kind='backlog' ก่อน (โผล่แท็บ "ทั่วไป") แล้วค่อยไปเลือก Story ทีหลังผ่านเมนู "จัดการ → ย้ายเป็น Task" (เลี่ยงข้อจำกัดที่ kind='task' parentId=null แยกจาก Story ไม่ได้)
+  const createFloating = async () => {
     if (!title.trim()) return
-    const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
-    await api.post(`/api/tasks/${created.id}/convert`, { to: 'task', targetParentId: parent.id })
+    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
     setTitle('')
     void reload()
+    onCreatedFloating?.()
   }
   const linkStoryToEpic = async (epicId: string) => {
     if (!linkMode) return
@@ -1668,24 +1660,25 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask }: {
         <span className="font-semibold text-ink text-sm">{meta.title} ({items.length})</span>
       </div>
       {canEdit && (
-        <div className="flex gap-2 mb-3">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && level !== 'task') void createDirect() }}
-            placeholder={meta.placeholder}
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
-          />
-          {/* Tasknista §Back to Basic (ต่อยอด) — ย้อนกลับ: Task บังคับเลือก Story ตั้งแต่ตอนสร้างเสมอ (สร้างลอยๆ ไม่ได้เพราะไม่มีทางแยกจาก Story ในเชิงโครงสร้าง — kind='task' parentId=null เหมือนกันเป๊ะ) */}
-          {level === 'task' ? (
-            <button onClick={() => setPickerOpen(true)} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
-              {meta.createLabel}… เลือก Story
-            </button>
-          ) : (
-            <button onClick={() => void createDirect()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
+        <div className="mb-3">
+          <div className="flex gap-2">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void (level === 'task' ? createFloating() : createDirect()) }}
+              placeholder={meta.placeholder}
+              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+            />
+            <button
+              onClick={() => void (level === 'task' ? createFloating() : createDirect())}
+              disabled={!title.trim()}
+              className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium"
+            >
               {meta.createLabel}
             </button>
-          )}
+          </div>
+          {/* Tasknista §Back to Basic (ต่อยอด, revamp) — Task คีย์ลอยแล้วไปโผล่แท็บ "ทั่วไป" ก่อน ไม่ใช่แท็บนี้ทันที เพราะยังไม่มี Story */}
+          {level === 'task' && <div className="text-[11px] text-muted mt-1">คีย์แล้วจะไปโผล่ในแท็บ "ทั่วไป" ก่อน — กด "จัดการ → ย้ายเป็น Task" เพื่อเลือก Story ทีหลัง</div>}
         </div>
       )}
       {items.length === 0 ? (
@@ -1744,9 +1737,6 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask }: {
             </div>
           ))}
         </div>
-      )}
-      {pickerOpen && (
-        <TaskPickerModal title="เลือก Story ที่จะสร้าง Task นี้ไว้ใต้" tasks={storyOptions} onPick={(p) => void createUnderStory(p)} onClose={() => setPickerOpen(false)} />
       )}
       {linkingRefId && (
         <TaskPickerModal title="เชื่อมโยงกับ Story/Task/Defect/CR อื่น" tasks={refCandidates} onPick={(item) => void addRef(item.id)} onClose={() => setLinkingRefId(null)} />

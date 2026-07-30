@@ -1,4 +1,4 @@
-import { Lock, Plus, Search, Unlock, X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
@@ -632,12 +632,6 @@ function BacklogSection({ projects, isOwner, onConvertToProject }: { projects: P
     void reload()
   }
 
-  // Tasknista §4 — ล็อค/ปลดล็อค task ใน Company Backlog (owner เท่านั้น)
-  const toggleLock = async (t: BacklogTask) => {
-    await api.patch(`/api/tasks/${t.id}`, { locked: !t.locked })
-    void reload()
-  }
-
   return (
     <div className="bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-5">
       <div className="flex items-center gap-2 mb-3">
@@ -658,25 +652,9 @@ function BacklogSection({ projects, isOwner, onConvertToProject }: { projects: P
               <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
               {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <span className="flex-1 text-sm text-body truncate">{t.title}</span>
-              {t.locked && (
-                <span title="ล็อคแล้ว — แก้ไข/ย้าย/ลบได้เฉพาะ Owner" className="shrink-0">
-                  <Lock className="w-3.5 h-3.5 text-warning-600" />
-                </span>
-              )}
               {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
               {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
-              {isOwner && (
-                <button
-                  onClick={() => void toggleLock(t)}
-                  title={t.locked ? 'ปลดล็อค' : 'ล็อค'}
-                  className="w-7 h-7 grid place-items-center rounded-lg border border-border-subtle text-dim bg-white hover:bg-hover shrink-0"
-                >
-                  {t.locked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                </button>
-              )}
-              {(isOwner || !t.locked) && (
-                <button onClick={() => setMoving(t)} className="text-xs border border-border-subtle rounded-lg px-2.5 py-1.5 text-dim bg-white hover:bg-hover whitespace-nowrap">จัดการ ▾</button>
-              )}
+              <button onClick={() => setMoving(t)} className="text-xs border border-border-subtle rounded-lg px-2.5 py-1.5 text-dim bg-white hover:bg-hover whitespace-nowrap">จัดการ ▾</button>
             </div>
           ))}
         </div>

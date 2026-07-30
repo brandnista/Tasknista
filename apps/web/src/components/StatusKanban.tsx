@@ -41,11 +41,13 @@ function dueBadge(dueDate: string | null, status: TaskStatus) {
 
 /** Tasknista §2.12 — Kanban 4 สถานะตายตัว ใช้ทั้งในโปรเจกต์เดี่ยว (ProjectDetail) และข้ามโปรเจกต์ (งานของฉัน)
  * canEdit: boolean (ทุกใบเท่ากัน) หรือ function ต่อใบ (Tasknista §permission — พนักงานลากได้เฉพาะงานที่ตัวเอง assign) */
-export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit }: {
+export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bouncedTaskIds }: {
   tasks: KanbanTask[]
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: TaskStatus) => void | Promise<void>
   canEdit: boolean | ((task: KanbanTask) => boolean)
+  // Tasknista §Task lifecycle notifications — งานที่เพิ่งถูกตีกลับ (แจ้งเตือน task_bounced ยังไม่อ่าน) โชว์ป้ายเตือนเด่นๆ
+  bouncedTaskIds?: Set<string>
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const over = (e: DragEvent) => e.preventDefault()
@@ -93,6 +95,7 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit }: {
                       {t.estimateMinutes != null && <span className="text-[11px] text-dim">⏱ {minutesToHoursLabel(t.estimateMinutes)} ชม.</span>}
                       {!!t.checklistTotal && <span className="text-[11px] text-dim">☑ {t.checklistDone}/{t.checklistTotal}</span>}
                       {badge && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>}
+                      {bouncedTaskIds?.has(t.id) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning-100 text-warning-700">↩️ ตีกลับ</span>}
                       {t.srsRefCode && t.srsDocId && (
                         <a
                           href={`/api/docs/${t.srsDocId}/raw`}
