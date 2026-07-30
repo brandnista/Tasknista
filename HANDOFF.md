@@ -1,7 +1,7 @@
 # Tasknista (newtask-app) — Development Handoff
 
 > เขียนไว้ให้ทำงานต่อได้ในเครื่อง/session อื่น โดยไม่ต้องไล่อ่าน conversation เดิม
-> อัปเดตล่าสุด: 2026-07-23
+> อัปเดตล่าสุด: 2026-07-30
 
 ## 1. โปรเจกต์นี้คืออะไร
 
@@ -19,7 +19,9 @@ pnpm workspaces:
 - `packages/db` — Drizzle ORM + D1 (sqlite) — schema: `packages/db/src/schema.ts`, migrations: `packages/db/migrations/0000...0049*.sql` (hand-written ปนกับ generated — ดู §6)
 - `packages/core` — pure domain logic (เทสต์ง่าย ไม่แตะ DB/HTTP)
 - ไฟล์แนบ = R2 (binding `FILES`)
-- ไม่ใช่ git repo (ไม่มี `.git` ใน `C:\Users\wanna\newtask-app`) — ไม่มี commit history ให้ไล่ ใช้ไฟล์นี้แทน
+- **เป็น git repo แล้ว** (init 2026-07-30) — remote: `https://github.com/thanawatbrandnista-arm/Tasknista` (branch `master`) มี commit เดียว ("Initial commit") ยังไม่มี PR/branch workflow ให้ไล่ ใช้ไฟล์นี้แทนถ้าต้องการ context เชิงฟีเจอร์ (commit history มีแค่ snapshot เดียว ไม่ได้ไล่ตามลำดับ stream)
+  - ⚠️ **ไฟล์ที่ไม่ติดไปกับ git** (อยู่ใน `.gitignore` โดยตั้งใจ): `.dev.vars` (secret จริง — คัดลอกจากเครื่องเดิมเอง หรือ copy จาก `.dev.vars.example` แล้วกรอกใหม่), `.wrangler/` (ฐานข้อมูล D1 local ทั้งหมด — เครื่องใหม่จะเริ่มด้วยฐานข้อมูลว่าง ต้อง `pnpm db:migrate` แล้ว seed/สร้างข้อมูลทดสอบเองใหม่ หรือคัดลอกโฟลเดอร์นี้มาจากเครื่องเดิมถ้าอยากได้ข้อมูลเดิม), `node_modules/`
+  - ⚠️ **ยังไม่เคย deploy ขึ้น Cloudflare จริง** และ **ยังไม่เคย apply migration ขึ้น D1 remote (production)** — เครื่องที่ต่อยอดต้องรัน `wrangler login` ก่อน (ตอนนี้ `wrangler whoami` ยัง "not authenticated" อยู่) แล้วค่อย `pnpm db:migrate:remote` + `pnpm deploy`
 
 ### คำสั่งหลัก
 ```
@@ -109,6 +111,59 @@ Dev login: `POST /api/auth/dev-login {"email":"bank@team.local"}` (มี dev us
 - Backend ไม่ต้องแก้ — ใช้ `PATCH /api/docs/:id` และ `DELETE /api/docs/:id` เดิม (มีอยู่แล้วรองรับ parentId/title/delete)
 - Component ใหม่ใน `Docs.tsx`: `DocActionsMenu`, `MoveDocModal`, `buildFolderOptions()`, `DocGridCard`/`DocListRow` (แยกจาก DocsPage รับ prop `onMenu`)
 
+## 3-B. "Back to Basic" — โครงสร้าง Task/Epic/Story/Sprint ใหม่ + Task Detail workflow (2026-07-27 – 2026-07-30)
+
+หลัง §3.1-3.11 (เอกสาร/traceability) เจ้าของโปรเจกต์ขอกลับมาโฟกัสแกนหลัก Task/Epic/Story/Sprint ให้ลื่นไหลจริง งานรอบนี้ทำเป็นหลาย stream ต่อเนื่องกัน สรุปตามหัวข้อ (ไม่ใช่ตามลำดับ stream letter เพราะยาวเกินไป):
+
+### 3-B.1 โครงสร้าง Task hierarchy (structural ไม่ใช่ enum-based)
+- **Epic** = แถวแยกในตาราง `epics` (คนละตารางกับ `tasks`) — 1 Epic มีได้หลาย Story
+- **Story** = แถวใน `tasks` ที่ `parentId IS NULL` (ระดับบนสุด)
+- **Task** = ลูกของ Story (`parentId` ชี้ Story) — รหัสแบบจุด `<parentCode>.N`
+- **Subtask** = ลูกของ Task (ชั้นที่ 3) — รหัสแบบจุดต่อกัน `<taskCode>.N`
+- `tasks.kind` (`'task' | 'defect' | 'cr' | 'backlog'`) เป็นแค่ตัวบ่งชี้ประเภทงาน **ไม่เกี่ยวกับความลึกของ hierarchy** — Defect/CR ผูกกับ Epic/Story/Task/CR อื่นแบบ**อ้างอิง** (`task_references` table, มีมาตั้งแต่ migration `0046` ทำไว้เพื่อ traceability เอกสาร แล้วเอามาใช้ซ้ำ) ไม่ใช่ลูก-แม่
+- `kind='backlog'` (ใหม่ล่าสุด, ดู §3-B.6) = งานทั่วไปที่ยังไม่จัดประเภท ไม่มีผลต่อ hierarchy เช่นกัน
+
+### 3-B.2 เลขรหัส Task รูปแบบใหม่
+- Format: `<ProjectCodePrefix>-<TypeLabel>-<ddmmyyyy>-<0001>` เช่น `MAK-Task-30072026-0001`, `MAK-Defect-30072026-0001`, `MAK-Backlog-30072026-0001` — `TypeLabel` ∈ `Epic/Story/Task/Defect/CR/Backlog` นับต่อเนื่องต่อ (โปรเจกต์+ประเภท) ไม่รีเซตรายวัน
+- Logic อยู่ที่ `apps/api/src/lib/task-code.ts` (`nextTypedTaskCode`, `nextTypedEpicCode`) — เลขรหัส **regenerate ใหม่ทุกครั้งที่ convert ประเภท** (เก็บ oldCode→newCode ไว้ใน `audit_logs.meta` โผล่เป็น activity log ในหน้า Task Detail อัตโนมัติ ไม่ต้องมี table/endpoint แยก)
+- รหัสลูกแบบจุด (Task/Subtask ระดับ 2-3) ยังใช้ `nextSubTaskCode` เดิม ไม่เกี่ยวกับ scheme นี้
+
+### 3-B.3 จัดตำแหน่ง Tab ใหม่ (`ProjectDetail.tsx`)
+- Tab บนสุดของหน้าโปรเจกต์เหลือแค่ **Sprint / เอกสาร / ประวัติเอกสาร** (API Document/Project Estimate tab ถอดออกจาก nav แต่ component/backend ยังอยู่ — deferred ไม่ใช่ลบ)
+- Epic/Story/Task/Defect/CR ย้ายมาเป็น **sub-tab คงที่ของ Backlog** (`FIXED_BACKLOG_TABS`) ต่อท้าย tab เอกสารเดิม (ทั่วไป/SOW/MOM/...)
+- แต่ละ tab มีเมนู "..." เชื่อมโยง/ยกระดับกันได้ (Epic↔Story ผ่าน `epicId`, Story↔Task ผ่าน `parentId`+convert, Defect/CR ผ่าน `task_references` โดยตรง) — component: `ProjectEpicTab`, `ProjectHierarchyTab` (ใช้ร่วม story/task/cr แยกด้วย prop `level`), `ProjectDefectSection`, `LinkOrCreateModal.tsx` (modal เลือก "สร้างใหม่" หรือ "เลือกที่มีอยู่แล้ว" ใช้ซ้ำหลายจุด)
+- เพิ่ม sub-tab ใหม่ **"🌳 ภาพรวมโครงสร้าง"** (`ProjectSummaryTab`) — tree view Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) ดูอย่างเดียว ไม่มี drag/checkbox
+
+### 3-B.4 Sprint: หลาย Sprint พร้อมกันได้จริง + Board แยกต่อ Sprint
+- เดิมมีบั๊ก 2 ชั้น: (1) Sprint ที่ "รอคิว" ลากงานเข้าไม่ได้เลย (มีแค่ sprint แรกที่ลากได้) — แก้แล้ว ทุก sprint ที่ยังไม่ปิดมี dropzone ของตัวเอง (`GET /projects/:id/sprints/current` คืน `tasks` ของทุก sprint ไม่ใช่แค่ตัวแรก)
+- (2) แม้ลากงานเข้าได้ทุกใบ แต่ **Start ได้แค่ 1 sprint ต่อโปรเจกต์พร้อมกัน** (เดิมมี guard `active_sprint_exists`) — **เอา guard นี้ออกแล้ว** Start ได้พร้อมกันหลายใบจริง แต่ละใบแยก **Board เป็นของตัวเอง** ผ่าน route `projects/:id/sprints/:sprintId/board` (เดิม `projects/:id/board` ตัวเดียว) + endpoint ใหม่ `GET /api/sprints/:id/board`
+- ไฟล์หลัก: `apps/api/src/routes/sprints.ts`, `apps/web/src/pages/Board.tsx`, ส่วน `SprintSection`/`renderSprintCard` ใน `ProjectDetail.tsx`
+
+### 3-B.5 Task Detail: สร้าง/ผูกเอกสาร + workflow "จ่ายงาน → ส่งงาน → อนุมัติ/ตีกลับ"
+- **สร้าง/ผูกเอกสาร**: ปุ่ม "สร้าง/ผูกเอกสาร MOM/BRD/SOW/SRS/PEP/UIR/CR" ในหน้า Task Detail — สร้างจาก Template (reuse `TemplatePickerModal`), อัปโหลดไฟล์ระบุประเภท, หรือผูกเอกสารที่มีอยู่แล้วในโปรเจกต์เดียวกัน (ทั้งหมด reuse endpoint เดิมของเมนู "เอกสาร")
+- **ตัดออก**: section "ข้อมูลเพิ่มเติม" (custom fields) และปุ่ม "เปลี่ยนผู้รับผิดชอบ" ที่ซ้ำซ้อนกับ select ด้านบน
+- **เกต "จ่ายงาน" (`dispatchedAt`)**: assign คนแล้วงานยัง**ไม่โผล่**ในหน้า "งานของฉัน" ของคนนั้นจนกว่าผู้จ่ายงานจะกดปุ่ม "จ่ายงาน" (`POST /tasks/:id/dispatch` — เฉพาะผู้จ่ายงานเท่านั้น ไม่ใช่ assignee เอง) — เปลี่ยน assigneeId ใหม่ (รวมถึงเคลียร์เป็นว่าง) จะรีเซต `dispatchedAt` กลับเป็น null อัตโนมัติเสมอ
+- **คนถูก assign เปลี่ยนสถานะเองได้แค่ผ่านปุ่ม** — dropdown สถานะอิสระถูกล็อกสำหรับ assignee (เห็นแค่ badge อ่านอย่างเดียว) กดปุ่ม "ส่งงาน" ได้ทางเดียว (`on_processing → waiting_for_test`) กระโดดไป Done เองไม่ได้ — ฝั่งผู้จ่ายงานเห็นปุ่ม "อนุมัติ ปิดงาน" (→done) หรือ "ตีกลับ ให้แก้ไข" (→on_processing) เมื่อสถานะเป็น waiting_for_test
+- `TASK_STATUS_LABEL.waiting_for_test` label เปลี่ยนจาก "Waiting for Test" → **"Waiting for Review"** (enum value เดิมไม่แตะ กัน migration)
+- ไฟล์หลัก: `apps/web/src/pages/TaskDetail.tsx`, `apps/api/src/routes/tasks.ts` (`POST /tasks/:id/dispatch`, `GET /tasks/mine` filter `isNotNull(dispatchedAt)`)
+
+### 3-B.6 Backlog แยกประเภทจริง (`kind='backlog'`)
+- ปัญหาที่พบ: แท็บ "ทั่วไป" ของ Backlog ดึงงานที่คีย์ลอยๆ จากแท็บ Story/Defect/CR มาปนด้วย เพราะทางโครงสร้าง งานเหล่านี้ (`parentId=null`, ไม่มี `originDocType`) หน้าตาเหมือนงานทั่วไปเป๊ะ แยกไม่ออก
+- แก้ด้วยการเพิ่มค่า `kind='backlog'` ใหม่ (เฉพาะงานที่คีย์จากแท็บ "ทั่วไป" โดยตรง) — `GET /projects/:id/backlog` กรองเฉพาะ `kind='backlog'` หรือมี `originDocType` เท่านั้น ตัด Story/Defect/CR/Task-ลอยออกจากผลลัพธ์นี้ไปเลย (ไปโผล่เฉพาะแท็บของตัวเองผ่าน `/tasks/all`)
+- ผลข้างเคียง: **ย้อนกลับ** ปุ่ม "สร้าง Task ลอยๆ" ในแท็บ Task ที่เคยเพิ่มไประหว่างทาง (ทำให้คีย์ Task แล้วดันไปโผล่แท็บ Story เพราะโครงสร้างเหมือนกันเป๊ะ) — แท็บ Task บังคับ "เลือก Story" ก่อนสร้างเหมือนเดิม
+
+### Migrations 0050–0055 (schema เพิ่มของรอบนี้)
+| Migration | เนื้อหา |
+|---|---|
+| `0050_remarkable_overlord.sql` | `notifications` table, `projects.apiDocNotes`, `tasks.assignedBy` |
+| `0051_many_peter_parker.sql` | `task_checklist_items` table (เกณฑ์ว่าเสร็จ), `task_comments.isBlocked` |
+| `0052_previous_monster_badoon.sql` | `epics` table + `tasks.epicId` |
+| `0053_stiff_ezekiel_stane.sql` | `projects.deletedAt` (soft-delete โปรเจกต์) |
+| `0054_material_captain_cross.sql` | `sprints.goal` |
+| `0055_funny_bloodaxe.sql` | `tasks.dispatchedAt` (เกตจ่ายงาน §3-B.5) |
+
+`tasks.kind` enum ขยายจาก `'task'\|'defect'` → เพิ่ม `'cr'` (ระหว่างทาง) → เพิ่ม `'backlog'` (ล่าสุด) **ไม่มี migration ของทั้งคู่** เพราะคอลัมน์เป็น TEXT ธรรมดาใน SQLite ไม่มี CHECK constraint บังคับ (แก้แค่ TS-level enum ที่ `packages/db/src/schema.ts`)
+
 ## 4. Schema/Migration reference (docs-related fields สำคัญ)
 
 `docs` table (ดูเต็มที่ `packages/db/src/schema.ts`):
@@ -124,7 +179,7 @@ Dev login: `POST /api/auth/dev-login {"email":"bank@team.local"}` (มี dev us
 
 Migrations 0037–0049 = ทั้งหมดของงานใน §3 (เรียงตามลำดับเวลา) — บาง migration hand-written (ดู pattern ที่ `CLAUDE.md` ไม่ได้พูดถึงแต่ทำตามมาตลอด: แก้ schema.ts → เขียน .sql มือ → patch `meta/*_snapshot.json` + `_journal.json` → apply ด้วย `wrangler d1 execute --local --file` ถ้า `pnpm db:migrate` ชนบั๊ก wrangler native crash)
 
-## 5. ข้อมูล local dev ปัจจุบัน (2026-07-23)
+## 5. ข้อมูล local dev ปัจจุบัน (2026-07-23 — ⚠️ อาจไม่ตรงกับปัจจุบันแล้ว หลัง §3-B มีการสร้าง/ลบโปรเจกต์ทดสอบเพิ่ม เช่นโปรเจกต์ชื่อ "test" ที่ใช้ verify งานทุก stream ใน §3-B — เชื่อของจริงจาก UI/`GET /api/projects` มากกว่ารายการด้านล่างนี้)
 
 - Local D1 มี **5 โปรเจกต์**: MakantestDoc, ทดสอบโปรเจคเฮอ, Makan App Demo, Makantest, Makan Halal-Route
 - เมนู "เอกสาร" **เคลียร์ mock data เก่าทั้งหมดแล้ว** (เดิมมี ~47 เอกสาร demo) เหลือแค่ **5 ไฟล์จริง** ที่อัปโหลดเข้าโปรเจกต์ **MakantestDoc**: `02_BRD_MAKAN_Redesign` (v1.2), `03_SOW_MAKAN_Redesign` (v1.2), `04_SRS_MAKAN_Redesign` (v1.2), `05_PEP_MAKAN_Redesign` (v1.2), `UIR_MAKAN_Redesign` (v1.0.1) — มาจาก `C:\Users\wanna\OneDrive\Desktop\Template เอกสาร BNT\TestDoctasknista\Redesign01` — **ไม่มีไฟล์ MOM** ในโฟลเดอร์ต้นทาง ถ้ามีเพิ่มทีหลังค่อยอัปโหลดเข้า
@@ -139,10 +194,18 @@ Migrations 0037–0049 = ทั้งหมดของงานใน §3 (เ�
 - ไม่มี flow "อัปโหลดเวอร์ชันใหม่" แยกจากอัปโหลดเดิม — ใช้ระบุเลขที่เอกสารเดิม + เวอร์ชันใหม่ตอนอัปโหลดผ่าน breakout modal
 - โฟลเดอร์ว่าง 6 อันที่ root (ดู §5) — cosmetic เท่านั้น
 - `SPEC.md`/`tasks/*.md` ไม่ได้ sync กับฟีเจอร์ Tasknista เลย (เป็นของ SeedOffice ต้นทาง) — ถ้าจะ sync ต้องเขียนใหม่หรือเพิ่ม section ทั้งหมด ยังไม่ได้ทำ
+- **ยังไม่เคย deploy ขึ้น Cloudflare** และ **ยังไม่ apply migration ขึ้น D1 remote** — ต้อง `wrangler login` ก่อนถึงจะรัน `pnpm db:migrate:remote` / `pnpm deploy` ได้ (ดู §2)
+- API Document tab / Project Estimate tab ถอดออกจาก nav บนสุดแล้ว (§3-B.3) แต่ component+backend ยังอยู่ครบ — ถ้าจะเอากลับมาแค่เพิ่มกลับเข้า `tabs` array ใน `ProjectDetailPage`
+- Defect ที่ convert จาก Backlog "..." menu ตอนนี้ **ไม่บังคับเลือก parent แล้ว** (ผูกแบบอ้างอิงผ่าน `task_references` แทน) — ถ้าเจอ Defect เก่าที่ยังมี `parentId` ตั้งแต่ก่อนแก้ ให้ถือเป็นข้อมูลเดิม ไม่ต้อง migrate ย้อนหลัง
 
-## 7. วิธี resume งานต่อ
+## 7. วิธี resume งานต่อ (เครื่องใหม่)
 
-1. อ่าน `CLAUDE.md` (กฎเหล็ก/stack/design token) + ไฟล์นี้ (ฟีเจอร์ที่มี)
-2. `pnpm dev` แล้ว dev-login เข้าไปดูของจริงก่อนแก้อะไร
-3. ทำทีละจุดเล็กๆ ตามสไตล์เดิม (`CLAUDE.md` §"วิธีทำงานกับเจ้าของ") — `pnpm typecheck` ก่อนรายงานทุกครั้ง เปิด browser preview verify การเปลี่ยนแปลงจริงก่อนบอกว่าเสร็จ
-4. ถ้าแก้ schema → hand-write migration ตาม pattern เดิม (§4) เพราะ `pnpm db:migrate` ผ่าน wrangler มีโอกาสชน native crash บน Windows
+1. `git clone https://github.com/thanawatbrandnista-arm/Tasknista.git` แล้ว `cd Tasknista`
+2. `pnpm install`
+3. คัดลอก `.dev.vars` จากเครื่องเดิมมาวางที่ root (ไม่ติดมากับ git — ดู §2) หรือ copy จาก `.dev.vars.example` แล้วกรอกค่าใหม่เอง (`DEV_AUTH=1` ต้องเปิดถึงจะมีปุ่ม dev-login)
+4. `pnpm db:migrate` — สร้างตาราง D1 local ให้ตรง schema ล่าสุด (ฐานข้อมูลจะว่างเปล่า ไม่มีข้อมูลทดสอบเดิม เว้นแต่คัดลอกโฟลเดอร์ `.wrangler/` มาจากเครื่องเดิมด้วย — ดู §2)
+5. อ่าน `CLAUDE.md` (กฎเหล็ก/stack/design token) + ไฟล์นี้ทั้งหมด (โดยเฉพาะ §3-B ถ้าจะแก้ Task/Epic/Story/Sprint) ก่อนแก้อะไร
+6. `pnpm dev` แล้ว dev-login เข้าไปดูของจริงก่อนแก้อะไร
+7. ทำทีละจุดเล็กๆ ตามสไตล์เดิม (`CLAUDE.md` §"วิธีทำงานกับเจ้าของ") — `pnpm typecheck` ก่อนรายงานทุกครั้ง เปิด browser preview verify การเปลี่ยนแปลงจริงก่อนบอกว่าเสร็จ
+8. ถ้าแก้ schema → ลอง `pnpm db:generate` (drizzle-kit auto-gen จาก diff ของ `schema.ts`) ก่อน ถ้าชนบั๊ก wrangler native crash บน Windows ค่อย hand-write migration ตาม pattern เดิม (§3-B/§4)
+9. ถ้าจะ deploy จริง: `wrangler login` ก่อน (ยังไม่เคย auth บนเครื่องไหนเลย ณ จุดที่เขียนไฟล์นี้) แล้ว `pnpm db:migrate:remote` (apply migration ค้าง 0050-0055 ขึ้น production D1) ก่อน `pnpm deploy` เสมอ ไม่งั้น API จะพังเพราะ column ไม่ตรงกับโค้ด
