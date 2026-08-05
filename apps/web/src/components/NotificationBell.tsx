@@ -8,7 +8,7 @@ interface NotificationRow {
 
 const POLL_MS = 45_000
 
-/** Tasknista §My Work/Notification — badge จำนวนแจ้งเตือนที่ยังไม่อ่าน โผล่ข้างเมนู "งานของฉัน" ใน sidebar — poll เป็นระยะเหมือน timer.tsx/TeamBox.tsx (แอปนี้ไม่มี websocket) */
+/** Pronista §My Work/Notification — badge จำนวนแจ้งเตือนที่ยังไม่อ่าน โผล่ข้างเมนู "งานของฉัน" ใน sidebar — poll เป็นระยะเหมือน timer.tsx/TeamBox.tsx (แอปนี้ไม่มี websocket) */
 export function NotificationBell() {
   const [unread, setUnread] = useState(0)
 

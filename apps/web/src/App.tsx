@@ -51,7 +51,7 @@ const router = createBrowserRouter([
       {
         path: 'projects/:id/edit',
         element: (
-          // Tasknista §permission (Jira-style project role) — เข้าหน้าได้ทั้ง owner+member เพราะ editor ของโปรเจกต์นี้ก็แก้ได้
+          // Pronista §permission (Jira-style project role) — เข้าหน้าได้ทั้ง owner+member เพราะ editor ของโปรเจกต์นี้ก็แก้ได้
           // (สิทธิ์ระดับโปรเจกต์จริงๆ เช็คใน ProjectEditPage เอง ไม่ใช่ role บริษัทตรงนี้)
           <Protected roles={['owner', 'member']}>
             <ProjectEditPage />

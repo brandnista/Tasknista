@@ -17,7 +17,7 @@ interface AllProjectTask extends PickableTask {
 const NEEDS_PARENT = new Set(['task', 'subtask'])
 
 /**
- * Tasknista §Backlog cross-project convert — เมนู "จัดการ" ใน Backlog ของโปรเจกต์:
+ * Pronista §Backlog cross-project convert — เมนู "จัดการ" ใน Backlog ของโปรเจกต์:
  * เลือกโปรเจกต์ปลายทางก่อนเสมอ (default = โปรเจกต์ปัจจุบัน) แล้วค่อยเลือก parent (เฉพาะ task/subtask) จากโปรเจกต์ที่เลือก
  */
 export function ConvertBacklogModal({
@@ -32,7 +32,7 @@ export function ConvertBacklogModal({
   taskId: string
   to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr'
   title: string
-  // Tasknista §Company Backlog convert — ไม่ระบุ (งานลอยๆ ไม่มีโปรเจกต์เดิม) = บังคับให้เลือกโปรเจกต์ปลายทางเอง (placeholder ว่างไว้)
+  // Pronista §Company Backlog convert — ไม่ระบุ (งานลอยๆ ไม่มีโปรเจกต์เดิม) = บังคับให้เลือกโปรเจกต์ปลายทางเอง (placeholder ว่างไว้)
   currentProjectId?: string
   excludeTaskIds?: string[]
   onClose: () => void

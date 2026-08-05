@@ -15,10 +15,10 @@ export interface KanbanTask {
   assigneeName: string | null
   assigneeAvatarUrl?: string | null
   projectName?: string
-  // Tasknista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
+  // Pronista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
   srsRefCode?: string | null
   srsDocId?: string | null
-  // Tasknista §Back to Basic (ต่อยอด) — รหัสงาน+ประเภท + ชั่วโมงประเมิน + ความคืบหน้าเกณฑ์ว่าเสร็จ
+  // Pronista §Back to Basic (ต่อยอด) — รหัสงาน+ประเภท + ชั่วโมงประเมิน + ความคืบหน้าเกณฑ์ว่าเสร็จ
   code?: string | null
   kind?: 'task' | 'defect' | 'cr' | 'backlog'
   parentId?: string | null
@@ -39,14 +39,14 @@ function dueBadge(dueDate: string | null, status: TaskStatus) {
   return { text: `อีก ${diffDays} วัน`, cls: 'bg-divider text-dim' }
 }
 
-/** Tasknista §2.12 — Kanban 4 สถานะตายตัว ใช้ทั้งในโปรเจกต์เดี่ยว (ProjectDetail) และข้ามโปรเจกต์ (งานของฉัน)
- * canEdit: boolean (ทุกใบเท่ากัน) หรือ function ต่อใบ (Tasknista §permission — พนักงานลากได้เฉพาะงานที่ตัวเอง assign) */
+/** Pronista §2.12 — Kanban 4 สถานะตายตัว ใช้ทั้งในโปรเจกต์เดี่ยว (ProjectDetail) และข้ามโปรเจกต์ (งานของฉัน)
+ * canEdit: boolean (ทุกใบเท่ากัน) หรือ function ต่อใบ (Pronista §permission — พนักงานลากได้เฉพาะงานที่ตัวเอง assign) */
 export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bouncedTaskIds }: {
   tasks: KanbanTask[]
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: TaskStatus) => void | Promise<void>
   canEdit: boolean | ((task: KanbanTask) => boolean)
-  // Tasknista §Task lifecycle notifications — งานที่เพิ่งถูกตีกลับ (แจ้งเตือน task_bounced ยังไม่อ่าน) โชว์ป้ายเตือนเด่นๆ
+  // Pronista §Task lifecycle notifications — งานที่เพิ่งถูกตีกลับ (แจ้งเตือน task_bounced ยังไม่อ่าน) โชว์ป้ายเตือนเด่นๆ
   bouncedTaskIds?: Set<string>
 }) {
   const [dragId, setDragId] = useState<string | null>(null)

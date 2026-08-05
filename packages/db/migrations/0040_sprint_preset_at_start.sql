@@ -1,4 +1,4 @@
--- Tasknista §Sprint & Board — ย้ายการเลือก Preset จากตอนสร้าง Sprint ไปตอนกด "เริ่ม Sprint" (board_preset_id ว่างได้ระหว่าง planned)
+-- Pronista §Sprint & Board — ย้ายการเลือก Preset จากตอนสร้าง Sprint ไปตอนกด "เริ่ม Sprint" (board_preset_id ว่างได้ระหว่าง planned)
 -- D1 บังคับ foreign_keys=ON เสมอ (ไม่รับ PRAGMA defer_foreign_keys/foreign_keys=OFF) — rebuild ตาราง sprints ตรงๆ จะชน FK จาก tasks.sprint_id
 -- ถ้ามีแถวอ้างอิงอยู่ ต้องเคลียร์ค่าไปพักไว้ก่อน แล้วค่อยคืนกลับหลัง rebuild เสร็จ
 CREATE TABLE `__sprint_id_backup` AS SELECT `id` AS task_id, `sprint_id` FROM `tasks` WHERE `sprint_id` IS NOT NULL;

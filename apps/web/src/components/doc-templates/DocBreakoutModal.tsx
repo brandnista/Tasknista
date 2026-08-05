@@ -33,7 +33,7 @@ function guessPriority(raw: string): 'low' | 'normal' | 'high' | null {
 const sanitizeCodePrefix = (raw: string | null | undefined, fallback: string) => (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || fallback
 
 /**
- * Tasknista §Document Traceability — แตกแถวจากตาราง breakoutToTasks (MOM/BRD/SOW/SRS ทั้งหมด) ในเอกสาร Template ให้เป็น Task จริง
+ * Pronista §Document Traceability — แตกแถวจากตาราง breakoutToTasks (MOM/BRD/SOW/SRS ทั้งหมด) ในเอกสาร Template ให้เป็น Task จริง
  * generalize จาก SrsBreakoutModal เดิม (เคยใช้กับ SRS อย่างเดียว) — ต่างกันแค่ endpoint (/breakout แทน /srs-breakout), docVersion แทน srsVersion,
  * และเพิ่มช่อง "อ้างอิง [เล่มก่อนหน้า]" ให้แก้ได้ก่อนส่ง (resolve เป็น task_references ฝั่ง backend อัตโนมัติ)
  */

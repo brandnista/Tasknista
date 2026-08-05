@@ -1,15 +1,15 @@
-# Tasknista (newtask-app) — Development Handoff
+# Pronista (newtask-app) — Development Handoff
 
 > เขียนไว้ให้ทำงานต่อได้ในเครื่อง/session อื่น โดยไม่ต้องไล่อ่าน conversation เดิม
 > อัปเดตล่าสุด: 2026-07-30
 
 ## 1. โปรเจกต์นี้คืออะไร
 
-**Tasknista** — แอปบริหารงาน (task/project management) ที่ fork มาจาก **SeedOffice** (internal tool ของทีม SeedWebs สำหรับ งาน→ชั่วโมง→เงิน) แล้วต่อยอดเพิ่มระบบ **Backlog + Sprint + Sub-tasks + Product/Project task types + ระบบเอกสาร (Document Management/Traceability)** ที่ไม่มีใน SeedOffice ต้นทาง
+**Pronista** — แอปบริหารงาน (task/project management) ที่ fork มาจาก **SeedOffice** (internal tool ของทีม SeedWebs สำหรับ งาน→ชั่วโมง→เงิน) แล้วต่อยอดเพิ่มระบบ **Backlog + Sprint + Sub-tasks + Product/Project task types + ระบบเอกสาร (Document Management/Traceability)** ที่ไม่มีใน SeedOffice ต้นทาง
 
 - `CLAUDE.md` (root) = กติกาการทำงานเดิมของ SeedOffice (ภาษาไทย, เงิน=สตางค์ integer, Tailwind v4 token ฯลฯ) — **ยังใช้ได้กับ repo นี้เกือบทั้งหมด**
-- `SPEC.md`, `tasks/PROGRESS.md`, `tasks/plan.md`, `tasks/todo.md` = เอกสารของ **SeedOffice ต้นทาง** (ก่อน fork) — **ล้าสมัยสำหรับฟีเจอร์ Tasknista** (Sprint/SRS/Docs/Traceability ทั้งหมดด้านล่างไม่ได้ sync เข้าไฟล์พวกนี้) ใช้อ้างอิงเฉพาะ stack/convention/กฎเหล็กเท่านั้น
-- เอกสารนี้ (`HANDOFF.md`) คือ source of truth ของสิ่งที่ต่อยอดเพิ่มบน Tasknista
+- `SPEC.md`, `tasks/PROGRESS.md`, `tasks/plan.md`, `tasks/todo.md` = เอกสารของ **SeedOffice ต้นทาง** (ก่อน fork) — **ล้าสมัยสำหรับฟีเจอร์ Pronista** (Sprint/SRS/Docs/Traceability ทั้งหมดด้านล่างไม่ได้ sync เข้าไฟล์พวกนี้) ใช้อ้างอิงเฉพาะ stack/convention/กฎเหล็กเท่านั้น
+- เอกสารนี้ (`HANDOFF.md`) คือ source of truth ของสิ่งที่ต่อยอดเพิ่มบน Pronista
 
 ## 2. Stack & โครงสร้าง
 
@@ -19,7 +19,7 @@ pnpm workspaces:
 - `packages/db` — Drizzle ORM + D1 (sqlite) — schema: `packages/db/src/schema.ts`, migrations: `packages/db/migrations/0000...0049*.sql` (hand-written ปนกับ generated — ดู §6)
 - `packages/core` — pure domain logic (เทสต์ง่าย ไม่แตะ DB/HTTP)
 - ไฟล์แนบ = R2 (binding `FILES`)
-- **เป็น git repo แล้ว** (init 2026-07-30) — remote: `https://github.com/thanawatbrandnista-arm/Tasknista` (branch `master`) มี commit เดียว ("Initial commit") ยังไม่มี PR/branch workflow ให้ไล่ ใช้ไฟล์นี้แทนถ้าต้องการ context เชิงฟีเจอร์ (commit history มีแค่ snapshot เดียว ไม่ได้ไล่ตามลำดับ stream)
+- **เป็น git repo แล้ว** (init 2026-07-30) — remote: `https://github.com/thanawatbrandnista-arm/Pronista` (branch `master`) มี commit เดียว ("Initial commit") ยังไม่มี PR/branch workflow ให้ไล่ ใช้ไฟล์นี้แทนถ้าต้องการ context เชิงฟีเจอร์ (commit history มีแค่ snapshot เดียว ไม่ได้ไล่ตามลำดับ stream)
   - ⚠️ **ไฟล์ที่ไม่ติดไปกับ git** (อยู่ใน `.gitignore` โดยตั้งใจ): `.dev.vars` (secret จริง — คัดลอกจากเครื่องเดิมเอง หรือ copy จาก `.dev.vars.example` แล้วกรอกใหม่), `.wrangler/` (ฐานข้อมูล D1 local ทั้งหมด — เครื่องใหม่จะเริ่มด้วยฐานข้อมูลว่าง ต้อง `pnpm db:migrate` แล้ว seed/สร้างข้อมูลทดสอบเองใหม่ หรือคัดลอกโฟลเดอร์นี้มาจากเครื่องเดิมถ้าอยากได้ข้อมูลเดิม), `node_modules/`
   - ⚠️ **ยังไม่เคย deploy ขึ้น Cloudflare จริง** และ **ยังไม่เคย apply migration ขึ้น D1 remote (production)** — เครื่องที่ต่อยอดต้องรัน `wrangler login` ก่อน (ตอนนี้ `wrangler whoami` ยัง "not authenticated" อยู่) แล้วค่อย `pnpm db:migrate:remote` + `pnpm deploy`
 
@@ -35,7 +35,7 @@ Dev login: `POST /api/auth/dev-login {"email":"bank@team.local"}` (มี dev us
 ⚠️ **wrangler d1 execute --local (CLI) กับ wrangler dev ที่รันอยู่แล้ว อาจเห็นข้อมูลไม่ตรงกัน** เจอบั๊กนี้ตอนเคลียร์ข้อมูลรอบล่าสุด (ดู §7) — ถ้าต้องแก้ข้อมูลตรงๆ ให้เชื่อผลจาก `curl localhost:8787/api/...` (ของจริงที่ UI เห็น) มากกว่าผลจาก `wrangler d1 execute` CLI แยก
 ⚠️ wrangler dev เจอ native crash บน Windows เป็นระยะ (`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`) — เป็น known flaky bug ของ wrangler/Windows ไม่เกี่ยวกับโค้ด
 
-## 3. ฟีเจอร์ที่ต่อยอดบน Tasknista (เรียงตามลำดับที่ทำ)
+## 3. ฟีเจอร์ที่ต่อยอดบน Pronista (เรียงตามลำดับที่ทำ)
 
 ### 3.1 Backlog + Sprint + Board
 - Schema: `board_presets` (config), `sprints`, `tasks.sprintId`/`sprintStatus`
@@ -193,14 +193,14 @@ Migrations 0037–0049 = ทั้งหมดของงานใน §3 (เ�
 - ไม่มี diff/เทียบเนื้อหาระหว่างเวอร์ชันเอกสาร (§3.9) — มีแค่ list เวอร์ชัน
 - ไม่มี flow "อัปโหลดเวอร์ชันใหม่" แยกจากอัปโหลดเดิม — ใช้ระบุเลขที่เอกสารเดิม + เวอร์ชันใหม่ตอนอัปโหลดผ่าน breakout modal
 - โฟลเดอร์ว่าง 6 อันที่ root (ดู §5) — cosmetic เท่านั้น
-- `SPEC.md`/`tasks/*.md` ไม่ได้ sync กับฟีเจอร์ Tasknista เลย (เป็นของ SeedOffice ต้นทาง) — ถ้าจะ sync ต้องเขียนใหม่หรือเพิ่ม section ทั้งหมด ยังไม่ได้ทำ
+- `SPEC.md`/`tasks/*.md` ไม่ได้ sync กับฟีเจอร์ Pronista เลย (เป็นของ SeedOffice ต้นทาง) — ถ้าจะ sync ต้องเขียนใหม่หรือเพิ่ม section ทั้งหมด ยังไม่ได้ทำ
 - **ยังไม่เคย deploy ขึ้น Cloudflare** และ **ยังไม่ apply migration ขึ้น D1 remote** — ต้อง `wrangler login` ก่อนถึงจะรัน `pnpm db:migrate:remote` / `pnpm deploy` ได้ (ดู §2)
 - API Document tab / Project Estimate tab ถอดออกจาก nav บนสุดแล้ว (§3-B.3) แต่ component+backend ยังอยู่ครบ — ถ้าจะเอากลับมาแค่เพิ่มกลับเข้า `tabs` array ใน `ProjectDetailPage`
 - Defect ที่ convert จาก Backlog "..." menu ตอนนี้ **ไม่บังคับเลือก parent แล้ว** (ผูกแบบอ้างอิงผ่าน `task_references` แทน) — ถ้าเจอ Defect เก่าที่ยังมี `parentId` ตั้งแต่ก่อนแก้ ให้ถือเป็นข้อมูลเดิม ไม่ต้อง migrate ย้อนหลัง
 
 ## 7. วิธี resume งานต่อ (เครื่องใหม่)
 
-1. `git clone https://github.com/thanawatbrandnista-arm/Tasknista.git` แล้ว `cd Tasknista`
+1. `git clone https://github.com/thanawatbrandnista-arm/Pronista.git` แล้ว `cd Pronista`
 2. `pnpm install`
 3. คัดลอก `.dev.vars` จากเครื่องเดิมมาวางที่ root (ไม่ติดมากับ git — ดู §2) หรือ copy จาก `.dev.vars.example` แล้วกรอกค่าใหม่เอง (`DEV_AUTH=1` ต้องเปิดถึงจะมีปุ่ม dev-login)
 4. `pnpm db:migrate` — สร้างตาราง D1 local ให้ตรง schema ล่าสุด (ฐานข้อมูลจะว่างเปล่า ไม่มีข้อมูลทดสอบเดิม เว้นแต่คัดลอกโฟลเดอร์ `.wrangler/` มาจากเครื่องเดิมด้วย — ดู §2)

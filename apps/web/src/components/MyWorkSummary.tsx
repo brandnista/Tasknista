@@ -10,7 +10,7 @@ export interface MyWorkTask {
   dueDate: string | null
   projectId: string
   projectName: string
-  // Tasknista §Back to Basic (ต่อยอด) — เพิ่มให้การ์ดโชว์รหัส/ประเภทงาน + ชั่วโมงประเมิน + ความคืบหน้าเกณฑ์ว่าเสร็จ + แยก "งานวันนี้"
+  // Pronista §Back to Basic (ต่อยอด) — เพิ่มให้การ์ดโชว์รหัส/ประเภทงาน + ชั่วโมงประเมิน + ความคืบหน้าเกณฑ์ว่าเสร็จ + แยก "งานวันนี้"
   code?: string | null
   kind?: 'task' | 'defect' | 'cr' | 'backlog'
   parentId?: string | null
@@ -22,7 +22,7 @@ export interface MyWorkTask {
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
-// Tasknista §Back to Basic (ต่อยอด) — ป้ายประเภทงาน: Story = ยังไม่มีพ่อ (โครงสร้างเดิม) ไม่ใช่ field แยก
+// Pronista §Back to Basic (ต่อยอด) — ป้ายประเภทงาน: Story = ยังไม่มีพ่อ (โครงสร้างเดิม) ไม่ใช่ field แยก
 export function taskTypeLabel(t: Pick<MyWorkTask, 'kind' | 'parentId'>): string {
   if (t.kind === 'defect') return 'Defect'
   if (t.kind === 'cr') return 'CR'
@@ -41,8 +41,8 @@ export function TaskMetaBadges({ t }: { t: MyWorkTask }) {
   )
 }
 
-/** สรุปงานของฉัน (การ์ด 4 ใบ + "ต้องรีบทำ") — ใช้ร่วมกันระหว่างหน้า "งานของฉัน" กับส่วน "ภาพรวมงานของฉัน" บนหน้า ภาพรวม (Tasknista §permission)
- * hideStats: หน้า "งานของฉัน" มี stat strip แบบ compact ของตัวเองแล้ว (Tasknista §My Work UX) — ซ่อนการ์ด 4 ใบตรงนี้กันซ้ำ เหลือแค่ลิสต์ "งานวันนี้"/"ต้องรีบทำ" */
+/** สรุปงานของฉัน (การ์ด 4 ใบ + "ต้องรีบทำ") — ใช้ร่วมกันระหว่างหน้า "งานของฉัน" กับส่วน "ภาพรวมงานของฉัน" บนหน้า ภาพรวม (Pronista §permission)
+ * hideStats: หน้า "งานของฉัน" มี stat strip แบบ compact ของตัวเองแล้ว (Pronista §My Work UX) — ซ่อนการ์ด 4 ใบตรงนี้กันซ้ำ เหลือแค่ลิสต์ "งานวันนี้"/"ต้องรีบทำ" */
 export function MyWorkSummary({ tasks, onOpenTask, hideStats }: { tasks: MyWorkTask[]; onOpenTask: (task: MyWorkTask) => void; hideStats?: boolean }) {
   const stats = useMemo(() => {
     const today = bkkToday()
@@ -60,7 +60,7 @@ export function MyWorkSummary({ tasks, onOpenTask, hideStats }: { tasks: MyWorkT
       .slice(0, 5)
   }, [tasks])
 
-  // Tasknista §Back to Basic (ต่อยอด) — "งานวันนี้" (ควรเริ่มทำวันนี้ตาม startDate) แยกจาก "ต้องรีบทำ" (ตาม dueDate)
+  // Pronista §Back to Basic (ต่อยอด) — "งานวันนี้" (ควรเริ่มทำวันนี้ตาม startDate) แยกจาก "ต้องรีบทำ" (ตาม dueDate)
   const todayTasks = useMemo(() => {
     const today = bkkToday()
     return tasks.filter((t) => t.status !== 'done' && t.startDate && t.startDate <= today && (!t.dueDate || t.dueDate >= today))

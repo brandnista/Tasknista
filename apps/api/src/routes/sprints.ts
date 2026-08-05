@@ -17,21 +17,21 @@ async function loadPreset(db: ReturnType<typeof createDb>, boardPresetId: string
   return presetById(resolvePresets(cfg?.boardPresets), boardPresetId)
 }
 
-// Tasknista §Sprint & Board fix — ให้ frontend จัดกลุ่ม/ยุบการ์ด subtask ตาม parent ได้ (Task View / Mixed View) โดยไม่ต้อง query เพิ่มฝั่ง client
+// Pronista §Sprint & Board fix — ให้ frontend จัดกลุ่ม/ยุบการ์ด subtask ตาม parent ได้ (Task View / Mixed View) โดยไม่ต้อง query เพิ่มฝั่ง client
 async function loadParents(db: ReturnType<typeof createDb>, rowTasks: (typeof tasks.$inferSelect)[]) {
   const parentIds = [...new Set(rowTasks.map((t) => t.parentId).filter((id): id is string => id !== null))]
   if (parentIds.length === 0) return []
   return db.select({ id: tasks.id, code: tasks.code, title: tasks.title }).from(tasks).where(inArray(tasks.id, parentIds))
 }
 
-// Tasknista §Epic Layer — ให้ frontend วาด swimlane ต่อ Epic บน Sprint Timeline โดยไม่ต้อง query เพิ่มฝั่ง client
+// Pronista §Epic Layer — ให้ frontend วาด swimlane ต่อ Epic บน Sprint Timeline โดยไม่ต้อง query เพิ่มฝั่ง client
 async function loadEpics(db: ReturnType<typeof createDb>, rowTasks: (typeof tasks.$inferSelect)[]) {
   const epicIds = [...new Set(rowTasks.map((t) => t.epicId).filter((id): id is string => id !== null))]
   if (epicIds.length === 0) return []
   return db.select({ id: epics.id, title: epics.title, code: epics.code }).from(epics).where(inArray(epics.id, epicIds))
 }
 
-// Tasknista §Back to Basic (ต่อยอด) — ข้อมูล Board ของ sprint เดียว (ใช้ทั้งใน /sprints/current ที่คืนทุก sprint พร้อมกัน และ /sprints/:id/board ของหน้า Board แยกต่อ sprint)
+// Pronista §Back to Basic (ต่อยอด) — ข้อมูล Board ของ sprint เดียว (ใช้ทั้งใน /sprints/current ที่คืนทุก sprint พร้อมกัน และ /sprints/:id/board ของหน้า Board แยกต่อ sprint)
 async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: typeof sprints.$inferSelect) {
   const preset = await loadPreset(db, sprint.boardPresetId)
   const rows = await db
@@ -40,7 +40,7 @@ async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: typeof s
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .where(eq(tasks.sprintId, sprint.id))
     .orderBy(asc(tasks.sortOrder))
-  // Tasknista §Sprint queueing — งานย่อยขั้นที่ 3 (ลูกของ Task ที่อยู่ใน Sprint นี้) ไม่ได้เข้า Sprint เอง แต่โชว์ให้เห็นบริบทได้ (กดขยายดู)
+  // Pronista §Sprint queueing — งานย่อยขั้นที่ 3 (ลูกของ Task ที่อยู่ใน Sprint นี้) ไม่ได้เข้า Sprint เอง แต่โชว์ให้เห็นบริบทได้ (กดขยายดู)
   const taskIds = rows.map((r) => r.task.id)
   const grandchildRows =
     taskIds.length > 0
@@ -60,7 +60,7 @@ async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: typeof s
   }
 }
 
-/** Sprint & Board (Tasknista §Sprint & Board) — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation, เหมือน taskRoutes) */
+/** Sprint & Board (Pronista §Sprint & Board) — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation, เหมือน taskRoutes) */
 export const sprintRoutes = new Hono<AppEnv>()
 
   // ประวัติ sprint ทั้งหมดของโปรเจกต์ (ใหม่→เก่า) — ใช้ทำหน้า log + เลือกดู report ย้อนหลัง
@@ -85,7 +85,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     )
   })
 
-  // Tasknista §Back to Basic — เดิม endpoint นี้คืนแค่ sprint เดียว ("current" = active ก่อนเสมอ ไม่งั้น planned เก่าสุด) พร้อม tasks ของตัวเอง
+  // Pronista §Back to Basic — เดิม endpoint นี้คืนแค่ sprint เดียว ("current" = active ก่อนเสมอ ไม่งั้น planned เก่าสุด) พร้อม tasks ของตัวเอง
   // ส่วนที่เหลือ (queued) ได้แค่ข้อมูล sprint เปล่าๆ ไม่มี tasks — ทำให้ลากงานเข้า queued sprint ไม่ได้เลยตั้งแต่ต้น (บั๊กที่พบจากข้อมูลจริง: sprint ที่ start ไปแล้วมี 0/0 งานเสมอ)
   // แก้โดยคืนทุก open sprint (active มาก่อนเสมอ ที่เหลือเรียงตาม createdAt) พร้อม tasks/subtasks/parents/epics ของตัวเองครบทุกอัน ให้ frontend render เป็นการ์ด dropzone เดียวกันหมด
   .get('/projects/:id/sprints/current', async (c) => {
@@ -98,7 +98,7 @@ export const sprintRoutes = new Hono<AppEnv>()
       .orderBy(asc(sprints.createdAt))
     const ordered = [...open.filter((s) => s.status === 'active'), ...open.filter((s) => s.status !== 'active')]
     const items = await Promise.all(ordered.map((sprint) => loadSprintBoard(db, sprint)))
-    // Tasknista §Back to Basic — คง sprint/preset/tasks/subtasks/parents/epics เดิมไว้ที่ระดับบนสุด (ชี้ไปที่ตัวแรกใน items เสมอ = active ถ้ามี) เพื่อไม่ให้ Board.tsx ที่ยังอ่านชื่อฟิลด์เดิมพังไป — เพิ่ม items ใหม่ให้ SprintSection ใช้ render ทุก sprint แยกกัน
+    // Pronista §Back to Basic — คง sprint/preset/tasks/subtasks/parents/epics เดิมไว้ที่ระดับบนสุด (ชี้ไปที่ตัวแรกใน items เสมอ = active ถ้ามี) เพื่อไม่ให้ Board.tsx ที่ยังอ่านชื่อฟิลด์เดิมพังไป — เพิ่ม items ใหม่ให้ SprintSection ใช้ render ทุก sprint แยกกัน
     const first = items[0]
     return c.json({
       sprints: items,
@@ -112,7 +112,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §Project Refactor — กลับลำดับสร้าง Sprint: กด "+ Sprint" สร้าง container ว่างทันที ไม่ต้องกรอกอะไรก่อน (วันที่ default ไปพลางๆ ยังไม่มีความหมายจนกว่าจะกด "เริ่ม Sprint")
+  // Pronista §Project Refactor — กลับลำดับสร้าง Sprint: กด "+ Sprint" สร้าง container ว่างทันที ไม่ต้องกรอกอะไรก่อน (วันที่ default ไปพลางๆ ยังไม่มีความหมายจนกว่าจะกด "เริ่ม Sprint")
   // ลากงานเข้าได้เลย (เข้าคิวเป็น 'planned') · เลือก Preset + ชื่อ/วันที่จริง/เป้าหมาย ทีหลังตอนกด "เริ่ม Sprint"
   .post('/projects/:id/sprints', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
@@ -171,7 +171,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     return c.json(updated[0])
   })
 
-  // เริ่ม sprint (planned → active) — เลือก Preset ตรงนี้ (Tasknista §Sprint & Board แก้ไข flow) แล้วจัดทุก task ที่ลากเข้ามาไว้ก่อนหน้าลงคอลัมน์แรกของบอร์ดพร้อมกัน
+  // เริ่ม sprint (planned → active) — เลือก Preset ตรงนี้ (Pronista §Sprint & Board แก้ไข flow) แล้วจัดทุก task ที่ลากเข้ามาไว้ก่อนหน้าลงคอลัมน์แรกของบอร์ดพร้อมกัน
   .post('/sprints/:id/start', teamOnly, async (c) => {
     const body = z
       .object({
@@ -191,7 +191,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     const role = await getProjectRole(db, before.projectId, me.id, me.role)
     if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
     if (before.status !== 'planned') return c.json({ error: 'invalid_state' }, 409)
-    // Tasknista §Back to Basic (ต่อยอด) — เดิมจำกัด active พร้อมกันได้แค่ 1 อันต่อโปรเจกต์ พี่แจ้งว่าอยากให้ Start พร้อมกันได้หลายอัน (แต่ละอันแยก Board ของตัวเอง — ดู GET /sprints/:id/board) จึงเอาเช็คนี้ออก
+    // Pronista §Back to Basic (ต่อยอด) — เดิมจำกัด active พร้อมกันได้แค่ 1 อันต่อโปรเจกต์ พี่แจ้งว่าอยากให้ Start พร้อมกันได้หลายอัน (แต่ละอันแยก Board ของตัวเอง — ดู GET /sprints/:id/board) จึงเอาเช็คนี้ออก
     const preset = await loadPreset(db, body.data.boardPresetId)
     if (!preset) return c.json({ error: 'invalid_preset' }, 400)
 
@@ -217,7 +217,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     return c.json(updated[0])
   })
 
-  // Tasknista §Back to Basic (ต่อยอด) — หน้า Board แยกต่อ sprint (หลาย sprint active พร้อมกันได้ ต้องระบุว่าดู sprint ไหน)
+  // Pronista §Back to Basic (ต่อยอด) — หน้า Board แยกต่อ sprint (หลาย sprint active พร้อมกันได้ ต้องระบุว่าดู sprint ไหน)
   .get('/sprints/:id/board', async (c) => {
     const db = createDb(c.env.DB)
     const sprint = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
@@ -240,7 +240,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     return c.json(after)
   })
 
-  // ลาก task จาก Backlog ของโปรเจกต์เข้า sprint — เฉพาะตอนยังไม่ Start (planned) เท่านั้น (Tasknista §Sprint & Board แก้ไข flow)
+  // ลาก task จาก Backlog ของโปรเจกต์เข้า sprint — เฉพาะตอนยังไม่ Start (planned) เท่านั้น (Pronista §Sprint & Board แก้ไข flow)
   // ยังไม่รู้คอลัมน์บอร์ด (เลือก preset ตอน start) — ตั้ง sprintStatus ว่างไว้ก่อน, ตอน start ค่อยจัดลงคอลัมน์แรกทีเดียว
   .post('/sprints/:id/tasks', teamOnly, async (c) => {
     const body = z.object({ taskId: z.string() }).safeParse(await c.req.json())
@@ -257,7 +257,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     if (!task) return c.json({ error: 'task_not_found' }, 404)
     if (task.projectId !== sprint.projectId) return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานใน Backlog ของโปรเจกต์นี้เท่านั้น' }, 400)
 
-    // Tasknista §Sprint & Board fix — ลาก Task พ่อของ SOW เข้า Sprint = ดึง subtask ทั้งหมดที่ยังอยู่ Backlog เข้าไปแทน (Task พ่อเองไม่เข้า sprint — ยังคงกฎเดิมที่ Task พ่อ SOW ลาก sprint โดยตรงไม่ได้)
+    // Pronista §Sprint & Board fix — ลาก Task พ่อของ SOW เข้า Sprint = ดึง subtask ทั้งหมดที่ยังอยู่ Backlog เข้าไปแทน (Task พ่อเองไม่เข้า sprint — ยังคงกฎเดิมที่ Task พ่อ SOW ลาก sprint โดยตรงไม่ได้)
     const isSowParent = task.originDocType === 'SOW' && task.parentId === null
     if (isSowParent) {
       const children = await db

@@ -38,7 +38,7 @@ async function findOrCreateSrsFolder(db: ReturnType<typeof createDb>, meId: stri
   return created[0]!
 }
 
-/** Tasknista §SRS import — นำเข้าเอกสาร SRS มาแตกเป็น Task (ผูก vendor teamOnly เหมือน docRoutes) */
+/** Pronista §SRS import — นำเข้าเอกสาร SRS มาแตกเป็น Task (ผูก vendor teamOnly เหมือน docRoutes) */
 export const docsSrsRoutes = new Hono<AppEnv>()
 
   // อัปโหลด + พาร์สหาโครงสร้าง — ยังไม่สร้างอะไรลง DB (แค่ stash ไฟล์ไว้ที่ R2 ชั่วคราว)

@@ -1,4 +1,4 @@
--- Tasknista §attachment links — task_attachments รองรับลิงก์ภายนอก (Google Docs/Figma/Canva/อื่นๆ) นอกเหนือจากไฟล์อัปโหลด
+-- Pronista §attachment links — task_attachments รองรับลิงก์ภายนอก (Google Docs/Figma/Canva/อื่นๆ) นอกเหนือจากไฟล์อัปโหลด
 -- 1 แถวเป็นได้ทั้งไฟล์ (r2_key มีค่า) หรือลิงก์ (external_url มีค่า) — ทำ r2_key/mime/size_bytes ให้ nullable ได้
 -- task_attachments ไม่มีตารางอื่นอ้าง FK เข้ามา (ไม่ใช่ FK target) — rebuild ตรงๆ ได้เลยไม่ต้อง backup/restore แบบตาราง sprints
 CREATE TABLE `__new_task_attachments` (

@@ -1,4 +1,4 @@
--- Tasknista §2.12 — migrate ค่าสถานะเดิม todo/doing → non_start/on_processing ก่อนเปลี่ยนโครงตาราง (done คงเดิม)
+-- Pronista §2.12 — migrate ค่าสถานะเดิม todo/doing → non_start/on_processing ก่อนเปลี่ยนโครงตาราง (done คงเดิม)
 UPDATE `tasks` SET `status` = 'non_start' WHERE `status` = 'todo';--> statement-breakpoint
 UPDATE `tasks` SET `status` = 'on_processing' WHERE `status` = 'doing';--> statement-breakpoint
 PRAGMA defer_foreign_keys=ON;--> statement-breakpoint

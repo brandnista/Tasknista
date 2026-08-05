@@ -103,7 +103,7 @@ export function Layout() {
   }, [])
 
   const items = useMemo(() => (user ? NAV.filter((n) => n.roles.includes(user.role)) : []), [user])
-  // Tasknista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
+  // Pronista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
   const activeTo = useMemo(() => {
     const path = location.pathname
     const matches = items.filter((n) => path === n.to || (n.to !== '/' && path.startsWith(`${n.to}/`)))
@@ -124,7 +124,7 @@ export function Layout() {
           <ListChecks className="w-5 h-5" />
         </div>
         <div>
-          <div className="font-bold text-ink leading-none">Tasknista</div>
+          <div className="font-bold text-ink leading-none">Pronista</div>
           <div className="text-[11px] text-muted mt-0.5">Project Management</div>
         </div>
         <button
@@ -196,7 +196,7 @@ export function Layout() {
             <div className="w-7 h-7 rounded-lg bg-linear-to-br from-brand-500 to-brand-700 grid place-items-center text-white shadow-sm">
               <ListChecks className="w-4 h-4" />
             </div>
-            <div className="font-bold text-ink leading-none">Tasknista</div>
+            <div className="font-bold text-ink leading-none">Pronista</div>
             <button
               onClick={() => setNavOpen(true)}
               aria-label="เมนู"

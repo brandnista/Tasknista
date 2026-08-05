@@ -24,11 +24,11 @@ interface MyTask extends KanbanTask {
   projectId: string
   projectName: string
   myRole: 'owner' | 'editor' | 'viewer'
-  // Tasknista §SOW Task/Subtask — ใช้กรอง "งานย่อยที่รอทำ" ใน widget My Work ใหม่
+  // Pronista §SOW Task/Subtask — ใช้กรอง "งานย่อยที่รอทำ" ใน widget My Work ใหม่
   parentId: string | null
-  // Tasknista §Task lifecycle accept step — ใช้เช็คว่างานนี้จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start)
+  // Pronista §Task lifecycle accept step — ใช้เช็คว่างานนี้จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start)
   dispatchedAt: string | number | null
-  // Tasknista §My Work UX — ใช้คำนวณ "เสร็จวันนี้"/"ส่งตรวจวันนี้" + ตัวกรอง Sprint/Backlog
+  // Pronista §My Work UX — ใช้คำนวณ "เสร็จวันนี้"/"ส่งตรวจวันนี้" + ตัวกรอง Sprint/Backlog
   completedAt: string | number | null
   submittedAt: string | number | null
   sprintId: string | null
@@ -49,11 +49,11 @@ interface NotificationRow {
 
 const PRIORITY_ORDER: Record<MyTask['priority'], number> = { high: 0, normal: 1, low: 2 }
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
-// Tasknista §My Work UX — completedAt/submittedAt มาจาก API เป็น ISO string (Date ถูก serialize ผ่าน JSON) ต้อง +7h ก่อนตัดเป็นวันที่ไทย
+// Pronista §My Work UX — completedAt/submittedAt มาจาก API เป็น ISO string (Date ถูก serialize ผ่าน JSON) ต้อง +7h ก่อนตัดเป็นวันที่ไทย
 const bkkDay = (x: string | number) => new Date(new Date(x).getTime() + 7 * 3_600_000).toISOString().slice(0, 10)
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00+07:00`) - Date.parse(`${a}T00:00:00+07:00`)) / 86_400_000)
 
-/** Tasknista §My Work/Notification — งานย่อยของฉันที่ยังไม่เสร็จ เรียง priority แล้ว deadline พร้อมปุ่มติ๊กเสร็จตรงๆ */
+/** Pronista §My Work/Notification — งานย่อยของฉันที่ยังไม่เสร็จ เรียง priority แล้ว deadline พร้อมปุ่มติ๊กเสร็จตรงๆ */
 function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onComplete: (id: string) => void }) {
   const pending = tasks
     .filter((t) => t.parentId && t.status !== 'done')
@@ -84,7 +84,7 @@ function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTas
   )
 }
 
-/** Tasknista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน */
+/** Pronista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน */
 function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onAccept: (id: string) => void }) {
   const pending = tasks.filter((t) => t.dispatchedAt && t.status === 'non_start')
   if (pending.length === 0) return null
@@ -111,7 +111,7 @@ function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[
   )
 }
 
-/** Tasknista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
+/** Pronista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
 function DispatchedByMeTab({ tasks, onOpenTask }: { tasks: DispatchedRow[]; onOpenTask: (id: string) => void }) {
   if (tasks.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีงานที่จ่ายให้คนอื่น</div>
   return (
@@ -129,7 +129,7 @@ function DispatchedByMeTab({ tasks, onOpenTask }: { tasks: DispatchedRow[]; onOp
   )
 }
 
-/** Tasknista §My Work/Notification — รายการแจ้งเตือน assign/complete Subtask (ในระบบเท่านั้น ไม่ส่งอีเมล) */
+/** Pronista §My Work/Notification — รายการแจ้งเตือน assign/complete Subtask (ในระบบเท่านั้น ไม่ส่งอีเมล) */
 function NotificationsTab({ notifications, onRead }: { notifications: NotificationRow[]; onRead: (id: string) => void }) {
   if (notifications.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีการแจ้งเตือน</div>
   return (
@@ -157,7 +157,7 @@ function NotificationsTab({ notifications, onRead }: { notifications: Notificati
   )
 }
 
-/** Tasknista §My Work UX — แถบสรุปสถิติแบบบรรทัดเดียว แทนการ์ดหลายแถวเดิม (กันเปลืองพื้นที่จอ) */
+/** Pronista §My Work UX — แถบสรุปสถิติแบบบรรทัดเดียว แทนการ์ดหลายแถวเดิม (กันเปลืองพื้นที่จอ) */
 function StatStrip({ stats }: { stats: { label: string; value: number; tone?: 'danger' | 'success' }[] }) {
   return (
     <div className="flex bg-white rounded-lg shadow-xs border border-border-subtle overflow-x-auto mb-3 divide-x divide-divider">
@@ -171,7 +171,7 @@ function StatStrip({ stats }: { stats: { label: string; value: number; tone?: 'd
   )
 }
 
-/** Tasknista §My Work UX — มุมมองตาราง (List View) ทางเลือกของ Board ใช้ตอนมี subtask เยอะ scan ทีละบรรทัดง่ายกว่า */
+/** Pronista §My Work UX — มุมมองตาราง (List View) ทางเลือกของ Board ใช้ตอนมี subtask เยอะ scan ทีละบรรทัดง่ายกว่า */
 function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id: string) => void }) {
   if (tasks.length === 0) return <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-10">ไม่พบงานตามตัวกรองนี้</div>
   return (
@@ -214,7 +214,7 @@ function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id:
   )
 }
 
-/** Tasknista §My Work UX — Daily Accomplishment: สรุปผลงานประจำวัน + คัดลอกเป็นข้อความ Markdown ส่งกลุ่มแชท */
+/** Pronista §My Work UX — Daily Accomplishment: สรุปผลงานประจำวัน + คัดลอกเป็นข้อความ Markdown ส่งกลุ่มแชท */
 function DailySummaryModal({ open, onClose, userName, completedToday, inProgress, blockers }: {
   open: boolean
   onClose: () => void
@@ -302,7 +302,7 @@ export function MyTasksPage() {
   const unreadCount = notifications.filter((n) => !n.isRead).length
   const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched'>('work')
 
-  // Tasknista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
+  // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
   const [search, setSearch] = useState('')
   const [projectFilter, setProjectFilter] = useState('all')
   const [spFilter, setSpFilter] = useState<'all' | 'sprint' | 'backlog' | 'high'>('all')
@@ -329,9 +329,9 @@ export function MyTasksPage() {
   const isSubmittedToday = (t: MyTask) => !!t.submittedAt && bkkDay(t.submittedAt) === today
   const isOverdue = (t: MyTask) => !!t.dueDate && t.dueDate < today && t.status !== 'done'
 
-  // Tasknista §My Work/Notification — 2 stat เพิ่มเติมตามสเปก (คำนวณฝั่ง client จากข้อมูลที่โหลดอยู่แล้ว ไม่ต้องเพิ่ม endpoint)
+  // Pronista §My Work/Notification — 2 stat เพิ่มเติมตามสเปก (คำนวณฝั่ง client จากข้อมูลที่โหลดอยู่แล้ว ไม่ต้องเพิ่ม endpoint)
   const assignedProjectsCount = new Set(tasks.map((t) => t.projectId)).size
-  // Tasknista §Task lifecycle notifications — งานที่ถูกตีกลับล่าสุด (แจ้งเตือนยังไม่อ่าน) โชว์ป้าย "ตีกลับ" ในบอร์ด
+  // Pronista §Task lifecycle notifications — งานที่ถูกตีกลับล่าสุด (แจ้งเตือนยังไม่อ่าน) โชว์ป้าย "ตีกลับ" ในบอร์ด
   const bouncedTaskIds = new Set(notifications.filter((n) => n.type === 'task_bounced' && !n.isRead && n.taskId).map((n) => n.taskId!))
 
   const projectOptions = useMemo(() => {
@@ -365,7 +365,7 @@ export function MyTasksPage() {
     })
   }, [tasks, search, projectFilter, spFilter, dateFilter, todayOnly, today])
 
-  // Tasknista §My Work UX — Daily Accomplishment: 3 กลุ่มสำหรับ "สรุปผลงานประจำวัน" (คำนวณจากงานทั้งหมด ไม่ผูกกับตัวกรองบนจอ)
+  // Pronista §My Work UX — Daily Accomplishment: 3 กลุ่มสำหรับ "สรุปผลงานประจำวัน" (คำนวณจากงานทั้งหมด ไม่ผูกกับตัวกรองบนจอ)
   const completedTodayList = tasks.filter((t) => isDoneToday(t) || isSubmittedToday(t))
   const inProgressList = tasks.filter((t) => t.status === 'on_processing')
   const blockersList = tasks.filter((t) => isOverdue(t) || (t.kind === 'defect' && t.status !== 'done'))

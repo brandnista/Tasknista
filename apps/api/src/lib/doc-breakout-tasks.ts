@@ -27,7 +27,7 @@ export interface BreakoutItemInput {
 }
 
 /**
- * Tasknista §Document Traceability — สร้าง Task จริงจากรายการที่แตกออกจากเอกสาร MOM/BRD/SOW/SRS (ผ่านตาราง breakoutToTasks)
+ * Pronista §Document Traceability — สร้าง Task จริงจากรายการที่แตกออกจากเอกสาร MOM/BRD/SOW/SRS (ผ่านตาราง breakoutToTasks)
  * เวอร์ชัน generic ของ createTasksFromSrsItems (srs-tasks.ts) ที่ยังคงอยู่แยกต่างหากสำหรับ flow SRS เดิมจากหน้าโปรเจกต์ (ไม่แตะ)
  * ใช้ร่วมกัน 2 ทาง: (1) ปุ่ม "แตกเป็น Task" ในฟอร์ม Template (`docs.ts` POST /docs/:id/breakout) (2) อัปโหลดไฟล์ Word จริง (`docs-upload-breakout.ts`)
  * นอกจากเดินเลขที่งาน + รหัสอ้างอิง (origin-code.ts) แล้ว ยัง resolve `referenceCodes[]` → หา Task ในโปรเจกต์เดียวกันที่ originCode ตรงกัน → insert task_references

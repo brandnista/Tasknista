@@ -1,4 +1,4 @@
--- Tasknista §SRS import
+-- Pronista §SRS import
 ALTER TABLE `docs` ADD `srs_doc_number` text;
 --> statement-breakpoint
 ALTER TABLE `docs` ADD `srs_version` text;

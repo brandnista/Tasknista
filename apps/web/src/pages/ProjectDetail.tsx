@@ -31,7 +31,7 @@ export interface BoardTask {
   startDate: string | null
   dueDate: string | null
   starredToday: boolean
-  // Tasknista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
+  // Pronista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
   srsRefCode?: string | null
   srsDocId?: string | null
 }
@@ -52,16 +52,16 @@ interface ProjectBacklogTask {
   priority: 'low' | 'normal' | 'high'
   kind: 'task' | 'defect'
   assigneeName: string | null
-  // Tasknista §SRS import — งานที่แตกมาจากเอกสาร SRS ผ่าน flow เดิม (มี srsDocId แต่ไม่มี originDocType) แยกแถบจาก Backlog ทั่วไป
+  // Pronista §SRS import — งานที่แตกมาจากเอกสาร SRS ผ่าน flow เดิม (มี srsDocId แต่ไม่มี originDocType) แยกแถบจาก Backlog ทั่วไป
   srsRefCode?: string | null
   srsDocId?: string | null
-  // Tasknista §Document Traceability — เวอร์ชัน generic ของ SRS fields ด้านบน ใช้กับทุกประเภทเอกสารที่แตกผ่าน flow ใหม่
+  // Pronista §Document Traceability — เวอร์ชัน generic ของ SRS fields ด้านบน ใช้กับทุกประเภทเอกสารที่แตกผ่าน flow ใหม่
   originDocType?: 'MOM' | 'BRD' | 'SOW' | 'SRS' | 'PEP' | 'UIR' | null
   originRefCode?: string | null
   originDocId?: string | null
-  // Tasknista §SOW Task/Subtask — Subtask ของ SOW โผล่ใน Backlog ด้วย (ต่างจาก subtask ทั่วไปที่ยังซ่อน) เพื่อจัดเป็น tree ใต้ Task พ่อ
+  // Pronista §SOW Task/Subtask — Subtask ของ SOW โผล่ใน Backlog ด้วย (ต่างจาก subtask ทั่วไปที่ยังซ่อน) เพื่อจัดเป็น tree ใต้ Task พ่อ
   parentId?: string | null
-  // Tasknista §Epic Layer — Epic ที่ Task/Subtask นี้สังกัด (null = ยังไม่ได้สังกัด Epic ใด)
+  // Pronista §Epic Layer — Epic ที่ Task/Subtask นี้สังกัด (null = ยังไม่ได้สังกัด Epic ใด)
   epicId?: string | null
   epicTitle?: string | null
   epicCode?: string | null
@@ -69,11 +69,11 @@ interface ProjectBacklogTask {
 interface BacklogEpic { id: string; title: string; code: string | null; doneCount: number; totalCount: number }
 interface BacklogResponse { tasks: ProjectBacklogTask[]; epics: BacklogEpic[] }
 
-// Tasknista §SOW Task/Subtask — เฉพาะ SOW เท่านั้นที่แตกเป็น Task ใหม่ได้แล้ว (MOM/BRD/SRS/PEP/UIR ปิดใช้งาน) — คงรายชื่อทุกประเภทไว้เผื่องานเก่าที่แตกไว้ก่อนหน้ายังค้างอยู่ใน Backlog (ไม่ซ่อนข้อมูลเก่า)
+// Pronista §SOW Task/Subtask — เฉพาะ SOW เท่านั้นที่แตกเป็น Task ใหม่ได้แล้ว (MOM/BRD/SRS/PEP/UIR ปิดใช้งาน) — คงรายชื่อทุกประเภทไว้เผื่องานเก่าที่แตกไว้ก่อนหน้ายังค้างอยู่ใน Backlog (ไม่ซ่อนข้อมูลเก่า)
 // แท็บที่โชว์จริงมาจากข้อมูล (docTabsPresent ด้านล่าง) จึงเหลือแค่ "ทั่วไป + SOW" โดยธรรมชาติสำหรับโปรเจกต์ใหม่ ไม่ต้องบังคับ hardcode
 const BACKLOG_DOC_TABS = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR'] as const
-// Tasknista §Back to Basic — Tab บนสุดของหน้าโปรเจกต์เหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร ย้าย Epic/Story/Task/Defect/CR มาเป็น sub-tab คงที่ของ Backlog แทน (ต่างจาก tab เอกสารด้านบนที่โชว์เฉพาะเมื่อมีข้อมูล — 5 อันนี้โชว์เสมอ)
-// Tasknista §Back to Basic (ต่อยอด) — เพิ่ม "summary" ดูภาพรวมโครงสร้าง Epic>Story>Task>Subtask ทั้งโปรเจกต์
+// Pronista §Back to Basic — Tab บนสุดของหน้าโปรเจกต์เหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร ย้าย Epic/Story/Task/Defect/CR มาเป็น sub-tab คงที่ของ Backlog แทน (ต่างจาก tab เอกสารด้านบนที่โชว์เฉพาะเมื่อมีข้อมูล — 5 อันนี้โชว์เสมอ)
+// Pronista §Back to Basic (ต่อยอด) — เพิ่ม "summary" ดูภาพรวมโครงสร้าง Epic>Story>Task>Subtask ทั้งโปรเจกต์
 const FIXED_BACKLOG_TABS = ['epic', 'story', 'task', 'defect', 'cr', 'summary'] as const
 type BacklogTab = 'regular' | (typeof BACKLOG_DOC_TABS)[number] | (typeof FIXED_BACKLOG_TABS)[number]
 /** แท็บของงานหนึ่งชิ้น — originDocType (flow ใหม่) มาก่อน, ไม่มีก็ fallback ไป SRS ถ้ามี srsDocId (flow เดิม), ไม่งั้นเป็นงานทั่วไป */
@@ -91,8 +91,8 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   dragging?: boolean
   selected?: boolean
   onToggleSelect?: () => void
-  // Tasknista §Project Refactor — เมนู "จัดการ": Epic/Story/CR ทำทันที · Task/Subtask ต้องเลือก parent ก่อน (เปิด picker ที่ parent component)
-  // Tasknista §Back to Basic (ต่อยอด) — Defect ย้ายมาทำทันทีเหมือนกัน (ผูกกับ Epic/Story/Task แบบอ้างอิงทีหลังผ่านปุ่ม 🔗 ไม่ใช่เลือก parent ตอนแปลง)
+  // Pronista §Project Refactor — เมนู "จัดการ": Epic/Story/CR ทำทันที · Task/Subtask ต้องเลือก parent ก่อน (เปิด picker ที่ parent component)
+  // Pronista §Back to Basic (ต่อยอด) — Defect ย้ายมาทำทันทีเหมือนกัน (ผูกกับ Epic/Story/Task แบบอ้างอิงทีหลังผ่านปุ่ม 🔗 ไม่ใช่เลือก parent ตอนแปลง)
   onConvertDirect?: (to: 'epic' | 'story' | 'cr' | 'defect') => void
   onConvertPick?: (to: 'task' | 'subtask') => void
 }) {
@@ -146,10 +146,10 @@ const BACKLOG_TAB_LABEL: Record<BacklogTab, string> = {
   epic: 'EPIC', story: 'Story', task: 'Task', defect: 'Defect', cr: 'CR', summary: '🌳 ภาพรวมโครงสร้าง',
 }
 
-/** Tasknista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
- * Tasknista §Document Traceability (2026-07-10) — แท็บตามประเภทเอกสารต้นทาง (ทั่วไป/MOM/BRD/SOW/SRS/PROP) แทนที่ 2 แถบเดิม (ทั่วไป/จาก SRS)
+/** Pronista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
+ * Pronista §Document Traceability (2026-07-10) — แท็บตามประเภทเอกสารต้นทาง (ทั่วไป/MOM/BRD/SOW/SRS/PROP) แทนที่ 2 แถบเดิม (ทั่วไป/จาก SRS)
  * แสดงเฉพาะแท็บที่มีงานจริง (เหมือนพฤติกรรมเดิมที่ซ่อนแถบ SRS ถ้ายังไม่มีงานจาก SRS) + เลือกหลายรายการลบทีเดียวได้ · ลากแถวไปวางใน Sprint (มุมมอง Sprint) ได้ */
-// Tasknista §Position-based permission — map แท็บย่อยใน Backlog → key ใน myPermissions.tabs (ควบคุมการมองเห็น)
+// Pronista §Position-based permission — map แท็บย่อยใน Backlog → key ใน myPermissions.tabs (ควบคุมการมองเห็น)
 const BACKLOG_TAB_TO_PERMISSION_KEY: Record<(typeof FIXED_BACKLOG_TABS)[number], PermissionTabKey> = {
   epic: 'backlogEpic',
   story: 'backlogStory',
@@ -165,13 +165,13 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
   permissions?: PositionPermissions
   onOpenTask: (id: string) => void
   refreshKey: number
-  // Tasknista §Sprint & Board fix — เพิ่ม nonce ทุกครั้งเพื่อบังคับสลับแท็บได้แม้เป็นแท็บเดิมซ้ำ (เช่นเอาออกจาก Sprint 2 ครั้งติดจากแท็บเดียวกัน)
+  // Pronista §Sprint & Board fix — เพิ่ม nonce ทุกครั้งเพื่อบังคับสลับแท็บได้แม้เป็นแท็บเดิมซ้ำ (เช่นเอาออกจาก Sprint 2 ครั้งติดจากแท็บเดียวกัน)
   revealTab?: { tab: BacklogTab; nonce: number } | null
 }) {
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   const [title, setTitle] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
-  // Tasknista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
+  // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
   const rowManageProps = (taskId: string) =>
     canEdit
@@ -181,10 +181,10 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
         }
       : {}
   const [tab, setTab] = useState<BacklogTab>('regular')
-  // Tasknista §Back to Basic (ต่อยอด) — Epic/Story ซ่อนเป็นค่าเริ่มต้น (เก็บที่ localStorage ต่อเครื่อง)
+  // Pronista §Back to Basic (ต่อยอด) — Epic/Story ซ่อนเป็นค่าเริ่มต้น (เก็บที่ localStorage ต่อเครื่อง)
   const [showEpicStory, setShowEpicStory] = useState(() => localStorage.getItem('tasknista_show_epic_story') === '1')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  // Tasknista §Epic Layer — Epic ที่พับเก็บอยู่ (ค่าเริ่มต้น = กางทั้งหมด, กดครั้งแรกถึงจะพับ)
+  // Pronista §Epic Layer — Epic ที่พับเก็บอยู่ (ค่าเริ่มต้น = กางทั้งหมด, กดครั้งแรกถึงจะพับ)
   const [closedEpics, setClosedEpics] = useState<Set<string>>(new Set())
   const toggleEpicOpen = (epicId: string) =>
     setClosedEpics((s) => {
@@ -193,7 +193,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
       else next.add(epicId)
       return next
     })
-  // Tasknista §Sprint hierarchy — งานย่อยขั้นที่ 3 (ลูกของ Task ที่เพิ่มเองในหน้ารายละเอียด) กางดูได้ในแท็บ SOW เช่นกัน
+  // Pronista §Sprint hierarchy — งานย่อยขั้นที่ 3 (ลูกของ Task ที่เพิ่มเองในหน้ารายละเอียด) กางดูได้ในแท็บ SOW เช่นกัน
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const toggleTaskExpand = (id: string) =>
     setExpandedTasks((s) => {
@@ -224,12 +224,12 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
 
   const add = async () => {
     if (!title.trim()) return
-    // Tasknista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
+    // Pronista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
     await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
     setTitle('')
     void reload()
   }
-  // Tasknista §Back to Basic (ต่อยอด) — สร้าง Task เพิ่มเองตรงในแท็บเอกสาร (เช่น SOW) นอกเหนือจากที่แตกมาจากการอัปโหลดเอกสารเท่านั้น
+  // Pronista §Back to Basic (ต่อยอด) — สร้าง Task เพิ่มเองตรงในแท็บเอกสาร (เช่น SOW) นอกเหนือจากที่แตกมาจากการอัปโหลดเอกสารเท่านั้น
   const [docTabTitle, setDocTabTitle] = useState('')
   const addDocTabTask = async (docTab: (typeof BACKLOG_DOC_TABS)[number]) => {
     if (!docTabTitle.trim()) return
@@ -315,7 +315,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
               projectId={projectId}
               level="task"
               canEdit={canEdit}
-              // Tasknista §Position-based permission — ตัวอย่าง granular action แรก: ปุ่มสร้าง Task เช็ค actions.task.create ของตำแหน่งโดยเฉพาะ (ละเอียดกว่า canEdit เดิม)
+              // Pronista §Position-based permission — ตัวอย่าง granular action แรก: ปุ่มสร้าง Task เช็ค actions.task.create ของตำแหน่งโดยเฉพาะ (ละเอียดกว่า canEdit เดิม)
               canCreate={canEdit && (permissions?.actions.task.create ?? true)}
               onOpenTask={onOpenTask}
             />
@@ -369,8 +369,8 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
           {tab === 'regular' ? 'ยังไม่มีงานใน Backlog ของโปรเจกต์นี้' : `ยังไม่มีงานจากเอกสาร ${BACKLOG_TAB_LABEL[tab]}`}
         </div>
       ) : tab === 'SOW' ? (
-        // Tasknista §SOW Task/Subtask — แท็บ SOW แสดงเป็น tree: Task พ่อ (ลากทั้งก้อน = ดึง subtask ทั้งหมดเข้า Sprint แทน) + Subtask ลูกย่อหน้าใต้ (ลากทีละตัวได้เหมือนเดิม)
-        // Tasknista §Epic Layer — Task พ่อที่มี epicId ถูกครอบด้วย accordion Epic อีกชั้น (1 เอกสาร SOW ที่อัปโหลด = 1 Epic) พร้อมแถบ % ความคืบหน้ารวม
+        // Pronista §SOW Task/Subtask — แท็บ SOW แสดงเป็น tree: Task พ่อ (ลากทั้งก้อน = ดึง subtask ทั้งหมดเข้า Sprint แทน) + Subtask ลูกย่อหน้าใต้ (ลากทีละตัวได้เหมือนเดิม)
+        // Pronista §Epic Layer — Task พ่อที่มี epicId ถูกครอบด้วย accordion Epic อีกชั้น (1 เอกสาร SOW ที่อัปโหลด = 1 Epic) พร้อมแถบ % ความคืบหน้ารวม
         (() => {
           const parents = activeList.filter((t) => !t.parentId)
           const parentsByEpic = new Map<string, ProjectBacklogTask[]>()
@@ -397,7 +397,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
                 />
                 <div className="pl-6 border-l-2 border-border-subtle ml-1.5">
                   {children.map((child) => {
-                    // Tasknista §Sprint hierarchy — งานย่อยขั้นที่ 3 (เพิ่มเองในหน้ารายละเอียดของ Task นี้) กางดูได้
+                    // Pronista §Sprint hierarchy — งานย่อยขั้นที่ 3 (เพิ่มเองในหน้ารายละเอียดของ Task นี้) กางดูได้
                     const grandkids = activeList.filter((t) => t.parentId === child.id)
                     const isExpanded = expandedTasks.has(child.id)
                     return (
@@ -526,7 +526,7 @@ interface SprintRow {
 }
 const sprintLabel = (s: SprintRow) => s.name || `${fmtThaiDate(s.startDate)} – ${fmtThaiDate(s.endDate)}`
 
-// Tasknista §Sprint & Board แก้ไข flow — เลือกระยะเวลา Sprint แล้วคำนวณวันจบให้อัตโนมัติ (ยังแก้วันจบเองทีหลังได้ตามปกติ)
+// Pronista §Sprint & Board แก้ไข flow — เลือกระยะเวลา Sprint แล้วคำนวณวันจบให้อัตโนมัติ (ยังแก้วันจบเองทีหลังได้ตามปกติ)
 const SPRINT_DURATION_OPTIONS = [
   { value: '1w', label: '1 สัปดาห์', days: 7 },
   { value: '2w', label: '2 สัปดาห์', days: 14 },
@@ -542,7 +542,7 @@ const addDaysToDate = (dateStr: string, days: number) => {
   return d.toISOString().slice(0, 10)
 }
 
-/** Tasknista §Project Refactor — กลับลำดับสร้าง Sprint: กด "+ Sprint" สร้าง container ว่างทันที (ดู createInstantSprint ใน SprintSection)
+/** Pronista §Project Refactor — กลับลำดับสร้าง Sprint: กด "+ Sprint" สร้าง container ว่างทันที (ดู createInstantSprint ใน SprintSection)
  * ฟอร์มชื่อ/วันที่/ระยะเวลา/เป้าหมาย (เดิมอยู่ใน CreateSprintModal ตอนสร้าง) ย้ายมารวมกับการเลือก Preset ตรงนี้แทน — กรอกตอนกด "เริ่ม Sprint" ซึ่งเป็นจังหวะที่รู้ขอบเขตงานจริงแล้ว */
 function SprintStartModal({ sprintId, defaultStartDate, defaultEndDate, onClose, onStarted }: {
   sprintId: string
@@ -654,17 +654,17 @@ interface SprintItemData {
   sprint: SprintRow
   preset: BoardPreset | null
   tasks: ProjectBacklogTask[]
-  // Tasknista §Sprint hierarchy — งานย่อยขั้นที่ 3 (ลูกของ Task ที่อยู่ใน Sprint นี้) ไม่ได้เข้า Sprint เอง แต่โชว์บริบทได้ (กดขยายดู)
+  // Pronista §Sprint hierarchy — งานย่อยขั้นที่ 3 (ลูกของ Task ที่อยู่ใน Sprint นี้) ไม่ได้เข้า Sprint เอง แต่โชว์บริบทได้ (กดขยายดู)
   subtasks: ProjectBacklogTask[]
   parents: { id: string; code: string | null; title: string }[]
   epics: { id: string; title: string; code: string | null }[]
 }
 interface CurrentSprintData {
-  // Tasknista §Back to Basic — ทุก sprint ที่ยังไม่ completed (active มาก่อนเสมอ ที่เหลือเรียง createdAt) พร้อม tasks/subtasks/parents/epics ของตัวเองครบทุกอัน — แก้บั๊กเดิมที่ queued sprint ลากงานเข้าไม่ได้เพราะไม่มี tasks ของตัวเอง
+  // Pronista §Back to Basic — ทุก sprint ที่ยังไม่ completed (active มาก่อนเสมอ ที่เหลือเรียง createdAt) พร้อม tasks/subtasks/parents/epics ของตัวเองครบทุกอัน — แก้บั๊กเดิมที่ queued sprint ลากงานเข้าไม่ได้เพราะไม่มี tasks ของตัวเอง
   sprints?: SprintItemData[]
 }
 
-/** Tasknista §Sprint & Board — Default view ตอนเข้าโปรเจกต์: จัดการ Backlog เข้า Sprint + ดูประวัติ/report ย้อนหลัง
+/** Pronista §Sprint & Board — Default view ตอนเข้าโปรเจกต์: จัดการ Backlog เข้า Sprint + ดูประวัติ/report ย้อนหลัง
  * §Sprint & Board แก้ไข flow — ลาก task มาจาก ProjectBacklogSection (Backlog เดียวของโปรเจกต์) วางที่นี่แทนปุ่ม +Sprint เดิม
  * เลือก Preset ตอนกด "เริ่ม Sprint" แทนตอนสร้าง (SprintStartModal) · เพิ่ม/ปิด sprint กระทบ Backlog ของโปรเจกต์ → เรียก onBacklogChanged ให้ ProjectBacklogSection รีโหลดด้วย */
 function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: string; canEdit: boolean; onBacklogChanged: (revealTab?: BacklogTab) => void }) {
@@ -672,12 +672,12 @@ function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: st
   const { data, reload } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
   const { data: history, reload: reloadHistory } = useLoad<SprintRow[]>(() => api.get(`/api/projects/${projectId}/sprints`), [projectId])
   const [instantCreating, setInstantCreating] = useState(false)
-  // Tasknista §Sprint queueing — ใช้ตัวเดียวเปิด SprintStartModal ได้ทั้ง sprint ปัจจุบันและ sprint ที่รอคิว (เก็บวันที่ placeholder ของ sprint นั้นไว้ทำ default ในฟอร์ม)
+  // Pronista §Sprint queueing — ใช้ตัวเดียวเปิด SprintStartModal ได้ทั้ง sprint ปัจจุบันและ sprint ที่รอคิว (เก็บวันที่ placeholder ของ sprint นั้นไว้ทำ default ในฟอร์ม)
   const [starting, setStarting] = useState<{ id: string; startDate: string; endDate: string } | null>(null)
-  // Tasknista §Back to Basic — เก็บ id ของ sprint การ์ดที่กำลังลากผ่านอยู่ (แทน boolean เดียว) เพราะตอนนี้มีหลายการ์ด drop ได้พร้อมกัน
+  // Pronista §Back to Basic — เก็บ id ของ sprint การ์ดที่กำลังลากผ่านอยู่ (แทน boolean เดียว) เพราะตอนนี้มีหลายการ์ด drop ได้พร้อมกัน
   const [dropHoverId, setDropHoverId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // Tasknista §Sprint hierarchy — Epic ที่พับเก็บ + Task ที่กางดู Subtask ขั้นที่ 3 อยู่
+  // Pronista §Sprint hierarchy — Epic ที่พับเก็บ + Task ที่กางดู Subtask ขั้นที่ 3 อยู่
   const [closedEpics, setClosedEpics] = useState<Set<string>>(new Set())
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const toggleEpicOpen = (id: string) => setClosedEpics((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -692,12 +692,12 @@ function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: st
     onBacklogChanged()
   }
   const removeFromSprint = async (sprintId: string, taskId: string) => {
-    // Tasknista §Sprint & Board fix — งานที่มาจากเอกสาร (SOW/UIR/ฯลฯ) กลับเข้าแท็บเอกสารนั้น ไม่ใช่แท็บ "ทั่วไป" ที่เปิดค้างอยู่ — ต้องบอก ProjectBacklogSection ให้สลับแท็บไปเปิดให้ ไม่งั้นดูเหมือนงานหายไปเลย (เจอจริงจากการทดสอบ)
+    // Pronista §Sprint & Board fix — งานที่มาจากเอกสาร (SOW/UIR/ฯลฯ) กลับเข้าแท็บเอกสารนั้น ไม่ใช่แท็บ "ทั่วไป" ที่เปิดค้างอยู่ — ต้องบอก ProjectBacklogSection ให้สลับแท็บไปเปิดให้ ไม่งั้นดูเหมือนงานหายไปเลย (เจอจริงจากการทดสอบ)
     const removed = await api.delete<{ originDocType: ProjectBacklogTask['originDocType']; srsDocId: string | null }>(`/api/sprints/${sprintId}/tasks/${taskId}`)
     reloadAll()
     onBacklogChanged(removed.originDocType ?? (removed.srsDocId ? 'SRS' : 'regular'))
   }
-  // Tasknista §Project Refactor — กด "+ Sprint" สร้าง container ว่างทันที ไม่ต้องกรอกฟอร์มก่อน (ฟอร์มย้ายไปตอน "เริ่ม Sprint" แทน)
+  // Pronista §Project Refactor — กด "+ Sprint" สร้าง container ว่างทันที ไม่ต้องกรอกฟอร์มก่อน (ฟอร์มย้ายไปตอน "เริ่ม Sprint" แทน)
   const createInstantSprint = async () => {
     setInstantCreating(true)
     try {
@@ -719,7 +719,7 @@ function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: st
     }
   }
 
-  // Tasknista §Back to Basic — การ์ด Sprint หนึ่งใบ (ใช้ซ้ำทั้ง active และ planned ทุกอัน ไม่แยก "current vs queued" อีกต่อไป — แก้บั๊กเดิมที่ลากงานเข้า queued sprint ไม่ได้เพราะไม่เคยมี dropzone/tasks ของตัวเอง)
+  // Pronista §Back to Basic — การ์ด Sprint หนึ่งใบ (ใช้ซ้ำทั้ง active และ planned ทุกอัน ไม่แยก "current vs queued" อีกต่อไป — แก้บั๊กเดิมที่ลากงานเข้า queued sprint ไม่ได้เพราะไม่เคยมี dropzone/tasks ของตัวเอง)
   const renderSprintCard = (item: SprintItemData) => {
     const { sprint } = item
     const sprintTasks = item.tasks
@@ -873,7 +873,7 @@ function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: st
       ) : (
         <>
           {sprintItems.map(renderSprintCard)}
-          {/* Tasknista §Sprint queueing — สร้าง Sprint เพิ่มได้เรื่อยๆ ไม่ต้องรอ sprint ไหนปิดก่อน (เข้าคิวเป็น 'planned' — การ์ดเดียวกับที่มีอยู่แล้วทุกใบด้านบน) */}
+          {/* Pronista §Sprint queueing — สร้าง Sprint เพิ่มได้เรื่อยๆ ไม่ต้องรอ sprint ไหนปิดก่อน (เข้าคิวเป็น 'planned' — การ์ดเดียวกับที่มีอยู่แล้วทุกใบด้านบน) */}
           {canEdit && (
             <button onClick={() => void createInstantSprint()} disabled={instantCreating} className="inline-flex items-center gap-1.5 text-sm border border-border-subtle bg-white rounded-lg px-3 py-2 text-dim hover:bg-hover disabled:opacity-40 shadow-xs">
               <Plus className="w-4 h-4" /> {instantCreating ? 'กำลังสร้าง…' : 'Sprint'}
@@ -937,8 +937,8 @@ const PROJECT_DOC_TABS = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR'] as const
 type ProjectDocTab = 'all' | (typeof PROJECT_DOC_TABS)[number]
 const PROJECT_DOC_TAB_LABEL: Record<ProjectDocTab, string> = { all: 'ทั้งหมด', MOM: 'MOM', BRD: 'BRD', SOW: 'SOW', SRS: 'SRS', PEP: 'PEP', UIR: 'UIR' }
 
-/** Tasknista §merge — Tab "เอกสาร" แทน Kanban/ตารางเดิม: เอกสารทั้งหมดที่ผูกไว้กับโปรเจกต์นี้ (ตรงๆ หรือผ่าน task/sub-task) กดแล้วพาไปเปิดที่เมนู "เอกสาร"
- * Tasknista §Document Management MVP — เพิ่ม sub-tabs ตามประเภทเอกสาร (เหมือน Backlog) เหนือรายการ แสดงเฉพาะแท็บที่มีเอกสารจริง */
+/** Pronista §merge — Tab "เอกสาร" แทน Kanban/ตารางเดิม: เอกสารทั้งหมดที่ผูกไว้กับโปรเจกต์นี้ (ตรงๆ หรือผ่าน task/sub-task) กดแล้วพาไปเปิดที่เมนู "เอกสาร"
+ * Pronista §Document Management MVP — เพิ่ม sub-tabs ตามประเภทเอกสาร (เหมือน Backlog) เหนือรายการ แสดงเฉพาะแท็บที่มีเอกสารจริง */
 function ProjectDocsSection({ projectId }: { projectId: string }) {
   const { data: docList } = useLoad<ProjectDoc[]>(() => api.get(`/api/projects/${projectId}/docs`), [projectId])
   const [tab, setTab] = useState<ProjectDocTab>('all')
@@ -1024,10 +1024,10 @@ interface AdminUserLite {
   jobTitle: string | null
 }
 
-/** Tasknista §Project Estimate — เห็นเฉพาะ owner (gate ที่ ProjectDetailPage ก่อนเรนเดอร์แล้ว, endpoint เองก็ ownerOnly ซ้ำที่ server) */
+/** Pronista §Project Estimate — เห็นเฉพาะ owner (gate ที่ ProjectDetailPage ก่อนเรนเดอร์แล้ว, endpoint เองก็ ownerOnly ซ้ำที่ server) */
 function ProjectEstimateSection({ projectId }: { projectId: string }) {
   const { data, reload } = useLoad<EstimateResponse>(() => api.get(`/api/projects/${projectId}/estimate`), [projectId])
-  // Tasknista §Project Estimate — ดึงรายชื่อตำแหน่งที่มีอยู่แล้วในทีมมาทำ dropdown เลือกซ้ำ (แทนพิมพ์เอง)
+  // Pronista §Project Estimate — ดึงรายชื่อตำแหน่งที่มีอยู่แล้วในทีมมาทำ dropdown เลือกซ้ำ (แทนพิมพ์เอง)
   const { data: allUsers } = useLoad<AdminUserLite[]>(() => api.get('/api/admin/users'))
   const [customRoleFor, setCustomRoleFor] = useState<string | null>(null)
   const money = (satang: number | null) => (satang != null ? formatSatang(satang) : '—')
@@ -1042,7 +1042,7 @@ function ProjectEstimateSection({ projectId }: { projectId: string }) {
     await api.patch(`/api/projects/${projectId}`, { estimateNetWorkingDays: n })
     await reload()
   }
-  // Tasknista §Project Estimate — PM กรอก Estimate W/H + Buffer % ตรงจากตารางนี้เลย ไม่ต้องเปิด Task/ไปหน้าตั้งค่า
+  // Pronista §Project Estimate — PM กรอก Estimate W/H + Buffer % ตรงจากตารางนี้เลย ไม่ต้องเปิด Task/ไปหน้าตั้งค่า
   const saveEstimateHours = async (taskId: string, v: string) => {
     await api.patch(`/api/tasks/${taskId}`, { estimateMinutes: v.trim() ? Math.round(Number(v) * 60) : null })
     await reload()
@@ -1051,7 +1051,7 @@ function ProjectEstimateSection({ projectId }: { projectId: string }) {
     await api.patch(`/api/tasks/${taskId}`, { costBufferPercent: v.trim() ? Math.round(Number(v)) : null })
     await reload()
   }
-  // Tasknista §Project Estimate — Role/Cost-Day ผูกกับ "คน" (users.jobTitle/costPerDaySatang) ไม่ใช่ต่อ task — แก้ที่นี่ = แก้ทุกแถวของคนนั้นพร้อมกัน (เหมือนแก้ที่หน้าตั้งค่า)
+  // Pronista §Project Estimate — Role/Cost-Day ผูกกับ "คน" (users.jobTitle/costPerDaySatang) ไม่ใช่ต่อ task — แก้ที่นี่ = แก้ทุกแถวของคนนั้นพร้อมกัน (เหมือนแก้ที่หน้าตั้งค่า)
   const saveJobTitle = async (assigneeId: string, jobTitle: string | null) => {
     await api.patch(`/api/admin/users/${assigneeId}`, { jobTitle })
     await reload()
@@ -1231,7 +1231,7 @@ interface ProjectAllTask {
   parentId: string | null
   parentTitle: string | null
   epicId: string | null
-  // Tasknista §Back to Basic (ต่อยอด) — คีย์ Task ลอยได้โดยไม่ต้องมี Story แม่ (แยกจาก Story ที่ parentId=null เหมือนกันแต่ flag นี้เป็น false)
+  // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยได้โดยไม่ต้องมี Story แม่ (แยกจาก Story ที่ parentId=null เหมือนกันแต่ flag นี้เป็น false)
   isStandaloneTask?: boolean
   status: TaskStatus
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
@@ -1240,8 +1240,8 @@ interface ProjectAllTask {
 const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
 const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
 
-/** Tasknista §Project Refactor — แท็บ "Defect" รวม Defect ทั้งหมดของโปรเจกต์ (รวมที่แปลงมาจาก Backlog ผ่านเมนู "จัดการ")
- * Tasknista §Back to Basic — ปุ่ม "🔗 เชื่อมโยง" ต่อแถว: ผูก Defect กับ Epic/Story/Task ใดก็ได้แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ */
+/** Pronista §Project Refactor — แท็บ "Defect" รวม Defect ทั้งหมดของโปรเจกต์ (รวมที่แปลงมาจาก Backlog ผ่านเมนู "จัดการ")
+ * Pronista §Back to Basic — ปุ่ม "🔗 เชื่อมโยง" ต่อแถว: ผูก Defect กับ Epic/Story/Task ใดก็ได้แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ */
 function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: string; canEdit: boolean; onOpenTask: (id: string) => void }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const defects = (data ?? []).filter((t) => t.kind === 'defect')
@@ -1255,7 +1255,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
     await api.post(`/api/tasks/${linkingId}/references`, { referencesTaskId })
     setLinkingId(null)
   }
-  // Tasknista §Back to Basic (ต่อยอด) — คีย์ log Defect ตรงในแท็บนี้ได้เลย (เดิมมีแค่ปุ่มผูกงานที่มีอยู่แล้ว)
+  // Pronista §Back to Basic (ต่อยอด) — คีย์ log Defect ตรงในแท็บนี้ได้เลย (เดิมมีแค่ปุ่มผูกงานที่มีอยู่แล้ว)
   const [title, setTitle] = useState('')
   const createDefect = async () => {
     if (!title.trim()) return
@@ -1313,7 +1313,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
   )
 }
 
-/** Tasknista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag */
+/** Pronista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag */
 function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpenTask: (id: string) => void }) {
   const { data: epicsList } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const { data } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
@@ -1427,8 +1427,8 @@ function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpe
 
 interface ProjectEpic { id: string; title: string; code: string | null; doneCount: number; totalCount: number }
 
-/** Tasknista §Project Refactor — แท็บ "EPIC": list Epic ทั้งหมดของโปรเจกต์ + สร้างใหม่ตรงๆ ได้ (ต่างจาก "ย้ายเป็น Epic" ใน Backlog ที่ยกระดับจาก task ที่มีอยู่)
- * Tasknista §Back to Basic — เพิ่มเมนู "..." ต่อแถว: "เชื่อมกับ Story" เปิด LinkOrCreateModal (สร้าง Story ใหม่ หรือเลือก Story ที่มีอยู่มาผูก epicId) */
+/** Pronista §Project Refactor — แท็บ "EPIC": list Epic ทั้งหมดของโปรเจกต์ + สร้างใหม่ตรงๆ ได้ (ต่างจาก "ย้ายเป็น Epic" ใน Backlog ที่ยกระดับจาก task ที่มีอยู่)
+ * Pronista §Back to Basic — เพิ่มเมนู "..." ต่อแถว: "เชื่อมกับ Story" เปิด LinkOrCreateModal (สร้าง Story ใหม่ หรือเลือก Story ที่มีอยู่มาผูก epicId) */
 function ProjectEpicTab({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
@@ -1536,12 +1536,12 @@ const HIERARCHY_TAB_META = {
   cr: { title: '🔄 CR (Change Request)', empty: 'ยังไม่มี CR ในโปรเจกต์นี้', createLabel: '+ สร้าง CR', placeholder: 'ชื่อ CR ใหม่…' },
 } as const
 
-/** Tasknista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
+/** Pronista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
 function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask }: {
   projectId: string
   level: 'story' | 'task' | 'cr'
   canEdit: boolean
-  // Tasknista §Position-based permission — สิทธิ์สร้างละเอียดกว่า canEdit (ใช้เฉพาะ level='task' ตอนนี้ — story/cr ยังใช้ canEdit เดิม)
+  // Pronista §Position-based permission — สิทธิ์สร้างละเอียดกว่า canEdit (ใช้เฉพาะ level='task' ตอนนี้ — story/cr ยังใช้ canEdit เดิม)
   canCreate?: boolean
   onOpenTask: (id: string) => void
 }) {
@@ -1551,7 +1551,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
     level === 'cr'
       ? all.filter((t) => t.kind === 'cr')
       : level === 'story'
-        // Tasknista §Back to Basic (ต่อยอด) — Story ตัวจริง = parentId ว่าง "และ" ไม่ใช่ Task ลอย (isStandaloneTask)
+        // Pronista §Back to Basic (ต่อยอด) — Story ตัวจริง = parentId ว่าง "และ" ไม่ใช่ Task ลอย (isStandaloneTask)
         ? all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask)
         // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
         : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
@@ -1562,7 +1562,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
   const [title, setTitle] = useState('')
   const meta = HIERARCHY_TAB_META[level]
 
-  // Tasknista §Back to Basic — เมนู "..." เฉพาะแท็บ Story: "เชื่อมกับ Epic" / "เชื่อมกับ Task" (สร้างใหม่ หรือเลือกที่มีอยู่)
+  // Pronista §Back to Basic — เมนู "..." เฉพาะแท็บ Story: "เชื่อมกับ Epic" / "เชื่อมกับ Task" (สร้างใหม่ หรือเลือกที่มีอยู่)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkMode, setLinkMode] = useState<{ storyId: string; kind: 'epic' | 'task' } | null>(null)
   const { data: epicsForLink } = useLoad<ProjectEpic[]>(
@@ -1577,7 +1577,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
     () => all.filter((t) => t.kind === 'task' && t.id !== linkMode?.storyId).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
     [all, linkMode],
   )
-  // Tasknista §Back to Basic — แท็บ CR: ปุ่ม "🔗" ผูกกับ Epic/Story/Task แบบอ้างอิง (task_references)
+  // Pronista §Back to Basic — แท็บ CR: ปุ่ม "🔗" ผูกกับ Epic/Story/Task แบบอ้างอิง (task_references)
   const [linkingRefId, setLinkingRefId] = useState<string | null>(null)
   const refCandidates: PickableTask[] = useMemo(
     () => all.filter((t) => t.id !== linkingRefId).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
@@ -1596,7 +1596,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
     setTitle('')
     void reload()
   }
-  // Tasknista §Back to Basic (ต่อยอด, v3) — แท็บ Task: คีย์ลอยตรงๆ เสมอ (isStandaloneTask) ขึ้นแท็บ Task ทันที — เชื่อมกับ Epic/Story ทีหลังผ่านเมนู "จัดการ" เท่านั้น (ตัด dropdown เลือก Story ตอนสร้างออก กันสับสนว่าต้องเลือกก่อนสร้าง)
+  // Pronista §Back to Basic (ต่อยอด, v3) — แท็บ Task: คีย์ลอยตรงๆ เสมอ (isStandaloneTask) ขึ้นแท็บ Task ทันที — เชื่อมกับ Epic/Story ทีหลังผ่านเมนู "จัดการ" เท่านั้น (ตัด dropdown เลือก Story ตอนสร้างออก กันสับสนว่าต้องเลือกก่อนสร้าง)
   const createUnderStory = async () => {
     if (!title.trim()) return
     await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
@@ -1629,7 +1629,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
     setLinkMode(null)
     void reload()
   }
-  // Tasknista §Back to Basic (ต่อยอด) — แท็บ Task: เมนู "..." ต่อแถว "เชื่อมกับ Story" (สำหรับงานที่คีย์ลอยๆ ไว้ก่อน หรือย้ายไป Story อื่น)
+  // Pronista §Back to Basic (ต่อยอด) — แท็บ Task: เมนู "..." ต่อแถว "เชื่อมกับ Story" (สำหรับงานที่คีย์ลอยๆ ไว้ก่อน หรือย้ายไป Story อื่น)
   const [linkTaskId, setLinkTaskId] = useState<string | null>(null)
   const linkTaskToStory = async (storyId: string) => {
     if (!linkTaskId) return
@@ -1771,7 +1771,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
   )
 }
 
-/** Tasknista §Project Refactor — แท็บ "API Document" เดิมเป็น richtext ก้อนเดียว เปลี่ยนเป็นอัปโหลดไฟล์ (docType='API') โชว์เป็นลิสต์แบบเดียวกับแท็บ "เอกสาร" */
+/** Pronista §Project Refactor — แท็บ "API Document" เดิมเป็น richtext ก้อนเดียว เปลี่ยนเป็นอัปโหลดไฟล์ (docType='API') โชว์เป็นลิสต์แบบเดียวกับแท็บ "เอกสาร" */
 function ApiDocumentSection({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const { data: docList, reload } = useLoad<ProjectDoc[]>(() => api.get(`/api/projects/${projectId}/docs`), [projectId])
   const apiDocs = (docList ?? []).filter((d) => d.docType === 'API')
@@ -1843,27 +1843,27 @@ export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const { data: project } = useLoad<ProjectRow>(() => api.get(`/api/projects/${id}`), [id])
-  // Tasknista §permission (Jira-style project role) — editor ของ "โปรเจกต์นี้" เท่านั้นที่แก้ได้ (ไม่ใช่ owner ระบบทั้งบริษัทเท่านั้นอีกต่อไป)
+  // Pronista §permission (Jira-style project role) — editor ของ "โปรเจกต์นี้" เท่านั้นที่แก้ได้ (ไม่ใช่ owner ระบบทั้งบริษัทเท่านั้นอีกต่อไป)
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
   const canEdit = user?.role !== 'vendor' && canEditProject
   const { data: board, reload } = useLoad<{ groups: BoardGroup[] }>(() => api.get(`/api/projects/${id}/board`), [id])
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const openTask = (taskId: string) => navigate(`/tasks/${taskId}`)
-  // Tasknista §Task Detail redesign — ลิงก์เก่าแบบ /projects/:id?task=:taskId (ยิงมาจากหลายที่: Dashboard, TeamBox, การ์ดแจ้งเตือน ฯลฯ) redirect ไปหน้าใหม่แทนเปิด Drawer เดิม — ไม่ต้องแก้จุดสร้างลิงก์เดิมที่อื่นเลย
+  // Pronista §Task Detail redesign — ลิงก์เก่าแบบ /projects/:id?task=:taskId (ยิงมาจากหลายที่: Dashboard, TeamBox, การ์ดแจ้งเตือน ฯลฯ) redirect ไปหน้าใหม่แทนเปิด Drawer เดิม — ไม่ต้องแก้จุดสร้างลิงก์เดิมที่อื่นเลย
   useEffect(() => {
     const taskId = searchParams.get('task')
     if (taskId) navigate(`/tasks/${taskId}`, { replace: true })
   }, [searchParams, navigate])
-  // Tasknista §Sprint & Board — default view ตอนเข้าโปรเจกต์ = Sprint · Kanban/ตาราง เดิมถูกถอดออก แทนที่ด้วย Tab เอกสาร (เอกสารที่ผูกไว้กับโปรเจกต์นี้)
-  // Tasknista §Project Estimate — Tab เห็นเฉพาะ owner (ต้นทุนทีมทั้งหมด ไม่ใช่แค่งบรวม)
-  // Tasknista §External Document Version Logging — เพิ่มแท็บ External Design Assets (log เวอร์ชันเอกสารภายนอก เช่น Canva)
-  // Tasknista §Document Management MVP — เชื่อมสองทางกับหน้า "ประวัติเอกสาร": ลิงก์มาพร้อม ?tab=assets ให้เด้งไปแท็บนี้ตรงๆ
+  // Pronista §Sprint & Board — default view ตอนเข้าโปรเจกต์ = Sprint · Kanban/ตาราง เดิมถูกถอดออก แทนที่ด้วย Tab เอกสาร (เอกสารที่ผูกไว้กับโปรเจกต์นี้)
+  // Pronista §Project Estimate — Tab เห็นเฉพาะ owner (ต้นทุนทีมทั้งหมด ไม่ใช่แค่งบรวม)
+  // Pronista §External Document Version Logging — เพิ่มแท็บ External Design Assets (log เวอร์ชันเอกสารภายนอก เช่น Canva)
+  // Pronista §Document Management MVP — เชื่อมสองทางกับหน้า "ประวัติเอกสาร": ลิงก์มาพร้อม ?tab=assets ให้เด้งไปแท็บนี้ตรงๆ
   const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
     searchParams.get('tab') === 'assets' ? 'assets' : 'sprint',
   )
-  // Tasknista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
-  // Tasknista §Position-based permission — กรองด้วย myPermissions.tabs (key ตรงกับ view value เป๊ะ: sprint/docs/assets) — ?? true = fail-open ระหว่างยังโหลดข้อมูลไม่เสร็จ ไม่ใช่ fail-closed
+  // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
+  // Pronista §Position-based permission — กรองด้วย myPermissions.tabs (key ตรงกับ view value เป๊ะ: sprint/docs/assets) — ?? true = fail-open ระหว่างยังโหลดข้อมูลไม่เสร็จ ไม่ใช่ fail-closed
   const tabs: [typeof view, string][] = (
     [
       ['sprint', 'Sprint'],
@@ -1871,7 +1871,7 @@ export function ProjectDetailPage() {
       ['assets', 'ประวัติเอกสาร'],
     ] as [typeof view, string][]
   ).filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
-  // Tasknista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
+  // Pronista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
   useEffect(() => {
     if (tabs.length > 0 && !tabs.some(([v]) => v === view)) setView(tabs[0]![0])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1881,10 +1881,10 @@ export function ProjectDetailPage() {
   const allTasks = useMemo(() => groups.flatMap((g) => g.tasks), [groups])
   const doneCount = allTasks.filter((t) => t.status === 'done').length
   const progressPct = allTasks.length > 0 ? Math.round((doneCount / allTasks.length) * 100) : 0
-  // Tasknista §SOW Task/Subtask — อัปโหลดไฟล์ Word ของ SOW แตกเป็น Task/Subtask ลง Backlog (เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว)
+  // Pronista §SOW Task/Subtask — อัปโหลดไฟล์ Word ของ SOW แตกเป็น Task/Subtask ลง Backlog (เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
-  // Tasknista §Sprint & Board fix — สัญญาณให้ ProjectBacklogSection สลับไปแท็บที่งานที่เพิ่งเอาออกจาก Sprint กลับมาอยู่ (ไม่งั้นดูเหมือนงานหายเพราะแท็บที่เปิดค้างไม่ตรง)
+  // Pronista §Sprint & Board fix — สัญญาณให้ ProjectBacklogSection สลับไปแท็บที่งานที่เพิ่งเอาออกจาก Sprint กลับมาอยู่ (ไม่งั้นดูเหมือนงานหายเพราะแท็บที่เปิดค้างไม่ตรง)
   const [revealSignal, setRevealSignal] = useState<{ tab: BacklogTab; nonce: number } | null>(null)
 
   if (!project) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
@@ -1917,7 +1917,7 @@ export function ProjectDetailPage() {
               >
                 <Pencil className="w-3.5 h-3.5" /> แก้ไข
               </Link>
-              {/* Tasknista §Project Refactor — ลบโปรเจกต์เฉพาะ Admin (owner) เท่านั้น */}
+              {/* Pronista §Project Refactor — ลบโปรเจกต์เฉพาะ Admin (owner) เท่านั้น */}
               {user?.role === 'owner' && (
                 <button
                   onClick={async () => {
@@ -1973,7 +1973,7 @@ export function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Tasknista §merge — สลับมุมมอง Sprint (default) / เอกสาร (เอกสารที่ผูกไว้กับโปรเจกต์นี้ — แทน Kanban/ตารางเดิม) */}
+      {/* Pronista §merge — สลับมุมมอง Sprint (default) / เอกสาร (เอกสารที่ผูกไว้กับโปรเจกต์นี้ — แทน Kanban/ตารางเดิม) */}
       <div className="flex items-center gap-3 mb-4">
         <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit">
           {tabs.map(([v, lbl]) => (
@@ -2007,7 +2007,7 @@ export function ProjectDetailPage() {
 
       {view === 'assets' && id && <DocumentHistoryTable projectId={id} projectName={project.name} canEdit={canEdit} />}
 
-      {/* Tasknista §Back to Basic — API Document/Project Estimate ถอดออกจาก Tab บนสุด (ยังไม่อยู่ใน Phase นี้) เก็บ component+route ไว้เผื่อกลับมาใช้ ไม่มีปุ่มเข้าถึงแล้วเท่านั้น */}
+      {/* Pronista §Back to Basic — API Document/Project Estimate ถอดออกจาก Tab บนสุด (ยังไม่อยู่ใน Phase นี้) เก็บ component+route ไว้เผื่อกลับมาใช้ ไม่มีปุ่มเข้าถึงแล้วเท่านั้น */}
       {view === 'apidoc' && id && <ApiDocumentSection key={project.id} projectId={id} canEdit={canEdit} />}
 
       {view === 'estimate' && id && user?.role === 'owner' && <ProjectEstimateSection projectId={id} />}

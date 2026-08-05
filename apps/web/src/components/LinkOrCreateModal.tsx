@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import type { PickableTask } from './TaskPickerModal'
 
 /**
- * Tasknista §Back to Basic — เมนู "..." เชื่อมโยงใน Tab Epic/Story: "สร้างใหม่" (พิมพ์ชื่อ) หรือ "เลือกที่มีอยู่แล้ว" (ค้นหา) ในโมดัลเดียว
+ * Pronista §Back to Basic — เมนู "..." เชื่อมโยงใน Tab Epic/Story: "สร้างใหม่" (พิมพ์ชื่อ) หรือ "เลือกที่มีอยู่แล้ว" (ค้นหา) ในโมดัลเดียว
  * ใช้ร่วมกัน 3 จุด: Epic→เชื่อมกับ Story, Story→เชื่อมกับ Epic, Story→เชื่อมกับ Task
  */
 export function LinkOrCreateModal({

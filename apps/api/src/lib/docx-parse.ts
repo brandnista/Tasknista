@@ -2,7 +2,7 @@ import type { DocTemplateDef } from '@seedoffice/core'
 import { unzipSync } from 'fflate'
 
 /**
- * Tasknista §SRS import — แกะไฟล์ .docx (zip+XML) หาโครงสร้าง "หัวข้อความต้องการ" มาเป็นรายการ candidate สำหรับสร้าง Task
+ * Pronista §SRS import — แกะไฟล์ .docx (zip+XML) หาโครงสร้าง "หัวข้อความต้องการ" มาเป็นรายการ candidate สำหรับสร้าง Task
  * ไม่ใช้ XML/DOM library เต็มรูปแบบ — document.xml ของ Word มีโครงสร้างที่คาดเดาได้ (paragraph = <w:p>, style = <w:pStyle>, ข้อความ = <w:t> หลายอันต่อ paragraph)
  * ใช้ regex scan แทน (bounded, ไม่ต้องสร้าง XML tree) — เพียงพอสำหรับงานนี้และเสี่ยงน้อยกว่าบน Cloudflare Worker
  */
@@ -251,7 +251,7 @@ export function parseSrsDocx(xml: string, stylesXml: string | null = null): SrsP
 }
 
 /**
- * Tasknista §Document Traceability — parser ตารางแบบ generic สำหรับ MOM/BRD/SOW (โครงสร้างเป็นตาราง Word ล้วน ต่างจาก SRS ต้นแบบเดิมที่เป็น heading+label:value)
+ * Pronista §Document Traceability — parser ตารางแบบ generic สำหรับ MOM/BRD/SOW (โครงสร้างเป็นตาราง Word ล้วน ต่างจาก SRS ต้นแบบเดิมที่เป็น heading+label:value)
  * ใช้ template def จาก registry (packages/core) เป็น config เดียว ไม่ต้องเขียน parser แยกต่อประเภทเอกสาร — จับคู่ label หัวคอลัมน์กับ section.columns[].label ตรงๆ (fuzzy ทั้ง 2 ทาง กัน label ที่เราใส่คำอธิบายเพิ่มไม่ตรงกับ header ดิบเป๊ะๆ)
  */
 export function extractTables(xml: string): string[][][] {
@@ -331,7 +331,7 @@ export interface TemplateBreakoutCandidate {
   priorityRaw: string | null
   priority: 'low' | 'normal' | 'high' | null
   description: string
-  // Tasknista §SOW Task/Subtask — ค่าดิบต่อคอลัมน์ (key ตาม descriptionKeys) คู่ขนานกับ description ที่ compose ไว้แล้ว
+  // Pronista §SOW Task/Subtask — ค่าดิบต่อคอลัมน์ (key ตาม descriptionKeys) คู่ขนานกับ description ที่ compose ไว้แล้ว
   // ให้ route ที่ต้องการแยกฟิลด์ใดฟิลด์หนึ่งออกมาโดยเฉพาะ (เช่น "ประเภท" ของ SOW) ดึงไปใช้ได้โดยไม่ต้อง parse description string เอง
   descriptionFields: Record<string, string>
   referenceCodes: string[]
@@ -354,7 +354,7 @@ const normalizeUirCode = (s: string) => s.replace(/\s+/g, '').toUpperCase()
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * Tasknista §Document Traceability — เฉพาะ UIR: ดึง "User Flow & Interaction Steps" + "UI Elements Validation (ระดับ Top-level)"
+ * Pronista §Document Traceability — เฉพาะ UIR: ดึง "User Flow & Interaction Steps" + "UI Elements Validation (ระดับ Top-level)"
  * ต่อหน้าจอ จากข้อ 3 "Detailed UI & Interaction Review" ของเอกสาร (คนละส่วนกับตาราง Client Sign-off Matrix ที่ parseTemplateTableDocx อ่าน)
  * หาจุดเริ่มเนื้อหาแต่ละหน้าจอด้วยการค้นหา paragraph รูปแบบหัวข้อ "<รหัส UIR>: <ชื่อ>" (โคลอนตามหลังรหัสทันที) — ไม่ใช่แค่มีรหัสอยู่ในเนื้อความ
  * เพราะรหัสเดียวกันโผล่ซ้ำในตารางอื่นของเอกสารด้วย (ตาราง Mapping ข้อ 1, ตาราง Client Sign-off Matrix ข้อ 4) ซึ่งไม่มีโคลอนตามหลัง จึงกันการจับผิดจุด
@@ -416,7 +416,7 @@ export interface SowModuleGroup {
 const SOW_MODULE_HEADING_RE = /\(([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\)\s*$/
 
 /**
- * Tasknista §SOW Task/Subtask — ดึงรายการ "งานย่อย" จากย่อหน้าใต้หัวข้อโมดูลในข้อ 4 (High-level System Scope) ของเอกสาร SOW จริง
+ * Pronista §SOW Task/Subtask — ดึงรายการ "งานย่อย" จากย่อหน้าใต้หัวข้อโมดูลในข้อ 4 (High-level System Scope) ของเอกสาร SOW จริง
  * เอกสารจริงไม่ได้เขียนเป็น bullet list แยกบรรทัดต่อ subtask (ต่างจากตัวอย่างในสเปก) — แต่ละโมดูลมีย่อหน้าเดียวบรรยายรวมฟีเจอร์คั่นด้วยจุลภาค/"และ"
  * แล้วปิดท้ายด้วยส่วน metadata ("- อ้างอิง BR-Dxx...- รวม N Ticket...MH") ซึ่งไม่ใช่รายการงาน — ตัดทิ้งที่ " - " แรกก่อน split
  */

@@ -1,5 +1,5 @@
 /**
- * Tasknista §Document Management MVP — แถบแบ่งหน้า (เลือกจำนวนต่อหน้า + ก่อนหน้า/ถัดไป)
+ * Pronista §Document Management MVP — แถบแบ่งหน้า (เลือกจำนวนต่อหน้า + ก่อนหน้า/ถัดไป)
  * ค่าเริ่มต้น 20 รายการ/หน้า แก้ได้ · ใช้ในหน้า "เอกสาร" และ "ประวัติเอกสาร"
  */
 export const DEFAULT_PAGE_SIZE = 20

@@ -37,11 +37,11 @@ export const userRoutes = new Hono<AppEnv>()
         .limit(1)
     )[0]
     if (!cfg) return c.json({ error: 'config_missing' }, 500)
-    // null = ยังไม่ตั้ง → คืน default (ทุก role ใช้ render chip/filter) · 2 ชุดตาม category (Tasknista §F1)
+    // null = ยังไม่ตั้ง → คืน default (ทุก role ใช้ render chip/filter) · 2 ชุดตาม category (Pronista §F1)
     return c.json({
       ...cfg,
       projectStatuses: resolveStatuses(cfg.projectStatuses),
       productStatuses: resolveStatuses(cfg.productStatuses),
-      boardPresets: resolvePresets(cfg.boardPresets), // Tasknista §Sprint & Board
+      boardPresets: resolvePresets(cfg.boardPresets), // Pronista §Sprint & Board
     })
   })

@@ -13,7 +13,7 @@ export interface ProjectRow {
   clientId: string | null
   clientName: string | null
   type: 'project' | 'recurring'
-  category?: 'product' | 'project' // Tasknista §F1 — ประเภทงาน (กำหนดชุดสถานะ)
+  category?: 'product' | 'project' // Pronista §F1 — ประเภทงาน (กำหนดชุดสถานะ)
   status: string // id ของสถานะ (configurable) — ชื่อ/สี/kind มากับ field ด้านล่าง (server ฝังให้)
   statusName: string
   statusColor: string
@@ -28,13 +28,13 @@ export interface ProjectRow {
   usagePct?: number | null
   lastActivityAt: number | null // epoch ms — งาน (task) ในโปรเจกต์นี้ขยับล่าสุดเมื่อไหร่ (จาก audit_logs)
   createdAt: string // ISO — ใช้ fallback จัดเรียงตอนยังไม่มี task activity เลย (โปรเจกต์เพิ่งสร้าง)
-  // Tasknista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์นี้โดยเฉพาะ
+  // Pronista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์นี้โดยเฉพาะ
   myRole?: 'owner' | 'editor' | 'viewer'
-  // Tasknista §Position-based permission — permission bundle เต็ม (tabs/actions) ตามตำแหน่งที่ assign ในโปรเจกต์นี้
+  // Pronista §Position-based permission — permission bundle เต็ม (tabs/actions) ตามตำแหน่งที่ assign ในโปรเจกต์นี้
   myPermissions?: PositionPermissions
-  // Tasknista §Project Refactor — เนื้อหาแท็บ "API Document" (richtext อิสระต่อโปรเจกต์)
+  // Pronista §Project Refactor — เนื้อหาแท็บ "API Document" (richtext อิสระต่อโปรเจกต์)
   apiDocNotes?: string | null
-  // Tasknista §PM View — หัวหน้าโครงการ + ความคืบหน้างาน (ทั้งหมด/เสร็จแล้ว) + milestone จริง สำหรับมุมมอง List/Board/Summary/Timeline
+  // Pronista §PM View — หัวหน้าโครงการ + ความคืบหน้างาน (ทั้งหมด/เสร็จแล้ว) + milestone จริง สำหรับมุมมอง List/Board/Summary/Timeline
   leadName?: string | null
   progress?: { total: number; done: number }
   milestones?: { name: string; dueDate: string | null; status: 'planned' | 'active' | 'done' }[]
@@ -82,7 +82,7 @@ export function yearPos(date: string, year: number): number {
 
 export const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 
-// Tasknista §โปรเจกต์ Summary — จัดกลุ่มโปรเจกต์เป็น 4 บักเก็ต ใช้ทั้งหน้าโปรเจกต์และภาพรวมองค์กร
+// Pronista §โปรเจกต์ Summary — จัดกลุ่มโปรเจกต์เป็น 4 บักเก็ต ใช้ทั้งหน้าโปรเจกต์และภาพรวมองค์กร
 // "พักไว้" ยังไม่มีสัญญาณข้อมูลจริงมารองรับ (ไม่มีสถานะ/kind แบบ paused ในระบบตอนนี้) — เผื่อไว้ ตอนนี้เป็น 0 เสมอ
 export type ProjectBucket = 'active' | 'done' | 'late' | 'hold'
 export const BUCKET_LABEL: Record<ProjectBucket, string> = { active: 'กำลังดำเนินการ', done: 'เสร็จแล้ว', late: 'ล่าช้า', hold: 'พักไว้' }
@@ -94,7 +94,7 @@ export function bucketOf(p: ProjectRow): ProjectBucket {
   return 'active'
 }
 
-// Tasknista §PM View — "สุขภาพโครงการ" ตามกำหนดเวลา (On Track/At Risk/Delayed/Completed) แยกจาก health งบประมาณเดิม (green/amber/red)
+// Pronista §PM View — "สุขภาพโครงการ" ตามกำหนดเวลา (On Track/At Risk/Delayed/Completed) แยกจาก health งบประมาณเดิม (green/amber/red)
 // ไม่แตะเรื่องเงินเลย — โชว์ได้ทุก role รวม vendor (showMoney=false ก็ไม่กระทบ)
 export type PmHealth = 'on_track' | 'at_risk' | 'delayed' | 'completed'
 export const PM_HEALTH_LABEL: Record<PmHealth, string> = { on_track: 'On Track', at_risk: 'At Risk', delayed: 'Delayed', completed: 'Completed' }

@@ -26,15 +26,15 @@ interface BoardTask {
   sprintStatus: string | null
   assigneeName: string | null
   assigneeAvatarUrl: string | null
-  // Tasknista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
+  // Pronista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
   srsRefCode: string | null
   srsDocId: string | null
-  // Tasknista §Sprint & Board fix — subtask ของ SOW มี parentId ติดมา ใช้จัดกลุ่ม/ยุบการ์ดใน Mixed/Task View
+  // Pronista §Sprint & Board fix — subtask ของ SOW มี parentId ติดมา ใช้จัดกลุ่ม/ยุบการ์ดใน Mixed/Task View
   parentId: string | null
-  // Tasknista §Sprint & Board fix — ใช้วาด Timeline ของ Sprint (แทน GroupTimeline เดิมที่ตายไปตั้งแต่ลบปุ่ม "ย้ายเข้ากระดาน")
+  // Pronista §Sprint & Board fix — ใช้วาด Timeline ของ Sprint (แทน GroupTimeline เดิมที่ตายไปตั้งแต่ลบปุ่ม "ย้ายเข้ากระดาน")
   startDate: string | null
   dueDate: string | null
-  // Tasknista §Epic Layer — Epic ที่ task นี้สังกัด (สืบมาจาก parent ตอนสร้าง เหมือน originDocType) ใช้จัดกลุ่ม swimlane บน Timeline
+  // Pronista §Epic Layer — Epic ที่ task นี้สังกัด (สืบมาจาก parent ตอนสร้าง เหมือน originDocType) ใช้จัดกลุ่ม swimlane บน Timeline
   epicId: string | null
 }
 interface BoardParent { id: string; code: string | null; title: string }
@@ -48,7 +48,7 @@ interface BoardData {
 }
 
 const PRIORITY_DOT = { low: 'bg-border', normal: 'bg-warning-400', high: 'bg-danger-500' } as const
-// Tasknista §Sprint & Board fix — มุมมอง Sprint 3 แบบ: Sub-task View (เดิม) / Mixed View (จัดกลุ่ม subtask ใต้ parent) / Task View (ยุบเหลือการ์ดเดียวต่อ parent)
+// Pronista §Sprint & Board fix — มุมมอง Sprint 3 แบบ: Sub-task View (เดิม) / Mixed View (จัดกลุ่ม subtask ใต้ parent) / Task View (ยุบเหลือการ์ดเดียวต่อ parent)
 type SubView = 'sub' | 'mixed' | 'task'
 const SUB_VIEW_OPTIONS: [SubView, string][] = [['sub', 'Sub-task View'], ['task', 'Task View'], ['mixed', 'Mixed View']]
 
@@ -81,11 +81,11 @@ interface TimelineRow {
   colorClass: string
   onClick?: () => void
   indent?: boolean
-  // Tasknista §Epic Layer — ใช้จัดกลุ่มแถวเป็น swimlane ต่อ Epic (null = ไม่ได้มาจากเอกสารที่มี Epic แสดงแบบเดิมไม่มีแถบครอบ)
+  // Pronista §Epic Layer — ใช้จัดกลุ่มแถวเป็น swimlane ต่อ Epic (null = ไม่ได้มาจากเอกสารที่มี Epic แสดงแบบเดิมไม่มีแถบครอบ)
   epicId?: string | null
 }
 
-/** Tasknista §Sprint & Board fix — Timeline จริงของ Sprint นี้ (แทน GroupTimeline เดิมที่ผูกกับระบบ "กลุ่มงาน" ที่ตายไปแล้วตั้งแต่ลบปุ่ม "ย้ายเข้ากระดาน")
+/** Pronista §Sprint & Board fix — Timeline จริงของ Sprint นี้ (แทน GroupTimeline เดิมที่ผูกกับระบบ "กลุ่มงาน" ที่ตายไปแล้วตั้งแต่ลบปุ่ม "ย้ายเข้ากระดาน")
  * วาดจาก startDate/dueDate ของ task ตรงๆ (ฟิลด์เดียวกับที่ GroupTimeline เคยใช้) รองรับ 3 มุมมองเหมือน Kanban — Mixed View ตั้งใจให้เห็นชัดกว่า Kanban เพราะเป็น list แนวตั้ง ใส่ label หัวกลุ่ม + เยื้องบรรทัดใต้ได้ */
 function SprintTimeline({ tasks, parents, epics, columns, subView, onOpenTask }: {
   tasks: BoardTask[]
@@ -184,7 +184,7 @@ function SprintTimeline({ tasks, parents, epics, columns, subView, onOpenTask }:
       </div>
     )
 
-  // Tasknista §Epic Layer — จัดแถวเป็น swimlane ต่อ Epic (แถวที่ไม่มี Epic เรียงแบบเดิมไม่มีแถบครอบ) รักษาลำดับการเจอ Epic ครั้งแรก
+  // Pronista §Epic Layer — จัดแถวเป็น swimlane ต่อ Epic (แถวที่ไม่มี Epic เรียงแบบเดิมไม่มีแถบครอบ) รักษาลำดับการเจอ Epic ครั้งแรก
   const epicMap = new Map(epics.map((e) => [e.id, e]))
   const swimlaneOrder: (string | null)[] = []
   const rowsByLane = new Map<string | null, TimelineRow[]>()
@@ -224,7 +224,7 @@ function SprintTimeline({ tasks, parents, epics, columns, subView, onOpenTask }:
   )
 }
 
-/** Tasknista §Sprint & Board — Board ของโปรเจกต์นี้ (คนละอันกับโปรเจกต์อื่น) = กระดานของ sprint ที่เปิดอยู่ตอนนี้ — ลากการ์ดข้ามคอลัมน์ preset ที่เลือกไว้ตอนสร้าง sprint */
+/** Pronista §Sprint & Board — Board ของโปรเจกต์นี้ (คนละอันกับโปรเจกต์อื่น) = กระดานของ sprint ที่เปิดอยู่ตอนนี้ — ลากการ์ดข้ามคอลัมน์ preset ที่เลือกไว้ตอนสร้าง sprint */
 export function BoardPage() {
   const { id: projectId, sprintId } = useParams<{ id: string; sprintId: string }>()
   const navigate = useNavigate()
@@ -249,13 +249,13 @@ export function BoardPage() {
   }
   const removeFromSprint = async (taskId: string, code: string | null) => {
     if (!sprint) return
-    // Tasknista §Sprint & Board fix — หน้านี้ไม่มี Backlog ให้ดู (คนละหน้ากับโปรเจกต์) แจ้งเตือนชัดๆ ว่างานกลับ Backlog แล้ว กันสับสนว่างานหายไปเลย
+    // Pronista §Sprint & Board fix — หน้านี้ไม่มี Backlog ให้ดู (คนละหน้ากับโปรเจกต์) แจ้งเตือนชัดๆ ว่างานกลับ Backlog แล้ว กันสับสนว่างานหายไปเลย
     const removed = await api.delete<{ originDocType: string | null; srsDocId: string | null }>(`/api/sprints/${sprint.id}/tasks/${taskId}`)
     const tabLabel = removed.originDocType ?? (removed.srsDocId ? 'SRS' : 'ทั่วไป')
     await reload()
     alert(`เอา ${code ?? 'งาน'} ออกจาก Sprint แล้ว — กลับไปที่แท็บ "${tabLabel}" ใน Backlog หน้าโปรเจกต์เพื่อดู`)
   }
-  // Tasknista §Sprint & Board แก้ไข flow — ปิด Sprint ได้จากหน้า Detail Board โดยตรง (ไม่ต้องย้อนกลับไปหน้าโปรเจกต์)
+  // Pronista §Sprint & Board แก้ไข flow — ปิด Sprint ได้จากหน้า Detail Board โดยตรง (ไม่ต้องย้อนกลับไปหน้าโปรเจกต์)
   const completeSprint = async () => {
     if (!sprint) return
     if (!confirm('ปิด Sprint นี้เลยไหม? งานที่ยังไม่ Done จะเด้งกลับ Backlog')) return
@@ -281,7 +281,7 @@ export function BoardPage() {
 
   const over = (e: DragEvent) => e.preventDefault()
 
-  // Tasknista §Sprint & Board fix — การ์ด task/subtask เดี่ยว ใช้ร่วมกันทั้ง Sub-task View (แบนราบ) และ Mixed View (จัดกลุ่มใต้ parent)
+  // Pronista §Sprint & Board fix — การ์ด task/subtask เดี่ยว ใช้ร่วมกันทั้ง Sub-task View (แบนราบ) และ Mixed View (จัดกลุ่มใต้ parent)
   const renderCard = (t: BoardTask) => (
     <div
       key={t.id}

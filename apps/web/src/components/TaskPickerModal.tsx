@@ -9,7 +9,7 @@ export interface PickableTask {
 }
 
 /**
- * Tasknista §Project Refactor — ค้นหา+เลือก task ในโปรเจกต์เดียวกัน ใช้เป็น parent
+ * Pronista §Project Refactor — ค้นหา+เลือก task ในโปรเจกต์เดียวกัน ใช้เป็น parent
  * (เมนู "จัดการ" ใน Backlog: ย้ายเป็น Task/Subtask/Defect ต้องเลือก parent · เดินหน้าใช้ต่อกับส่วนเชื่อมโยงใน TaskDetail ด้วย)
  */
 export function TaskPickerModal({

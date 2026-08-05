@@ -61,7 +61,7 @@ app.route('/api/tokens', tokenRoutes)
 app.use('/api/projects/*', requireAuth)
 app.use('/api/projects', requireAuth)
 app.route('/api/projects', projectRoutes)
-// Tasknista §Sprint & Board — /api/sprints/:id/* ไม่ได้อยู่ใต้ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
+// Pronista §Sprint & Board — /api/sprints/:id/* ไม่ได้อยู่ใต้ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
 app.use('/api/sprints/*', requireAuth)
 // ลูกค้า/CRM: owner+member เท่านั้น (SPEC §4.17)
 app.use('/api/clients', requireAuth, teamOnly)
@@ -79,10 +79,10 @@ app.use('/api/groups/:id', requireAuth)
 // ครอบ PATCH /tasks/:id (assign/status), POST /tasks/:id/star (ทำวันนี้), POST /tasks/:id/time (ลงเวลา = tasks:write)
 app.use('/api/tasks/*', requireAuthOrToken, tokenScope({ read: 'tasks:read', write: 'tasks:write' }))
 app.use('/api/attachments/*', requireAuth)
-// Tasknista §Task Detail redesign — พบว่า custom-fields/checklist ไม่เคยมี auth middleware ครอบเลย (เขียนแค่ prefix /api/tasks/* ไว้ แต่ path จริงคือ /api/custom-fields/:id, /api/checklist/:id ไม่ได้ขึ้นต้นด้วย /api/tasks/ เลยหลุด requireAuth ไปตลอด — teamOnly ข้างในเช็ค c.get('user') ที่ไม่เคยถูกตั้งค่าจึง 401 เสมอ) แก้ให้ครบทั้งคู่
+// Pronista §Task Detail redesign — พบว่า custom-fields/checklist ไม่เคยมี auth middleware ครอบเลย (เขียนแค่ prefix /api/tasks/* ไว้ แต่ path จริงคือ /api/custom-fields/:id, /api/checklist/:id ไม่ได้ขึ้นต้นด้วย /api/tasks/ เลยหลุด requireAuth ไปตลอด — teamOnly ข้างในเช็ค c.get('user') ที่ไม่เคยถูกตั้งค่าจึง 401 เสมอ) แก้ให้ครบทั้งคู่
 app.use('/api/custom-fields/*', requireAuth)
 app.use('/api/checklist/*', requireAuth)
-// Tasknista §Back to Basic — พบบั๊กเดียวกัน (ดูคอมเมนต์บนสุด): DELETE /task-references/:refId จริงคือ /api/task-references/:refId ไม่ขึ้นต้นด้วย /api/tasks/ เลยหลุด requireAuth มาตั้งแต่ Stream R
+// Pronista §Back to Basic — พบบั๊กเดียวกัน (ดูคอมเมนต์บนสุด): DELETE /task-references/:refId จริงคือ /api/task-references/:refId ไม่ขึ้นต้นด้วย /api/tasks/ เลยหลุด requireAuth มาตั้งแต่ Stream R
 app.use('/api/task-references/*', requireAuth)
 app.use('/api/overview', requireAuth)
 app.use('/api/overview/company', requireAuth)
@@ -99,7 +99,7 @@ app.use('/api/milestones/*', requireAuth, teamOnly)
 app.use('/api/payments/*', requireAuth, teamOnly)
 app.route('/api', taskRoutes)
 app.route('/api', sprintRoutes)
-// Tasknista §My Work/Notification — แจ้งเตือนส่วนตัว ไม่ได้อยู่ใต้ /api/tasks/* หรือ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
+// Pronista §My Work/Notification — แจ้งเตือนส่วนตัว ไม่ได้อยู่ใต้ /api/tasks/* หรือ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
 app.use('/api/notifications', requireAuth)
 app.use('/api/notifications/*', requireAuth)
 app.route('/api', notificationRoutes)
@@ -120,7 +120,7 @@ app.use('/api/doc-attachments/*', requireAuth)
 app.route('/api', docAttachmentsRoutes)
 // External Document Version Logging — /api/projects/:id/external-doc-logs อยู่ใต้ /api/projects/* (requireAuth ด้านบน) แต่ /api/external-doc-logs/:id แยก path
 app.use('/api/external-doc-logs/*', requireAuth)
-// Tasknista §Document Version History — /api/document-history (แยก path เดี่ยว teamOnly อยู่ใน route) ต้องมี requireAuth ของตัวเอง
+// Pronista §Document Version History — /api/document-history (แยก path เดี่ยว teamOnly อยู่ใน route) ต้องมี requireAuth ของตัวเอง
 app.use('/api/document-history', requireAuth)
 app.route('/api', externalDocLogRoutes)
 // เงินสดย่อย: owner+member (vendor ❌ — SPEC §2)

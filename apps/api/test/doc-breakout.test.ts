@@ -59,7 +59,7 @@ async function setTemplateValues(cookie: string, docId: string, templateType: st
 }
 
 /**
- * Tasknista §SOW Task/Subtask — MOM/BRD/SRS/PEP/UIR ปิดใช้งานที่ POST /docs/:id/breakout แล้ว (เฉพาะ SOW เท่านั้นที่ผ่าน route ได้)
+ * Pronista §SOW Task/Subtask — MOM/BRD/SRS/PEP/UIR ปิดใช้งานที่ POST /docs/:id/breakout แล้ว (เฉพาะ SOW เท่านั้นที่ผ่าน route ได้)
  * เทสต์ traceability chain เดิม (5 ประเภทนี้) ยังต้อง seed fixture ผ่านเรียก createTasksFromBreakoutItems() ตรงๆ แทนการยิง HTTP
  * เพื่อยืนยันว่า logic การ resolve task_references ยังทำงานถูกต้อง แม้ route หน้าบ้านจะถูกบล็อกไปแล้ว
  */
@@ -333,7 +333,7 @@ describe('U2 — อัปโหลดไฟล์ Word จริง → แต�
     expect(result.subtasks.map((s) => s.originCode)).toEqual(['MAK002-SOW-006-001', 'MAK002-SOW-006-002', 'MAK002-SOW-006-003'])
   })
 
-  it('Tasknista §Project Refactor — SOW Parser Mode V1 (ค่าเริ่มต้น, ไม่ระบุ mode): แตกเป็น Task แบนราบทั้งหมด ไม่มี Epic ไม่มี parent/child', async () => {
+  it('Pronista §Project Refactor — SOW Parser Mode V1 (ค่าเริ่มต้น, ไม่ระบุ mode): แตกเป็น Task แบนราบทั้งหมด ไม่มี Epic ไม่มี parent/child', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
     const project = await makeProject(owner, 'MAK010')

@@ -1,5 +1,5 @@
 /**
- * Tasknista §Project Estimate — ต้นทุนพนักงานต่อ Task ที่แตกจาก SRS ใช้ทำใบเสนอราคา (SPEC §9: pure ล้วน)
+ * Pronista §Project Estimate — ต้นทุนพนักงานต่อ Task ที่แตกจาก SRS ใช้ทำใบเสนอราคา (SPEC §9: pure ล้วน)
  * เงิน = integer สตางค์ · เวลา = integer นาที · ปัดเศษ = ครึ่งปัดขึ้น (เหมือน money.ts) — Net Cost (Hour) reuse `baseSatang` ตรงๆ ไม่เขียนใหม่
  */
 

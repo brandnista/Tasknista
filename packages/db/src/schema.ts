@@ -13,7 +13,7 @@ const id = () =>
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID())
 
-// Tasknista §ตั้งค่า — ทีม/แผนก (จัดกลุ่มผู้ใช้ในหน้าจัดการผู้ใช้ ไม่เกี่ยวกับสิทธิ์)
+// Pronista §ตั้งค่า — ทีม/แผนก (จัดกลุ่มผู้ใช้ในหน้าจัดการผู้ใช้ ไม่เกี่ยวกับสิทธิ์)
 export const teams = sqliteTable('teams', {
   id: id(),
   name: text('name').notNull(),
@@ -34,9 +34,9 @@ export const users = sqliteTable('users', {
   status: text('status', { enum: ['active', 'disabled'] }).notNull().default('active'),
   avatarUrl: text('avatar_url'),
   teamId: text('team_id').references(() => teams.id),
-  // Tasknista §Project Estimate — ตำแหน่ง/role แสดงในตารางประเมินต้นทุน (คนละอย่างกับ users.role ที่เป็น permission)
+  // Pronista §Project Estimate — ตำแหน่ง/role แสดงในตารางประเมินต้นทุน (คนละอย่างกับ users.role ที่เป็น permission)
   jobTitle: text('job_title'),
-  // Tasknista §Project Estimate — ต้นทุน/วันสำหรับใบเสนอราคา (satang) แยกจาก `rates` เดิมที่ปิด UI ไปแล้ว (ไม่มีประวัติ owner แก้ค่าปัจจุบันได้ตรงๆ)
+  // Pronista §Project Estimate — ต้นทุน/วันสำหรับใบเสนอราคา (satang) แยกจาก `rates` เดิมที่ปิด UI ไปแล้ว (ไม่มีประวัติ owner แก้ค่าปัจจุบันได้ตรงๆ)
   costPerDaySatang: integer('cost_per_day_satang'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
@@ -117,18 +117,18 @@ export const companyConfig = sqliteTable('company_config', {
   projectStatuses: text('project_statuses', { mode: 'json' }).$type<
     { id: string; name: string; color: string; kind: 'active' | 'archived'; sortOrder: number }[]
   >(),
-  // ชุดสำหรับ category='product' (Tasknista — แยกชุดสถานะตามประเภทงาน)
+  // ชุดสำหรับ category='product' (Pronista — แยกชุดสถานะตามประเภทงาน)
   productStatuses: text('product_statuses', { mode: 'json' }).$type<
     { id: string; name: string; color: string; kind: 'active' | 'archived'; sortOrder: number }[]
   >(),
-  // Tasknista §Sprint & Board — preset คอลัมน์ของ Sprint Board ปรับเองได้ (null = ใช้ DEFAULT 2 ชุด — resolve ใน core/board-preset)
+  // Pronista §Sprint & Board — preset คอลัมน์ของ Sprint Board ปรับเองได้ (null = ใช้ DEFAULT 2 ชุด — resolve ใน core/board-preset)
   boardPresets: text('board_presets', { mode: 'json' }).$type<
     { id: string; name: string; columns: { id: string; name: string; color: string; sortOrder: number }[] }[]
   >(),
-  // Tasknista §Project Estimate — % buffer/margin default ใช้คำนวณต้นทุน (owner แก้ได้ที่ตั้งค่า ไม่ hardcode)
+  // Pronista §Project Estimate — % buffer/margin default ใช้คำนวณต้นทุน (owner แก้ได้ที่ตั้งค่า ไม่ hardcode)
   costBufferPercent: integer('cost_buffer_percent').notNull().default(20),
   costMarginPercent: integer('cost_margin_percent').notNull().default(30),
-  // Tasknista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/permissions)
+  // Pronista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/permissions)
   // project_members.positionId อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน sprints.boardPresetId อ้าง boardPresets)
   positions: text('positions', { mode: 'json' }).$type<
     {
@@ -168,14 +168,14 @@ export const projects = sqliteTable(
     id: id(),
     code: text('code'),
     name: text('name').notNull(),
-    description: text('description'), // Tasknista — คำโปรยสั้นๆ ใต้ชื่อโปรเจกต์ (การ์ดหัวโปรเจกต์)
-    url: text('url'), // Tasknista §2.11 — ลิงก์เว็บไซต์จริงของโปรเจกต์/โปรดักต์ (ถ้ามี)
+    description: text('description'), // Pronista — คำโปรยสั้นๆ ใต้ชื่อโปรเจกต์ (การ์ดหัวโปรเจกต์)
+    url: text('url'), // Pronista §2.11 — ลิงก์เว็บไซต์จริงของโปรเจกต์/โปรดักต์ (ถ้ามี)
     logo: text('logo'), // emoji
     clientId: text('client_id').references(() => clients.id),
-    // Tasknista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ เลือกได้ 1 คนตอนสร้างโปรเจกต์ (ไม่บังคับ)
+    // Pronista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ เลือกได้ 1 คนตอนสร้างโปรเจกต์ (ไม่บังคับ)
     leadId: text('lead_id').references(() => users.id),
     type: text('type', { enum: ['project', 'recurring'] }).notNull(),
-    // ประเภทงาน (Tasknista §F1): กำหนดว่าใช้ชุดสถานะไหน (product → productStatuses · project → projectStatuses)
+    // ประเภทงาน (Pronista §F1): กำหนดว่าใช้ชุดสถานะไหน (product → productStatuses · project → projectStatuses)
     category: text('category', { enum: ['product', 'project'] }).notNull().default('project'),
     status: text('status').notNull().default('dev'), // อ้าง id ในชุดสถานะตาม category (configurable)
     quotedSatang: integer('quoted_satang'), // ราคาขาย (fixed) — vendor ห้ามเห็น (ตัดที่ serializer)
@@ -183,15 +183,15 @@ export const projects = sqliteTable(
     recurringPeriod: text('recurring_period', { enum: ['monthly', 'yearly'] }),
     startDate: text('start_date'), // YYYY-MM-DD
     dueDate: text('due_date'),
-    // Tasknista §F1/§2.11 — sprint (free text รอบแรก) · priority · tags (ชุดบริการ/สถานะย่อย — ใช้ได้ทั้ง product และ project)
+    // Pronista §F1/§2.11 — sprint (free text รอบแรก) · priority · tags (ชุดบริการ/สถานะย่อย — ใช้ได้ทั้ง product และ project)
     sprint: text('sprint'),
     priority: text('priority', { enum: ['low', 'normal', 'high'] }).notNull().default('normal'),
     tags: text('tags', { mode: 'json' }).$type<string[]>(),
-    // Tasknista §Project Estimate — จำนวนวันทำงานรวมของโปรเจกต์ที่ owner เลือกยืนยัน (ใช้หาร quotedSatang เป็น Estimate Project Cost/Day)
+    // Pronista §Project Estimate — จำนวนวันทำงานรวมของโปรเจกต์ที่ owner เลือกยืนยัน (ใช้หาร quotedSatang เป็น Estimate Project Cost/Day)
     estimateNetWorkingDays: integer('estimate_net_working_days'),
-    // Tasknista §Project Refactor — เนื้อหา richtext อิสระต่อโปรเจกต์ สำหรับแท็บ "API Document" (developer API docs/technical specs)
+    // Pronista §Project Refactor — เนื้อหา richtext อิสระต่อโปรเจกต์ สำหรับแท็บ "API Document" (developer API docs/technical specs)
     apiDocNotes: text('api_doc_notes'),
-    // Tasknista §Project Refactor — soft-delete เท่านั้น (กฎเหล็ก) — ลบได้เฉพาะ owner (Admin)
+    // Pronista §Project Refactor — soft-delete เท่านั้น (กฎเหล็ก) — ลบได้เฉพาะ owner (Admin)
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
@@ -202,10 +202,10 @@ export const projects = sqliteTable(
 
 export const PROJECT_MEMBER_ROLES = ['viewer', 'editor'] as const
 
-/** สมาชิกในโปรเจกต์ (Tasknista §F1) — assign ได้หลายคนต่อโปรเจกต์
- * Tasknista §permission — สิทธิ์ระดับโปรเจกต์ของ 'member' เท่านั้น (owner เห็น/แก้ได้ทุกอย่างเสมอ · vendor คือ 'viewer' เสมอ ไม่ผ่าน column นี้)
+/** สมาชิกในโปรเจกต์ (Pronista §F1) — assign ได้หลายคนต่อโปรเจกต์
+ * Pronista §permission — สิทธิ์ระดับโปรเจกต์ของ 'member' เท่านั้น (owner เห็น/แก้ได้ทุกอย่างเสมอ · vendor คือ 'viewer' เสมอ ไม่ผ่าน column นี้)
  * editor = แก้ไข task ทั้งหมด + ข้อมูลโปรเจกต์ได้ · viewer = อ่านอย่างเดียว (รวมถึงงานที่ตัวเอง assign) · default 'viewer' (ปลอดภัยกว่าสำหรับสมาชิกใหม่)
- * Tasknista §Position-based permission — `role` เดิม deprecated แล้ว (คงไว้เผื่อ rollback ไม่อ่าน/ไม่เขียนอีกต่อไป) แทนที่ด้วย `positionId`
+ * Pronista §Position-based permission — `role` เดิม deprecated แล้ว (คงไว้เผื่อ rollback ไม่อ่าน/ไม่เขียนอีกต่อไป) แทนที่ด้วย `positionId`
  * (อ้าง id ใน company_config.positions ไม่มี DB-level FK — เหมือน sprints.boardPresetId) null = ยังไม่ตั้ง (fallback = ดูอย่างเดียว) */
 export const projectMembers = sqliteTable(
   'project_members',
@@ -237,7 +237,7 @@ export const taskGroups = sqliteTable(
   (t) => [index('task_groups_project_idx').on(t.projectId, t.sortOrder)],
 )
 
-/** Epic (Tasknista §Epic Layer) — ครอบกลุ่ม Task หลายตัวที่แตกมาจากเอกสาร SOW เดียวกัน/เฟสเดียวกัน
+/** Epic (Pronista §Epic Layer) — ครอบกลุ่ม Task หลายตัวที่แตกมาจากเอกสาร SOW เดียวกัน/เฟสเดียวกัน
  * สร้างอัตโนมัติตอน confirm แตกเอกสาร SOW (1 เอกสาร = 1 Epic) — ผู้ใช้แก้ชื่อได้ทีหลัง ไม่มีปุ่มสร้างเองในเวอร์ชันแรก */
 export const epics = sqliteTable(
   'epics',
@@ -257,11 +257,11 @@ export const epics = sqliteTable(
   (t) => [index('epics_project_idx').on(t.projectId, t.sortOrder), index('epics_source_doc_idx').on(t.sourceDocId)],
 )
 
-// Tasknista §Sprint & Board — planned (สร้างแล้ว ยังไม่ Start) → active (กด Start Sprint แล้ว) → completed (ครบกำหนด/ปิดเอง)
+// Pronista §Sprint & Board — planned (สร้างแล้ว ยังไม่ Start) → active (กด Start Sprint แล้ว) → completed (ครบกำหนด/ปิดเอง)
 // ทีละ 1 sprint ที่ไม่ completed ต่อโปรเจกต์เท่านั้น (เช็คที่ API — ต้องปิดตัวเก่าก่อนสร้างใหม่)
 export const SPRINT_STATUSES = ['planned', 'active', 'completed'] as const
 
-/** Sprint ต่อโปรเจกต์ (Tasknista §Sprint & Board) — boardPresetId อ้าง id ใน company_config.boardPresets */
+/** Sprint ต่อโปรเจกต์ (Pronista §Sprint & Board) — boardPresetId อ้าง id ใน company_config.boardPresets */
 export const sprints = sqliteTable(
   'sprints',
   {
@@ -270,7 +270,7 @@ export const sprints = sqliteTable(
       .notNull()
       .references(() => projects.id),
     name: text('name'), // ว่าง = auto-label "Sprint N" ฝั่ง web ตามลำดับ
-    startDate: text('start_date').notNull(), // YYYY-MM-DD — Tasknista §Project Refactor: ตอนสร้างด่วน (กด "+ Sprint") ฝั่ง backend เติมค่าเริ่มต้นให้ (วันนี้..+7) ยังไม่ให้ user กรอก จนกว่าจะกด "เริ่ม Sprint" ค่อยเปลี่ยนเป็นค่าจริง
+    startDate: text('start_date').notNull(), // YYYY-MM-DD — Pronista §Project Refactor: ตอนสร้างด่วน (กด "+ Sprint") ฝั่ง backend เติมค่าเริ่มต้นให้ (วันนี้..+7) ยังไม่ให้ user กรอก จนกว่าจะกด "เริ่ม Sprint" ค่อยเปลี่ยนเป็นค่าจริง
     endDate: text('end_date').notNull(),
     goal: text('goal'), // เป้าหมาย Sprint — กรอกตอน "เริ่ม Sprint" เช่นเดียวกับวันที่
     boardPresetId: text('board_preset_id'), // ว่างระหว่าง planned — เลือกตอนกด "เริ่ม Sprint" เท่านั้น
@@ -291,7 +291,7 @@ export const sprints = sqliteTable(
   (t) => [index('sprints_project_idx').on(t.projectId, t.status)],
 )
 
-/** สำเนา task แบบ point-in-time ตอนปิด sprint (Tasknista §Sprint & Board — ดู Detail Board ย้อนหลัง)
+/** สำเนา task แบบ point-in-time ตอนปิด sprint (Pronista §Sprint & Board — ดู Detail Board ย้อนหลัง)
  *  แยกจาก tasks เพราะ task ตัวจริงถูกเด้งกลับ backlog (sprintId/sprintStatus เคลียร์ทิ้ง) หลังปิด sprint — ถ้าไม่ snapshot ไว้ตรงนี้ก่อน ข้อมูลตำแหน่งบนบอร์ดตอนปิดจะหายไปถาวร */
 export const sprintTaskSnapshots = sqliteTable(
   'sprint_task_snapshots',
@@ -313,72 +313,72 @@ export const sprintTaskSnapshots = sqliteTable(
   (t) => [index('sprint_task_snapshots_sprint_idx').on(t.sprintId)],
 )
 
-// Tasknista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์หน้าเอกสาร + origin ของ task ที่แตกออกมา (แยกจาก kind/templateType)
+// Pronista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์หน้าเอกสาร + origin ของ task ที่แตกออกมา (แยกจาก kind/templateType)
 // MOM/BRD/SOW/SRS auto-set ตอนสร้างจาก Template, CR/อื่นๆ ให้ผู้ใช้เลือกเองตอนอัปโหลดไฟล์ — ประกาศไว้ก่อน tasks/docs เพราะทั้งคู่อ้างถึง
 // PEP = Project Execution Proposal (เดิมใช้รหัส PROP — เอกสารชุด v1.1.1 เปลี่ยนชื่อทางการเป็น PEP แล้ว) · UIR = User Interface Review (เล่มที่ 6, เดิมใช้รหัส SRC)
-// Tasknista §Project Refactor — เพิ่ม 'API' สำหรับแท็บ "API Document" (อัปโหลดไฟล์ developer API docs/technical specs แทน richtext เดิม)
+// Pronista §Project Refactor — เพิ่ม 'API' สำหรับแท็บ "API Document" (อัปโหลดไฟล์ developer API docs/technical specs แทน richtext เดิม)
 export const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR', 'API'] as const
 
-// Tasknista §2.12 — สถานะ task ตายตัว 4 ค่า (Kanban ทุกโปรเจกต์ ไม่ว่า Product/Project) แทนที่ todo/doing/done เดิม
+// Pronista §2.12 — สถานะ task ตายตัว 4 ค่า (Kanban ทุกโปรเจกต์ ไม่ว่า Product/Project) แทนที่ todo/doing/done เดิม
 export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done'] as const
-// Tasknista §5 (2026-07-03) — Defect มีชุดสถานะของตัวเอง แยกจาก TASK_STATUSES (ใช้เฉพาะเมื่อ kind==='defect')
+// Pronista §5 (2026-07-03) — Defect มีชุดสถานะของตัวเอง แยกจาก TASK_STATUSES (ใช้เฉพาะเมื่อ kind==='defect')
 export const DEFECT_STATUSES = ['reported', 'fixing', 'waiting_verify', 'closed'] as const
 
 export const tasks = sqliteTable(
   'tasks',
   {
     id: id(),
-    // Tasknista §F2 — Backlog: task ลอยได้ (ยังไม่ผูกโปรเจค/กลุ่ม) → projectId/groupId = null
+    // Pronista §F2 — Backlog: task ลอยได้ (ยังไม่ผูกโปรเจค/กลุ่ม) → projectId/groupId = null
     projectId: text('project_id').references(() => projects.id),
     groupId: text('group_id').references(() => taskGroups.id),
-    // Tasknista §Epic Layer — Epic ที่ Task นี้สังกัด (null = ยังไม่ได้สังกัด Epic ใด เช่น task สร้างมือ)
+    // Pronista §Epic Layer — Epic ที่ Task นี้สังกัด (null = ยังไม่ได้สังกัด Epic ใด เช่น task สร้างมือ)
     epicId: text('epic_id').references(() => epics.id),
-    // Tasknista §2.5 — Jira-style auto code: BL-N ใน backlog → <projectCode>-N เมื่อผูกโปรเจกต์ · sub-task → <parentCode>.N
+    // Pronista §2.5 — Jira-style auto code: BL-N ใน backlog → <projectCode>-N เมื่อผูกโปรเจกต์ · sub-task → <parentCode>.N
     code: text('code'),
-    // Tasknista §2.6 — ย้าย backlog เป็น Sub-task ของ task ที่มีอยู่แล้ว (self-ref)
+    // Pronista §2.6 — ย้าย backlog เป็น Sub-task ของ task ที่มีอยู่แล้ว (self-ref)
     parentId: text('parent_id').references((): AnySQLiteColumn => tasks.id),
-    // Tasknista §Back to Basic (ต่อยอด) — คีย์ Task ลอยๆ ได้โดยไม่ต้องมี Story แม่ก่อน (parentId ยังว่างได้)
+    // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยๆ ได้โดยไม่ต้องมี Story แม่ก่อน (parentId ยังว่างได้)
     // ต้องมี flag แยกเพราะ kind='task'+parentId=null ปกติแปลว่า Story (โครงสร้างเดิม) — flag นี้บอกว่า "ตั้งใจให้เป็น Task ลอย" ไปโผล่แท็บ Task ไม่ใช่แท็บ Story
     isStandaloneTask: integer('is_standalone_task', { mode: 'boolean' }).notNull().default(false),
-    // Tasknista §2.6 — ย้าย backlog เป็น Defect: kind แยกประเภทงาน · reporterType = ผู้แจ้ง
-    // Tasknista §Project Refactor — เพิ่ม 'cr' (Change Request ระดับ task แยกจาก doc type 'CR') สำหรับแท็บ CR ในหน้าโปรเจกต์
-    // Tasknista §Back to Basic (ต่อยอด) — เพิ่ม 'backlog' แยกงานที่คีย์จากแท็บ "ทั่วไป" ออกจาก Story (kind='task' ระดับบนสุดเหมือนกันแต่คนละความหมาย) ให้เด็ดขาด
+    // Pronista §2.6 — ย้าย backlog เป็น Defect: kind แยกประเภทงาน · reporterType = ผู้แจ้ง
+    // Pronista §Project Refactor — เพิ่ม 'cr' (Change Request ระดับ task แยกจาก doc type 'CR') สำหรับแท็บ CR ในหน้าโปรเจกต์
+    // Pronista §Back to Basic (ต่อยอด) — เพิ่ม 'backlog' แยกงานที่คีย์จากแท็บ "ทั่วไป" ออกจาก Story (kind='task' ระดับบนสุดเหมือนกันแต่คนละความหมาย) ให้เด็ดขาด
     kind: text('kind', { enum: ['task', 'defect', 'cr', 'backlog'] }).notNull().default('task'),
     reporterType: text('reporter_type', { enum: ['customer', 'self'] }),
-    // Tasknista §5 — สถานะเฉพาะ Defect (รอเริ่ม/กำลังแก้/รอ Verify/ปิด) — null สำหรับ kind==='task'
+    // Pronista §5 — สถานะเฉพาะ Defect (รอเริ่ม/กำลังแก้/รอ Verify/ปิด) — null สำหรับ kind==='task'
     defectStatus: text('defect_status', { enum: DEFECT_STATUSES }),
-    // Tasknista §4 (2026-07-03) — ล็อค task ใน Company Backlog (owner เท่านั้นที่ล็อค/ปลดล็อคได้ · ล็อคแล้ว member แก้ไข/ย้าย/ลบไม่ได้เลย)
+    // Pronista §4 (2026-07-03) — ล็อค task ใน Company Backlog (owner เท่านั้นที่ล็อค/ปลดล็อคได้ · ล็อคแล้ว member แก้ไข/ย้าย/ลบไม่ได้เลย)
     locked: integer('locked', { mode: 'boolean' }).notNull().default(false),
-    // Tasknista §SRS import — โยง task กับข้อ SRS ที่แตกออกมา (แยกจาก docLinks ทั่วไป เพราะต้องรู้ "ข้อไหน" ไม่ใช่แค่ "เอกสารไหน")
+    // Pronista §SRS import — โยง task กับข้อ SRS ที่แตกออกมา (แยกจาก docLinks ทั่วไป เพราะต้องรู้ "ข้อไหน" ไม่ใช่แค่ "เอกสารไหน")
     srsRefCode: text('srs_ref_code'), // รหัสที่ระบบสร้างให้ "<projectCode>-SRS-v<version>-<NNN>" — คงที่ตลอดชีพ task
     srsSourceCode: text('srs_source_code'), // รหัสเดิมในเอกสาร เช่น "MKD-01" — null ถ้าเพิ่มด้วยมือไม่มีรหัสต้นฉบับ
     srsDocId: text('srs_doc_id').references((): AnySQLiteColumn => docs.id), // เอกสาร SRS ต้นทาง
-    // Tasknista §Document Traceability — เวอร์ชัน generic ของ 3 ฟิลด์ srs* ด้านบน ใช้กับ MOM/BRD/SOW/SRS ทุกประเภท (ทางฝั่ง SRS เดิมยังคงเขียน srs* คู่ขนานไปไม่เปลี่ยนพฤติกรรมเดิม)
+    // Pronista §Document Traceability — เวอร์ชัน generic ของ 3 ฟิลด์ srs* ด้านบน ใช้กับ MOM/BRD/SOW/SRS ทุกประเภท (ทางฝั่ง SRS เดิมยังคงเขียน srs* คู่ขนานไปไม่เปลี่ยนพฤติกรรมเดิม)
     originDocType: text('origin_doc_type', { enum: DOC_TYPES }), // เล่มต้นทางของ task นี้ — null = ไม่ได้มาจากการแตกเอกสาร
     originCode: text('origin_code'), // รหัสเดิมในเอกสาร เช่น "BR-F03", "MAK001-SOW-001"
     originRefCode: text('origin_ref_code'), // รหัสที่ระบบสร้างให้ "<projectCode>-<DOCTYPE>-v<version>-<NNN>"
     originDocId: text('origin_doc_id').references((): AnySQLiteColumn => docs.id), // เอกสารต้นทาง
-    // Tasknista §Sprint & Board — แกนสถานะคู่ขนานกับ status: อยู่ใน sprint ไหน + คอลัมน์ไหนในบอร์ด (อ้าง id preset ของ sprint นั้น)
+    // Pronista §Sprint & Board — แกนสถานะคู่ขนานกับ status: อยู่ใน sprint ไหน + คอลัมน์ไหนในบอร์ด (อ้าง id preset ของ sprint นั้น)
     // null ทั้งคู่ = อยู่ใน Backlog ของโปรเจกต์ (ใช้ pool เดียวกับ backlog เดิม — SPEC Sprint & Board: "ใช้ pool เดียวกัน เปลี่ยนชื่อ UI")
     sprintId: text('sprint_id').references(() => sprints.id),
     sprintStatus: text('sprint_status'),
     sortOrder: integer('sort_order').notNull().default(0),
     title: text('title').notNull(),
-    // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน (canEdit && !isAssignee)
+    // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน (canEdit && !isAssignee)
     description: text('description'),
-    // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" คนละฟิลด์กับ description เด็ดขาด แก้ได้เฉพาะ assignee เอง และแก้ไม่ได้แล้วหลังส่งงาน (status=waiting_for_test/done) — ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย
+    // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" คนละฟิลด์กับ description เด็ดขาด แก้ได้เฉพาะ assignee เอง และแก้ไม่ได้แล้วหลังส่งงาน (status=waiting_for_test/done) — ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย
     assigneeNotes: text('assignee_notes'),
     assigneeId: text('assignee_id').references(() => users.id),
-    // Tasknista §My Work/Notification — คนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
+    // Pronista §My Work/Notification — คนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     assignedBy: text('assigned_by').references(() => users.id),
-    // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId
+    // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId
     dispatchedAt: integer('dispatched_at', { mode: 'timestamp_ms' }),
     status: text('status', { enum: TASK_STATUSES }).notNull().default('non_start'),
     priority: text('priority', { enum: ['low', 'normal', 'high'] }).notNull().default('normal'),
     estimateMinutes: integer('estimate_minutes'),
-    // Tasknista §Project Estimate — กี่นาที/วันที่ assignee แบ่งเวลามาทำ task นี้ (null = ใช้ company_config.workHourCapMinutes) → หา Estimate Day
+    // Pronista §Project Estimate — กี่นาที/วันที่ assignee แบ่งเวลามาทำ task นี้ (null = ใช้ company_config.workHourCapMinutes) → หา Estimate Day
     costWorkMinutesPerDay: integer('cost_work_minutes_per_day'),
-    // Tasknista §Project Estimate — % buffer เฉพาะ task นี้ (null = ใช้ company_config.costBufferPercent) — PM ปรับได้ตรงจาก Tab Project Estimate
+    // Pronista §Project Estimate — % buffer เฉพาะ task นี้ (null = ใช้ company_config.costBufferPercent) — PM ปรับได้ตรงจาก Tab Project Estimate
     costBufferPercent: integer('cost_buffer_percent'),
     startDate: text('start_date'), // YYYY-MM-DD → ไทม์ไลน์ต่อกลุ่ม
     dueDate: text('due_date'),
@@ -389,7 +389,7 @@ export const tasks = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
-    // Tasknista §My Work UX — เวลาที่กด "ส่งงาน" ล่าสุด (status → waiting_for_test) ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
+    // Pronista §My Work UX — เวลาที่กด "ส่งงาน" ล่าสุด (status → waiting_for_test) ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
@@ -431,7 +431,7 @@ export const taskComments = sqliteTable(
       .notNull()
       .references(() => users.id),
     body: text('body').notNull(),
-    // Tasknista §Task Detail redesign — คอมเมนต์ที่ตั้งใจแจ้ง "ติดขัด" (blocked) โชว์เด่นเป็นแท็กแดงในฟีดรวม แยกจากคอมเมนต์ปกติแค่ flag นี้
+    // Pronista §Task Detail redesign — คอมเมนต์ที่ตั้งใจแจ้ง "ติดขัด" (blocked) โชว์เด่นเป็นแท็กแดงในฟีดรวม แยกจากคอมเมนต์ปกติแค่ flag นี้
     isBlocked: integer('is_blocked', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
@@ -440,7 +440,7 @@ export const taskComments = sqliteTable(
   (t) => [index('task_comments_task_idx').on(t.taskId)],
 )
 
-// Tasknista §attachment links — ลิงก์ภายนอกที่แนบใน task ได้ (นอกเหนือจากอัปโหลดไฟล์) auto-detect จาก hostname ฝั่ง API
+// Pronista §attachment links — ลิงก์ภายนอกที่แนบใน task ได้ (นอกเหนือจากอัปโหลดไฟล์) auto-detect จาก hostname ฝั่ง API
 export const TASK_LINK_TYPES = ['google_docs', 'figma', 'canva', 'other'] as const
 
 /** ไฟล์แนบบน R2 หรือลิงก์ภายนอก — เก็บเฉพาะ metadata, ตัวไฟล์อยู่ R2 (SPEC §6)
@@ -468,7 +468,7 @@ export const taskAttachments = sqliteTable(
   (t) => [index('task_attachments_task_idx').on(t.taskId)],
 )
 
-/** Tasknista §2.12 — custom field ยืดหยุ่น (label/value เอง) บนหน้า Task Detail */
+/** Pronista §2.12 — custom field ยืดหยุ่น (label/value เอง) บนหน้า Task Detail */
 export const taskCustomFields = sqliteTable(
   'task_custom_fields',
   {
@@ -486,7 +486,7 @@ export const taskCustomFields = sqliteTable(
   (t) => [index('task_custom_fields_task_idx').on(t.taskId, t.sortOrder)],
 )
 
-/** Tasknista §Task Detail redesign — เกณฑ์ว่า "เสร็จ" คือแบบไหน (Acceptance Criteria) แยกจาก description อิสระ ให้ติ๊กเช็คทีละข้อได้ */
+/** Pronista §Task Detail redesign — เกณฑ์ว่า "เสร็จ" คือแบบไหน (Acceptance Criteria) แยกจาก description อิสระ ให้ติ๊กเช็คทีละข้อได้ */
 export const taskChecklistItems = sqliteTable(
   'task_checklist_items',
   {
@@ -629,7 +629,7 @@ export const clientNotes = sqliteTable(
   (t) => [index('client_notes_client_idx').on(t.clientId)],
 )
 
-// Tasknista §merge (2026-07-03) — "เอกสาร" ดูดรวม "คลังเอกสาร" (item 3) เข้ามาเป็นเมนูเดียว: 1 โหนดในทรีเป็นได้ทั้งหน้าวิกิ (kind='page'), ลิงก์ Google Docs (kind='link'), หรือไฟล์อัปโหลด (kind='file')
+// Pronista §merge (2026-07-03) — "เอกสาร" ดูดรวม "คลังเอกสาร" (item 3) เข้ามาเป็นเมนูเดียว: 1 โหนดในทรีเป็นได้ทั้งหน้าวิกิ (kind='page'), ลิงก์ Google Docs (kind='link'), หรือไฟล์อัปโหลด (kind='file')
 export const DOC_KINDS = ['page', 'link', 'file', 'template', 'folder'] as const
 export const DOC_MEMBER_ROLES = ['viewer', 'editor'] as const
 
@@ -650,16 +650,16 @@ export const docs = sqliteTable(
     mime: text('mime'), // kind='file'
     sizeBytes: integer('size_bytes'), // kind='file'
     isTemplate: integer('is_template', { mode: 'boolean' }).notNull().default(false),
-    // Tasknista §SRS import — เมื่อ kind='file' และเป็นเอกสาร SRS ที่แตก task ออกมา: เวอร์ชัน+เลขเอกสาร (ใช้ประกอบรหัสอ้างอิงงาน) — null สำหรับไฟล์ทั่วไป
+    // Pronista §SRS import — เมื่อ kind='file' และเป็นเอกสาร SRS ที่แตก task ออกมา: เวอร์ชัน+เลขเอกสาร (ใช้ประกอบรหัสอ้างอิงงาน) — null สำหรับไฟล์ทั่วไป
     srsDocNumber: text('srs_doc_number'), // เช่น "BNT-SRS-2026-004" — free text จากเอกสาร ไม่ parse โครงสร้าง
     srsVersion: text('srs_version'), // เช่น "1.0" — ใช้ประกอบรหัส "<projectCode>-SRS-v<version>-<NNN>"
-    // Tasknista §Document Template — เมื่อ kind='template': ประเภท template (คีย์ใน DOC_TEMPLATES registry ฝั่ง @seedoffice/core) + รหัสเอกสารที่ gen ครั้งเดียวตอนสร้าง (immutable)
+    // Pronista §Document Template — เมื่อ kind='template': ประเภท template (คีย์ใน DOC_TEMPLATES registry ฝั่ง @seedoffice/core) + รหัสเอกสารที่ gen ครั้งเดียวตอนสร้าง (immutable)
     templateType: text('template_type'), // เช่น 'mom' — null สำหรับ doc ที่ไม่ใช่ template
     templateDocNumber: text('template_doc_number'), // เช่น "MFL-MOM-07072026-001"
-    // Tasknista §Document Version History — เลขที่เอกสาร (ระบุ "เล่ม") + เวอร์ชัน ใช้ได้กับทุกประเภท/ทุก kind — เล่มเดียวกัน = docType+docNumber เท่ากัน, เวอร์ชันต่างกันคือ revision ในเล่มเดียวกัน (v1.0/v1.1/v2.0) · backfill จาก template_doc_number/srs_* ตอน migrate
+    // Pronista §Document Version History — เลขที่เอกสาร (ระบุ "เล่ม") + เวอร์ชัน ใช้ได้กับทุกประเภท/ทุก kind — เล่มเดียวกัน = docType+docNumber เท่ากัน, เวอร์ชันต่างกันคือ revision ในเล่มเดียวกัน (v1.0/v1.1/v2.0) · backfill จาก template_doc_number/srs_* ตอน migrate
     docNumber: text('doc_number'), // เช่น "BNT-MOM-2026-014" — null = ไฟล์ทั่วไปที่ไม่ได้ระบุเล่ม (นับเป็นเล่มเดี่ยว)
     docVersion: text('doc_version'), // เช่น "1.0"
-    // Tasknista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์ (ดู DOC_TYPES) — null = ไม่ระบุ/ไม่เข้าพวก
+    // Pronista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์ (ดู DOC_TYPES) — null = ไม่ระบุ/ไม่เข้าพวก
     docType: text('doc_type', { enum: DOC_TYPES }),
     ownerId: text('owner_id').references(() => users.id), // เจ้าของ (สิทธิ์เต็มเสมอ) — เติมจาก createdBy ตอน migrate ของเก่า
     // private = เห็นเฉพาะเจ้าของ+คนใน docMembers · team = ทุกคน (owner/member) เห็นอย่างน้อย viewer — ของเก่าทั้งหมด default 'team' กัน regression (วิกิเดิมทุกคนเห็นหมดอยู่แล้ว)
@@ -721,7 +721,7 @@ export const docLinks = sqliteTable(
   ],
 )
 
-// Tasknista §Document Traceability — task นี้ "อ้างอิงถึง" task ต้นทางเล่มก่อนหน้า (เช่น Task ของ BR-F03 อ้างถึง Task ของมติ MOM-20260620-D01)
+// Pronista §Document Traceability — task นี้ "อ้างอิงถึง" task ต้นทางเล่มก่อนหน้า (เช่น Task ของ BR-F03 อ้างถึง Task ของมติ MOM-20260620-D01)
 // resolve อัตโนมัติตอนแตก Task จากคอลัมน์ "อ้างอิง XXX" ในตาราง breakoutToTasks (ดู doc-breakout-tasks.ts) — 1 task อ้างอิงต้นทางได้หลายอัน
 export const taskReferences = sqliteTable(
   'task_references',
@@ -780,7 +780,7 @@ export const docImages = sqliteTable(
   (t) => [index('doc_images_doc_idx').on(t.docId)],
 )
 
-// Tasknista §Document Attachments — ส่วนแนบท้ายเอกสาร template ทุกประเภท: ลิงก์ภายนอก (เช่น ลิงก์บันทึกประชุม Google Meet) หรือไฟล์/รูปใน R2
+// Pronista §Document Attachments — ส่วนแนบท้ายเอกสาร template ทุกประเภท: ลิงก์ภายนอก (เช่น ลิงก์บันทึกประชุม Google Meet) หรือไฟล์/รูปใน R2
 export const DOC_ATTACHMENT_KINDS = ['link', 'file'] as const
 export const docAttachments = sqliteTable(
   'doc_attachments',
@@ -806,7 +806,7 @@ export const docAttachments = sqliteTable(
   (t) => [index('doc_attachments_doc_idx').on(t.docId)],
 )
 
-// Tasknista §External Document Version Logging — log เวอร์ชันเอกสารภายนอก (เช่น เล่ม UI Design บน Canva) ต่อโปรเจกต์
+// Pronista §External Document Version Logging — log เวอร์ชันเอกสารภายนอก (เช่น เล่ม UI Design บน Canva) ต่อโปรเจกต์
 // append-only: อัปเดตเวอร์ชัน = เพิ่มแถวใหม่เสมอ ไม่เขียนทับ เพื่อดูประวัติย้อนหลังได้ · ผูกกับ SOW Task ผ่าน pivot ด้านล่างเพื่อทำ Traceability
 export const EXTERNAL_DOC_LOG_STATUSES = ['draft', 'under_review', 'approved'] as const
 export const externalDocumentLogs = sqliteTable(
@@ -993,7 +993,7 @@ export const calendarEvents = sqliteTable(
   (t) => [index('calendar_events_date_idx').on(t.startDate)],
 )
 
-/** Tasknista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคนต่อ event) แยกจาก calendarEvents.userId (ใช้เฉพาะ "วันลาของใคร" อยู่แล้ว) */
+/** Pronista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคนต่อ event) แยกจาก calendarEvents.userId (ใช้เฉพาะ "วันลาของใคร" อยู่แล้ว) */
 export const calendarEventAttendees = sqliteTable(
   'calendar_event_attendees',
   {
@@ -1221,8 +1221,8 @@ export const auditLogs = sqliteTable(
   ],
 )
 
-// Tasknista §My Work/Notification — แจ้งเตือนในระบบ (ไม่ส่งอีเมล) ตอน assign/complete Subtask
-// Tasknista §Task lifecycle notifications — เพิ่ม 4 ค่าสำหรับ task หลัก (ไม่ใช่แค่ subtask) ตลอด flow จ่ายงาน→ส่งงาน→ปิดงาน/ตีกลับ (คอลัมน์เป็น TEXT ธรรมดา ไม่มี CHECK constraint → ไม่ต้อง migration)
+// Pronista §My Work/Notification — แจ้งเตือนในระบบ (ไม่ส่งอีเมล) ตอน assign/complete Subtask
+// Pronista §Task lifecycle notifications — เพิ่ม 4 ค่าสำหรับ task หลัก (ไม่ใช่แค่ subtask) ตลอด flow จ่ายงาน→ส่งงาน→ปิดงาน/ตีกลับ (คอลัมน์เป็น TEXT ธรรมดา ไม่มี CHECK constraint → ไม่ต้อง migration)
 export const NOTIFICATION_TYPES = [
   'subtask_assigned',
   'subtask_completed',

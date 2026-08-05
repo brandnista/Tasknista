@@ -5,7 +5,7 @@ import { Bold, Italic, List, ListOrdered } from 'lucide-react'
 import { useEffect } from 'react'
 
 /**
- * Tasknista §Document Attachments — ช่องพิมพ์อิสระแบบ Rich Text (field type 'richtext' ใน doc-templates/schema.ts)
+ * Pronista §Document Attachments — ช่องพิมพ์อิสระแบบ Rich Text (field type 'richtext' ใน doc-templates/schema.ts)
  * เวอร์ชันย่อของ editor เต็มใน DocViewer.tsx — เก็บเป็น markdown string ใน TemplateData.fields เหมือน field ปกติ (ไม่มี toolbar รูปภาพ ใช้ DocAttachmentsSection สำหรับแนบรูปแทน)
  */
 export function RichTextField({ value, onChange, readOnly }: { value: string; onChange: (markdown: string) => void; readOnly: boolean }) {

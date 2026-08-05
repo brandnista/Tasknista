@@ -14,7 +14,7 @@ interface BreakoutCandidate {
   tempId: string
   sourceCode: string | null
   title: string
-  // Tasknista §SOW Task/Subtask — "ประเภท" auto จากคอลัมน์ 4.4 ของเอกสาร แก้ไขได้ก่อนยืนยัน
+  // Pronista §SOW Task/Subtask — "ประเภท" auto จากคอลัมน์ 4.4 ของเอกสาร แก้ไขได้ก่อนยืนยัน
   category: string
   priority: 'low' | 'normal' | 'high' | null
   description: string
@@ -54,7 +54,7 @@ const randomId = () => `manual_${Math.random().toString(36).slice(2, 10)}`
 const sanitizeCodePrefix = (raw: string | null | undefined, fallback: string) => (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || fallback
 
 /**
- * Tasknista §Document Version History — จับ "ชื่อเล่ม" + "เวอร์ชัน" จากชื่อไฟล์ (เหมือน DocUploadBreakoutModal เดิม)
+ * Pronista §Document Version History — จับ "ชื่อเล่ม" + "เวอร์ชัน" จากชื่อไฟล์ (เหมือน DocUploadBreakoutModal เดิม)
  */
 function parseFilenameMeta(name: string): { base: string; version: string | null } {
   const noExt = name.replace(/\.[^.]+$/, '')
@@ -64,7 +64,7 @@ function parseFilenameMeta(name: string): { base: string; version: string | null
 }
 
 /**
- * Tasknista §SOW Task/Subtask — แทนที่ DocUploadBreakoutModal เดิม (เคยรองรับ 6 ประเภท) เหลือเฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้ในระบบแล้ว
+ * Pronista §SOW Task/Subtask — แทนที่ DocUploadBreakoutModal เดิม (เคยรองรับ 6 ประเภท) เหลือเฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้ในระบบแล้ว
  * ต่างจากเดิมตรงหน้ารีวิวเป็น tree: Task พ่อ (จากตาราง 4.4) + Subtask ลูก (จากย่อหน้าโมดูล 4.1-4.3 ที่ backend parse มาให้แล้ว) แก้ไข/เพิ่ม/ลบได้ทั้ง 2 ชั้น
  * lockedProject: ใช้ตอนเปิดจากหน้าโปรเจกต์ — ข้ามขั้นเลือกโปรเจกต์เพราะรู้โปรเจกต์อยู่แล้ว
  */
@@ -87,9 +87,9 @@ export function SowUploadBreakoutModal({ lockedProject, onClose, onCreated }: {
   const [docTitle, setDocTitle] = useState('')
   const [docNumber, setDocNumber] = useState('')
   const [docVersion, setDocVersion] = useState('1.0')
-  // Tasknista §Epic Layer — ชื่อ Epic ที่จะครอบ Task ทั้งหมดที่แตกจากเอกสารนี้ (ตั้งต้นจากชื่อเอกสาร แก้ได้อิสระ) — ใช้เฉพาะโหมด V2 เท่านั้น
+  // Pronista §Epic Layer — ชื่อ Epic ที่จะครอบ Task ทั้งหมดที่แตกจากเอกสารนี้ (ตั้งต้นจากชื่อเอกสาร แก้ได้อิสระ) — ใช้เฉพาะโหมด V2 เท่านั้น
   const [epicTitle, setEpicTitle] = useState('')
-  // Tasknista §Project Refactor — SOW Parser Mode: V1 (ค่าเริ่มต้น) แตกเป็น Task แบนราบล้วน ไม่มี Epic/Story · V2 (เดิม) คง Epic>Task>Subtask ไว้ให้เลือกใช้ต่อได้
+  // Pronista §Project Refactor — SOW Parser Mode: V1 (ค่าเริ่มต้น) แตกเป็น Task แบนราบล้วน ไม่มี Epic/Story · V2 (เดิม) คง Epic>Task>Subtask ไว้ให้เลือกใช้ต่อได้
   const [parserMode, setParserMode] = useState<'V1_SIMPLE_TASK' | 'V2_ADVANCED_HIERARCHY'>('V1_SIMPLE_TASK')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
@@ -383,7 +383,7 @@ export function SowUploadBreakoutModal({ lockedProject, onClose, onCreated }: {
                       <button onClick={() => removeItem(it.tempId)} className="text-muted hover:text-danger-600 shrink-0 mt-2"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
 
-                    {/* Tasknista §SOW Task/Subtask — งานย่อยใต้ Task พ่อนี้ (parse จากย่อหน้าโมดูลในเอกสาร แก้/เพิ่ม/ลบได้) */}
+                    {/* Pronista §SOW Task/Subtask — งานย่อยใต้ Task พ่อนี้ (parse จากย่อหน้าโมดูลในเอกสาร แก้/เพิ่ม/ลบได้) */}
                     <div className="pl-6 space-y-2">
                       {it.subtasks.length === 0 && (
                         <div className="text-[11px] text-muted italic">ไม่พบรายละเอียดย่อยจากเอกสาร — เพิ่มเองได้</div>

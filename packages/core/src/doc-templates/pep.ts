@@ -56,7 +56,7 @@ export const PEP_TEMPLATE: DocTemplateDef = {
       id: 'payment_milestones',
       title: '4. งวดการชำระเงิน (Payment Milestones)',
       seedRows: 1,
-      // Tasknista §Document Traceability — เอกสารจริงไม่มีคอลัมน์รหัสงวด/อ้างอิง SOW แยก จึงใช้ "งวด" เป็นรหัสอ้างอิงแทน ไม่ตั้ง referenceCodeKey
+      // Pronista §Document Traceability — เอกสารจริงไม่มีคอลัมน์รหัสงวด/อ้างอิง SOW แยก จึงใช้ "งวด" เป็นรหัสอ้างอิงแทน ไม่ตั้ง referenceCodeKey
       breakoutToTasks: {
         sourceCodeKey: 'installment',
         titleKey: 'condition',

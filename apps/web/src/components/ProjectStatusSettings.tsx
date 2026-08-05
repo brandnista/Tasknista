@@ -2,7 +2,7 @@
  * ตั้งค่า → สถานะโปรเจกต์ (SPEC §4.3) — owner เพิ่ม/ลบ/เรียง/เปลี่ยนชื่อ+สี
  * kind=archived = สถานะ "ปิด/เก็บ" (ซ่อนจากลิสต์ที่ทำอยู่) · บันทึกทั้งลิสต์ทีเดียว (PUT)
  * ลบสถานะที่ยังมีโปรเจกต์ใช้ไม่ได้ (server ตอบ 409)
- * Tasknista §PM View — แยกชุดสถานะตาม category (Product/Project) เพราะ pipeline ไม่เหมือนกัน (เช่น Product ไม่มี MA/Subscribed)
+ * Pronista §PM View — แยกชุดสถานะตาม category (Product/Project) เพราะ pipeline ไม่เหมือนกัน (เช่น Product ไม่มี MA/Subscribed)
  */
 import { Check, ChevronDown, ChevronUp, Plus, Tags, Trash2 } from 'lucide-react'
 import { STATUS_COLOR_KEYS } from '@seedoffice/core'

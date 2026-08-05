@@ -181,7 +181,7 @@ INSERT OR REPLACE INTO calendar_events (id, title, start_date, end_date, type, u
   ('ce_holiday','วันหยุดบริษัท',       '2026-07-06',NULL,        'holiday', NULL,   NULL,    'local',NULL,'u_owner',1767200000000);
 
 -- ============================================================
--- Tasknista §F1 — ชุดสถานะ 2 แบบ (Product=รูป1 · Project=รูป3) + category/tags/sprint ตัวอย่าง
+-- Pronista §F1 — ชุดสถานะ 2 แบบ (Product=รูป1 · Project=รูป3) + category/tags/sprint ตัวอย่าง
 -- ============================================================
 UPDATE company_config SET
   product_statuses='[{"id":"project_brief","name":"Project Brief","color":"yellow","kind":"active","sortOrder":0},{"id":"present","name":"Present","color":"rose","kind":"active","sortOrder":1},{"id":"quotation","name":"Quotation","color":"orange","kind":"active","sortOrder":2},{"id":"negotiation","name":"Negotiation","color":"violet","kind":"active","sortOrder":3},{"id":"in_progress","name":"In Progress","color":"sky","kind":"active","sortOrder":4},{"id":"waiting_approve","name":"Waiting for Approve","color":"teal","kind":"active","sortOrder":5},{"id":"done","name":"Done","color":"emerald","kind":"active","sortOrder":6},{"id":"canceled","name":"Canceled","color":"rose","kind":"archived","sortOrder":7},{"id":"sign_contract","name":"Sign Contract","color":"violet","kind":"active","sortOrder":8},{"id":"introduction","name":"Introduction","color":"sky","kind":"active","sortOrder":9}]',
@@ -202,7 +202,7 @@ INSERT OR REPLACE INTO project_members (id, project_id, user_id) VALUES
   ('pm_sap_owner','p_sap','u_owner'),('pm_sap_beam','p_sap','u_beam'),('pm_sap_korn','p_sap','u_korn'),
   ('pm_bloom_pond','p_bloom','u_pond'),('pm_bloom_korn','p_bloom','u_korn');
 
--- Tasknista §F2 — Backlog ตัวอย่าง (task ลอย: project_id/group_id = null)
+-- Pronista §F2 — Backlog ตัวอย่าง (task ลอย: project_id/group_id = null)
 INSERT OR REPLACE INTO tasks (id, project_id, group_id, sort_order, title, description, assignee_id, status, priority, estimate_minutes, start_date, due_date, created_by, created_at, completed_at) VALUES
   ('t_bl_landing',NULL,NULL,0,'ทำ landing page โปรโมชั่นกลางปี',NULL,NULL,'non_start','high',  NULL,NULL,NULL,'u_owner',1767200000000,NULL),
   ('t_bl_pos',    NULL,NULL,0,'วิจัยคู่แข่งระบบ POS',          NULL,NULL,'non_start','normal',NULL,NULL,NULL,'u_owner',1767200000000,NULL),

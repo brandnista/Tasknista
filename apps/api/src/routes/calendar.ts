@@ -66,7 +66,7 @@ export async function gatherCalendarEvents(
     .where(and(lte(calendarEvents.startDate, to), gte(calendarEvents.startDate, addDaysISO(from, -31))))
   const cfg = (await db.select().from(companyConfig).limit(1))[0]
   const visible = rows.filter((r) => (r.ev.endDate ?? r.ev.startDate) >= from)
-  // Tasknista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคน) ต่อ event ที่มองเห็น
+  // Pronista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคน) ต่อ event ที่มองเห็น
   const eventIds = visible.map((r) => r.ev.id)
   const attendeeRows = eventIds.length
     ? await db
@@ -107,7 +107,7 @@ export const calendarRoutes = new Hono<AppEnv>()
         type: z.enum(CALENDAR_EVENT_TYPES).default('other'),
         userId: z.string().optional(), // วันลาของใคร
         projectId: z.string().optional(),
-        attendeeIds: z.array(z.string()).optional(), // Tasknista §1 — ผู้เข้าร่วมประชุม (หลายคน)
+        attendeeIds: z.array(z.string()).optional(), // Pronista §1 — ผู้เข้าร่วมประชุม (หลายคน)
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)

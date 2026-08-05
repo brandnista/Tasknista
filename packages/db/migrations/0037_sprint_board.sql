@@ -1,4 +1,4 @@
--- Tasknista §Sprint & Board Management
+-- Pronista §Sprint & Board Management
 ALTER TABLE `company_config` ADD `board_presets` text;
 
 CREATE TABLE `sprints` (

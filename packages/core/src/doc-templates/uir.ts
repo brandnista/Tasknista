@@ -81,7 +81,7 @@ export const UIR_TEMPLATE: DocTemplateDef = {
       id: 'signoff_matrix',
       title: '4. Client Sign-off Matrix (รายการหน้าจอทั้งหมด)',
       seedRows: 1,
-      // Tasknista §Document Traceability — รายการหน้าจออ้างอิงรหัส Ticket ของ SRS (ชั้นที่ 6 ของ chain)
+      // Pronista §Document Traceability — รายการหน้าจออ้างอิงรหัส Ticket ของ SRS (ชั้นที่ 6 ของ chain)
       breakoutToTasks: {
         sourceCodeKey: 'src_id',
         titleKey: 'screen',

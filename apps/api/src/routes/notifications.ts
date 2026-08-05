@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types'
 
 /**
- * Tasknista §My Work/Notification — แจ้งเตือนในระบบเท่านั้น (ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ) ตอน assign/complete Subtask
+ * Pronista §My Work/Notification — แจ้งเตือนในระบบเท่านั้น (ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ) ตอน assign/complete Subtask
  * ของตัวเองเท่านั้น (userId = me.id เสมอ) — ไม่มี endpoint ให้ดูของคนอื่น
  */
 export const notificationRoutes = new Hono<AppEnv>()

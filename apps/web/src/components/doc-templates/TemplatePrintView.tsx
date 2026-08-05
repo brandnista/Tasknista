@@ -21,9 +21,9 @@ function markdownToPlainish(md: string): string {
 }
 
 /**
- * Tasknista §Document Template — เลย์เอาต์สำหรับ print-to-PDF (`window.print()` + `@media print` ใน index.css)
+ * Pronista §Document Template — เลย์เอาต์สำหรับ print-to-PDF (`window.print()` + `@media print` ใน index.css)
  * ซ่อนตลอดเวลาปกติ (`hidden print:block`) โผล่เฉพาะตอนสั่งพิมพ์ — ใช้ SectionDef เดียวกับหน้ากรอกฟอร์ม ไม่มีโค้ดเฉพาะ MOM
- * Tasknista §Document Attachments — เพิ่มรายการแนบท้าย (ชื่อลิงก์/ไฟล์) ท้ายเอกสารตอนพิมพ์ + field type 'richtext' render เป็นข้อความอ่านง่าย (ตัด markdown)
+ * Pronista §Document Attachments — เพิ่มรายการแนบท้าย (ชื่อลิงก์/ไฟล์) ท้ายเอกสารตอนพิมพ์ + field type 'richtext' render เป็นข้อความอ่านง่าย (ตัด markdown)
  */
 export function TemplatePrintView({ def, data, title, docNumber, docId }: { def: DocTemplateDef; data: TemplateData; title: string; docNumber: string | null; docId: string }) {
   const { data: attachments } = useLoad<DocAttachment[]>(() => api.get(`/api/docs/${docId}/attachments`), [docId])

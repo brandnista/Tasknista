@@ -1,5 +1,5 @@
 /**
- * Preset สถานะ Sprint Board ปรับเองได้ (Tasknista §Sprint & Board) — เก็บเป็น JSON ใน company_config (ชุดเดียวทั้งบริษัท)
+ * Preset สถานะ Sprint Board ปรับเองได้ (Pronista §Sprint & Board) — เก็บเป็น JSON ใน company_config (ชุดเดียวทั้งบริษัท)
  * แต่ละ preset = ชุดคอลัมน์เรียงตาม sortOrder · sprint หนึ่งอันเลือก preset หนึ่งอันตอนสร้าง (sprints.boardPresetId อ้าง id ที่นี่)
  * ยังไม่ตั้ง → ใช้ DEFAULT (2 ชุดเดิมตามที่ขอ) · pure ล้วน ใช้ทั้ง API + web (mirror project-status.ts)
  */

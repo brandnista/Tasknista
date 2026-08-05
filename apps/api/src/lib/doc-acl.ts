@@ -2,7 +2,7 @@ import { createDb, docMembers, docs } from '@seedoffice/db'
 import { and, eq } from 'drizzle-orm'
 
 /**
- * Tasknista §merge (2026-07-03) — สิทธิ์ต่อโหนดในเมนู "เอกสาร" (mirror project-role.ts / เดิม library-acl.ts)
+ * Pronista §merge (2026-07-03) — สิทธิ์ต่อโหนดในเมนู "เอกสาร" (mirror project-role.ts / เดิม library-acl.ts)
  * company owner = 'owner' เสมอ · เจ้าของโหนด = 'owner' เสมอ · vendor ไม่เข้าเมนูนี้เลย (teamOnly กันไว้ชั้นนอก)
  * private = ต้องมีแถวใน doc_members ถึงจะเห็น · team = ทุกคน (owner/member) เห็นอย่างน้อย viewer
  */

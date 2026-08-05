@@ -23,7 +23,7 @@ beforeEach(async () => {
 })
 
 /** สร้าง project/task แล้วใส่ entries ตรงผ่าน SQL (snapshot rate กำหนดเอง) — รวม minutes ตามต้องการ
- * POST /api/projects เป็น ownerOnly (Tasknista §permission) — สร้างด้วย owner เสมอ แล้วตั้งปอนด์เป็น editor
+ * POST /api/projects เป็น ownerOnly (Pronista §permission) — สร้างด้วย owner เสมอ แล้วตั้งปอนด์เป็น editor
  * ก่อน ไม่งั้นสร้าง group ไม่ได้ (canEditProject gate) */
 async function seedEntries(cookie: string, userId: string, rate: number, perDay: { workDate: string; minutes: number }[]) {
   const owner = await loginAs(app, 'owner@example-co.test')

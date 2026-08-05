@@ -3,7 +3,7 @@ import { companyConfig, createDb, sprintTaskSnapshots, sprints, tasks } from '@s
 import { eq } from 'drizzle-orm'
 
 /**
- * ปิด sprint (Tasknista §Sprint & Board) — ใช้ทั้งตอนกดปิดเองและ cron ครบกำหนด (scheduled.ts)
+ * ปิด sprint (Pronista §Sprint & Board) — ใช้ทั้งตอนกดปิดเองและ cron ครบกำหนด (scheduled.ts)
  * snapshot done/not-done ลง sprints ก่อน (ต้องมีไว้ดูรายงานย้อนหลัง — หลังจากนี้ query จาก tasks นับใหม่ไม่ได้แล้ว)
  * snapshot ทุก task ลง sprint_task_snapshots ด้วย (ดู Detail Board ย้อนหลังได้ — task จริงจะถูกเคลียร์ sprintId/sprintStatus ทิ้งด้านล่าง ข้อมูลนี้จะหายถ้าไม่เก็บตอนนี้)
  * task ที่ไม่อยู่คอลัมน์สุดท้ายของ preset (Done) เด้งกลับ backlog (sprintId/sprintStatus เคลียร์) · task Done ยังผูก sprintId ไว้เป็นประวัติ

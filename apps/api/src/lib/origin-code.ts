@@ -2,7 +2,7 @@ import { createDb, tasks } from '@seedoffice/db'
 import { like } from 'drizzle-orm'
 
 /**
- * Tasknista §Document Traceability — รหัสอ้างอิงงานที่แตกจากเอกสาร MOM/BRD/SOW/SRS: "<projectCode>-<DOCTYPE>-v<version>-<NNN>"
+ * Pronista §Document Traceability — รหัสอ้างอิงงานที่แตกจากเอกสาร MOM/BRD/SOW/SRS: "<projectCode>-<DOCTYPE>-v<version>-<NNN>"
  * ขนานกับ nextSrsRefCode (srs-code.ts) ที่ SRS จากหน้าโปรเจกต์ยังใช้อยู่ตัวเดิมไม่เปลี่ยน — ตัวนี้ใช้กับ createTasksFromBreakoutItems (generic ทุก docType) เท่านั้น
  * นับต่อเนื่องทั้งโปรเจกต์ข้ามทุกเอกสาร/ทุกเวอร์ชันของ docType เดียวกัน (ไม่ reset ต่อเอกสาร/เวอร์ชัน — mirror nextSrsRefCode)
  */

@@ -20,7 +20,7 @@ describe('T07 — admin users/rates/config', () => {
     expect(list.length).toBeGreaterThanOrEqual(4)
   })
 
-  // Tasknista เป็น PM app ล้วนๆ ไม่มี UI/API ตั้ง rate ต่อ user แล้ว (admin.ts) — rate ตั้งต้น = 0 อัตโนมัติ
+  // Pronista เป็น PM app ล้วนๆ ไม่มี UI/API ตั้ง rate ต่อ user แล้ว (admin.ts) — rate ตั้งต้น = 0 อัตโนมัติ
   // กันไม่ให้ time-entry บล็อกเพราะไม่มี rate เท่านั้น ไม่มีเส้นทางดู/แก้ rate ให้เทสต์
   it('owner provision vendor ใหม่ ได้พร้อม jobTitle/costPerDaySatang (Project Estimate)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')

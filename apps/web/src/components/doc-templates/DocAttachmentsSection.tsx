@@ -18,7 +18,7 @@ interface DocAttachment {
 const isImage = (mime: string | null) => !!mime && /^image\/(png|jpeg|gif|webp|avif)$/.test(mime)
 
 /**
- * Tasknista §Document Attachments — ส่วนแนบท้ายเอกสาร template ทุกประเภท: ลิงก์ภายนอก (เช่น ลิงก์บันทึกประชุม Google Meet), ไฟล์เอกสาร, หรือรูปภาพ
+ * Pronista §Document Attachments — ส่วนแนบท้ายเอกสาร template ทุกประเภท: ลิงก์ภายนอก (เช่น ลิงก์บันทึกประชุม Google Meet), ไฟล์เอกสาร, หรือรูปภาพ
  * เรียก endpoint docAttachments (apps/api/src/routes/doc-attachments.ts) — คนละตารางกับ task attachments เดิม
  */
 export function DocAttachmentsSection({ docId, canEdit }: { docId: string; canEdit: boolean }) {

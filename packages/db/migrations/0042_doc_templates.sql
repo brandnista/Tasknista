@@ -1,4 +1,4 @@
--- Tasknista §Document Template — เพิ่ม kind='template' บน docs + ตารางเก็บข้อมูลที่กรอกจริง (โครงสร้าง template เองอยู่ในโค้ด ไม่ใช่ DB)
+-- Pronista §Document Template — เพิ่ม kind='template' บน docs + ตารางเก็บข้อมูลที่กรอกจริง (โครงสร้าง template เองอยู่ในโค้ด ไม่ใช่ DB)
 ALTER TABLE `docs` ADD `template_type` text;
 --> statement-breakpoint
 ALTER TABLE `docs` ADD `template_doc_number` text;

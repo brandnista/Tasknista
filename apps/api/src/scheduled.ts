@@ -36,7 +36,7 @@ export async function runScheduled(env: Env, cron: string): Promise<void> {
   await purgeExpiredSessions(env)
   await syncAllCalendars(env) // E6 — sync ขาเข้า Google Calendar (กลืน error รายตัวเอง)
 
-  // Tasknista §Sprint & Board — sprint ที่ active ครบกำหนด (endDate < วันนี้ ตามเวลาไทย) → ปิดอัตโนมัติ (task ไม่ Done เด้งกลับ backlog)
+  // Pronista §Sprint & Board — sprint ที่ active ครบกำหนด (endDate < วันนี้ ตามเวลาไทย) → ปิดอัตโนมัติ (task ไม่ Done เด้งกลับ backlog)
   const today = bkkDateOf(Date.now())
   const overdueSprints = await db.select().from(sprints).where(and(eq(sprints.status, 'active'), lt(sprints.endDate, today)))
   for (const s of overdueSprints) await completeSprint(db, s.id)

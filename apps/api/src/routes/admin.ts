@@ -58,7 +58,7 @@ export const adminRoutes = new Hono<AppEnv>()
         name: z.string().min(1),
         role: z.enum(['owner', 'member', 'vendor']),
         teamId: z.string().nullable().optional(),
-        // Tasknista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
+        // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
         jobTitle: z.string().max(80).nullable().optional(),
         costPerDaySatang: z.number().int().nonnegative().nullable().optional(),
       })
@@ -83,7 +83,7 @@ export const adminRoutes = new Hono<AppEnv>()
     const user = inserted[0]
     if (!user) return c.json({ error: 'insert_failed' }, 500)
 
-    // Tasknista เป็น PM app ล้วนๆ ไม่มี UI ตั้ง rate แล้ว — ใส่ rate ตั้งต้น (ไม่แสดงที่ไหน) กัน time-entry บล็อกเพราะไม่มี rate
+    // Pronista เป็น PM app ล้วนๆ ไม่มี UI ตั้ง rate แล้ว — ใส่ rate ตั้งต้น (ไม่แสดงที่ไหน) กัน time-entry บล็อกเพราะไม่มี rate
     await db.insert(rates).values({ userId: user.id, rateSatangPerHour: 0, effectiveFrom: bkkDateOf(Date.now()) })
     await writeAudit(c.env, {
       actorId: c.get('user').id,
@@ -104,7 +104,7 @@ export const adminRoutes = new Hono<AppEnv>()
         role: z.enum(['owner', 'member', 'vendor']).optional(),
         status: z.enum(['active', 'disabled']).optional(),
         teamId: z.string().nullable().optional(),
-        // Tasknista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
+        // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
         jobTitle: z.string().max(80).nullable().optional(),
         costPerDaySatang: z.number().int().nonnegative().nullable().optional(),
       })
@@ -146,7 +146,7 @@ export const adminRoutes = new Hono<AppEnv>()
           .max(64)
           .regex(/^(@[a-z0-9-]+(\.[a-z0-9-]+)+)?$/, 'ต้องเป็นรูปแบบ @example.com หรือเว้นว่าง')
           .optional(),
-        // Tasknista §Project Estimate — % buffer/margin default ใช้คำนวณต้นทุน
+        // Pronista §Project Estimate — % buffer/margin default ใช้คำนวณต้นทุน
         costBufferPercent: z.number().int().min(0).max(100).optional(),
         costMarginPercent: z.number().int().min(0).max(100).optional(),
       })
@@ -170,7 +170,7 @@ export const adminRoutes = new Hono<AppEnv>()
   })
 
   // สถานะโปรเจกต์ปรับเองได้ (SPEC §4.3) — owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/ชื่อ/สี)
-  // Tasknista §PM View — category แยกชุดสถานะ product/project กันคนละคอลัมน์ (company_config.productStatuses/projectStatuses) ตาม category ของโปรเจกต์
+  // Pronista §PM View — category แยกชุดสถานะ product/project กันคนละคอลัมน์ (company_config.productStatuses/projectStatuses) ตาม category ของโปรเจกต์
   // กันลบสถานะที่ยังมีโปรเจกต์ (เฉพาะ category นั้น) ใช้อยู่ (ต้องย้ายโปรเจกต์ออกก่อน)
   .put('/project-statuses', async (c) => {
     const body = z
@@ -218,7 +218,7 @@ export const adminRoutes = new Hono<AppEnv>()
     return c.json({ [category === 'product' ? 'productStatuses' : 'projectStatuses']: resolveStatuses(statuses) })
   })
 
-  // Tasknista §Sprint & Board — preset คอลัมน์บอร์ดปรับเองได้ (owner บันทึกทั้งลิสต์)
+  // Pronista §Sprint & Board — preset คอลัมน์บอร์ดปรับเองได้ (owner บันทึกทั้งลิสต์)
   // กันลบ preset ที่ sprint ใช้อยู่ (ทั้ง planned/active/completed — completed ต้องอ้าง preset เดิมได้เพื่อดูประวัติ/รายงาน)
   .put('/board-presets', async (c) => {
     const body = z
@@ -270,7 +270,7 @@ export const adminRoutes = new Hono<AppEnv>()
     return c.json({ boardPresets: resolvePresets(presetsData) })
   })
 
-  // Tasknista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ)
+  // Pronista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ)
   .get('/positions', async (c) => {
     const db = createDb(c.env.DB)
     const cfg = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]

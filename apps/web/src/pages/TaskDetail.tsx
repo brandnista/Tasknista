@@ -24,7 +24,7 @@ import { useDialog } from '../components/Dialog'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
 
-// Tasknista §Back to Basic — 7 ประเภทเอกสารที่ต้องสร้าง/อัปโหลด/ผูกได้ตรงจากหน้ารายละเอียด Task (เหมือน Docs.tsx)
+// Pronista §Back to Basic — 7 ประเภทเอกสารที่ต้องสร้าง/อัปโหลด/ผูกได้ตรงจากหน้ารายละเอียด Task (เหมือน Docs.tsx)
 const TASK_DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
 type TaskDocType = (typeof TASK_DOC_TYPES)[number]
 interface ProjectDocOpt { id: string; title: string; docType: TaskDocType | 'API' | null }
@@ -48,7 +48,7 @@ interface TimeRow {
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
-/** Tasknista §Task Detail redesign — จับเวลาวันนี้ (ย้ายมาจาก TaskDrawer.tsx เดิมทั้งดุ้น ไม่เปลี่ยน logic) ใช้ร่วมทั้งฝั่งคนถูก Assign (เด่นบน sidebar) และฝั่งคนจ่ายงาน (ย่อไว้เทียบกับประเมิน) */
+/** Pronista §Task Detail redesign — จับเวลาวันนี้ (ย้ายมาจาก TaskDrawer.tsx เดิมทั้งดุ้น ไม่เปลี่ยน logic) ใช้ร่วมทั้งฝั่งคนถูก Assign (เด่นบน sidebar) และฝั่งคนจ่ายงาน (ย่อไว้เทียบกับประเมิน) */
 function TimeSection({ taskId, hasProject, rows, reload }: { taskId: string; hasProject: boolean; rows: TimeRow[]; reload: () => Promise<unknown> }) {
   const { user } = useAuth()
   const timer = useTimer()
@@ -175,9 +175,9 @@ interface Detail {
   id: string
   projectId: string | null
   title: string
-  // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน
+  // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน
   description: string | null
-  // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" คนละฟิลด์กับ description แก้ได้เฉพาะ assignee ก่อนกดส่งงาน
+  // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" คนละฟิลด์กับ description แก้ได้เฉพาะ assignee ก่อนกดส่งงาน
   assigneeNotes: string | null
   status: TaskStatus
   kind: 'task' | 'defect' | 'cr' | 'backlog'
@@ -185,7 +185,7 @@ interface Detail {
   priority: 'low' | 'normal' | 'high'
   assigneeId: string | null
   assigneeName: string | null
-  // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
+  // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
   dispatchedAt: number | null
   createdBy: string
   myRole: 'owner' | 'editor' | 'viewer'
@@ -205,9 +205,9 @@ interface Detail {
   originRefCode: string | null
   originDocId: string | null
   parent: { id: string; title: string; code: string | null } | null
-  // Tasknista §Epic Layer — Epic ที่ task/subtask นี้สังกัด (null = ไม่ได้มาจากเอกสารที่มี Epic)
+  // Pronista §Epic Layer — Epic ที่ task/subtask นี้สังกัด (null = ไม่ได้มาจากเอกสารที่มี Epic)
   epic: { id: string; title: string; code: string | null } | null
-  // Tasknista §Task Detail redesign — งานย่อยพี่น้องใน Task พ่อเดียวกัน ใช้ทำ progress pill
+  // Pronista §Task Detail redesign — งานย่อยพี่น้องใน Task พ่อเดียวกัน ใช้ทำ progress pill
   siblings: { id: string; code: string | null; title: string; status: TaskStatus }[]
   subtasks: {
     id: string
@@ -218,7 +218,7 @@ interface Detail {
     estimateMinutes: number | null
     originCode: string | null
   }[]
-  // Tasknista §Task Detail redesign — เกณฑ์ว่าเสร็จ แยกจาก description อิสระ
+  // Pronista §Task Detail redesign — เกณฑ์ว่าเสร็จ แยกจาก description อิสระ
   checklist: { id: string; text: string; done: boolean }[]
   customFields: { id: string; label: string; value: string }[]
   comments: { id: string; body: string; userName: string; userAvatarUrl?: string | null; createdAt: number; isBlocked: boolean }[]
@@ -238,7 +238,7 @@ interface TraceRow {
   originDocId: string | null
 }
 interface TraceResponse { upstream: TraceRow[]; downstream: TraceRow[] }
-// Tasknista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ (คนละแนวคิดกับ trace ด้านบนที่เป็นสาย doc traceability)
+// Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ (คนละแนวคิดกับ trace ด้านบนที่เป็นสาย doc traceability)
 interface RefRow { refId: string; id: string; code: string | null; title: string; kind: 'task' | 'defect' | 'cr' | 'backlog'; direction: 'outgoing' | 'incoming' }
 
 const PRIORITY_THAI = { low: 'ต่ำ', normal: 'กลาง', high: 'สูง' } as const
@@ -269,7 +269,7 @@ const DELETE_TASK_ERROR_LABEL = {
 } as const
 const fmtWhen = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-/** Tasknista §Task Detail redesign — หน้าเต็มหน้าแทน TaskDrawer เดิม (Drawer แคบไป ยัดทุกอย่างไว้ไม่มีที่หายใจ)
+/** Pronista §Task Detail redesign — หน้าเต็มหน้าแทน TaskDrawer เดิม (Drawer แคบไป ยัดทุกอย่างไว้ไม่มีที่หายใจ)
  * แบ่ง 2 คอลัมน์ + จัดลำดับ/เน้นเนื้อหาต่างกันอัตโนมัติตาม "ใครเปิดดู": assignee ของงานนี้ (t.assigneeId === user.id) vs คนอื่นที่แก้ไขได้ (ถือเป็นฝั่งคนจ่ายงาน)
  * ไม่แตะระบบสิทธิ์เดิม (canEdit = owner/editor ของโปรเจกต์) — แค่จัดการมองเห็น/ปุ่มลัดให้คนที่มีสิทธิ์แก้ไขอยู่แล้ว */
 export function TaskDetailPage() {
@@ -278,11 +278,11 @@ export function TaskDetailPage() {
   const { user } = useAuth()
   const { confirmDialog, promptDialog } = useDialog()
   const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
-  // Tasknista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
+  // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const { data: trace } = useLoad<TraceResponse>(() => api.get(`/api/tasks/${taskId}/trace`), [taskId])
-  // Tasknista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ
+  // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ
   const { data: refs, reload: reloadRefs } = useLoad<RefRow[]>(() => api.get(`/api/tasks/${taskId}/references`), [taskId])
   const [linkPickerOpen, setLinkPickerOpen] = useState(false)
   const { data: linkPickerCandidates } = useLoad<PickableTask[]>(
@@ -299,7 +299,7 @@ export function TaskDetailPage() {
   const [newChecklistText, setNewChecklistText] = useState('')
   const [renamingAttachment, setRenamingAttachment] = useState<{ id: string; draft: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  // Tasknista §Back to Basic — สร้าง/อัปโหลดเอกสารมีประเภท (MOM/BRD/SOW/SRS/PEP/UIR/CR) หรือผูกเอกสารที่มีอยู่แล้ว ตรงจากหน้านี้เลย
+  // Pronista §Back to Basic — สร้าง/อัปโหลดเอกสารมีประเภท (MOM/BRD/SOW/SRS/PEP/UIR/CR) หรือผูกเอกสารที่มีอยู่แล้ว ตรงจากหน้านี้เลย
   const [docMenuOpen, setDocMenuOpen] = useState(false)
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
   const docUploadRef = useRef<HTMLInputElement>(null)
@@ -318,12 +318,12 @@ export function TaskDetailPage() {
     await api.patch(`/api/tasks/${t.id}`, data)
     await reload()
   }
-  // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
+  // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
   const dispatch = async () => {
     await api.post(`/api/tasks/${t.id}/dispatch`, {})
     await reload()
   }
-  // Tasknista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
+  // Pronista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
   const accept = async () => {
     await api.post(`/api/tasks/${t.id}/accept`, {})
     await reload()
@@ -371,13 +371,13 @@ export function TaskDetailPage() {
       alert('ลิงก์ไม่ถูกต้อง ลองใหม่อีกครั้ง (ต้องขึ้นต้นด้วย https://)')
     }
   }
-  // Tasknista §Back to Basic — สร้างเอกสารจาก Template สำเร็จแล้ว (เอกสารผูกโปรเจกต์ไปแล้วจาก TemplatePickerModal) ผูกเพิ่มกับ task นี้ด้วย
+  // Pronista §Back to Basic — สร้างเอกสารจาก Template สำเร็จแล้ว (เอกสารผูกโปรเจกต์ไปแล้วจาก TemplatePickerModal) ผูกเพิ่มกับ task นี้ด้วย
   const onTemplateDocCreated = async (docId: string) => {
     setTemplatePickerOpen(false)
     await api.post(`/api/docs/${docId}/links`, { taskId: t.id })
     await reload()
   }
-  // Tasknista §Back to Basic — อัปโหลดไฟล์ (Word/PDF) พร้อมระบุประเภทเอกสาร (บังคับ ต่างจากหน้า เอกสาร ที่เลือกได้/ไม่เลือกก็ได้) แล้วผูกกับ task นี้ทันที
+  // Pronista §Back to Basic — อัปโหลดไฟล์ (Word/PDF) พร้อมระบุประเภทเอกสาร (บังคับ ต่างจากหน้า เอกสาร ที่เลือกได้/ไม่เลือกก็ได้) แล้วผูกกับ task นี้ทันที
   const confirmDocUpload = async () => {
     const file = docUploadPending
     if (!file || !docTypeForUpload) return
@@ -397,7 +397,7 @@ export function TaskDetailPage() {
     await api.post(`/api/docs/${created.id}/links`, { taskId: t.id })
     await reload()
   }
-  // Tasknista §Back to Basic — ผูกเอกสารที่มีอยู่แล้วในโปรเจกต์เดียวกัน (ไม่ใช่สร้างใหม่)
+  // Pronista §Back to Basic — ผูกเอกสารที่มีอยู่แล้วในโปรเจกต์เดียวกัน (ไม่ใช่สร้างใหม่)
   const linkExistingDoc = async (docId: string) => {
     setExistingDocPickerOpen(false)
     setExistingDocQuery('')
@@ -442,7 +442,7 @@ export function TaskDetailPage() {
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
   const totalMinutes = (timeRows ?? []).reduce((s, r) => s + r.minutes, 0)
 
-  // Tasknista §Task Detail redesign — ฟีดรวม คอมเมนต์+ประวัติกิจกรรม เรียงตามเวลา แทนสองส่วนแยกกันแบบเดิม
+  // Pronista §Task Detail redesign — ฟีดรวม คอมเมนต์+ประวัติกิจกรรม เรียงตามเวลา แทนสองส่วนแยกกันแบบเดิม
   type FeedEntry =
     | { kind: 'comment'; id: string; at: number; body: string; userName: string; userAvatarUrl?: string | null; isBlocked: boolean }
     | { kind: 'activity'; id: string; at: number; actorName: string; actorAvatarUrl?: string | null; action: string; meta: Record<string, unknown> | null }
@@ -521,7 +521,7 @@ export function TaskDetailPage() {
             </div>
 
             <div>
-              {/* Tasknista §Back to Basic (ต่อยอด) — บันทึกของผู้รับงานเอง แก้ได้เฉพาะ assignee ก่อนกด "ส่งงาน" · ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย */}
+              {/* Pronista §Back to Basic (ต่อยอด) — บันทึกของผู้รับงานเอง แก้ได้เฉพาะ assignee ก่อนกด "ส่งงาน" · ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย */}
               <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้รับงาน</div>
               {isAssignee && t.status !== 'waiting_for_test' && !done ? (
                 <textarea
@@ -780,7 +780,7 @@ export function TaskDetailPage() {
                       <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
                       <div className="flex-1 leading-snug pt-0.5">
                         <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
-                        {/* Tasknista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
+                        {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
                         {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
                           <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
                         )}
@@ -805,7 +805,7 @@ export function TaskDetailPage() {
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted">สถานะ</span>
-                {/* Tasknista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น */}
+                {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น */}
                 {canEdit && !isAssignee ? (
                   <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะ" className={`px-2 py-1 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
                     {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
@@ -894,7 +894,7 @@ export function TaskDetailPage() {
             {canEdit && (
               <div className="border-t border-border-subtle pt-4 space-y-2">
                 {isAssignee ? (
-                  // Tasknista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → ข้อความเดิม · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
+                  // Pronista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → ข้อความเดิม · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
                   !t.dispatchedAt ? (
                     <div className="text-xs text-muted text-center py-2">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ</div>
                   ) : t.status === 'non_start' ? (
@@ -907,7 +907,7 @@ export function TaskDetailPage() {
                     </button>
                   )
                 ) : !t.dispatchedAt ? (
-                  // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องกดก่อนงานถึงจะโผล่ในหน้า "งานของฉัน" ของผู้รับผิดชอบ
+                  // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องกดก่อนงานถึงจะโผล่ในหน้า "งานของฉัน" ของผู้รับผิดชอบ
                   <>
                     <button onClick={() => void dispatch()} disabled={!t.assigneeId} title={!t.assigneeId ? 'เลือกผู้รับผิดชอบก่อน' : undefined} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                       <CheckCircle2 className="w-4 h-4" /> จ่ายงาน
@@ -915,7 +915,7 @@ export function TaskDetailPage() {
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
                 ) : t.status === 'non_start' ? (
-                  // Tasknista §Task lifecycle accept step — จ่ายแล้วแต่ assignee ยังไม่กดรับงาน กด "อนุมัติปิดงาน" ก่อนไม่ได้
+                  // Pronista §Task lifecycle accept step — จ่ายแล้วแต่ assignee ยังไม่กดรับงาน กด "อนุมัติปิดงาน" ก่อนไม่ได้
                   <>
                     <div className="text-xs text-muted text-center py-2">รอ{t.assigneeName ? ` ${t.assigneeName}` : ''}กดรับงาน</div>
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>

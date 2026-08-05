@@ -33,7 +33,7 @@ interface SnapshotData {
 
 const PRIORITY_DOT: Record<string, string> = { low: 'bg-border', normal: 'bg-warning-400', high: 'bg-danger-500' }
 
-/** Tasknista §Sprint & Board แก้ไข flow (ข้อ 8) — Detail Board ย้อนหลังของ sprint ที่ปิดแล้ว อ่านจาก sprint_task_snapshots (read-only)
+/** Pronista §Sprint & Board แก้ไข flow (ข้อ 8) — Detail Board ย้อนหลังของ sprint ที่ปิดแล้ว อ่านจาก sprint_task_snapshots (read-only)
  * ถ้า preset ถูกลบไปหลังปิด sprint แล้ว (cols ว่าง) จะ group ตาม statusIdAtClose ดิบแทน กันหน้าแตก */
 export function SprintSnapshotPage() {
   const { id: projectId, sprintId } = useParams<{ id: string; sprintId: string }>()

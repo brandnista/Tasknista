@@ -23,7 +23,7 @@ async function seedClient(cookie: string) {
       env,
     )
   ).json()) as { id: string }
-  // POST /api/projects เป็น ownerOnly (Tasknista §permission) — สร้างด้วย owner เสมอ ไม่ผูกกับ cookie ของ caller
+  // POST /api/projects เป็น ownerOnly (Pronista §permission) — สร้างด้วย owner เสมอ ไม่ผูกกับ cookie ของ caller
   const owner = await loginAs(app, 'owner@example-co.test')
   const p = (await (
     await app.request(

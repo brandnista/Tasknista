@@ -36,7 +36,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       await db
         .select({ task: tasks, groupName: taskGroups.name, projectName: projects.name, assigneeName: users.name })
         .from(tasks)
-        // Tasknista §5 (2026-07-03) — leftJoin: task ใน "Backlog ของโปรเจกต์" (groupId ยังว่าง) ต้องเปิด detail ได้ด้วย
+        // Pronista §5 (2026-07-03) — leftJoin: task ใน "Backlog ของโปรเจกต์" (groupId ยังว่าง) ต้องเปิด detail ได้ด้วย
         .leftJoin(taskGroups, eq(tasks.groupId, taskGroups.id))
         .leftJoin(projects, eq(tasks.projectId, projects.id))
         .leftJoin(users, eq(tasks.assigneeId, users.id))
@@ -63,7 +63,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .where(eq(auditLogs.entityId, taskId))
       .orderBy(desc(auditLogs.at))
       .limit(50)
-    // Tasknista §2.12 — งานย่อยของ task นี้ (ไม่รวมของ sub-task ตัวเอง — ไม่ทำ nested ลึกกว่า 1 ชั้น)
+    // Pronista §2.12 — งานย่อยของ task นี้ (ไม่รวมของ sub-task ตัวเอง — ไม่ทำ nested ลึกกว่า 1 ชั้น)
     const subtasks = await db
       .select({ task: tasks, assigneeName: users.name })
       .from(tasks)
@@ -73,11 +73,11 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const parent = row.task.parentId
       ? (await db.select({ id: tasks.id, title: tasks.title, code: tasks.code }).from(tasks).where(eq(tasks.id, row.task.parentId)).limit(1))[0]
       : null
-    // Tasknista §Epic Layer — Epic ที่ task/subtask นี้สังกัด (subtask สืบ epicId จาก parent ตอนสร้างเหมือน originDocType) ใช้ทำ chip ใน breadcrumb
+    // Pronista §Epic Layer — Epic ที่ task/subtask นี้สังกัด (subtask สืบ epicId จาก parent ตอนสร้างเหมือน originDocType) ใช้ทำ chip ใน breadcrumb
     const epic = row.task.epicId
       ? (await db.select({ id: epics.id, title: epics.title, code: epics.code }).from(epics).where(eq(epics.id, row.task.epicId)).limit(1))[0]
       : null
-    // Tasknista §Task Detail redesign — งานย่อยพี่น้องใน Task พ่อเดียวกัน (ไม่รวมตัวเอง) ใช้ทำ progress pill ในหน้าใหม่ (เฉพาะตอนมี parent เท่านั้น)
+    // Pronista §Task Detail redesign — งานย่อยพี่น้องใน Task พ่อเดียวกัน (ไม่รวมตัวเอง) ใช้ทำ progress pill ในหน้าใหม่ (เฉพาะตอนมี parent เท่านั้น)
     const siblings = row.task.parentId
       ? await db
           .select({ id: tasks.id, code: tasks.code, title: tasks.title, status: tasks.status })
@@ -94,7 +94,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .from(taskCustomFields)
       .where(eq(taskCustomFields.taskId, taskId))
       .orderBy(asc(taskCustomFields.sortOrder))
-    // Tasknista §merge (2026-07-03) — เอกสาร (ทุก kind รวมหน้าวิกิ) ที่ผูกไว้กับ task นี้
+    // Pronista §merge (2026-07-03) — เอกสาร (ทุก kind รวมหน้าวิกิ) ที่ผูกไว้กับ task นี้
     const linkedDocuments = await db
       .select({ linkId: docLinks.id, doc: docs })
       .from(docLinks)
@@ -102,11 +102,11 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .where(and(eq(docLinks.taskId, taskId), isNull(docs.deletedAt)))
       .orderBy(asc(docLinks.createdAt))
 
-    // Tasknista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์ของ task นี้ ให้ FE คุม UI โดยไม่ต้อง fetch แยก
+    // Pronista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์ของ task นี้ ให้ FE คุม UI โดยไม่ต้อง fetch แยก
     const me = c.get('user')
     const myRole = row.task.projectId ? await getProjectRole(db, row.task.projectId, me.id, me.role) : 'viewer'
 
-    // Tasknista §time-tracking — จับเวลาได้เฉพาะ task ที่อยู่ใน sprint ที่ "เริ่ม" แล้วจริงๆ (status active) — Backlog/sprint ที่ยังไม่เริ่มยังไม่ถูก assign งานจริง
+    // Pronista §time-tracking — จับเวลาได้เฉพาะ task ที่อยู่ใน sprint ที่ "เริ่ม" แล้วจริงๆ (status active) — Backlog/sprint ที่ยังไม่เริ่มยังไม่ถูก assign งานจริง
     const sprintActive = row.task.sprintId
       ? (await db.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, row.task.sprintId)).limit(1))[0]?.status === 'active'
       : false
@@ -138,9 +138,9 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §2.12 — เพิ่มงานย่อยตรงจากหน้า Task Detail (สืบ project/group จาก parent, code = <parentCode>.N)
+  // Pronista §2.12 — เพิ่มงานย่อยตรงจากหน้า Task Detail (สืบ project/group จาก parent, code = <parentCode>.N)
   .post('/tasks/:id/subtasks', teamOnly, async (c) => {
-    // Tasknista §Sprint & Board fix — ตั้งรหัสงานย่อยเองได้ตอนสร้าง (ไม่บังคับ) — เว้นว่างยังออกเลขอัตโนมัติเหมือนเดิม
+    // Pronista §Sprint & Board fix — ตั้งรหัสงานย่อยเองได้ตอนสร้าง (ไม่บังคับ) — เว้นว่างยังออกเลขอัตโนมัติเหมือนเดิม
     const body = z.object({ title: z.string().min(1), code: z.string().trim().max(40).optional() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
@@ -159,7 +159,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         createdBy: me.id,
         code,
         title: body.data.title,
-        // Tasknista §SOW Task/Subtask — สืบ originDocType/originDocId จาก parent เสมอ ไม่งั้น subtask ที่เพิ่มเองใต้ Task SOW (เช่นตอน auto-parse ไม่เจออะไรเลย) จะติด guard sprint ใหม่ ลาก sprint ไม่ได้ตลอดกาล
+        // Pronista §SOW Task/Subtask — สืบ originDocType/originDocId จาก parent เสมอ ไม่งั้น subtask ที่เพิ่มเองใต้ Task SOW (เช่นตอน auto-parse ไม่เจออะไรเลย) จะติด guard sprint ใหม่ ลาก sprint ไม่ได้ตลอดกาล
         originDocType: parent.originDocType,
         originDocId: parent.originDocId,
       })
@@ -168,7 +168,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     return c.json(created[0], 201)
   })
 
-  // Tasknista §2.12 — custom field ยืดหยุ่น (label/value เอง หลายอันได้)
+  // Pronista §2.12 — custom field ยืดหยุ่น (label/value เอง หลายอันได้)
   .post('/tasks/:id/custom-fields', teamOnly, async (c) => {
     const body = z.object({ label: z.string().min(1).max(60), value: z.string().min(1).max(500) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -209,7 +209,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
-  // Tasknista §Task Detail redesign — เกณฑ์ว่าเสร็จ (Acceptance Criteria) ต่อ task หนึ่ง เพิ่ม/ติ๊ก/ลบทีละข้อ
+  // Pronista §Task Detail redesign — เกณฑ์ว่าเสร็จ (Acceptance Criteria) ต่อ task หนึ่ง เพิ่ม/ติ๊ก/ลบทีละข้อ
   .post('/tasks/:id/checklist', teamOnly, async (c) => {
     const body = z.object({ text: z.string().min(1).max(300) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -218,7 +218,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!task) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
     if (!(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
-    // Tasknista §Back to Basic (ต่อยอด) — assignee ติ๊กเกณฑ์ว่าเสร็จได้ (PATCH) แต่เพิ่มเกณฑ์ใหม่เองไม่ได้ (เป็นของผู้จ่ายงาน)
+    // Pronista §Back to Basic (ต่อยอด) — assignee ติ๊กเกณฑ์ว่าเสร็จได้ (PATCH) แต่เพิ่มเกณฑ์ใหม่เองไม่ได้ (เป็นของผู้จ่ายงาน)
     if (await isAssigneeOnlyEditor(db, task, me)) return c.json({ error: 'forbidden' }, 403)
     const siblings = await db.select().from(taskChecklistItems).where(eq(taskChecklistItems.taskId, task.id))
     const inserted = await db
@@ -237,7 +237,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, item.taskId)).limit(1))[0]
     const me = c.get('user')
     if (task && !(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
-    // Tasknista §Back to Basic (ต่อยอด) — assignee ติ๊ก done ได้อย่างเดียว แก้ข้อความเกณฑ์เองไม่ได้ (เป็นของผู้จ่ายงาน)
+    // Pronista §Back to Basic (ต่อยอด) — assignee ติ๊ก done ได้อย่างเดียว แก้ข้อความเกณฑ์เองไม่ได้ (เป็นของผู้จ่ายงาน)
     if (task && 'text' in body.data && (await isAssigneeOnlyEditor(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     const updated = await db.update(taskChecklistItems).set(body.data).where(eq(taskChecklistItems.id, item.id)).returning()
     return c.json(updated[0])
@@ -257,7 +257,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
 
   // comment — เปิดให้ vendor ด้วย (ต้องสื่อสารบนงานที่ตัวเองลงเวลา) · จดเป็น interpretation ไว้ใน SPEC
   .post('/tasks/:id/comments', async (c) => {
-    // Tasknista §Task Detail redesign — isBlocked ทำเครื่องหมายคอมเมนต์นี้เป็นการแจ้ง "ติดขัด" (โชว์แท็กแดงในฟีดรวมของหน้าใหม่)
+    // Pronista §Task Detail redesign — isBlocked ทำเครื่องหมายคอมเมนต์นี้เป็นการแจ้ง "ติดขัด" (โชว์แท็กแดงในฟีดรวมของหน้าใหม่)
     const body = z.object({ body: z.string().min(1).max(4000), isBlocked: z.boolean().optional() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
@@ -391,7 +391,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!att) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
     if (me.role !== 'owner' && att.uploadedBy !== me.id) {
-      // Tasknista §permission (Jira-style project role) — editor ของโปรเจกต์ลบไฟล์แนบของคนอื่นได้ด้วย (แทนที่กฎเดิม "อัปโหลดเอง/owner เท่านั้น") · assignee ของ task นี้ก็ลบได้เช่นกัน
+      // Pronista §permission (Jira-style project role) — editor ของโปรเจกต์ลบไฟล์แนบของคนอื่นได้ด้วย (แทนที่กฎเดิม "อัปโหลดเอง/owner เท่านั้น") · assignee ของ task นี้ก็ลบได้เช่นกัน
       const task = (await db.select().from(tasks).where(eq(tasks.id, att.taskId)).limit(1))[0]
       if (!task || !(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     }
@@ -407,7 +407,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
-  // Tasknista §Document Traceability — ไล่ chain ของ task นี้ทั้งขึ้น (upstream = อ้างอิงถึงเล่มก่อนหน้า) และลง (downstream = ถูกเล่มถัดไปอ้างอิงถึง) ผ่าน task_references
+  // Pronista §Document Traceability — ไล่ chain ของ task นี้ทั้งขึ้น (upstream = อ้างอิงถึงเล่มก่อนหน้า) และลง (downstream = ถูกเล่มถัดไปอ้างอิงถึง) ผ่าน task_references
   // เดินทีละชั้น (BFS) กันวน + จำกัดความลึก 10 ชั้น (สายเอกสารจริงมีแค่ 4 เล่ม ไม่มีทางลึกขนาดนั้น)
   .get('/tasks/:id/trace', async (c) => {
     const db = createDb(c.env.DB)
@@ -454,7 +454,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     return c.json({ upstream, downstream })
   })
 
-  // Tasknista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ (ต่างจาก /trace ที่เดิน BFS หลายชั้นเฉพาะสาย doc) — โชว์แค่ลิงก์ตรง (depth 1) ทั้ง 2 ทิศ
+  // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ (ต่างจาก /trace ที่เดิน BFS หลายชั้นเฉพาะสาย doc) — โชว์แค่ลิงก์ตรง (depth 1) ทั้ง 2 ทิศ
   .get('/tasks/:id/references', async (c) => {
     const db = createDb(c.env.DB)
     const taskId = c.req.param('id')

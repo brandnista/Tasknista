@@ -13,7 +13,7 @@ export const CONVERT_LABEL: Record<ConvertTo, string> = {
 }
 
 /**
- * Tasknista §Backlog cross-project convert — เมนู "จัดการ" ใช้ร่วมกันทั้งหน้า Backlog ของโปรเจกต์ (ProjectDetail)
+ * Pronista §Backlog cross-project convert — เมนู "จัดการ" ใช้ร่วมกันทั้งหน้า Backlog ของโปรเจกต์ (ProjectDetail)
  * และ Company Backlog (Projects.tsx) กันดีไซน์เพี้ยนกันสองที่เหมือนที่เคยเกิดมาก่อน
  */
 export function BacklogConvertMenu({ onConvertDirect, onConvertPick, extraItems }: {

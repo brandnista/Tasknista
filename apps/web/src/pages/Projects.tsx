@@ -200,7 +200,7 @@ function BoardView({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean
   )
 }
 
-/** Tasknista §PM View — Executive Dashboard: ให้ PM ประเมินสถานะรวมได้ใน 3 วินาที (ไม่แตะเรื่องเงินเลย ตาม showMoney=false) */
+/** Pronista §PM View — Executive Dashboard: ให้ PM ประเมินสถานะรวมได้ใน 3 วินาที (ไม่แตะเรื่องเงินเลย ตาม showMoney=false) */
 function ExecutiveWidgets({ rows }: { rows: ProjectRow[] }) {
   const list = rows.filter((p) => p.type === 'project')
   const withProgress = list.filter((p) => p.progress && p.progress.total > 0)
@@ -267,7 +267,7 @@ function ExecutiveWidgets({ rows }: { rows: ProjectRow[] }) {
   )
 }
 
-/** Tasknista §PM View — Backlog พับเก็บได้ ไม่ให้แย่งพื้นที่ Dashboard */
+/** Pronista §PM View — Backlog พับเก็บได้ ไม่ให้แย่งพื้นที่ Dashboard */
 function CollapsibleBacklog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
@@ -421,7 +421,7 @@ function SearchModal({ rows, onClose }: { rows: ProjectRow[]; onClose: () => voi
 
 interface TeamUser { id: string; name: string; role: string }
 
-/** Tasknista §2.4 — คำนวณวันคาดว่าเสร็จจากวันเริ่ม + จำนวนสัปดาห์ของ Sprint */
+/** Pronista §2.4 — คำนวณวันคาดว่าเสร็จจากวันเริ่ม + จำนวนสัปดาห์ของ Sprint */
 const addWeeks = (start: string, weeks: string) => {
   const d = new Date(start + 'T00:00:00')
   d.setDate(d.getDate() + Number(weeks) * 7)
@@ -430,7 +430,7 @@ const addWeeks = (start: string, weeks: string) => {
 
 interface ClientOpt { id: string; name: string }
 
-/** Tasknista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
+/** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
 const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
 
 function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => void; onCreated: () => void; initialName?: string }) {
@@ -466,7 +466,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
         ...(form.startDate ? { startDate: form.startDate } : {}),
         ...(form.dueDate ? { dueDate: form.dueDate } : {}),
       })
-      // Tasknista §Project Refactor — เปิดโปรเจกต์ที่เพิ่งสร้างในแท็บใหม่ทันที (เหมือนแพตเทิร์นเดิมใน Docs.tsx ตอนสร้างเอกสาร)
+      // Pronista §Project Refactor — เปิดโปรเจกต์ที่เพิ่งสร้างในแท็บใหม่ทันที (เหมือนแพตเทิร์นเดิมใน Docs.tsx ตอนสร้างเอกสาร)
       window.open(`/projects/${created.id}`, '_blank', 'noopener')
       onCreated()
     } catch (e) {
@@ -610,8 +610,8 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
 
 interface BacklogTask { id: string; title: string; priority: string; assigneeName: string | null; code: string | null; locked: boolean }
 
-/** Tasknista §F2 — Backlog: งานลอยๆ ที่ยังไม่ผูกโปรเจค · +TASK สร้างไว้ก่อน แล้วจัดเข้าโปรเจกต์ย้อนหลัง
- * Tasknista §Backlog cross-project convert — เมนู "จัดการ" ใช้ตัวเดียวกับ Backlog ของโปรเจกต์ (ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR + เลือกโปรเจกต์ปลายทางเอง เพราะงานพวกนี้ยังไม่มีโปรเจกต์เลย) */
+/** Pronista §F2 — Backlog: งานลอยๆ ที่ยังไม่ผูกโปรเจค · +TASK สร้างไว้ก่อน แล้วจัดเข้าโปรเจกต์ย้อนหลัง
+ * Pronista §Backlog cross-project convert — เมนู "จัดการ" ใช้ตัวเดียวกับ Backlog ของโปรเจกต์ (ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR + เลือกโปรเจกต์ปลายทางเอง เพราะงานพวกนี้ยังไม่มีโปรเจกต์เลย) */
 function BacklogSection({ isOwner, onConvertToProject }: { isOwner: boolean; onConvertToProject: (task: BacklogTask) => void }) {
   const { data, reload } = useLoad<BacklogTask[]>(() => api.get('/api/tasks/backlog'))
   const [title, setTitle] = useState('')
@@ -672,13 +672,13 @@ function BacklogSection({ isOwner, onConvertToProject }: { isOwner: boolean; onC
 export function ProjectsPage() {
   const { user } = useAuth()
   const canEdit = user?.role !== 'vendor'
-  // Tasknista §permission: สร้างโปรเจกต์ใหม่ = จัดการข้อมูลโปรเจกต์ → หัวหน้า (owner) เท่านั้น
+  // Pronista §permission: สร้างโปรเจกต์ใหม่ = จัดการข้อมูลโปรเจกต์ → หัวหน้า (owner) เท่านั้น
   const isOwner = user?.role === 'owner'
-  const showMoney = false // Tasknista (PM app) — ซ่อนข้อมูลเงินทั้งหมด (เก็บใน DB แต่ไม่แสดง)
+  const showMoney = false // Pronista (PM app) — ซ่อนข้อมูลเงินทั้งหมด (เก็บใน DB แต่ไม่แสดง)
   const { data, loading, reload } = useLoad<ProjectRow[]>(() => api.get('/api/projects'))
   const [searchOpen, setSearchOpen] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
-  // Tasknista §2.6 — "ตั้งเป็นโปรเจกต์" จาก Backlog: เก็บ task ที่กำลังแปลง + bump key ให้ BacklogSection รีเฟรชหลังลบ task เดิม
+  // Pronista §2.6 — "ตั้งเป็นโปรเจกต์" จาก Backlog: เก็บ task ที่กำลังแปลง + bump key ให้ BacklogSection รีเฟรชหลังลบ task เดิม
   const [convertingTask, setConvertingTask] = useState<{ id: string; title: string } | null>(null)
   const [backlogKey, setBacklogKey] = useState(0)
 
@@ -705,7 +705,7 @@ export function ProjectsPage() {
     [rows],
   )
   const leadOptionsInData = useMemo(() => [...new Set(rows.map((p) => p.leadName).filter((n): n is string => !!n))], [rows])
-  // Tasknista §โปรเจกต์ — ทุกมุมมอง (Summary/Timeline/Board/รายการ) เรียงตามความเคลื่อนไหวล่าสุดเหมือนกัน
+  // Pronista §โปรเจกต์ — ทุกมุมมอง (Summary/Timeline/Board/รายการ) เรียงตามความเคลื่อนไหวล่าสุดเหมือนกัน
   const filteredRows = rows
     .filter((p) => catFilter === 'all' || p.category === catFilter)
     .filter((p) => statusFilter === 'all' || p.statusName === statusFilter)
@@ -812,7 +812,7 @@ export function ProjectsPage() {
           onClose={() => { setNewOpen(false); setConvertingTask(null) }}
           onCreated={() => {
             void (async () => {
-              // Tasknista §2.6 — "ตั้งเป็นโปรเจกต์": task เดิมกลายร่างเป็นโปรเจกต์ทั้งก้อน → ลบ task ใน Backlog ทิ้ง
+              // Pronista §2.6 — "ตั้งเป็นโปรเจกต์": task เดิมกลายร่างเป็นโปรเจกต์ทั้งก้อน → ลบ task ใน Backlog ทิ้ง
               if (convertingTask) await api.delete(`/api/tasks/${convertingTask.id}`)
               setNewOpen(false)
               setConvertingTask(null)

@@ -1,5 +1,5 @@
 /**
- * ตั้งค่า → Preset สถานะ Sprint Board (Tasknista §Sprint & Board) — owner เพิ่ม/ลบ/เรียง/เปลี่ยนชื่อ+สี ได้ทั้ง preset และคอลัมน์ในนั้น
+ * ตั้งค่า → Preset สถานะ Sprint Board (Pronista §Sprint & Board) — owner เพิ่ม/ลบ/เรียง/เปลี่ยนชื่อ+สี ได้ทั้ง preset และคอลัมน์ในนั้น
  * บันทึกทั้งลิสต์ทีเดียว (PUT) · ลบ preset ที่ sprint ใช้อยู่ไม่ได้ (server ตอบ 409)
  */
 import { BOARD_COLOR_KEYS } from '@seedoffice/core'

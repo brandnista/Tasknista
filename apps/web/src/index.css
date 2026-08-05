@@ -6,7 +6,7 @@
 @theme {
   --font-sans: 'Inter', 'Noto Sans Thai', sans-serif;
 
-  /* โทนฟ้า/น้ำเงินสดใส (Tasknista) — ปรับชุดเดียวมีผลทั้งแอป (ปุ่ม/เมนู active/โลโก้) */
+  /* โทนฟ้า/น้ำเงินสดใส (Pronista) — ปรับชุดเดียวมีผลทั้งแอป (ปุ่ม/เมนู active/โลโก้) */
   --color-brand-50: #eff6ff;
   --color-brand-100: #dbeafe;
   --color-brand-200: #bfdbfe;
@@ -127,12 +127,12 @@ body {
 .doc-editor p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--border); float: left; height: 0; pointer-events: none; }
 .doc-editor h5, .doc-editor h6 { font-size: 0.95rem; font-weight: 600; color: var(--strong); margin: 1rem 0 0.25rem; }
 .doc-editor strong { font-weight: 600; color: var(--ink); }
-/* Tasknista §Document Management MVP — ตารางจาก .docx ที่แปลงเป็น HTML (DocWordPreview) */
+/* Pronista §Document Management MVP — ตารางจาก .docx ที่แปลงเป็น HTML (DocWordPreview) */
 .doc-editor table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
 .doc-editor th, .doc-editor td { border: 1px solid var(--border-subtle); padding: 0.5rem 0.75rem; text-align: left; vertical-align: top; }
 .doc-editor th { background: var(--hover); font-weight: 600; color: var(--strong); }
 
-/* Tasknista §Document Template — print-to-PDF (TemplatePrintView.tsx): ซ่อนแอปทั้งหมด โชว์แค่มุมมองพิมพ์ */
+/* Pronista §Document Template — print-to-PDF (TemplatePrintView.tsx): ซ่อนแอปทั้งหมด โชว์แค่มุมมองพิมพ์ */
 @media print {
   body * { visibility: hidden; }
   .template-print-view, .template-print-view * { visibility: visible; }

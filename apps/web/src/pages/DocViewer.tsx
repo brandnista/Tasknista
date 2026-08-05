@@ -258,7 +258,7 @@ const WORD_MIME_TYPES = new Set([
 ])
 
 /**
- * Tasknista §Document Management MVP — ไฟล์ .docx/.doc เปิดแล้วแสดงเนื้อหาเป็น HTML ในแอปทันที (เบราว์เซอร์ไม่มีตัวแสดงผล .docx ในตัว ต่างจาก PDF) แทนการดาวน์โหลดอัตโนมัติ
+ * Pronista §Document Management MVP — ไฟล์ .docx/.doc เปิดแล้วแสดงเนื้อหาเป็น HTML ในแอปทันที (เบราว์เซอร์ไม่มีตัวแสดงผล .docx ในตัว ต่างจาก PDF) แทนการดาวน์โหลดอัตโนมัติ
  * กด "แก้ไขเอกสาร" ครั้งแรก = แปลงเนื้อหาเป็น Markdown เก็บลง contentMarkdown แล้วสลับไปใช้ DocEditor ตัวเดียวกับหน้าวิกิ (แก้ข้อความ+ตารางได้ พร้อม autosave) — ไฟล์ต้นฉบับยังดาวน์โหลดได้เหมือนเดิม
  */
 function DocWordPreview({ doc, canEdit, onConverted }: { doc: DocFull; canEdit: boolean; onConverted: () => void }) {
@@ -497,7 +497,7 @@ function DocPermissionModal({ doc, onClose, onChanged }: { doc: DocNode; onClose
   )
 }
 
-/** หน้าเอกสารเดี่ยว (Tasknista §Document search/filter) — full-page ไม่มีทรีข้าง เปิดจากลิสต์เอกสาร/ผลค้นหาเป็นแท็บใหม่เสมอ */
+/** หน้าเอกสารเดี่ยว (Pronista §Document search/filter) — full-page ไม่มีทรีข้าง เปิดจากลิสต์เอกสาร/ผลค้นหาเป็นแท็บใหม่เสมอ */
 export function DocViewerPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -506,7 +506,7 @@ export function DocViewerPage() {
   const [linking, setLinking] = useState(false)
   const [managingPermission, setManagingPermission] = useState(false)
 
-  // Tasknista §Document Management MVP — ไฟล์ .docx/.doc แสดงเนื้อหาเป็น HTML ในหน้านี้เลย (DocWordPreview) ไม่ต้องเปิดแยก
+  // Pronista §Document Management MVP — ไฟล์ .docx/.doc แสดงเนื้อหาเป็น HTML ในหน้านี้เลย (DocWordPreview) ไม่ต้องเปิดแยก
   // ไฟล์ประเภทอื่น (PDF/รูปภาพ ฯลฯ) เบราว์เซอร์แสดงผลได้เองอยู่แล้ว — เปิดตรงไปที่ไฟล์ต้นฉบับทันที ไม่ต้องผ่านหน้ารายละเอียด
   const isWordFile = doc?.kind === 'file' && WORD_MIME_TYPES.has(doc.mime ?? '')
   useEffect(() => {

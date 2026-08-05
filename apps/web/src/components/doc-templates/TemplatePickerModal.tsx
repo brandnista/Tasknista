@@ -11,7 +11,7 @@ interface ProjectOpt {
 const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
 const label = 'text-xs font-medium text-muted mb-1 block'
 
-/** Tasknista §Document Template — เลือก template (ตอนนี้มีแค่ MOM) + โปรเจกต์ที่ผูก + ตั้งชื่อ แล้วสร้างเอกสารว่างพร้อมกรอก
+/** Pronista §Document Template — เลือก template (ตอนนี้มีแค่ MOM) + โปรเจกต์ที่ผูก + ตั้งชื่อ แล้วสร้างเอกสารว่างพร้อมกรอก
  * เพิ่ม template ใหม่ (เช่น SRS) ใน registry แล้ว จะโผล่ในลิสต์นี้เองโดยไม่ต้องแก้โค้ดตรงนี้ */
 export function TemplatePickerModal({ parentId, onClose, onCreated }: { parentId: string | null; onClose: () => void; onCreated: (docId: string) => void }) {
   const templates = Object.values(DOC_TEMPLATES)

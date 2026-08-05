@@ -2,7 +2,7 @@ import { unzipSync } from 'fflate'
 import { buildHeadingStyleMap } from './docx-parse'
 
 /**
- * Tasknista §Document Management MVP — แปลง .docx เป็น HTML (อ่านอย่างเดียว) หรือ Markdown (นำไปแก้ไขต่อใน DocEditor/TipTap ได้)
+ * Pronista §Document Management MVP — แปลง .docx เป็น HTML (อ่านอย่างเดียว) หรือ Markdown (นำไปแก้ไขต่อใน DocEditor/TipTap ได้)
  * เบราว์เซอร์ไม่มีตัวแสดงผล .docx ในตัว (ต่างจาก PDF) — วิธีเดียวที่ "เปิดแล้วเห็น/แก้เนื้อหาได้เลย" คือแปลงเป็น HTML/Markdown เอง
  * ใช้ zip/regex scan แบบเดียวกับ docx-parse.ts (ไม่ใช้ DOM parser เต็มรูปแบบ) — parse ครั้งเดียวเป็นโครงสร้างกลาง (Block[]) แล้วค่อย render 2 แบบจากโครงสร้างเดียวกัน
  */

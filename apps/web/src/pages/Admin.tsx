@@ -22,7 +22,7 @@ interface AdminUser {
   status: 'active' | 'disabled'
   teamId: string | null
   teamName: string | null
-  // Tasknista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
+  // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
   jobTitle: string | null
   costPerDaySatang: number | null
 }
@@ -32,7 +32,7 @@ interface Config {
   memberDomain: string
 }
 
-/** เพิ่มทีมใหม่แบบ inline (Tasknista §ตั้งค่า — ไอเดียจาก reference จัดการผู้ใช้) */
+/** เพิ่มทีมใหม่แบบ inline (Pronista §ตั้งค่า — ไอเดียจาก reference จัดการผู้ใช้) */
 function AddTeamForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
@@ -268,7 +268,7 @@ export function AdminPage() {
       setEmailErrors((prev) => ({ ...prev, [u.id]: message }))
     }
   }
-  // Tasknista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน ใช้กับ Tab "Project Estimate" ทุกโปรเจกต์ (ไม่ผูก payroll เดิม)
+  // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน ใช้กับ Tab "Project Estimate" ทุกโปรเจกต์ (ไม่ผูก payroll เดิม)
   const saveUserEstimateFields = async (u: AdminUser, patch: { jobTitle?: string | null; costPerDaySatang?: number | null }) => {
     await api.patch(`/api/admin/users/${u.id}`, patch)
     await reload()

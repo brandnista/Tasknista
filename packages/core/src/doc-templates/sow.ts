@@ -40,7 +40,7 @@ export const SOW_TEMPLATE: DocTemplateDef = {
       id: 'scope_items',
       title: '4.4 ตารางรวมทุกรายการ (High-level System Scope)',
       seedRows: 1,
-      // Tasknista §Document Traceability — SOW item อ้างอิงกลับไป BR ของ BRD ผ่านคอลัมน์ "อ้างอิง BRD"
+      // Pronista §Document Traceability — SOW item อ้างอิงกลับไป BR ของ BRD ผ่านคอลัมน์ "อ้างอิง BRD"
       breakoutToTasks: {
         sourceCodeKey: 'sow_id',
         titleKey: 'item_name',

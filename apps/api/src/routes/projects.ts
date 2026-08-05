@@ -72,7 +72,7 @@ export const projectRoutes = new Hono<AppEnv>()
       .leftJoin(users, eq(projects.leadId, users.id))
       .where(isNull(projects.deletedAt))
       .orderBy(desc(projects.createdAt))
-    // Tasknista §PM View — progress ต่อโปรเจกต์ (งานทั้งหมด vs เสร็จแล้ว) ใช้กับ progress bar ในมุมมอง List/Board/Summary
+    // Pronista §PM View — progress ต่อโปรเจกต์ (งานทั้งหมด vs เสร็จแล้ว) ใช้กับ progress bar ในมุมมอง List/Board/Summary
     const allTasks = await db.select({ projectId: tasks.projectId, status: tasks.status }).from(tasks).where(isNotNull(tasks.projectId))
     const progressOf = (projectId: string) => {
       const mine = allTasks.filter((t) => t.projectId === projectId)
@@ -112,9 +112,9 @@ export const projectRoutes = new Hono<AppEnv>()
       .select({ projectId: milestones.projectId, name: milestones.name, dueDate: milestones.dueDate, budgetSatang: milestones.budgetSatang, status: milestones.status })
       .from(milestones)
       .orderBy(asc(milestones.sortOrder))
-    // Tasknista §PM View — Timeline (Gantt) โชว์จุด milestone จริงต่อโปรเจกต์
+    // Pronista §PM View — Timeline (Gantt) โชว์จุด milestone จริงต่อโปรเจกต์
     const milestonesOf = (projectId: string) => allMilestones.filter((m) => m.projectId === projectId).map(({ name, dueDate, status }) => ({ name, dueDate, status }))
-    // Tasknista §โปรเจกต์ Summary — "อัปเดตล่าสุด" จับจากงาน (task) ที่ขยับล่าสุดในโปรเจกต์ (audit_logs entity='task')
+    // Pronista §โปรเจกต์ Summary — "อัปเดตล่าสุด" จับจากงาน (task) ที่ขยับล่าสุดในโปรเจกต์ (audit_logs entity='task')
     const activity = await db
       .select({ projectId: tasks.projectId, at: auditLogs.at })
       .from(auditLogs)
@@ -171,7 +171,7 @@ export const projectRoutes = new Hono<AppEnv>()
     const statuses = resolveStatuses(row.project.category === 'product' ? cfgRow?.productStatuses : cfgRow?.projectStatuses)
     const cfgPositions = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
     const positionsList = resolvePositions(cfgPositions?.positions)
-    // Tasknista §Position-based permission — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/ตำแหน่ง) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
+    // Pronista §Position-based permission — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/ตำแหน่ง) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
     const members = (
       await db
         .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, positionId: projectMembers.positionId })
@@ -180,19 +180,19 @@ export const projectRoutes = new Hono<AppEnv>()
         .where(eq(projectMembers.projectId, row.project.id))
     ).map((m) => ({ ...m, positionName: positionById(positionsList, m.positionId)?.name ?? null }))
     const me = c.get('user')
-    // Tasknista §Position-based permission — permission bundle เต็ม (tabs/actions) สำหรับคุมการมองเห็นเมนู/แท็บ + สิทธิ์เพิ่ม/แก้ไข/ลบละเอียด
+    // Pronista §Position-based permission — permission bundle เต็ม (tabs/actions) สำหรับคุมการมองเห็นเมนู/แท็บ + สิทธิ์เพิ่ม/แก้ไข/ลบละเอียด
     // (Performance review 2026-08-03) คำนวณครั้งเดียว แล้ว derive myRole จากผลลัพธ์นี้เลย แทนการเรียก getProjectRole() แยกซึ่งข้างในคำนวณ permission ซ้ำอีกรอบ
     const myPermissions = await getProjectPermissions(db, row.project.id, me.id, me.role)
-    // Tasknista §permission — สิทธิ์ของฉันในโปรเจกต์นี้โดยเฉพาะ (owner/editor/viewer) ให้ FE ใช้คุม UI โดยไม่ต้อง fetch แยก
+    // Pronista §permission — สิทธิ์ของฉันในโปรเจกต์นี้โดยเฉพาะ (owner/editor/viewer) ให้ FE ใช้คุม UI โดยไม่ต้อง fetch แยก
     const myRole: 'owner' | 'editor' | 'viewer' = me.role === 'owner' ? 'owner' : hasAnyEditRight(myPermissions) ? 'editor' : 'viewer'
-    // Tasknista §Back to Basic (ต่อยอด) — Project Lead อาจไม่ใช่สมาชิกโปรเจกต์ (ไม่อยู่ใน project_members) จึงหาชื่อแยกจาก members ด้านบน
+    // Pronista §Back to Basic (ต่อยอด) — Project Lead อาจไม่ใช่สมาชิกโปรเจกต์ (ไม่อยู่ใน project_members) จึงหาชื่อแยกจาก members ด้านบน
     const lead = row.project.leadId
       ? (await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, row.project.leadId)).limit(1))[0]
       : null
     return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, leadName: lead?.name ?? null, members, myRole, myPermissions }, me.role))
   })
 
-  // สร้างโปรเจกต์ (owner เท่านั้น — Tasknista §permission: จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า) — ลูกค้าใหม่พิมพ์ชื่อ = สร้าง client ให้เลย
+  // สร้างโปรเจกต์ (owner เท่านั้น — Pronista §permission: จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า) — ลูกค้าใหม่พิมพ์ชื่อ = สร้าง client ให้เลย
   .post('/', ownerOnly, async (c) => {
     const body = z
       .object({
@@ -203,14 +203,14 @@ export const projectRoutes = new Hono<AppEnv>()
         status: z.string().optional(), // ตรวจกับ config ด้านล่าง
         clientId: z.string().optional(),
         clientName: z.string().min(1).optional(), // ใช้เมื่อไม่มี clientId
-        // Tasknista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ
+        // Pronista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ
         leadId: z.string().optional(),
         quotedSatang: z.number().int().nonnegative().optional(),
         recurringPeriod: z.enum(['monthly', 'yearly']).optional(),
         startDate: isoDate.optional(),
         dueDate: isoDate.optional(),
         code: z.string().max(12).optional(),
-        // Tasknista §F1
+        // Pronista §F1
         category: z.enum(['product', 'project']).optional(),
         tags: z.array(z.string().min(1).max(40)).max(20).optional(),
         sprint: z.string().max(60).optional(),
@@ -265,7 +265,7 @@ export const projectRoutes = new Hono<AppEnv>()
       .returning()
     const p = inserted[0]
     if (!p) return c.json({ error: 'insert_failed' }, 500)
-    // สมาชิกในโปรเจกต์ (assign ได้หลายคน — Tasknista §F1)
+    // สมาชิกในโปรเจกต์ (assign ได้หลายคน — Pronista §F1)
     if (d.members && d.members.length > 0)
       await db.insert(projectMembers).values(d.members.map((userId) => ({ projectId: p.id, userId })))
     await writeAudit(c.env, {
@@ -295,14 +295,14 @@ export const projectRoutes = new Hono<AppEnv>()
         recurringPeriod: z.enum(['monthly', 'yearly']).nullable().optional(),
         startDate: isoDate.nullable().optional(),
         dueDate: isoDate.nullable().optional(),
-        // Tasknista §F1
+        // Pronista §F1
         category: z.enum(['product', 'project']).optional(),
         tags: z.array(z.string().min(1).max(40)).max(20).nullable().optional(),
         sprint: z.string().max(60).nullable().optional(),
         priority: z.enum(['low', 'normal', 'high']).optional(),
-        // Tasknista §Project Estimate — owner เท่านั้นที่แก้ได้ (เช็คด้านล่าง, ต่างจาก field อื่นในเอนด์พอยต์นี้ที่ editor แก้ได้)
+        // Pronista §Project Estimate — owner เท่านั้นที่แก้ได้ (เช็คด้านล่าง, ต่างจาก field อื่นในเอนด์พอยต์นี้ที่ editor แก้ได้)
         estimateNetWorkingDays: z.number().int().positive().nullable().optional(),
-        // Tasknista §Project Refactor — เนื้อหาแท็บ "API Document" (richtext อิสระต่อโปรเจกต์)
+        // Pronista §Project Refactor — เนื้อหาแท็บ "API Document" (richtext อิสระต่อโปรเจกต์)
         apiDocNotes: z.string().nullable().optional(),
       })
       .safeParse(await c.req.json())
@@ -407,7 +407,7 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §merge — เอกสารที่ผูกกับโปรเจกต์นี้ (Tab "เอกสาร" แทน Kanban/ตารางเดิม) — ผูกตรงกับโปรเจกต์ หรือผูกกับ task/sub-task ใดๆ ในโปรเจกต์นี้ก็นับด้วย
+  // Pronista §merge — เอกสารที่ผูกกับโปรเจกต์นี้ (Tab "เอกสาร" แทน Kanban/ตารางเดิม) — ผูกตรงกับโปรเจกต์ หรือผูกกับ task/sub-task ใดๆ ในโปรเจกต์นี้ก็นับด้วย
   .get('/:id/docs', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -425,7 +425,7 @@ export const projectRoutes = new Hono<AppEnv>()
     )
   })
 
-  // Tasknista §Project Estimate — ต้นทุนต่อ Task (เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์)
+  // Pronista §Project Estimate — ต้นทุนต่อ Task (เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์)
   .get('/:id/estimate', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -513,7 +513,7 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §Position-based permission — ตั้ง/เปลี่ยนตำแหน่งของสมาชิกในโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
+  // Pronista §Position-based permission — ตั้ง/เปลี่ยนตำแหน่งของสมาชิกในโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
   // upsert บน (projectId, userId) — เรียกซ้ำ = เปลี่ยนตำแหน่งเดิม ไม่สร้างแถวซ้ำ (unique index กันไว้)
   .post('/:id/members', ownerOnly, async (c) => {
     const body = z.object({ userId: z.string(), positionId: z.string() }).safeParse(await c.req.json())
@@ -544,7 +544,7 @@ export const projectRoutes = new Hono<AppEnv>()
     return c.json(upserted[0])
   })
 
-  // Tasknista §Project Refactor — ลบโปรเจกต์ (Admin เท่านั้น = owner) · soft-delete เท่านั้น (กฎเหล็ก) ไม่ลบข้อมูลจริง
+  // Pronista §Project Refactor — ลบโปรเจกต์ (Admin เท่านั้น = owner) · soft-delete เท่านั้น (กฎเหล็ก) ไม่ลบข้อมูลจริง
   .delete('/:id', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
     const before = (await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1))[0]

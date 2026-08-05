@@ -31,7 +31,7 @@ export function Login() {
         <div className="w-12 h-12 rounded-xl bg-linear-to-br from-brand-500 to-brand-700 grid place-items-center text-white mx-auto shadow-sm">
           <ListChecks className="w-7 h-7" />
         </div>
-        <h1 className="text-xl font-bold text-ink mt-4 text-center">Tasknista</h1>
+        <h1 className="text-xl font-bold text-ink mt-4 text-center">Pronista</h1>
         <p className="text-sm text-dim mt-1 text-center">
           Project Management — จัดการงานและโปรเจกต์ของทีม
         </p>

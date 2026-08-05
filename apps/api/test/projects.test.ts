@@ -36,7 +36,7 @@ describe('T08 — projects + clients', () => {
     const list = (await clientsRes.json()) as { rows: { name: string }[] }
     expect(list.rows.some((cl) => cl.name === 'ลูกค้าทดสอบ จำกัด')).toBe(true)
 
-    // Tasknista §permission — สร้างโปรเจกต์ = owner เท่านั้น (จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า)
+    // Pronista §permission — สร้างโปรเจกต์ = owner เท่านั้น (จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า)
     const member = await loginAs(app, 'pond@example-co.test')
     expect((await createProject(member, { name: 'ของปอนด์', type: 'project' })).status).toBe(403)
   })
@@ -79,7 +79,7 @@ describe('T08 — projects + clients', () => {
   })
 })
 
-describe('Tasknista §Project Estimate — estimateNetWorkingDays (owner เท่านั้นที่แก้ได้)', () => {
+describe('Pronista §Project Estimate — estimateNetWorkingDays (owner เท่านั้นที่แก้ได้)', () => {
   it('owner แก้ได้ 200 · member (editor) แก้ field นี้ = 403 แม้ field อื่นแก้ได้ปกติ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const p = (await (await createProject(owner, { name: 'Estimate Days', type: 'project' })).json()) as { id: string }

@@ -94,7 +94,7 @@ const cmpVersionDesc = (a: VersionRow, b: VersionRow) => {
 }
 
 /**
- * Tasknista §Project Refactor — ตาราง "ประวัติเอกสาร" ใช้ร่วมกันทั้งหน้า global (/docs/history) และแท็บในโปรเจกต์
+ * Pronista §Project Refactor — ตาราง "ประวัติเอกสาร" ใช้ร่วมกันทั้งหน้า global (/docs/history) และแท็บในโปรเจกต์
  * เมื่อส่ง projectId มา (โหมดฝังในแท็บโปรเจกต์): กรองเหลือแค่โปรเจกต์นั้น ซ่อนคอลัมน์/ฟิลเตอร์โปรเจกต์
  * + โชว์ปุ่ม "เพิ่ม/แก้ไขเวอร์ชัน" (external log เดิมจาก External Design Assets) เมื่อ canEdit
  */
@@ -352,7 +352,7 @@ export function DocumentHistoryTable({ projectId, projectName, canEdit }: {
   )
 }
 
-/** Tasknista §Document Diff — เลือกอีกเวอร์ชัน (ประเภทเอกสารเดียวกัน ไม่ใช่ตัวเอง) แล้วเปิดหน้าเปรียบเทียบในแท็บใหม่ */
+/** Pronista §Document Diff — เลือกอีกเวอร์ชัน (ประเภทเอกสารเดียวกัน ไม่ใช่ตัวเอง) แล้วเปิดหน้าเปรียบเทียบในแท็บใหม่ */
 function ComparePickerModal({ from, allSeries, onClose }: { from: FlatRow; allSeries: Series[]; onClose: () => void }) {
   const candidates = useMemo(
     () =>

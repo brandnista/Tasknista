@@ -19,7 +19,7 @@ async function seedRateAndConfig(capMinutes = 480) {
   ).run()
 }
 
-// สร้างโครงสร้าง (project/group/task) ด้วย owner เสมอ — POST /api/projects เป็น ownerOnly (Tasknista §permission)
+// สร้างโครงสร้าง (project/group/task) ด้วย owner เสมอ — POST /api/projects เป็น ownerOnly (Pronista §permission)
 // ส่วนการลงเวลา/timer เปิดให้ทุก role ทำของตัวเองได้ ไม่ผูกกับ project role
 async function makeTask() {
   const owner = await loginAs(app, 'owner@example-co.test')

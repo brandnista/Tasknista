@@ -1,4 +1,4 @@
--- Tasknista §Document Version History — เพิ่มเลขที่เอกสาร (เล่ม) + เวอร์ชัน แบบ general ให้ docs ทุกประเภท/ทุก kind
+-- Pronista §Document Version History — เพิ่มเลขที่เอกสาร (เล่ม) + เวอร์ชัน แบบ general ให้ docs ทุกประเภท/ทุก kind
 -- backfill จากคอลัมน์เดิม: template_doc_number / srs_doc_number -> doc_number, srs_version -> doc_version
 ALTER TABLE `docs` ADD `doc_number` text;--> statement-breakpoint
 ALTER TABLE `docs` ADD `doc_version` text;--> statement-breakpoint

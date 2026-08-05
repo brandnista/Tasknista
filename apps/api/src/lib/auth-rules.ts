@@ -48,7 +48,7 @@ export async function resolveLoginUser(env: Env, profile: GoogleProfile): Promis
       .returning()
     const user = inserted[0]
     if (!user) return null
-    // Tasknista เป็น PM app ล้วนๆ ไม่มี UI ตั้ง rate แล้ว — ใส่ rate ตั้งต้น (ไม่แสดงที่ไหน) กัน time-entry บล็อกเพราะไม่มี rate
+    // Pronista เป็น PM app ล้วนๆ ไม่มี UI ตั้ง rate แล้ว — ใส่ rate ตั้งต้น (ไม่แสดงที่ไหน) กัน time-entry บล็อกเพราะไม่มี rate
     await db.insert(rates).values({ userId: user.id, rateSatangPerHour: 0, effectiveFrom: bkkDateOf(Date.now()) })
     return user
   }

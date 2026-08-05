@@ -19,8 +19,8 @@ interface PositionOpt { id: string; name: string }
 const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
 
 /**
- * Tasknista §Position-based permission — owner assign ตำแหน่ง (BA/PM/ฯลฯ) ให้ member เป็นรายโปรเจกต์ (สิทธิ์มาจากตำแหน่งที่เลือกล้วนๆ)
- * Tasknista §7 (2026-07-03) — controlled component: แค่เก็บ positionId ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
+ * Pronista §Position-based permission — owner assign ตำแหน่ง (BA/PM/ฯลฯ) ให้ member เป็นรายโปรเจกต์ (สิทธิ์มาจากตำแหน่งที่เลือกล้วนๆ)
+ * Pronista §7 (2026-07-03) — controlled component: แค่เก็บ positionId ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
  */
 function MembersSection({ assignments, positions, onChange }: { assignments: Record<string, string>; positions: PositionOpt[]; onChange: (userId: string, positionId: string) => void }) {
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
@@ -74,7 +74,7 @@ export function ProjectEditPage() {
   const [logoDirty, setLogoDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  // Tasknista §Position-based permission — ตำแหน่งต่อสมาชิกที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
+  // Pronista §Position-based permission — ตำแหน่งต่อสมาชิกที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
   const [memberAssignments, setMemberAssignments] = useState<Record<string, string>>({})
 
   // เติมค่าจากโปรเจกต์ที่โหลดมา (ครั้งเดียวตอนได้ data)
@@ -134,7 +134,7 @@ export function ProjectEditPage() {
       // logo: ส่งเฉพาะตอนเปลี่ยน lucide/เคลียร์ (อัปโหลดบันทึกที่ server แล้ว → ไม่ส่งซ้ำ)
       if (logoDirty) body.logo = logo
       await api.patch(`/api/projects/${id}`, body)
-      // Tasknista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
+      // Pronista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
       if (isOwner) {
         const before = Object.fromEntries((project.members ?? []).map((m) => [m.id, m.positionId ?? '']))
         const changed = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== before[userId])
@@ -253,7 +253,7 @@ export function ProjectEditPage() {
 
       {error && <div className="text-xs text-danger-600 mt-4">{error}</div>}
 
-      {/* Tasknista §7 — ปุ่มบันทึกเดียว ครอบทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์ */}
+      {/* Pronista §7 — ปุ่มบันทึกเดียว ครอบทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์ */}
       <div className="flex justify-end gap-2 mt-6">
         <button onClick={() => navigate(`/projects/${id}`)} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
         <button onClick={() => void save()} disabled={!form.name || saving} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">

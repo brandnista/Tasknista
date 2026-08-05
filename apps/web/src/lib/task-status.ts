@@ -1,9 +1,9 @@
-/** Tasknista §2.12 — สถานะ task ตายตัว 4 ค่า ใช้ทุกโปรเจกต์ (Product/Project เหมือนกัน) */
+/** Pronista §2.12 — สถานะ task ตายตัว 4 ค่า ใช้ทุกโปรเจกต์ (Product/Project เหมือนกัน) */
 export type TaskStatus = 'non_start' | 'on_processing' | 'waiting_for_test' | 'done'
 
 export const TASK_STATUS_ORDER: TaskStatus[] = ['non_start', 'on_processing', 'waiting_for_test', 'done']
 
-// Tasknista §Back to Basic (ต่อยอด) — เปลี่ยนแค่ label ที่โชว์ ("Waiting for Review") ไม่แตะ enum value เดิม (waiting_for_test) กัน migration/ผลกระทบข้อมูลเดิม
+// Pronista §Back to Basic (ต่อยอด) — เปลี่ยนแค่ label ที่โชว์ ("Waiting for Review") ไม่แตะ enum value เดิม (waiting_for_test) กัน migration/ผลกระทบข้อมูลเดิม
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   non_start: 'Non Start',
   on_processing: 'On Processing',

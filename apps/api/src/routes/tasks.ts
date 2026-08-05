@@ -35,30 +35,30 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const taskPatchSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
-  // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
+  // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
   assigneeNotes: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
-  // Tasknista §SOW Task/Subtask — Reference Code แก้ไขได้ (เดิมตั้งได้แค่ตอนแตกเอกสาร)
+  // Pronista §SOW Task/Subtask — Reference Code แก้ไขได้ (เดิมตั้งได้แค่ตอนแตกเอกสาร)
   originCode: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).optional(),
   priority: z.enum(['low', 'normal', 'high']).optional(),
   estimateMinutes: z.number().int().nonnegative().nullable().optional(),
-  // Tasknista §Project Estimate — กี่นาที/วันที่ assignee แบ่งเวลามาทำ task นี้ (null = ใช้ company_config.workHourCapMinutes)
+  // Pronista §Project Estimate — กี่นาที/วันที่ assignee แบ่งเวลามาทำ task นี้ (null = ใช้ company_config.workHourCapMinutes)
   costWorkMinutesPerDay: z.number().int().positive().nullable().optional(),
-  // Tasknista §Project Estimate — % buffer เฉพาะ task นี้ (null = ใช้ company_config.costBufferPercent)
+  // Pronista §Project Estimate — % buffer เฉพาะ task นี้ (null = ใช้ company_config.costBufferPercent)
   costBufferPercent: z.number().int().min(0).max(100).nullable().optional(),
   startDate: isoDate.nullable().optional(),
   dueDate: isoDate.nullable().optional(),
   groupId: z.string().nullable().optional(),
-  projectId: z.string().nullable().optional(), // Tasknista §F2 — assign backlog → project ย้อนหลัง
-  parentId: z.string().optional(), // Tasknista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่
-  epicId: z.string().nullable().optional(), // Tasknista §Back to Basic — เมนู "..." ใน Tab Epic/Story: ผูก Story เข้า/ออกจาก Epic โดยตรง
-  kind: z.enum(['task', 'defect', 'cr']).optional(), // Tasknista §2.6 — ย้าย backlog เป็น Defect/CR
+  projectId: z.string().nullable().optional(), // Pronista §F2 — assign backlog → project ย้อนหลัง
+  parentId: z.string().optional(), // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่
+  epicId: z.string().nullable().optional(), // Pronista §Back to Basic — เมนู "..." ใน Tab Epic/Story: ผูก Story เข้า/ออกจาก Epic โดยตรง
+  kind: z.enum(['task', 'defect', 'cr']).optional(), // Pronista §2.6 — ย้าย backlog เป็น Defect/CR
   reporterType: z.enum(['customer', 'self']).nullable().optional(),
   sortOrder: z.number().int().optional(),
-  locked: z.boolean().optional(), // Tasknista §4 — ล็อค task ใน Company Backlog (owner เท่านั้นที่ตั้งได้)
-  defectStatus: z.enum(DEFECT_STATUSES).optional(), // Tasknista §5 — สถานะเฉพาะ Defect
-  sprintStatus: z.string().nullable().optional(), // Tasknista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด (อ้าง id คอลัมน์ใน preset ของ sprint ที่ผูกอยู่)
+  locked: z.boolean().optional(), // Pronista §4 — ล็อค task ใน Company Backlog (owner เท่านั้นที่ตั้งได้)
+  defectStatus: z.enum(DEFECT_STATUSES).optional(), // Pronista §5 — สถานะเฉพาะ Defect
+  sprintStatus: z.string().nullable().optional(), // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด (อ้าง id คอลัมน์ใน preset ของ sprint ที่ผูกอยู่)
 })
 
 /** board ของโปรเจกต์ + CRUD group/task — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation) */
@@ -97,7 +97,7 @@ export const taskRoutes = new Hono<AppEnv>()
     })
   })
 
-  // สร้าง/แก้/ลบ "กลุ่มงาน" = จัดโครงสร้างโปรเจกต์ (owner หรือ member ที่เป็น editor ของโปรเจกต์นี้ — Tasknista §permission)
+  // สร้าง/แก้/ลบ "กลุ่มงาน" = จัดโครงสร้างโปรเจกต์ (owner หรือ member ที่เป็น editor ของโปรเจกต์นี้ — Pronista §permission)
   .post('/projects/:id/groups', teamOnly, async (c) => {
     const body = z.object({ name: z.string().min(1) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -193,7 +193,7 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(created, 201)
   })
 
-  // Tasknista §2.12 — เพิ่มงานตรงจากปุ่ม "+เพิ่มงาน" ในมุมมอง Kanban (เลือกสถานะเองได้เลย) · เข้ากลุ่มแรกของโปรเจกต์ (สร้าง "ทั่วไป" ให้ถ้ายังไม่มีกลุ่มเลย)
+  // Pronista §2.12 — เพิ่มงานตรงจากปุ่ม "+เพิ่มงาน" ในมุมมอง Kanban (เลือกสถานะเองได้เลย) · เข้ากลุ่มแรกของโปรเจกต์ (สร้าง "ทั่วไป" ให้ถ้ายังไม่มีกลุ่มเลย)
   .post('/projects/:id/tasks', teamOnly, async (c) => {
     const body = z
       .object({
@@ -212,7 +212,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    // Tasknista §Position-based permission — ตัวอย่าง granular action แรก: เช็ค actions.task.create ของตำแหน่งที่ assign (ละเอียดกว่า canEditProject เดิม)
+    // Pronista §Position-based permission — ตัวอย่าง granular action แรก: เช็ค actions.task.create ของตำแหน่งที่ assign (ละเอียดกว่า canEditProject เดิม)
     const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
     if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
     let group = (await db.select().from(taskGroups).where(eq(taskGroups.projectId, projectId)).orderBy(asc(taskGroups.sortOrder)).limit(1))[0]
@@ -232,9 +232,9 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(created, 201)
   })
 
-  // Tasknista §5 (2026-07-03) — Backlog ของโปรเจกต์ (แยกจาก Company Backlog): task ที่ projectId=นี้ แต่ยังไม่ได้ "ย้ายเข้ากระดาน" (groupId ว่าง)
-  // Tasknista §Sprint & Board — pool เดียวกับ Sprint Backlog (แค่เปลี่ยนชื่อฝั่ง UI) → ตัด task ที่อยู่ใน sprint แล้วออก (sprintId ไม่ว่าง)
-  // Tasknista §SOW Task/Subtask — Subtask ของ SOW (parentId ไม่ว่าง) ต้องโผล่ใน Backlog ด้วย (ต่างจาก subtask ทั่วไปที่ยังซ่อนเหมือนเดิม) เพราะต้องลากเข้า Sprint ได้
+  // Pronista §5 (2026-07-03) — Backlog ของโปรเจกต์ (แยกจาก Company Backlog): task ที่ projectId=นี้ แต่ยังไม่ได้ "ย้ายเข้ากระดาน" (groupId ว่าง)
+  // Pronista §Sprint & Board — pool เดียวกับ Sprint Backlog (แค่เปลี่ยนชื่อฝั่ง UI) → ตัด task ที่อยู่ใน sprint แล้วออก (sprintId ไม่ว่าง)
+  // Pronista §SOW Task/Subtask — Subtask ของ SOW (parentId ไม่ว่าง) ต้องโผล่ใน Backlog ด้วย (ต่างจาก subtask ทั่วไปที่ยังซ่อนเหมือนเดิม) เพราะต้องลากเข้า Sprint ได้
   .get('/projects/:id/backlog', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -250,7 +250,7 @@ export const taskRoutes = new Hono<AppEnv>()
           eq(tasks.projectId, projectId),
           isNull(tasks.groupId),
           isNull(tasks.sprintId),
-          // Tasknista §Back to Basic (ต่อยอด) — ตัด Story/Task-ลอย/Defect/CR ออกจากลิสต์นี้ (ไปโผล่เฉพาะแท็บของตัวเองผ่าน /tasks/all): เหลือแค่งานทั่วไปแท้ (kind='backlog'), งานที่มาจากเอกสาร (originDocType ใดๆ, ระดับบนสุด), และลูกของ SOW (ทุกระดับ)
+          // Pronista §Back to Basic (ต่อยอด) — ตัด Story/Task-ลอย/Defect/CR ออกจากลิสต์นี้ (ไปโผล่เฉพาะแท็บของตัวเองผ่าน /tasks/all): เหลือแค่งานทั่วไปแท้ (kind='backlog'), งานที่มาจากเอกสาร (originDocType ใดๆ, ระดับบนสุด), และลูกของ SOW (ทุกระดับ)
           or(
             and(isNull(tasks.parentId), or(eq(tasks.kind, 'backlog'), isNotNull(tasks.originDocType))),
             eq(tasks.originDocType, 'SOW'),
@@ -258,10 +258,10 @@ export const taskRoutes = new Hono<AppEnv>()
         ),
       )
       .orderBy(asc(tasks.createdAt))
-    // Tasknista §Backlog ownership — แท็บ "ทั่วไป" (kind='backlog') เป็นของส่วนตัวคนคีย์ · Owner/Editor เห็นของทุกคน ส่วน Member เห็นแค่ของตัวเอง (แท็บเอกสาร/SOW ไม่ใช่ของส่วนตัว ไม่กรอง)
+    // Pronista §Backlog ownership — แท็บ "ทั่วไป" (kind='backlog') เป็นของส่วนตัวคนคีย์ · Owner/Editor เห็นของทุกคน ส่วน Member เห็นแค่ของตัวเอง (แท็บเอกสาร/SOW ไม่ใช่ของส่วนตัว ไม่กรอง)
     const rows = canEditProject(myRole) ? rowsAll : rowsAll.filter((r) => r.task.kind !== 'backlog' || r.task.createdBy === me.id)
 
-    // Tasknista §Sprint & Board fix — ซ่อน Task พ่อของ SOW ที่ subtask ทั้งหมดย้ายออกจาก Backlog ไปหมดแล้ว (เข้า Sprint แล้วหรือถูกลบ) — parent ที่ไม่เคยมี subtask เลย (parse ไม่เจอ) ยังโชว์ไว้เหมือนเดิม
+    // Pronista §Sprint & Board fix — ซ่อน Task พ่อของ SOW ที่ subtask ทั้งหมดย้ายออกจาก Backlog ไปหมดแล้ว (เข้า Sprint แล้วหรือถูกลบ) — parent ที่ไม่เคยมี subtask เลย (parse ไม่เจอ) ยังโชว์ไว้เหมือนเดิม
     const sowParentIds = rows.filter((r) => r.task.originDocType === 'SOW' && r.task.parentId === null).map((r) => r.task.id)
     let hiddenParentIds = new Set<string>()
     if (sowParentIds.length > 0) {
@@ -273,7 +273,7 @@ export const taskRoutes = new Hono<AppEnv>()
       hiddenParentIds = new Set(sowParentIds.filter((id) => (totalByParent.get(id) ?? 0) > 0 && (remainingByParent.get(id) ?? 0) === 0))
     }
 
-    // Tasknista §Epic Layer — % ความคืบหน้ารวมของ Epic นับจากงานทั้งหมดในเอกสาร (รวมที่ย้ายเข้า Sprint ไปแล้วด้วย) ไม่ใช่แค่ที่เหลือใน Backlog
+    // Pronista §Epic Layer — % ความคืบหน้ารวมของ Epic นับจากงานทั้งหมดในเอกสาร (รวมที่ย้ายเข้า Sprint ไปแล้วด้วย) ไม่ใช่แค่ที่เหลือใน Backlog
     const epicIds = [...new Set(rows.map((r) => r.task.epicId).filter((id): id is string => id !== null))]
     let epicList: { id: string; title: string; code: string | null; doneCount: number; totalCount: number }[] = []
     if (epicIds.length > 0) {
@@ -308,7 +308,7 @@ export const taskRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §Project Refactor — task ทั้งหมดของโปรเจกต์ (ไม่กรอง sprint/group) แบบเบาๆ ใช้กับ TaskPickerModal (เลือก parent ตอน "จัดการ"→ย้ายประเภท) และแท็บ EPIC/Story/Task/CR
+  // Pronista §Project Refactor — task ทั้งหมดของโปรเจกต์ (ไม่กรอง sprint/group) แบบเบาๆ ใช้กับ TaskPickerModal (เลือก parent ตอน "จัดการ"→ย้ายประเภท) และแท็บ EPIC/Story/Task/CR
   .get('/projects/:id/tasks/all', async (c) => {
     const db = createDb(c.env.DB)
     const rows = await db
@@ -332,7 +332,7 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(rows.map((r) => ({ ...r, parentTitle: r.parentId ? (titleOf.get(r.parentId) ?? null) : null })))
   })
 
-  // Tasknista §Project Refactor — แท็บ EPIC: list ทุก Epic ของโปรเจกต์ (ไม่ใช่แค่ที่มี parent เหลือใน backlog เหมือน /backlog เดิม) + % ความคืบหน้ารวม
+  // Pronista §Project Refactor — แท็บ EPIC: list ทุก Epic ของโปรเจกต์ (ไม่ใช่แค่ที่มี parent เหลือใน backlog เหมือน /backlog เดิม) + % ความคืบหน้ารวม
   .get('/projects/:id/epics', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -358,7 +358,7 @@ export const taskRoutes = new Hono<AppEnv>()
     )
   })
 
-  // Tasknista §Project Refactor — สร้าง Epic ใหม่ตรงๆ จากแท็บ EPIC (ต่างจาก convert 'epic' ที่ยกระดับจาก task ที่มีอยู่แล้ว)
+  // Pronista §Project Refactor — สร้าง Epic ใหม่ตรงๆ จากแท็บ EPIC (ต่างจาก convert 'epic' ที่ยกระดับจาก task ที่มีอยู่แล้ว)
   .post('/projects/:id/epics', teamOnly, async (c) => {
     const body = z.object({ title: z.string().min(1) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -374,18 +374,18 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(created, 201)
   })
 
-  // สร้าง task ตรงใน Backlog ของโปรเจกต์นี้ (ไม่ผูกกลุ่มงาน) — เฉพาะ owner/editor ของโปรเจกต์ (Tasknista §5: "คนที่ถูก Assign เข้าร่วมโปรเจคนั้นเท่านั้น")
+  // สร้าง task ตรงใน Backlog ของโปรเจกต์นี้ (ไม่ผูกกลุ่มงาน) — เฉพาะ owner/editor ของโปรเจกต์ (Pronista §5: "คนที่ถูก Assign เข้าร่วมโปรเจคนั้นเท่านั้น")
   .post('/projects/:id/backlog', teamOnly, async (c) => {
-    // Tasknista §Sprint & Board fix — ตั้งรหัสงานเองได้ตอนสร้าง (ไม่บังคับ) — เว้นว่างยังออกเลขอัตโนมัติเหมือนเดิม
-    // Tasknista §Back to Basic (ต่อยอด) — สร้าง Task ตรงในแท็บ SOW/MOM/ฯลฯ ได้ ระบุ originDocType เองได้ (เดิมมาจาก breakout เอกสารเท่านั้น)
-    // Tasknista §Back to Basic (ต่อยอด) — เพิ่ม kind: 'backlog' สำหรับแท็บ "ทั่วไป" โดยเฉพาะ (ไม่ระบุ = 'task' เดิม ไม่กระทบ Story/CR tab ที่เรียก endpoint นี้เหมือนกัน)
+    // Pronista §Sprint & Board fix — ตั้งรหัสงานเองได้ตอนสร้าง (ไม่บังคับ) — เว้นว่างยังออกเลขอัตโนมัติเหมือนเดิม
+    // Pronista §Back to Basic (ต่อยอด) — สร้าง Task ตรงในแท็บ SOW/MOM/ฯลฯ ได้ ระบุ originDocType เองได้ (เดิมมาจาก breakout เอกสารเท่านั้น)
+    // Pronista §Back to Basic (ต่อยอด) — เพิ่ม kind: 'backlog' สำหรับแท็บ "ทั่วไป" โดยเฉพาะ (ไม่ระบุ = 'task' เดิม ไม่กระทบ Story/CR tab ที่เรียก endpoint นี้เหมือนกัน)
     const body = z
       .object({
         title: z.string().min(1),
         code: z.string().trim().max(40).optional(),
         originDocType: z.enum(['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR']).optional(),
         kind: z.enum(['backlog', 'task']).optional(),
-        // Tasknista §Back to Basic (ต่อยอด) — คีย์ Task ลอยจากแท็บ Task ตรงๆ ได้โดยไม่ต้องมี Story แม่ก่อน
+        // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยจากแท็บ Task ตรงๆ ได้โดยไม่ต้องมี Story แม่ก่อน
         standalone: z.boolean().optional(),
       })
       .safeParse(await c.req.json())
@@ -395,7 +395,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    // Tasknista §Position-based permission — เช็ค actions.task.create ของตำแหน่งที่ assign
+    // Pronista §Position-based permission — เช็ค actions.task.create ของตำแหน่งที่ assign
     const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
     if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
     const kind = body.data.kind ?? 'task'
@@ -415,7 +415,7 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(created, 201)
   })
 
-  // Tasknista §F2 — Backlog: สร้าง task ลอย (ยังไม่ผูกโปรเจค) → assign ย้อนหลังได้
+  // Pronista §F2 — Backlog: สร้าง task ลอย (ยังไม่ผูกโปรเจค) → assign ย้อนหลังได้
   .post('/tasks/backlog', teamOnly, async (c) => {
     const body = z
       .object({
@@ -451,8 +451,8 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(rows.map((r) => ({ ...r.task, assigneeName: r.assigneeName })))
   })
 
-  // Tasknista §"งานของฉัน" — งานทั้งหมดที่ฉันรับผิดชอบ ข้ามทุกโปรเจกต์ (คนละมิติกับเมนู โปรเจกต์ ที่มองทีละโปรเจกต์)
-  // Tasknista §permission (Jira-style project role) — สิทธิ์แก้ไขต่องานแตกต่างกันไปตาม role ของฉันในแต่ละโปรเจกต์ (ไม่ใช่ "เป็นเจ้าของงาน = แก้ได้เสมอ" อีกต่อไป)
+  // Pronista §"งานของฉัน" — งานทั้งหมดที่ฉันรับผิดชอบ ข้ามทุกโปรเจกต์ (คนละมิติกับเมนู โปรเจกต์ ที่มองทีละโปรเจกต์)
+  // Pronista §permission (Jira-style project role) — สิทธิ์แก้ไขต่องานแตกต่างกันไปตาม role ของฉันในแต่ละโปรเจกต์ (ไม่ใช่ "เป็นเจ้าของงาน = แก้ได้เสมอ" อีกต่อไป)
   .get('/tasks/mine', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -460,10 +460,10 @@ export const taskRoutes = new Hono<AppEnv>()
       .select({ task: tasks, projectName: projects.name })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
-      // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
+      // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
       .where(and(eq(tasks.assigneeId, me.id), isNotNull(tasks.dispatchedAt)))
       .orderBy(asc(tasks.dueDate))
-    // Tasknista §Position-based permission — derive จาก positionId ที่ assign (ไม่อ่าน role คอลัมน์เดิมแล้ว)
+    // Pronista §Position-based permission — derive จาก positionId ที่ assign (ไม่อ่าน role คอลัมน์เดิมแล้ว)
     const myMemberships = await db
       .select({ projectId: projectMembers.projectId, positionId: projectMembers.positionId })
       .from(projectMembers)
@@ -477,7 +477,7 @@ export const taskRoutes = new Hono<AppEnv>()
       const perm = positionById(positionsList, positionId)?.permissions ?? VIEW_ONLY_PERMISSIONS
       return hasAnyEditRight(perm) ? 'editor' : 'viewer'
     }
-    // Tasknista §Back to Basic (ต่อยอด) — ความคืบหน้าเกณฑ์ว่าเสร็จ (checklist) ต่องาน ให้หน้า "งานของฉัน" โชว์ได้โดยไม่ต้องเปิดเข้าไปทีละงาน
+    // Pronista §Back to Basic (ต่อยอด) — ความคืบหน้าเกณฑ์ว่าเสร็จ (checklist) ต่องาน ให้หน้า "งานของฉัน" โชว์ได้โดยไม่ต้องเปิดเข้าไปทีละงาน
     const taskIds = rows.map((r) => r.task.id)
     const checklistRows =
       taskIds.length > 0
@@ -492,7 +492,7 @@ export const taskRoutes = new Hono<AppEnv>()
     )
   })
 
-  // Tasknista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
+  // Pronista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
   .get('/tasks/dispatched-by-me', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -513,21 +513,21 @@ export const taskRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
 
-    // Tasknista §permission (Jira-style project role) — งานที่อยู่ในโปรเจกต์แล้ว (ไม่ใช่ backlog):
+    // Pronista §permission (Jira-style project role) — งานที่อยู่ในโปรเจกต์แล้ว (ไม่ใช่ backlog):
     // พนักงานต้องเป็น editor ของโปรเจกต์นั้นถึงจะแก้ไขได้ · หรือเป็น assignee ของงานนี้เอง (§Task Detail permission fix — แก้งานตัวเองได้เสมอ)
     // backlog (before.projectId เป็น null) ยังเปิดให้ทุกคนย้าย/แปลง/ตั้งเป็นโปรเจกต์ได้ตามเดิม ไม่ผ่านเช็คนี้
     const me = c.get('user')
-    // Tasknista §Position-based permission (Performance review 2026-08-03) — คำนวณ permission ของโปรเจกต์นี้ครั้งเดียว แล้วส่งต่อให้ canEditTask/isAssigneeOnlyEditor
+    // Pronista §Position-based permission (Performance review 2026-08-03) — คำนวณ permission ของโปรเจกต์นี้ครั้งเดียว แล้วส่งต่อให้ canEditTask/isAssigneeOnlyEditor
     // ใช้ร่วมกัน กัน query ซ้ำ (เดิมแต่ละฟังก์ชันไปคำนวณเองแยกกัน กรณี member ที่แก้งานคนอื่น = คำนวณซ้ำ 2 รอบต่อ 1 คำขอ)
     const permissions =
       before.projectId && me.role === 'member' ? await getProjectPermissions(db, before.projectId, me.id, me.role) : undefined
     if (!(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
     const isAssigneeOnly = await isAssigneeOnlyEditor(db, before, me, permissions)
-    // Tasknista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
+    // Pronista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
     if (before.projectId && !isAssigneeOnly && me.role === 'member') {
       if (!permissions!.actions.task.edit) return c.json({ error: 'forbidden' }, 403)
     }
-    // Tasknista §Back to Basic (ต่อยอด) — หลังจ่ายงานแล้ว assignee ที่ผ่าน canEditTask มาได้เพราะเป็นเจ้าของงานเท่านั้น (ไม่ใช่ editor ของโปรเจกต์)
+    // Pronista §Back to Basic (ต่อยอด) — หลังจ่ายงานแล้ว assignee ที่ผ่าน canEditTask มาได้เพราะเป็นเจ้าของงานเท่านั้น (ไม่ใช่ editor ของโปรเจกต์)
     // ห้ามแก้ไขฟิลด์ของผู้จ่ายงานเลย — แก้ได้แค่ assigneeNotes (บันทึกของตัวเอง) กับกด "ส่งงาน" (status: on_processing→waiting_for_test) เท่านั้น
     // เกณฑ์ว่าเสร็จ/ไฟล์แนบ ผ่านคนละ endpoint (checklist/attachments) จึงไม่ต้องเช็คตรงนี้
     if (isAssigneeOnly) {
@@ -537,13 +537,13 @@ export const taskRoutes = new Hono<AppEnv>()
       if ('status' in body.data && !(before.status === 'on_processing' && body.data.status === 'waiting_for_test'))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะเองไม่ได้ ต้องกด "ส่งงาน" เท่านั้น' }, 403)
     }
-    // Tasknista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
+    // Pronista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
     // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา on_processing ก่อนถึงจะแก้ต่อได้
     if ('assigneeNotes' in body.data) {
       if (before.assigneeId !== me.id) return c.json({ error: 'forbidden', message: 'แก้บันทึกของผู้รับงานคนอื่นไม่ได้' }, 403)
       if (before.status === 'waiting_for_test' || before.status === 'done') return c.json({ error: 'forbidden', message: 'แก้บันทึกไม่ได้แล้วหลังส่งงาน' }, 403)
     }
-    // Tasknista §4 — Company Backlog: เฉพาะ owner ล็อค/ปลดล็อคได้ · ล็อคแล้ว member แก้ไข/ย้าย/แปลง task นี้ไม่ได้เลย
+    // Pronista §4 — Company Backlog: เฉพาะ owner ล็อค/ปลดล็อคได้ · ล็อคแล้ว member แก้ไข/ย้าย/แปลง task นี้ไม่ได้เลย
     if (before.projectId === null && me.role !== 'owner') {
       if (body.data.locked !== undefined) return c.json({ error: 'forbidden' }, 403)
       if (before.locked) return c.json({ error: 'locked' }, 403)
@@ -552,13 +552,13 @@ export const taskRoutes = new Hono<AppEnv>()
     const patch: Record<string, unknown> = { ...body.data }
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
-    // Tasknista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
+    // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test') patch.submittedAt = new Date()
-    // Tasknista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
+    // Pronista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
-    // Tasknista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
+    // Pronista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
     if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) patch.dispatchedAt = null
-    // Tasknista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N
+    // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N
     if (body.data.parentId) {
       const parent = (await db.select().from(tasks).where(eq(tasks.id, body.data.parentId)).limit(1))[0]
       if (!parent) return c.json({ error: 'parent_not_found' }, 404)
@@ -566,17 +566,17 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.groupId = parent.groupId
       patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? sanitizeCodePrefix(null, 'TASK'))
     } else if (body.data.projectId && before.projectId === null) {
-      // Tasknista §2.5 — ย้าย backlog (BL-N) เข้าโปรเจกต์ → ออกโค้ดใหม่ตามคำนำหน้าโปรเจกต์
+      // Pronista §2.5 — ย้าย backlog (BL-N) เข้าโปรเจกต์ → ออกโค้ดใหม่ตามคำนำหน้าโปรเจกต์
       const project = (await db.select().from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
       patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
-      // Tasknista §5 (2026-07-03) — ย้ายจาก Company Backlog เข้าโปรเจกต์ → ลง "Backlog ของโปรเจกต์" (groupId ยังว่าง ไม่ขึ้นกระดานทันที)
+      // Pronista §5 (2026-07-03) — ย้ายจาก Company Backlog เข้าโปรเจกต์ → ลง "Backlog ของโปรเจกต์" (groupId ยังว่าง ไม่ขึ้นกระดานทันที)
       // แทนที่พฤติกรรมเดิมที่ auto-หา/สร้างกลุ่มแรกให้ (ทำให้โผล่ Non Start บนกระดานทันที) — ผู้ใช้ต้อง "ย้ายเข้ากระดาน" เองอีกที
     }
-    // Tasknista §5 — ตั้ง defectStatus เริ่มต้นเมื่อ task เพิ่งกลายเป็น Defect (ยังไม่ได้ระบุ defectStatus มาเอง)
+    // Pronista §5 — ตั้ง defectStatus เริ่มต้นเมื่อ task เพิ่งกลายเป็น Defect (ยังไม่ได้ระบุ defectStatus มาเอง)
     if (body.data.kind === 'defect' && before.kind !== 'defect' && body.data.defectStatus === undefined) {
       patch.defectStatus = 'reported'
     }
-    // Tasknista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด: ต้องอยู่ใน sprint อยู่แล้ว + คอลัมน์ต้องมีจริงใน preset ของ sprint นั้น
+    // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด: ต้องอยู่ใน sprint อยู่แล้ว + คอลัมน์ต้องมีจริงใน preset ของ sprint นั้น
     if (body.data.sprintStatus !== undefined && body.data.sprintStatus !== null) {
       if (!before.sprintId) return c.json({ error: 'not_in_sprint' }, 400)
       const sprint = (await db.select().from(sprints).where(eq(sprints.id, before.sprintId)).limit(1))[0]
@@ -606,7 +606,7 @@ export const taskRoutes = new Hono<AppEnv>()
       },
     })
 
-    // Tasknista §My Work/Notification — ทุกระดับ (Story/Task/Subtask/Defect/CR) ไม่ใช่แค่ Subtask เหมือนเดิม (เดิม gate ด้วย parentId!==null ทำให้ Defect/CR/Story ที่ parentId เป็น null ไม่แจ้งเตือนเลย — ผลคือสถิติ "งานที่ถูก Assign วันนี้" ไม่ขึ้นสำหรับงานพวกนี้) ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ
+    // Pronista §My Work/Notification — ทุกระดับ (Story/Task/Subtask/Defect/CR) ไม่ใช่แค่ Subtask เหมือนเดิม (เดิม gate ด้วย parentId!==null ทำให้ Defect/CR/Story ที่ parentId เป็น null ไม่แจ้งเตือนเลย — ผลคือสถิติ "งานที่ถูก Assign วันนี้" ไม่ขึ้นสำหรับงานพวกนี้) ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) {
       await db.insert(notifications).values({
         userId: body.data.assigneeId,
@@ -625,7 +625,7 @@ export const taskRoutes = new Hono<AppEnv>()
         message: `งาน${before.parentId ? 'ย่อย' : ''} "${before.title}" ที่คุณมอบหมายเสร็จแล้ว`,
       })
     }
-    // Tasknista §Task lifecycle notifications — ครบ flow ส่งงาน/อนุมัติ/ตีกลับ ทุก level (ไม่ใช่แค่ subtask เหมือน 2 อันบน)
+    // Pronista §Task lifecycle notifications — ครบ flow ส่งงาน/อนุมัติ/ตีกลับ ทุก level (ไม่ใช่แค่ subtask เหมือน 2 อันบน)
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test' && before.assignedBy) {
       await db.insert(notifications).values({
         userId: before.assignedBy,
@@ -656,7 +656,7 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(updated[0])
   })
 
-  // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: เฉพาะผู้จ่ายงาน (ไม่ใช่ assignee เอง) กดได้ ต้องมีผู้รับผิดชอบตั้งไว้แล้ว
+  // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: เฉพาะผู้จ่ายงาน (ไม่ใช่ assignee เอง) กดได้ ต้องมีผู้รับผิดชอบตั้งไว้แล้ว
   .post('/tasks/:id/dispatch', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
     const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
@@ -669,7 +669,7 @@ export const taskRoutes = new Hono<AppEnv>()
     } else if (me.role !== 'owner') {
       return c.json({ error: 'forbidden' }, 403)
     }
-    // Tasknista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
+    // Pronista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
     const updated = await db.update(tasks).set({ dispatchedAt: new Date() }).where(eq(tasks.id, before.id)).returning()
     await writeAudit(c.env, { actorId: me.id, action: 'task.dispatch', entity: 'task', entityId: before.id, meta: { title: before.title, assigneeId: before.assigneeId } })
     await db.insert(notifications).values({
@@ -682,7 +682,7 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(updated[0])
   })
 
-  // Tasknista §Task lifecycle accept step — เฉพาะ assignee เอง กดรับงานที่ถูกจ่ายมาแล้ว (dispatchedAt ไม่ว่าง) ให้ status ขยับเป็น on_processing
+  // Pronista §Task lifecycle accept step — เฉพาะ assignee เอง กดรับงานที่ถูกจ่ายมาแล้ว (dispatchedAt ไม่ว่าง) ให้ status ขยับเป็น on_processing
   .post('/tasks/:id/accept', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
     const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
@@ -696,14 +696,14 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(updated[0])
   })
 
-  // Tasknista §Project Refactor — เมนู "จัดการ" ใน Backlog: แปลงประเภทงาน Epic/Story/Task/Subtask/Defect
+  // Pronista §Project Refactor — เมนู "จัดการ" ใน Backlog: แปลงประเภทงาน Epic/Story/Task/Subtask/Defect
   // ต่างจาก PATCH ทั่วไปตรงที่ 'epic' สร้างแถว epics ใหม่ให้ (epics เป็นคนละตารางกับ tasks) ส่วนที่เหลือคือย้ายตำแหน่งใน hierarchy เดิม
   .post('/tasks/:id/convert', teamOnly, async (c) => {
     const body = z
       .object({
         to: z.enum(['epic', 'story', 'task', 'subtask', 'defect', 'cr']),
         targetParentId: z.string().optional(), // ต้องมีสำหรับ 'task'/'subtask'/'defect' (เลือก parent จาก TaskPickerModal)
-        // Tasknista §Backlog cross-project convert — โปรเจกต์ปลายทาง (ไม่ระบุ = คงโปรเจกต์เดิม) ใช้กับ epic/story/cr/defect
+        // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทาง (ไม่ระบุ = คงโปรเจกต์เดิม) ใช้กับ epic/story/cr/defect
         targetProjectId: z.string().optional(),
       })
       .safeParse(await c.req.json())
@@ -719,11 +719,11 @@ export const taskRoutes = new Hono<AppEnv>()
       if (!canEditProject(targetRole)) return c.json({ error: 'forbidden', message: 'ไม่มีสิทธิ์แก้ไขโปรเจกต์ปลายทาง' }, 403)
     }
 
-    // Tasknista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
+    // Pronista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
     const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task' }
-    // Tasknista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
+    // Pronista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
     const codePrefix = sanitizeCodePrefix(null, 'TASK')
-    // Tasknista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
+    // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
     const effectiveProjectId = body.data.targetProjectId ?? before.projectId
     if (body.data.to === 'epic') {
       if (!effectiveProjectId) return c.json({ error: 'project_required', message: 'ต้องผูกโปรเจกต์ก่อนถึงจะยกระดับเป็น Epic ได้' }, 400)
@@ -738,7 +738,7 @@ export const taskRoutes = new Hono<AppEnv>()
       // ตัว task เดิมกลายเป็น Story ตัวแรกใต้ Epic ใหม่นี้ — regenerate code ให้ตรง
       patch.code = await nextTypedTaskCode(db, prefix, 'Story')
     } else if (body.data.to === 'story' || body.data.to === 'cr' || body.data.to === 'defect') {
-      // Tasknista §Back to Basic (ต่อยอด) — Defect ผูกกับ Epic/Story/Task แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ เหมือน CR จึงไม่บังคับเลือก parent (เดิมพลาดไปรวมกับ task/subtask ที่ต้องมี parent จริง)
+      // Pronista §Back to Basic (ต่อยอด) — Defect ผูกกับ Epic/Story/Task แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ เหมือน CR จึงไม่บังคับเลือก parent (เดิมพลาดไปรวมกับ task/subtask ที่ต้องมี parent จริง)
       patch.parentId = null
       patch.projectId = effectiveProjectId
       const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
@@ -776,16 +776,16 @@ export const taskRoutes = new Hono<AppEnv>()
     const db = createDb(c.env.DB)
     const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
-    // Tasknista §permission (Jira-style project role): งาน backlog (ไม่มีโปรเจกต์) — กฎเดิม ลบได้เฉพาะคนที่สร้าง
+    // Pronista §permission (Jira-style project role): งาน backlog (ไม่มีโปรเจกต์) — กฎเดิม ลบได้เฉพาะคนที่สร้าง
     // งานที่อยู่ในโปรเจกต์แล้ว — ต้องเป็น editor ของโปรเจกต์นั้น (แทนที่กฎเดิม "ลบได้เฉพาะคนที่สร้าง" — editor ลบงานคนอื่นได้ด้วย)
     const me = c.get('user')
     if (me.role === 'member') {
       if (before.projectId === null) {
-        // Tasknista §4 — Company Backlog: ล็อคแล้ว member ลบไม่ได้เลย (แม้จะเป็นคนสร้างเอง)
+        // Pronista §4 — Company Backlog: ล็อคแล้ว member ลบไม่ได้เลย (แม้จะเป็นคนสร้างเอง)
         if (before.locked) return c.json({ error: 'locked' }, 403)
         if (before.createdBy !== me.id) return c.json({ error: 'forbidden' }, 403)
       } else {
-        // Tasknista §Position-based permission — ตัวอย่าง granular action: เช็ค actions.task.delete ของตำแหน่งที่ assign
+        // Pronista §Position-based permission — ตัวอย่าง granular action: เช็ค actions.task.delete ของตำแหน่งที่ assign
         const permissions = await getProjectPermissions(db, before.projectId, me.id, me.role)
         if (!permissions.actions.task.delete) return c.json({ error: 'forbidden' }, 403)
       }

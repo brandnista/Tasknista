@@ -28,7 +28,7 @@ async function savePositions(cookie: string, positions: Position[]) {
   )
 }
 
-describe('Tasknista §Position-based permission — /api/admin/positions', () => {
+describe('Pronista §Position-based permission — /api/admin/positions', () => {
   it('owner เห็น/แก้แคตตาล็อกได้ · member/vendor 403', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const member = await loginAs(app, 'pond@example-co.test')
@@ -85,7 +85,7 @@ describe('Tasknista §Position-based permission — /api/admin/positions', () =>
   })
 })
 
-describe('Tasknista §Position-based permission — flagship: actions.task.create/edit/delete', () => {
+describe('Pronista §Position-based permission — flagship: actions.task.create/edit/delete', () => {
   it('ตำแหน่งที่ actions.task.create=false → สร้าง Task ไม่ได้ (403) · true → สร้างได้ (201)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const noCreate: Position = {
@@ -119,7 +119,7 @@ describe('Tasknista §Position-based permission — flagship: actions.task.creat
   })
 })
 
-describe('Tasknista §Position-based permission — regression: derive อัตโนมัติที่ endpoint เก่า', () => {
+describe('Pronista §Position-based permission — regression: derive อัตโนมัติที่ endpoint เก่า', () => {
   it('ตำแหน่งไม่มี edit right เลย (hasAnyEditRight=false) ต้องโดน 403 ที่ POST epics ด้วย (canEditProject เดิม derive จากตำแหน่งอัตโนมัติ)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const p = (await (await createProject(owner, { name: 'P regression', type: 'project' })).json()) as { id: string }
@@ -178,7 +178,7 @@ describe('Tasknista §Position-based permission — regression: derive อัต
   })
 })
 
-describe('Tasknista §Position-based permission — DB sanity', () => {
+describe('Pronista §Position-based permission — DB sanity', () => {
   it('backfill migration 0060: project_members ที่ role เดิมถูกแปลงเป็น positionId ถูกต้อง', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const p = (await (await createProject(owner, { name: 'P backfill', type: 'project' })).json()) as { id: string }

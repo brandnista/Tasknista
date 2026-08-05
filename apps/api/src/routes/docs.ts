@@ -23,7 +23,7 @@ const ACCEPTED_FILE_MIME = new Set([
 ])
 
 /**
- * เอกสาร (SPEC §4.16 + Tasknista §merge 2026-07-03) — mount ด้วย requireAuth + teamOnly (vendor 403 ทั้งเมนู+API)
+ * เอกสาร (SPEC §4.16 + Pronista §merge 2026-07-03) — mount ด้วย requireAuth + teamOnly (vendor 403 ทั้งเมนู+API)
  * ดูดรวม "คลังเอกสาร" (item 3) เข้ามา: 1 โหนดในทรีเป็นได้ทั้งหน้าวิกิ (kind='page'), ลิงก์ Google Docs (kind='link'), หรือไฟล์อัปโหลด (kind='file')
  * สิทธิ์ private/team ต่อโหนด (doc-acl.ts) · ผูกกับ project/task ได้ทุก kind (doc_links) · เทมเพลต+ทำสำเนาได้ทุก kind
  */
@@ -77,14 +77,14 @@ export const docRoutes = new Hono<AppEnv>()
         mime: docs.mime,
         isTemplate: docs.isTemplate,
         templateDocNumber: docs.templateDocNumber,
-        // Tasknista §Document Version History — เลขที่เอกสาร (เล่ม) + เวอร์ชัน
+        // Pronista §Document Version History — เลขที่เอกสาร (เล่ม) + เวอร์ชัน
         docNumber: docs.docNumber,
         docVersion: docs.docVersion,
-        // Tasknista §Document Traceability — สำหรับฟิลเตอร์หน้าเอกสาร (ประเภทเอกสาร + โปรเจกต์ที่ผูก)
+        // Pronista §Document Traceability — สำหรับฟิลเตอร์หน้าเอกสาร (ประเภทเอกสาร + โปรเจกต์ที่ผูก)
         docType: docs.docType,
         ownerId: docs.ownerId,
         visibility: docs.visibility,
-        // Tasknista §Document Management MVP — Grid view โชว์ "แก้ไขล่าสุดโดยใคร/เมื่อไร" แบบ Google Docs
+        // Pronista §Document Management MVP — Grid view โชว์ "แก้ไขล่าสุดโดยใคร/เมื่อไร" แบบ Google Docs
         updatedBy: docs.updatedBy,
         updatedAt: docs.updatedAt,
       })
@@ -97,7 +97,7 @@ export const docRoutes = new Hono<AppEnv>()
       .where(eq(docMembers.userId, me.id))
     const updaterNames = await db.select({ id: users.id, name: users.name }).from(users)
     const nameOfUser = new Map(updaterNames.map((u) => [u.id, u.name]))
-    // Tasknista §Document Traceability — โปรเจกต์แรกที่เอกสารนี้ผูกไว้ (ถ้ามีหลายอัน เอาแค่อันแรกพอสำหรับฟิลเตอร์)
+    // Pronista §Document Traceability — โปรเจกต์แรกที่เอกสารนี้ผูกไว้ (ถ้ามีหลายอัน เอาแค่อันแรกพอสำหรับฟิลเตอร์)
     const projectLinks = await db.select({ docId: docLinks.docId, projectId: docLinks.projectId }).from(docLinks).where(isNotNull(docLinks.projectId))
     const projectIdOf = new Map<string, string>()
     for (const l of projectLinks) if (l.projectId && !projectIdOf.has(l.docId)) projectIdOf.set(l.docId, l.projectId)
@@ -242,7 +242,7 @@ export const docRoutes = new Hono<AppEnv>()
     const title = form.get('title')
     const parentId = form.get('parentId')
     const isTemplate = form.get('isTemplate') === '1'
-    // Tasknista §Document Traceability — ผู้ใช้เลือกแท็กประเภทเอกสารตอนอัปโหลดไฟล์ทั่วไปได้ (ไม่บังคับ) เพื่อใช้ฟิลเตอร์หน้าเอกสาร
+    // Pronista §Document Traceability — ผู้ใช้เลือกแท็กประเภทเอกสารตอนอัปโหลดไฟล์ทั่วไปได้ (ไม่บังคับ) เพื่อใช้ฟิลเตอร์หน้าเอกสาร
     const docTypeRaw = form.get('docType')
     const docType = typeof docTypeRaw === 'string' && DOC_TYPES.includes(docTypeRaw as (typeof DOC_TYPES)[number]) ? (docTypeRaw as (typeof DOC_TYPES)[number]) : null
     if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400)
@@ -282,7 +282,7 @@ export const docRoutes = new Hono<AppEnv>()
     return c.json(inserted[0], 201)
   })
 
-  // สร้างเอกสารจาก Template (Tasknista §Document Template) — kind='template' · โครงสร้าง section มาจาก @seedoffice/core registry ไม่ใช่ DB
+  // สร้างเอกสารจาก Template (Pronista §Document Template) — kind='template' · โครงสร้าง section มาจาก @seedoffice/core registry ไม่ใช่ DB
   // template ที่ def.requiresProject (default true) ต้องผูกโปรเจกต์เสมอ (รหัสอ้างอิง "<Codename>-<prefix>-<วันที่>-<เลขวิ่ง>" ยึด Codename โปรเจกต์) — ผูกผ่าน docLinks แบบเดียวกับเอกสาร SRS
   .post('/template', teamOnly, async (c) => {
     const body = z
@@ -335,7 +335,7 @@ export const docRoutes = new Hono<AppEnv>()
         kind: 'template',
         templateType: body.data.templateType,
         templateDocNumber,
-        // Tasknista §Document Traceability — auto-tag ประเภทเอกสารจาก templateType (mom→MOM ฯลฯ) ให้ตรงกับฟิลเตอร์หน้าเอกสารเสมอ
+        // Pronista §Document Traceability — auto-tag ประเภทเอกสารจาก templateType (mom→MOM ฯลฯ) ให้ตรงกับฟิลเตอร์หน้าเอกสารเสมอ
         docType: DOC_TYPES.includes(body.data.templateType.toUpperCase() as (typeof DOC_TYPES)[number])
           ? (body.data.templateType.toUpperCase() as (typeof DOC_TYPES)[number])
           : null,
@@ -405,7 +405,7 @@ export const docRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
-  // Tasknista §Document Traceability — แตกแถวจากตาราง breakoutToTasks ของ Template เอกสาร (MOM/BRD/SOW/SRS ทั้งหมด) ให้เป็น Task จริง
+  // Pronista §Document Traceability — แตกแถวจากตาราง breakoutToTasks ของ Template เอกสาร (MOM/BRD/SOW/SRS ทั้งหมด) ให้เป็น Task จริง
   // generic แทนที่ endpoint เดิม /:id/srs-breakout — เอกสารต้องเป็น kind='template' ที่ registry มี section เปิด breakoutToTasks ไว้ + ผูกโปรเจกต์แล้ว
   // (flow อัปโหลดไฟล์ SRS จากหน้าโปรเจกต์เดิมอยู่คนละ endpoint ใน docs-srs.ts ไม่กระทบ)
   .post('/:id/breakout', teamOnly, async (c) => {
@@ -433,7 +433,7 @@ export const docRoutes = new Hono<AppEnv>()
     const def = getDocTemplate(doc.templateType)
     const breakoutSection = def?.sections.find((s) => s.kind === 'table' && s.breakoutToTasks)
     if (!breakoutSection || breakoutSection.kind !== 'table' || !breakoutSection.breakoutToTasks) return c.json({ error: 'not_found' }, 404)
-    // Tasknista §SOW Task/Subtask — เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว (MOM/BRD/SRS/PEP/UIR ปิดใช้งาน — เอกสารเก่าที่เคยแตกไปแล้วยังอยู่ตามเดิม ไม่ลบ)
+    // Pronista §SOW Task/Subtask — เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว (MOM/BRD/SRS/PEP/UIR ปิดใช้งาน — เอกสารเก่าที่เคยแตกไปแล้วยังอยู่ตามเดิม ไม่ลบ)
     if (breakoutSection.breakoutToTasks.docType !== 'SOW')
       return c.json({ error: 'breakout_disabled', message: 'ยกเลิกการแตกเป็น Task สำหรับเอกสารประเภทนี้แล้ว — รองรับเฉพาะ SOW' }, 400)
     const access = await getDocAccess(db, doc.id, me.id, me.role)
@@ -475,7 +475,7 @@ export const docRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §Document Management MVP — แปลง .docx เป็น HTML ให้เปิดอ่านได้ในแอปทันที (Chrome/Edge ไม่มีตัวแสดงผล .docx ในตัวเหมือน PDF)
+  // Pronista §Document Management MVP — แปลง .docx เป็น HTML ให้เปิดอ่านได้ในแอปทันที (Chrome/Edge ไม่มีตัวแสดงผล .docx ในตัวเหมือน PDF)
   .get('/:id/preview', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -496,7 +496,7 @@ export const docRoutes = new Hono<AppEnv>()
     }
   })
 
-  // Tasknista §Document Diff — ข้อความล้วนจาก .docx ที่อัปโหลด (paragraph + แถวตารางแบบ pseudo-paragraph) สำหรับหน้าเปรียบเทียบเอกสาร (ไฟล์ที่ไม่ใช่ kind='template' ไม่มี dataJson โครงสร้างให้ diff แบบ field-by-field ได้)
+  // Pronista §Document Diff — ข้อความล้วนจาก .docx ที่อัปโหลด (paragraph + แถวตารางแบบ pseudo-paragraph) สำหรับหน้าเปรียบเทียบเอกสาร (ไฟล์ที่ไม่ใช่ kind='template' ไม่มี dataJson โครงสร้างให้ diff แบบ field-by-field ได้)
   .get('/:id/text-content', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -518,7 +518,7 @@ export const docRoutes = new Hono<AppEnv>()
     }
   })
 
-  // Tasknista §Document Management MVP — แปลง .docx เป็น Markdown เก็บลง contentMarkdown ครั้งแรกที่กด "แก้ไขเอกสาร" (ไฟล์ต้นฉบับยังอยู่ ดาวน์โหลดได้เหมือนเดิม)
+  // Pronista §Document Management MVP — แปลง .docx เป็น Markdown เก็บลง contentMarkdown ครั้งแรกที่กด "แก้ไขเอกสาร" (ไฟล์ต้นฉบับยังอยู่ ดาวน์โหลดได้เหมือนเดิม)
   // idempotent — ถ้าแปลง+เริ่มแก้ไปแล้ว (contentMarkdown ไม่ว่าง) จะไม่ทับของเดิมซ้ำ กันข้อมูลที่แก้ไปแล้วหาย
   .post('/:id/convert-to-editable', teamOnly, async (c) => {
     const db = createDb(c.env.DB)

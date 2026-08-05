@@ -2,7 +2,7 @@ import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
 import { PageHeader } from '../components/PageHeader'
 
 /**
- * Tasknista §Document Version History — หน้า "ประวัติเอกสาร" ครอบคลุมเอกสารทุกชนิดทุกโปรเจกต์
+ * Pronista §Document Version History — หน้า "ประวัติเอกสาร" ครอบคลุมเอกสารทุกชนิดทุกโปรเจกต์
  * ตัวตารางเอง (group เป็นเล่ม→เวอร์ชัน + filter + compare) ใช้ร่วมกับแท็บ "ประวัติเอกสาร" ในหน้าโปรเจกต์ — ดู DocumentHistoryTable.tsx
  */
 export function DocumentHistoryPage() {

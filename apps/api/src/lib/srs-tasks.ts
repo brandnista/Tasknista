@@ -12,7 +12,7 @@ export interface SrsTaskItemInput {
 }
 
 /**
- * Tasknista §SRS import — สร้าง Task จริงจากรายการ SRS ที่ผ่านรีวิว/เลือกแล้ว ใช้ร่วมกันทั้ง 2 ทาง:
+ * Pronista §SRS import — สร้าง Task จริงจากรายการ SRS ที่ผ่านรีวิว/เลือกแล้ว ใช้ร่วมกันทั้ง 2 ทาง:
  * (1) อัปโหลดเอกสาร SRS มาพาร์ส (`docs-srs.ts` POST /docs/srs/confirm)
  * (2) แตกจากตารางความต้องการเชิงฟังก์ชันในเอกสาร Template SRS (`docs.ts` POST /docs/:id/srs-breakout)
  * เดินเลขที่งาน (nextTaskCode) + รหัสอ้างอิง (nextSrsRefCode) + ผูก docLinks(docId, taskId) + เตือนรหัสซ้ำ (ไม่บล็อก แค่เตือนให้รู้)

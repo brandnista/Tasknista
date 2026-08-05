@@ -23,15 +23,15 @@ interface DocNode {
   filename: string | null
   mime: string | null
   isTemplate: boolean
-  // Tasknista §Document Template — เลขที่เอกสาร (โชว์แทนชื่อในทรีถ้ามี) — null ถ้าไม่ใช่ template หรือ template ที่ยังไม่ gen เลขที่
+  // Pronista §Document Template — เลขที่เอกสาร (โชว์แทนชื่อในทรีถ้ามี) — null ถ้าไม่ใช่ template หรือ template ที่ยังไม่ gen เลขที่
   templateDocNumber: string | null
-  // Tasknista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์ + โปรเจกต์ที่ผูกไว้อันแรก
+  // Pronista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์ + โปรเจกต์ที่ผูกไว้อันแรก
   docType: 'MOM' | 'BRD' | 'SOW' | 'SRS' | 'PEP' | 'UIR' | 'CR' | null
   linkedProjectId: string | null
   ownerId: string | null
   visibility: 'private' | 'team'
   myAccess: 'owner' | 'editor' | 'viewer'
-  // Tasknista §Document Management MVP — Grid view โชว์ "แก้ไขล่าสุดโดยใคร/เมื่อไร"
+  // Pronista §Document Management MVP — Grid view โชว์ "แก้ไขล่าสุดโดยใคร/เมื่อไร"
   updatedAt: string | null
   updatedByName: string | null
 }
@@ -191,7 +191,7 @@ function DocRowIcon({ n }: { n: DocNode }) {
   return <FileText className="w-3.5 h-3.5 text-brand-500 shrink-0" />
 }
 
-/** Tasknista §Document Management MVP — ไอคอนสีตามประเภทไฟล์จริง (Word/PDF/รูปภาพ/ลิงก์/หน้าวิกิ) ใช้ในการ์ด Grid view */
+/** Pronista §Document Management MVP — ไอคอนสีตามประเภทไฟล์จริง (Word/PDF/รูปภาพ/ลิงก์/หน้าวิกิ) ใช้ในการ์ด Grid view */
 function DocFileTile({ n }: { n: DocNode }) {
   const mime = n.mime ?? ''
   const base = 'w-8 h-8 rounded-md grid place-items-center shrink-0'
@@ -292,7 +292,7 @@ export function DocsPage() {
   const [uploadBreakoutOpen, setUploadBreakoutOpen] = useState(false)
   const [searchParams] = useSearchParams()
 
-  // Tasknista §Document Management MVP — สลับมุมมอง List (ทรีเดิม) / Grid (การ์ดไฟล์แบบ flat) จำโหมดล่าสุดไว้
+  // Pronista §Document Management MVP — สลับมุมมอง List (ทรีเดิม) / Grid (การ์ดไฟล์แบบ flat) จำโหมดล่าสุดไว้
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => (localStorage.getItem('docs-view-mode') === 'grid' ? 'grid' : 'list'))
   useEffect(() => { localStorage.setItem('docs-view-mode', viewMode) }, [viewMode])
   // เลือกโฟลเดอร์แนะนำ = กรองรายการเอกสารด้านล่างให้เหลือเฉพาะเอกสารในโฟลเดอร์นั้น (รวมโฟลเดอร์ย่อย)
@@ -304,7 +304,7 @@ export function DocsPage() {
   const [projectFilter, setProjectFilter] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
 
-  // Tasknista §Document Management MVP — แบ่งหน้า: ค่าเริ่มต้น 20 เอกสาร/หน้า แก้ได้
+  // Pronista §Document Management MVP — แบ่งหน้า: ค่าเริ่มต้น 20 เอกสาร/หน้า แก้ได้
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [page, setPage] = useState(1)
 
@@ -349,7 +349,7 @@ export function DocsPage() {
     return map
   }, [nodes])
 
-  // Tasknista §Document Management MVP — โฟลเดอร์ระดับบนสุด โชว์เป็นการ์ดลัดด้านบน (Google Docs style)
+  // Pronista §Document Management MVP — โฟลเดอร์ระดับบนสุด โชว์เป็นการ์ดลัดด้านบน (Google Docs style)
   const rootFolders = useMemo(() => (children.get(null) ?? []).filter((n) => n.kind === 'folder'), [children])
 
   // เอกสารทั้งหมด (ไม่รวมโฟลเดอร์เอง) ภายใต้โฟลเดอร์ที่เลือกไว้ — ไล่ลงไปทุกชั้นของโฟลเดอร์ย่อย
@@ -366,7 +366,7 @@ export function DocsPage() {
     return ids
   }, [activeFolder, children])
 
-  // Tasknista §Document Management MVP — มุมมองหลัก (List/Grid) แสดง "รายการเอกสาร" แบบแบนเสมอ ไม่ใช่ทรีโฟลเดอร์
+  // Pronista §Document Management MVP — มุมมองหลัก (List/Grid) แสดง "รายการเอกสาร" แบบแบนเสมอ ไม่ใช่ทรีโฟลเดอร์
   const mainDocs = useMemo(
     () => (nodes ?? []).filter((n) => n.kind !== 'folder' && (!folderDescendantIds || folderDescendantIds.has(n.id))),
     [nodes, folderDescendantIds],
@@ -528,7 +528,7 @@ export function DocsPage() {
               <X className="w-3.5 h-3.5" /> ล้าง
             </button>
           )}
-          {/* Tasknista §Document Management MVP — สลับมุมมอง Grid/List มุมขวาบน */}
+          {/* Pronista §Document Management MVP — สลับมุมมอง Grid/List มุมขวาบน */}
           <div className="flex items-center gap-0.5 bg-hover rounded-lg p-0.5 ml-auto">
             <button
               onClick={() => setViewMode('list')}
@@ -574,7 +574,7 @@ export function DocsPage() {
           )}
         </div>
 
-        {/* Tasknista §Document Management MVP — โฟลเดอร์แนะนำ (Google Docs style) ด้านบนสุด — คลิกเพื่อกรองรายการเอกสารด้านล่าง ซ่อนตอนกำลังค้นหา/ฟิลเตอร์ */}
+        {/* Pronista §Document Management MVP — โฟลเดอร์แนะนำ (Google Docs style) ด้านบนสุด — คลิกเพื่อกรองรายการเอกสารด้านล่าง ซ่อนตอนกำลังค้นหา/ฟิลเตอร์ */}
         {!filtersActive && rootFolders.length > 0 && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">

@@ -15,7 +15,7 @@ interface UserOpt {
 }
 
 /**
- * Tasknista §External Document Version Logging → §Project Refactor — เดิมเป็นแท็บ "External Design Assets" แยก
+ * Pronista §External Document Version Logging → §Project Refactor — เดิมเป็นแท็บ "External Design Assets" แยก
  * ตอนนี้ตารางรวมย้ายไปอยู่ใน "ประวัติเอกสาร" (DocumentHistoryTable.tsx) แล้ว เหลือแค่ modal นี้ที่ยังใช้ร่วมกันสำหรับเพิ่ม/แก้ไขเวอร์ชัน external log
  */
 export function AddVersionModal({ projectId, sowTaskOptions, onClose, onCreated }: {

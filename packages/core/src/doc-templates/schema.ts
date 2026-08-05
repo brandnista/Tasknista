@@ -1,5 +1,5 @@
 /**
- * ระบบ Template เอกสาร (Tasknista §Document Template) — โครงสร้าง template (หัวข้อ/ฟิลด์) เก็บเป็นโค้ดที่นี่ ไม่เก็บ DB
+ * ระบบ Template เอกสาร (Pronista §Document Template) — โครงสร้าง template (หัวข้อ/ฟิลด์) เก็บเป็นโค้ดที่นี่ ไม่เก็บ DB
  * (ไม่มีความต้องการให้ผู้ใช้สร้าง template เองผ่าน UI — DB เก็บแค่ข้อมูลที่กรอกจริงต่อเอกสาร ดู doc_template_values)
  * เพิ่ม template ใหม่ (เช่น SRS) = เพิ่มไฟล์นิยามใหม่ 1 ไฟล์ + ลงทะเบียนใน registry.ts เท่านั้น ไม่ต้องแก้โค้ดเดิม
  */
@@ -38,7 +38,7 @@ export interface TableSectionDef {
   columns: TableColumnDef[]
   seedRows?: number
   // ตารางนี้ "แตกเป็น Task" ได้ (เช่น ตารางความต้องการเชิงฟังก์ชันของ SRS) — ระบุว่าคอลัมน์ไหนคือ field ไหนของ Task ที่จะสร้าง
-  // Tasknista §Document Traceability — docType บอกว่าตารางนี้อยู่เล่มไหนในสาย MOM→BRD→SOW→SRS (ใช้เดินรหัสอ้างอิง + tag origin ของ Task ที่สร้าง)
+  // Pronista §Document Traceability — docType บอกว่าตารางนี้อยู่เล่มไหนในสาย MOM→BRD→SOW→SRS (ใช้เดินรหัสอ้างอิง + tag origin ของ Task ที่สร้าง)
   // referenceCodeKey (ถ้ามี) = คอลัมน์ที่ผู้เขียนพิมพ์รหัสของเล่มก่อนหน้าไว้เอง (คั่นด้วย comma ได้หลายรหัส) — resolve เป็น task_references ตอนแตก Task
   breakoutToTasks?: {
     sourceCodeKey: string

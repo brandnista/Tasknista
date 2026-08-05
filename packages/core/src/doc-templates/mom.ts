@@ -37,7 +37,7 @@ export const MOM_TEMPLATE: DocTemplateDef = {
       id: 'decisions',
       title: '4. สรุปประเด็นและมติที่ประชุม',
       seedRows: 1,
-      // Tasknista §Document Traceability — ต้นสายของ chain MOM→BRD→SOW→SRS: แตกมติแต่ละแถวเป็น Task ให้เอกสารเล่มถัดไป (BRD) อ้างอิงกลับมาได้ผ่าน "รหัสมติ"
+      // Pronista §Document Traceability — ต้นสายของ chain MOM→BRD→SOW→SRS: แตกมติแต่ละแถวเป็น Task ให้เอกสารเล่มถัดไป (BRD) อ้างอิงกลับมาได้ผ่าน "รหัสมติ"
       breakoutToTasks: {
         sourceCodeKey: 'decision_id',
         titleKey: 'issue',

@@ -3,7 +3,7 @@ import { BorderStyle, Document, Header, HeadingLevel, ImageRun, Packer, Paragrap
 import { BRAND_BLUE, BRAND_BLUE_LIGHT, BRAND_LOGO_HEIGHT, BRAND_LOGO_URL, BRAND_LOGO_WIDTH } from './brand'
 
 /**
- * Tasknista §Document Template — สร้าง .docx จาก SectionDef[] + ข้อมูลที่กรอกจริง ล้วนๆ ฝั่ง client (ไม่แตะ apps/api เลย)
+ * Pronista §Document Template — สร้าง .docx จาก SectionDef[] + ข้อมูลที่กรอกจริง ล้วนๆ ฝั่ง client (ไม่แตะ apps/api เลย)
  * Generic 100% ขับด้วย section.kind — เพิ่ม template ใหม่ (SRS) ใช้ไฟล์นี้ได้เลยไม่ต้องแก้ (ไม่มีโค้ดเฉพาะ MOM ที่นี่)
  * ธีมแบรนด์ (logo + สี) ล้อไฟล์ต้นแบบจริง BNT_Template_01_MOM_v3.docx — ใช้ร่วมกับทุก template ผ่าน brand.ts ไม่ผูก MOM โดยเฉพาะ
  */

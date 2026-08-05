@@ -83,7 +83,7 @@ export const BRD_TEMPLATE: DocTemplateDef = {
       id: 'business_requirements',
       title: '8. High-level Business Requirements',
       seedRows: 1,
-      // Tasknista §Document Traceability — เอกสารจริงไม่มีคอลัมน์อ้างอิงกลับ MOM แยกแล้ว (มีแต่ "อ้างอิง Ticket" ที่เป็นรหัสเดินเรื่องไปข้างหน้า) จึงไม่ตั้ง referenceCodeKey
+      // Pronista §Document Traceability — เอกสารจริงไม่มีคอลัมน์อ้างอิงกลับ MOM แยกแล้ว (มีแต่ "อ้างอิง Ticket" ที่เป็นรหัสเดินเรื่องไปข้างหน้า) จึงไม่ตั้ง referenceCodeKey
       breakoutToTasks: {
         sourceCodeKey: 'br_code',
         titleKey: 'requirement',

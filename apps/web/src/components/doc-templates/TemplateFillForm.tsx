@@ -26,7 +26,7 @@ const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2
 const label = 'text-[11px] text-muted block mb-0.5'
 const emptyData: TemplateData = { fields: {}, tables: {}, lists: {} }
 
-/** Tasknista §Document Template — วาดฟอร์มจาก SectionDef[] อัตโนมัติ (fields/table/list) + autosave debounce 800ms (mirror DocEditor)
+/** Pronista §Document Template — วาดฟอร์มจาก SectionDef[] อัตโนมัติ (fields/table/list) + autosave debounce 800ms (mirror DocEditor)
  * ใช้ key={doc.id} ตอน mount (เหมือน DocEditor) ให้ remount สดตอนสลับเอกสาร — ไม่ต้องมี logic reset state เองข้างใน */
 export function TemplateFillForm({ doc, canEdit, onMetaChanged }: { doc: TemplateDoc; canEdit: boolean; onMetaChanged: () => void }) {
   const def = doc.templateType ? getDocTemplate(doc.templateType) : undefined
@@ -239,7 +239,7 @@ export function TemplateFillForm({ doc, canEdit, onMetaChanged }: { doc: Templat
                         <Plus className="w-4 h-4" /> เพิ่มแถว
                       </button>
                     )}
-                    {/* Tasknista §SOW Task/Subtask — เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว (MOM/BRD/SRS/PEP/UIR ปิดใช้งาน ตรงกับ guard ฝั่ง backend ที่ docs.ts) */}
+                    {/* Pronista §SOW Task/Subtask — เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว (MOM/BRD/SRS/PEP/UIR ปิดใช้งาน ตรงกับ guard ฝั่ง backend ที่ docs.ts) */}
                     {canEdit && section.breakoutToTasks?.docType === 'SOW' && (
                       <button
                         onClick={() => setBreakoutSection(section as TableSectionDef & { breakoutToTasks: NonNullable<TableSectionDef['breakoutToTasks']> })}

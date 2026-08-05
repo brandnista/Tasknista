@@ -51,7 +51,7 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const { data: projectOpts } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const [form, setForm] = useState({ title: '', type: 'meeting', start: defaultDate, end: '', userId: '', projectId: '' })
-  // Tasknista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (assign หลายคน) + ผูกโปรเจกต์ · เฉพาะ type==='meeting'
+  // Pronista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (assign หลายคน) + ผูกโปรเจกต์ · เฉพาะ type==='meeting'
   const [attendeeIds, setAttendeeIds] = useState<string[]>([])
   const input = 'w-full text-sm bg-white shadow-xs rounded-lg px-3 py-2'
   const submit = async () => {
@@ -154,7 +154,7 @@ export function TeamCalendar() {
     setRef(d)
   }
 
-  // Tasknista §1 (2026-07-03) — meeting: ผู้เข้าร่วม + โปรเจกต์ ให้เห็นในทูลทิป (ใครถูก assign ก็เห็นชื่อตัวเองในนี้)
+  // Pronista §1 (2026-07-03) — meeting: ผู้เข้าร่วม + โปรเจกต์ ให้เห็นในทูลทิป (ใครถูก assign ก็เห็นชื่อตัวเองในนี้)
   const eventTooltip = (e: CalEvent) => {
     if (e.type === 'payroll') return `${e.title} (อัตโนมัติจากรอบเงินเดือน)`
     if (e.type === 'meeting') {

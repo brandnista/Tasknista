@@ -9,13 +9,13 @@ import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
 /**
- * Tasknista §External Document Version Logging — log เวอร์ชันเอกสารภายนอก (เช่น เล่ม UI Design บน Canva) ต่อโปรเจกต์
+ * Pronista §External Document Version Logging — log เวอร์ชันเอกสารภายนอก (เช่น เล่ม UI Design บน Canva) ต่อโปรเจกต์
  * append-only: อัปเดตเวอร์ชัน = POST เพิ่มแถวใหม่เสมอ (ดูประวัติย้อนหลังได้) · ผูก SOW Task ผ่าน pivot เพื่อทำ Traceability ฝั่งธุรกิจ
  * แสดงในแท็บ "External Design Assets" ของหน้าโปรเจกต์ (ExternalDesignAssetsSection.tsx)
  */
 export const externalDocLogRoutes = new Hono<AppEnv>()
 
-  // Tasknista §Document Version History — หน้า "ประวัติเอกสาร": เอกสารภายในทุกประเภท (MOM/BRD/SOW/SRS/PEP/UIR) ทุกโปรเจกต์
+  // Pronista §Document Version History — หน้า "ประวัติเอกสาร": เอกสารภายในทุกประเภท (MOM/BRD/SOW/SRS/PEP/UIR) ทุกโปรเจกต์
   // คืน doc ที่ผูกโปรเจกต์ (ไม่รวมโฟลเดอร์) พร้อมเลขที่เอกสาร(เล่ม)+เวอร์ชัน → frontend จัดกลุ่ม โปรเจกต์→ประเภท→เล่ม→เวอร์ชัน
   .get('/document-history', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
@@ -72,7 +72,7 @@ export const externalDocLogRoutes = new Hono<AppEnv>()
     return c.json({ docs: docsOut })
   })
 
-  // Tasknista §Document Management MVP — หน้า "ประวัติเอกสาร" ในเมนูหลัก: log ทุกโปรเจกต์รวมกัน (ต่างจาก endpoint ด้านล่างที่ผูก project เดียว)
+  // Pronista §Document Management MVP — หน้า "ประวัติเอกสาร" ในเมนูหลัก: log ทุกโปรเจกต์รวมกัน (ต่างจาก endpoint ด้านล่างที่ผูก project เดียว)
   .get('/external-doc-logs', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
     const reviewer = alias(users, 'reviewer')

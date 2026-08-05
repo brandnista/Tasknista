@@ -153,7 +153,7 @@ function ChangeRowView({ row }: { row: ChangeRow }) {
   )
 }
 
-/** Tasknista §Document Diff — หน้าเปรียบเทียบ 2 เวอร์ชันของเอกสารประเภทเดียวกัน (GitHub-style) — เก่าซ้าย/ใหม่ขวา แสดงเฉพาะจุดที่ต่างกัน */
+/** Pronista §Document Diff — หน้าเปรียบเทียบ 2 เวอร์ชันของเอกสารประเภทเดียวกัน (GitHub-style) — เก่าซ้าย/ใหม่ขวา แสดงเฉพาะจุดที่ต่างกัน */
 export function DocumentComparePage() {
   const [params] = useSearchParams()
   const idA = params.get('a')

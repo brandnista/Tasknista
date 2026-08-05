@@ -12,7 +12,7 @@ export interface DocLinkRow {
   taskProjectId: string | null
 }
 
-/** Tasknista §SRS import — "งานที่สร้างจากเอกสารนี้" ย้อนกลับจากเอกสาร SRS ไปยัง Task ทั้งหมดที่แตกออกมา — ใช้ร่วมกันทั้งเอกสาร SRS ที่อัปโหลด (Docs.tsx) และ Template SRS (TemplateFillForm.tsx) */
+/** Pronista §SRS import — "งานที่สร้างจากเอกสารนี้" ย้อนกลับจากเอกสาร SRS ไปยัง Task ทั้งหมดที่แตกออกมา — ใช้ร่วมกันทั้งเอกสาร SRS ที่อัปโหลด (Docs.tsx) และ Template SRS (TemplateFillForm.tsx) */
 export function SrsLinkedTasksSection({ docId }: { docId: string }) {
   const { data } = useLoad<DocLinkRow[]>(() => api.get(`/api/docs/${docId}/links`), [docId])
   const taskLinks = (data ?? []).filter((l) => l.taskId)

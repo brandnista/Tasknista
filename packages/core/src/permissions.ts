@@ -1,5 +1,5 @@
 /**
- * Tasknista §Position-based permission — แคตตาล็อกตำแหน่งระดับบริษัท (BA/PM/Developer/ฯลฯ) เก็บเป็น JSON ใน company_config
+ * Pronista §Position-based permission — แคตตาล็อกตำแหน่งระดับบริษัท (BA/PM/Developer/ฯลฯ) เก็บเป็น JSON ใน company_config
  * แต่ละตำแหน่ง assign ต่อโปรเจกต์ผ่าน project_members.positionId (อ้าง id ที่นี่ ไม่มี DB-level FK — เหมือน board-preset.ts)
  * สิทธิ์แบบ checkbox ละเอียด 2 แกน: tabs (มองเห็นเมนู/แท็บไหนในโปรเจกต์) + actions (เพิ่ม/แก้ไข/ลบต่อ resource)
  * ยังไม่ตั้ง → ใช้ DEFAULT (เข้าถึงเต็มรูปแบบ/ดูอย่างเดียว) · pure ล้วน ใช้ทั้ง API + web (mirror project-status.ts/board-preset.ts)

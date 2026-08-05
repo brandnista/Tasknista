@@ -10,7 +10,7 @@ import type { AppEnv } from '../types'
 const MAX_FILE_BYTES = 15 * 1024 * 1024
 
 /**
- * Tasknista §Document Attachments — ส่วนแนบท้ายเอกสาร template ทุกประเภท (MOM/BRD/SOW/SRS/PROP): ลิงก์ภายนอก (เช่น ลิงก์บันทึกประชุม) หรือไฟล์/รูปใน R2
+ * Pronista §Document Attachments — ส่วนแนบท้ายเอกสาร template ทุกประเภท (MOM/BRD/SOW/SRS/PROP): ลิงก์ภายนอก (เช่น ลิงก์บันทึกประชุม) หรือไฟล์/รูปใน R2
  * ใช้ ACL เดียวกับเอกสาร (doc-acl.ts) — ไม่ใช่ task attachments (task-detail.ts) คนละตารางคนละสิทธิ์
  */
 export const docAttachmentsRoutes = new Hono<AppEnv>()
