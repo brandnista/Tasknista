@@ -10,6 +10,7 @@ import {
   marginSatang,
   parseProjectLogo,
   positionById,
+  POSITION_FULL_ACCESS_ID,
   quotationSatang,
   resolvePositions,
   resolveStatuses,
@@ -266,8 +267,10 @@ export const projectRoutes = new Hono<AppEnv>()
     const p = inserted[0]
     if (!p) return c.json({ error: 'insert_failed' }, 500)
     // สมาชิกในโปรเจกต์ (assign ได้หลายคน — Pronista §F1)
+    // Pronista §Position-based permission fix — ต้องตั้ง positionId ตอนสร้างเลย ไม่งั้นค่าเริ่มต้นคือ NULL = ไม่มีสิทธิ์อะไรเลยในระบบตำแหน่งใหม่
+    // (คนที่ถูกติ๊กเลือกตอนสร้างโปรเจกต์ ควรทำงานในโปรเจกต์ได้ทันที จึงให้ "เข้าถึงเต็มรูปแบบ" เป็นค่าเริ่มต้น ปรับลดทีหลังได้ที่หน้าแก้ไขโปรเจกต์)
     if (d.members && d.members.length > 0)
-      await db.insert(projectMembers).values(d.members.map((userId) => ({ projectId: p.id, userId })))
+      await db.insert(projectMembers).values(d.members.map((userId) => ({ projectId: p.id, userId, positionId: POSITION_FULL_ACCESS_ID })))
     await writeAudit(c.env, {
       actorId: c.get('user').id,
       action: 'project.create',

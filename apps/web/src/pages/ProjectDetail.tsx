@@ -1676,7 +1676,15 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
       ) : (
         <div className="divide-y divide-divider">
           {items.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 py-2.5">
+            <div
+              key={t.id}
+              // Pronista §Sprint drag-and-drop fix — แท็บ Task (ProjectHierarchyTab) เดิมลากเข้า Sprint ไม่ได้เลย เพราะแถวไม่มี draggable/onDragStart แบบที่ BacklogTaskRow มี
+              // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
+              draggable={level === 'task' && canEdit}
+              onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
+              className={`flex items-center gap-3 py-2.5 ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
+            >
+              {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
               {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
               {t.parentTitle && level === 'task' && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
