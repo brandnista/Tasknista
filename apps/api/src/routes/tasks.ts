@@ -606,16 +606,7 @@ export const taskRoutes = new Hono<AppEnv>()
       },
     })
 
-    // Pronista §My Work/Notification — ทุกระดับ (Story/Task/Subtask/Defect/CR) ไม่ใช่แค่ Subtask เหมือนเดิม (เดิม gate ด้วย parentId!==null ทำให้ Defect/CR/Story ที่ parentId เป็น null ไม่แจ้งเตือนเลย — ผลคือสถิติ "งานที่ถูก Assign วันนี้" ไม่ขึ้นสำหรับงานพวกนี้) ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ
-    if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) {
-      await db.insert(notifications).values({
-        userId: body.data.assigneeId,
-        type: 'subtask_assigned',
-        taskId: before.id,
-        projectId: before.projectId,
-        message: `คุณได้รับมอบหมายงาน${before.parentId ? 'ย่อย' : ''} "${before.title}"`,
-      })
-    }
+    // Pronista §Task lifecycle notifications — ไม่แจ้งเตือนตอนแค่ "ตั้งผู้รับผิดชอบ" เพราะงานยังไม่โผล่ใน "งานของฉัน" ของเขาจนกว่าจะถูก "จ่ายงาน" (เกตจ่ายงาน, ดู /dispatch ด้านล่าง) — แจ้งครั้งเดียวตอนนั้นแทน กันแจ้งซ้ำ 2 รอบสำหรับ 1 การจ่ายงาน
     if (body.data.status === 'done' && before.status !== 'done' && before.assignedBy) {
       await db.insert(notifications).values({
         userId: before.assignedBy,
@@ -677,7 +668,7 @@ export const taskRoutes = new Hono<AppEnv>()
       type: 'task_dispatched',
       taskId: before.id,
       projectId: before.projectId,
-      message: `คุณได้รับงานใหม่ "${before.title}" — กดรับงานได้เลย`,
+      message: `คุณได้รับมอบหมายงาน${before.parentId ? 'ย่อย' : ''} "${before.title}" — กดรับงานได้เลย`,
     })
     return c.json(updated[0])
   })

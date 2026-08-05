@@ -111,7 +111,13 @@ function TimeSection({ taskId, hasProject, rows, reload }: { taskId: string; has
           </button>
         ) : (
           <button
-            onClick={() => void timer.start(taskId).then(() => reload())}
+            onClick={() =>
+              void timer.start(taskId).then((res) => {
+                // Pronista §Timer fix — start() เดิม catch error ไว้เงียบๆ แล้วคืน {error} แต่ไม่มีใครอ่านค่านี้ ปุ่มเลยดู "กดไม่ติด" ไม่มีข้อความอะไรเลยตอน no_project/no_rate (cap_reached มี banner อยู่แล้วจาก capMessage)
+                if (res.error && res.error !== 'cap_reached') void confirmDialog({ title: 'เริ่มจับเวลาไม่สำเร็จ', message: res.message ?? 'ลองใหม่อีกครั้ง' })
+                return reload()
+              })
+            }
             disabled={timer.capReached}
             title={timer.capReached ? 'ครบเพดานชั่วโมงวันนี้แล้ว' : 'เริ่มจับเวลา'}
             className="bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"
@@ -894,9 +900,14 @@ export function TaskDetailPage() {
             {canEdit && (
               <div className="border-t border-border-subtle pt-4 space-y-2">
                 {isAssignee ? (
-                  // Pronista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → ข้อความเดิม · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
+                  // Pronista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → คนที่ถูก assign เอง (self-assign) ก็ต้องกด "จ่ายงาน" ได้เหมือน flow ปกติ (เดิมมีแต่ข้อความเฉยๆ ไม่มีปุ่มเลย ทำให้ self-assign ค้าง ไปต่อไม่ได้ด้วยตัวเอง) · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
                   !t.dispatchedAt ? (
-                    <div className="text-xs text-muted text-center py-2">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ</div>
+                    <>
+                      <button onClick={() => void dispatch()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                        <CheckCircle2 className="w-4 h-4" /> จ่ายงาน (ให้ตัวเอง)
+                      </button>
+                      <div className="text-[11px] text-muted text-center">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย</div>
+                    </>
                   ) : t.status === 'non_start' ? (
                     <button onClick={() => void accept()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                       <CheckCircle2 className="w-4 h-4" /> รับงาน
