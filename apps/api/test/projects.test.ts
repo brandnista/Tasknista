@@ -97,10 +97,10 @@ describe('Tasknista §Project Estimate — estimateNetWorkingDays (owner เท�
     }
     expect(detail.estimateNetWorkingDays).toBe(30)
 
-    // ทำให้ปอนด์เป็น editor ของโปรเจกต์นี้ก่อน (ไม่งั้น canEditProject จะ 403 ทั้ง endpoint อยู่แล้วจาก role เดิม ไม่ใช่จาก field-check ใหม่)
+    // ทำให้ปอนด์มีตำแหน่ง "เข้าถึงเต็มรูปแบบ" ในโปรเจกต์นี้ก่อน (ไม่งั้น canEditProject จะ 403 ทั้ง endpoint อยู่แล้วจากตำแหน่งเดิม ไม่ใช่จาก field-check ใหม่)
     await app.request(
       `/api/projects/${p.id}/members`,
-      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_pond', role: 'editor' }) },
+      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_pond', positionId: 'pos_full_access' }) },
       env,
     )
     const member = await loginAs(app, 'pond@example-co.test')
@@ -138,8 +138,8 @@ describe('โปรเจกต์: ไอคอน/โลโก้ (lucide + �
     const owner = await loginAs(app, 'owner@example-co.test')
     const member = await loginAs(app, 'pond@example-co.test')
     const p = (await (await createProject(owner, { name: 'โลโก้', type: 'project' })).json()) as { id: string }
-    // POST /:id/logo เป็น teamOnly + canEditProject — ต้องตั้งปอนด์เป็น editor ก่อน
-    await app.request(`/api/projects/${p.id}/members`, { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_pond', role: 'editor' }) }, env)
+    // POST /:id/logo เป็น teamOnly + canEditProject — ต้องตั้งปอนด์เป็นตำแหน่ง "เข้าถึงเต็มรูปแบบ" ก่อน
+    await app.request(`/api/projects/${p.id}/members`, { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_pond', positionId: 'pos_full_access' }) }, env)
 
     const fd = new FormData()
     fd.append('file', new File([new Uint8Array([137, 80, 78, 71])], 'logo.png', { type: 'image/png' }))

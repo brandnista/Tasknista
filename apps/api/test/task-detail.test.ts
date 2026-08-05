@@ -19,7 +19,7 @@ async function makeTask(cookie: string, asEditorUserId?: string) {
   const owner = await loginAs(app, 'owner@example-co.test')
   const p = (await (await app.request('/api/projects', json(owner, { name: 'P', type: 'project' }), env)).json()) as { id: string }
   if (asEditorUserId)
-    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: asEditorUserId, role: 'editor' }), env)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: asEditorUserId, positionId: 'pos_full_access' }), env)
   const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(cookie, { name: 'G' }), env)).json()) as { id: string }
   const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(cookie, { title: 'งานทดสอบ' }), env)).json()) as { id: string }
   return t

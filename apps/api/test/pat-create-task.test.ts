@@ -27,7 +27,7 @@ beforeEach(async () => {
   // ปอนด์ (member) ต้องเป็น project editor ก่อนถึงจะสร้าง/แก้ task+group ได้ (canEditProject gate)
   await db
     .insert(projectMembers)
-    .values({ projectId: 'p_t3a', userId: 'u_pond', role: 'editor' })
+    .values({ projectId: 'p_t3a', userId: 'u_pond', positionId: 'pos_full_access' })
     .onConflictDoNothing()
 })
 

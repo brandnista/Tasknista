@@ -1,6 +1,9 @@
-import { Plus, Search, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
+import { Avatar } from '../components/Avatar'
+import { BacklogConvertMenu, CONVERT_LABEL, type ConvertTo } from '../components/BacklogConvertMenu'
+import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { PageHeader } from '../components/PageHeader'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { StatusDonut } from '../components/StatusDonut'
@@ -11,13 +14,39 @@ import {
   fmtThaiDate,
   HEALTH_DOT,
   HEALTH_LABEL,
+  PM_HEALTH_BADGE,
+  PM_HEALTH_DOT,
+  PM_HEALTH_LABEL,
+  pmHealthOf,
   statusChip,
   TH_MONTHS,
   yearPos,
+  type PmHealth,
   type ProjectRow,
 } from '../lib/project-ui'
+import { avatarColor } from './ProjectDetail'
 import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
+
+function ProgressBar({ p }: { p: ProjectRow }) {
+  if (!p.progress || p.progress.total === 0) return <span className="text-[11px] text-muted">ยังไม่มีงาน</span>
+  const pct = Math.round((p.progress.done / p.progress.total) * 100)
+  return (
+    <div className="min-w-[96px]">
+      <div className="h-1.5 bg-divider rounded-full overflow-hidden mb-1">
+        <div className="h-full bg-brand-500 rounded-full" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[11px] text-muted">{p.progress.done}/{p.progress.total} ({pct}%)</span>
+    </div>
+  )
+}
+function LeadAvatar({ p }: { p: ProjectRow }) {
+  if (!p.leadName) return <span className="text-[11px] text-muted">—</span>
+  return <Avatar name={p.leadName} className="w-6 h-6 text-[10px]" colorClass={avatarColor(p.leadName)} />
+}
+function PmHealthBadge({ health }: { health: PmHealth }) {
+  return <span className={`text-[11px] px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${PM_HEALTH_BADGE[health]}`}><span className={`w-1.5 h-1.5 rounded-full ${PM_HEALTH_DOT[health]}`} />{PM_HEALTH_LABEL[health]}</span>
+}
 
 const THIS_YEAR = new Date(Date.now() + 7 * 3_600_000).getUTCFullYear()
 const todayPos = () => yearPos(new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10), THIS_YEAR)
@@ -59,6 +88,18 @@ function Timeline({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean 
                     {fmtThaiDate(p.startDate)} – {fmtThaiDate(p.dueDate, true)}
                   </div>
                 </div>
+                {(p.milestones ?? []).filter((m) => m.dueDate).map((m, i) => (
+                  <div
+                    key={i}
+                    title={`${m.name} (${fmtThaiDate(m.dueDate)})`}
+                    className={`group/m absolute top-1/2 w-2.5 h-2.5 -translate-y-1/2 -translate-x-1/2 rotate-45 z-20 border-2 border-white ${m.status === 'done' ? 'bg-brand-600' : 'bg-white ring-1 ring-brand-600'}`}
+                    style={{ left: `${yearPos(m.dueDate!, THIS_YEAR)}%` }}
+                  >
+                    <div className="absolute -rotate-45 left-1/2 -translate-x-1/2 bottom-full mb-1.5 whitespace-nowrap bg-ink text-white text-[11px] rounded-lg px-2 py-1 opacity-0 group-hover/m:opacity-100 pointer-events-none transition shadow-lg z-30">
+                      {m.name} · {fmtThaiDate(m.dueDate)}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )
@@ -80,9 +121,11 @@ function Cards({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean }) 
           <div className="flex items-center gap-2">
             <ProjectIcon id={p.id} logo={p.logo} size={20} />
             <div className="flex-1 min-w-0 font-semibold text-strong truncate">{p.name}</div>
+            <LeadAvatar p={p} />
           </div>
-          <div className="flex items-center gap-2 mt-2.5">
+          <div className="flex items-center gap-2 mt-2.5 flex-wrap">
             <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusChip(p.statusColor)}`}>{p.statusName}</span>
+            <PmHealthBadge health={pmHealthOf(p)} />
             {showMoney && p.paidPct != null && (
               <span className="text-xs text-dim tabular-nums">
                 {p.paidPct}% <span className="text-muted">จ่ายแล้ว</span>
@@ -98,7 +141,8 @@ function Cards({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean }) 
             )}
             <span className="ml-auto text-[11px] text-muted">{p.clientName ?? ''}</span>
           </div>
-          <div className="text-[11px] text-muted mt-3">
+          <div className="mt-3"><ProgressBar p={p} /></div>
+          <div className="text-[11px] text-muted mt-2">
             {p.startDate ? `${fmtThaiDate(p.startDate)} – ${fmtThaiDate(p.dueDate)}` : 'ยังไม่กำหนดช่วงเวลา'}
           </div>
         </div>
@@ -128,19 +172,112 @@ function BoardView({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean
             <span className="text-xs text-muted">{col.items.length}</span>
           </div>
           <div className="space-y-2">
-            {col.items.map((p) => (
-              <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <ProjectIcon id={p.id} logo={p.logo} size={16} />
-                  <span className="text-sm text-body truncate">{p.name}</span>
+            {col.items.map((p) => {
+              const health = pmHealthOf(p)
+              return (
+                <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <ProjectIcon id={p.id} logo={p.logo} size={16} />
+                    <span className="text-sm text-body truncate flex-1">{p.name}</span>
+                    <LeadAvatar p={p} />
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                    <PmHealthBadge health={health} />
+                    {showMoney && p.paidPct != null && <span className="text-[11px] text-dim">{p.paidPct}% จ่ายแล้ว</span>}
+                  </div>
+                  <ProgressBar p={p} />
+                  <div className={`text-[11px] mt-1.5 flex items-center gap-1 ${health === 'delayed' ? 'text-danger-600 font-medium' : 'text-muted'}`}>
+                    {health === 'delayed' && <AlertTriangle className="w-3 h-3" />}
+                    {p.dueDate ? fmtThaiDate(p.dueDate) : 'ไม่มีกำหนดส่ง'}
+                  </div>
                 </div>
-                {showMoney && p.paidPct != null && <div className="text-[11px] text-dim">{p.paidPct}% จ่ายแล้ว</div>}
-                <div className="text-[11px] text-muted">{p.dueDate ? fmtThaiDate(p.dueDate) : 'ไม่มีกำหนดส่ง'}</div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Tasknista §PM View — Executive Dashboard: ให้ PM ประเมินสถานะรวมได้ใน 3 วินาที (ไม่แตะเรื่องเงินเลย ตาม showMoney=false) */
+function ExecutiveWidgets({ rows }: { rows: ProjectRow[] }) {
+  const list = rows.filter((p) => p.type === 'project')
+  const withProgress = list.filter((p) => p.progress && p.progress.total > 0)
+  const avgProgress = withProgress.length === 0 ? 0 : Math.round(withProgress.reduce((s, p) => s + (p!.progress!.done / p!.progress!.total) * 100, 0) / withProgress.length)
+  const delayed = list.filter((p) => pmHealthOf(p) === 'delayed')
+  const atRisk = list.filter((p) => pmHealthOf(p) === 'at_risk')
+  const onTrack = list.filter((p) => pmHealthOf(p) === 'on_track')
+  const capacity = new Map<string, number>()
+  for (const p of list) {
+    if (!p.leadName || pmHealthOf(p) === 'completed') continue
+    capacity.set(p.leadName, (capacity.get(p.leadName) ?? 0) + 1)
+  }
+  const maxCap = Math.max(1, ...capacity.values())
+
+  return (
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div className="bg-white rounded-lg shadow-xs p-4">
+          <div className="text-xs text-muted mb-1">Overall Progress</div>
+          <div className="text-2xl font-bold text-ink">{avgProgress}%</div>
+        </div>
+        <div className="bg-white rounded-lg shadow-xs p-4">
+          <div className="text-xs text-muted mb-1">On Track</div>
+          <div className="text-2xl font-bold text-success-600">{onTrack.length}</div>
+        </div>
+        <div className="bg-white rounded-lg shadow-xs p-4">
+          <div className="text-xs text-muted mb-1">At Risk</div>
+          <div className="text-2xl font-bold text-warning-600">{atRisk.length}</div>
+        </div>
+        <div className="bg-white rounded-lg shadow-xs p-4">
+          <div className="text-xs text-muted mb-1">Delayed</div>
+          <div className="text-2xl font-bold text-danger-600">{delayed.length}</div>
+        </div>
+      </div>
+
+      {delayed.length > 0 && (
+        <div className="bg-white rounded-lg shadow-xs p-4 mb-4">
+          <div className="text-sm font-semibold text-ink mb-2 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-danger-600" /> Overdue & Blocker</div>
+          <div className="divide-y divide-divider">
+            {delayed.map((p) => (
+              <div key={p.id} className="flex items-center gap-3 py-2 text-sm">
+                <span className="flex-1 truncate text-body">{p.name}</span>
+                <span className="text-[11px] text-danger-600">เกินกำหนด {p.dueDate ? fmtThaiDate(p.dueDate) : ''}</span>
+                <span className="text-[11px] text-muted">{p.leadName ?? '—'}</span>
               </div>
             ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {capacity.size > 0 && (
+        <div className="bg-white rounded-lg shadow-xs p-4 mb-4">
+          <div className="text-sm font-semibold text-ink mb-2.5">Team Capacity / Workload</div>
+          {[...capacity.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => (
+            <div key={name} className="flex items-center gap-2.5 mb-1.5 last:mb-0">
+              <span className="text-xs text-muted w-16 shrink-0 truncate">{name}</span>
+              <div className="flex-1 h-3 bg-divider rounded-full overflow-hidden"><div className="h-full bg-brand-500 rounded-full" style={{ width: `${(count / maxCap) * 100}%` }} /></div>
+              <span className="text-xs text-dim w-4 text-right">{count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** Tasknista §PM View — Backlog พับเก็บได้ ไม่ให้แย่งพื้นที่ Dashboard */
+function CollapsibleBacklog({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mb-5">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 bg-white rounded-lg shadow-xs px-4 py-3 text-sm font-medium text-ink hover:bg-hover">
+        <ChevronDown className={`w-4 h-4 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+        Backlog
+        <span className="text-xs font-normal text-muted">— งานลอยๆ ยังไม่ผูกโปรเจกต์</span>
+      </button>
+      {open && <div className="mt-2">{children}</div>}
     </div>
   )
 }
@@ -161,23 +298,40 @@ function TableView({ rows }: { rows: ProjectRow[] }) {
     return <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">ยังไม่มีงานโปรเจกต์</div>
 
   return (
-    <div className="bg-white rounded-lg shadow-xs overflow-hidden">
+    <div className="bg-white rounded-lg shadow-xs overflow-hidden overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-hover text-dim text-xs">
           <tr>
             <th className="text-left font-medium px-5 py-3 w-14">#</th>
-            <th className="text-left font-medium px-3 py-3">ชื่อโปรเจกต์</th>
-            <th className="text-left font-medium px-5 py-3 w-40">สถานะ</th>
+            <th className="text-left font-medium px-3 py-3">ชื่อโปรเจกต์ / ลูกค้า</th>
+            <th className="text-left font-medium px-3 py-3 w-32">สถานะ</th>
+            <th className="text-left font-medium px-3 py-3 w-28">สุขภาพ</th>
+            <th className="text-left font-medium px-3 py-3 w-32">ความคืบหน้า</th>
+            <th className="text-left font-medium px-3 py-3 w-16">หัวหน้า</th>
+            <th className="text-left font-medium px-3 py-3 w-40">เริ่ม – กำหนดส่ง</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-divider">
-          {pageRows.map((p, i) => (
-            <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="hover:bg-hover cursor-pointer">
-              <td className="px-5 py-3 text-muted tabular-nums">{(page - 1) * pageSize + i + 1}</td>
-              <td className="px-3 py-3 text-body flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> {p.name}</td>
-              <td className="px-5 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full ${statusChip(p.statusColor)}`}>{p.statusName}</span></td>
-            </tr>
-          ))}
+          {pageRows.map((p, i) => {
+            const health = pmHealthOf(p)
+            const overdue = health === 'delayed'
+            return (
+              <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="hover:bg-hover cursor-pointer">
+                <td className="px-5 py-3 text-muted tabular-nums">{(page - 1) * pageSize + i + 1}</td>
+                <td className="px-3 py-3 text-body">
+                  <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> {p.name}</div>
+                  {p.clientName && <div className="text-[11px] text-muted mt-0.5 pl-6">{p.clientName}</div>}
+                </td>
+                <td className="px-3 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full ${statusChip(p.statusColor)}`}>{p.statusName}</span></td>
+                <td className="px-3 py-3"><PmHealthBadge health={health} /></td>
+                <td className="px-3 py-3"><ProgressBar p={p} /></td>
+                <td className="px-3 py-3"><LeadAvatar p={p} /></td>
+                <td className={`px-3 py-3 text-[12px] whitespace-nowrap ${overdue ? 'text-danger-600 font-medium' : 'text-muted'}`}>
+                  {p.startDate ? fmtThaiDate(p.startDate) : '—'} – {p.dueDate ? fmtThaiDate(p.dueDate) : '—'}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       <div className="flex items-center justify-between px-5 py-3 border-t border-divider text-xs text-dim">
@@ -265,7 +419,6 @@ function SearchModal({ rows, onClose }: { rows: ProjectRow[]; onClose: () => voi
   )
 }
 
-interface StatusOpt { id: string; name: string }
 interface TeamUser { id: string; name: string; role: string }
 
 /** Tasknista §2.4 — คำนวณวันคาดว่าเสร็จจากวันเริ่ม + จำนวนสัปดาห์ของ Sprint */
@@ -275,36 +428,25 @@ const addWeeks = (start: string, weeks: string) => {
   return d.toISOString().slice(0, 10)
 }
 
-/** หมวดบริการ/สถานะย่อย (tag) — Tasknista §F1 (รูปแนบ 4) + §2.11 (ใช้ได้ทั้ง product/project) */
-const PROJECT_TAGS = [
-  'Website Development', 'Mobile Application Development', 'Digital Marketing', 'Digital Production',
-  'E-Commerce', 'E-Commerce Management', 'Consulting', 'In-House Training', 'SI & Infrastructure',
-  'Sellnista', 'Paynista', 'Signnista', 'Sharenista', 'Munista', 'Jobnista',
-  'Auctionnista', 'Allnista', 'Beautynista', 'Brandnista', 'Pronista', 'Packnista',
-  // Tasknista §2.11 — "Status UI/Dev" ฝั่ง Product (Debug/Wireframe Design ฯลฯ)
-  'Concept Design', 'Wireframe Design', 'Database Design', 'Development', 'Debug',
-]
+interface ClientOpt { id: string; name: string }
+
+/** Tasknista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
+const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
 
 function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => void; onCreated: () => void; initialName?: string }) {
-  const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[]; productStatuses: StatusOpt[] }>(() => api.get('/api/config'))
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
+  const { data: clientData } = useLoad<{ rows: ClientOpt[] }>(() => api.get('/api/clients'))
+  const clients = clientData?.rows ?? []
   const team = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
-    name: initialName ?? '', category: 'project' as 'product' | 'project', status: '', clientId: '', clientName: '',
-    startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: '', url: '',
+    name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
+    startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: initialName ? autoProjectKey(initialName) : '',
   })
-  const [tags, setTags] = useState<string[]>([])
+  const [codeTouched, setCodeTouched] = useState(false)
+  const [newClient, setNewClient] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   const [error, setError] = useState('')
-
-  const statusOptions = (form.category === 'product' ? cfg?.productStatuses : cfg?.projectStatuses) ?? []
-  // ตั้งสถานะ default = ตัวแรกของชุด เมื่อเปลี่ยน category / โหลด config
-  useEffect(() => {
-    const first = statusOptions[0]
-    if (first) setForm((f) => ({ ...f, status: first.id }))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.category, cfg])
 
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
@@ -314,14 +456,13 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
         name: form.name,
         type: 'project',
         category: form.category,
-        status: form.status || undefined,
         priority: form.priority,
-        ...(form.clientId ? { clientId: form.clientId } : form.clientName ? { clientName: form.clientName } : {}),
-        ...(tags.length ? { tags } : {}),
+        ...(form.description.trim() ? { description: form.description.trim() } : {}),
+        ...(form.clientId ? { clientId: form.clientId } : form.clientName.trim() ? { clientName: form.clientName.trim() } : {}),
+        ...(form.leadId ? { leadId: form.leadId } : {}),
         ...(members.length ? { members } : {}),
         ...(form.sprint ? { sprint: form.sprint + ' สัปดาห์' } : {}),
         ...(form.code ? { code: form.code } : {}),
-        ...(form.url ? { url: form.url } : {}),
         ...(form.startDate ? { startDate: form.startDate } : {}),
         ...(form.dueDate ? { dueDate: form.dueDate } : {}),
       })
@@ -346,7 +487,18 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
           <div className="space-y-3.5">
             <div>
               <label className={label}>ชื่อโปรเจกต์</label>
-              <input placeholder="ชื่อโปรเจกต์..." value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} autoFocus />
+              <input
+                placeholder="ชื่อโปรเจกต์..."
+                value={form.name}
+                onChange={(e) => { const name = e.target.value; setForm({ ...form, name, code: codeTouched ? form.code : autoProjectKey(name) }) }}
+                className={input}
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className={label}>คำอธิบายโปรเจกต์ (ถ้ามี)</label>
+              <textarea placeholder="โปรยสั้นๆ ว่าโปรเจกต์นี้เกี่ยวกับอะไร…" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className={input} maxLength={300} />
             </div>
 
             <div>
@@ -362,12 +514,6 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className={label}>สถานะ</label>
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={input}>
-                  {statusOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
                 <label className={label}>Priority</label>
                 <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as 'low' | 'normal' | 'high' })} className={input}>
                   <option value="low">ต่ำ</option>
@@ -375,20 +521,33 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                   <option value="high">สูง</option>
                 </select>
               </div>
+              <div>
+                <label className={label}>Project Lead / หัวหน้าโครงการ</label>
+                <select value={form.leadId} onChange={(e) => setForm({ ...form, leadId: e.target.value })} className={input}>
+                  <option value="">— ไม่ระบุ —</option>
+                  {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
             </div>
 
             <div>
-              <label className={label}>หมวดบริการ / สถานะย่อย (Tag · เลือกได้หลายอัน)</label>
-              <div className="flex flex-wrap gap-1.5">
-                {PROJECT_TAGS.map((t) => {
-                  const on = tags.includes(t)
-                  return (
-                    <button key={t} onClick={() => setTags(toggle(tags, t))} className={`text-xs px-2.5 py-1 rounded-full border ${on ? 'bg-brand-50 border-brand-400 text-brand-700 font-medium' : 'bg-hover border-border-subtle text-dim'}`}>
-                      {t}
-                    </button>
-                  )
-                })}
-              </div>
+              <label className={label}>ลูกค้า (ถ้ามี)</label>
+              {newClient ? (
+                <div className="flex gap-2">
+                  <input placeholder="ชื่อลูกค้าใหม่…" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} className={input} autoFocus />
+                  <button onClick={() => { setNewClient(false); setForm({ ...form, clientName: '' }) }} className="text-xs px-2.5 rounded-lg border border-border-subtle text-dim hover:bg-hover whitespace-nowrap">ยกเลิก</button>
+                </div>
+              ) : (
+                <select
+                  value={form.clientId}
+                  onChange={(e) => { if (e.target.value === '__new__') { setNewClient(true); setForm({ ...form, clientId: '' }) } else setForm({ ...form, clientId: e.target.value }) }}
+                  className={input}
+                >
+                  <option value="">— ไม่ระบุ —</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="__new__">+ ลูกค้าใหม่…</option>
+                </select>
+              )}
             </div>
 
             <div>
@@ -424,10 +583,17 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                 <label className={label}>คาดว่าเสร็จ {form.sprint && form.startDate && <span className="text-[10px] text-brand-600">(ล้อกับ Sprint)</span>}</label>
                 <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={input} />
               </div>
-              <div><label className={label}>Code name</label><input placeholder="เช่น SAP" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={input} maxLength={12} /></div>
+              <div>
+                <label className={label}>Project Key (รหัสอ้างอิง)</label>
+                <input
+                  placeholder="เช่น MAK"
+                  value={form.code}
+                  onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: e.target.value.toUpperCase() }) }}
+                  className={`${input} font-mono`}
+                  maxLength={12}
+                />
+              </div>
             </div>
-
-            <div><label className={label}>URL (ถ้ามี)</label><input placeholder="เช่น https://example.com" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} className={input} /></div>
 
             <div className="text-[11px] text-muted">เลือกไอคอน/โลโก้ได้ในหน้าแก้ไขหลังสร้าง</div>
           </div>
@@ -443,187 +609,14 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
 }
 
 interface BacklogTask { id: string; title: string; priority: string; assigneeName: string | null; code: string | null; locked: boolean }
-interface BoardTaskOpt { id: string; title: string; code: string | null }
 
-/** Tasknista §2.6 — 4 ทางเลือกย้ายงานจาก Backlog: ตั้งเป็นโปรเจกต์ / ย้ายไปโปรเจกต์ / ย้ายเป็น Sub-task / Defect */
-function BacklogMoveModal({ task, projects, isOwner, onClose, onMoved, onConvertToProject }: {
-  task: BacklogTask
-  projects: ProjectRow[]
-  isOwner: boolean
-  onClose: () => void
-  onMoved: () => void
-  onConvertToProject: (task: BacklogTask) => void
-}) {
-  const [mode, setMode] = useState<'menu' | 'move' | 'subtask' | 'defect'>('menu')
-  const [projectId, setProjectId] = useState('')
-  const [boardTasks, setBoardTasks] = useState<BoardTaskOpt[]>([])
-  const [parentTaskId, setParentTaskId] = useState('')
-  const [team, setTeam] = useState<TeamUser[]>([])
-  const [reporterType, setReporterType] = useState<'customer' | 'self'>('self')
-  const [assigneeId, setAssigneeId] = useState('')
-  const [links, setLinks] = useState('')
-  const [files, setFiles] = useState<File[]>([])
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    if (mode !== 'subtask' || !projectId) { setBoardTasks([]); return }
-    void api.get<{ groups: { tasks: BoardTaskOpt[] }[] }>(`/api/projects/${projectId}/board`).then((b) => {
-      setBoardTasks(b.groups.flatMap((g) => g.tasks))
-    })
-  }, [mode, projectId])
-
-  useEffect(() => {
-    if (mode !== 'defect' || team.length > 0) return
-    void api.get<TeamUser[]>('/api/users').then((users) => setTeam(users.filter((u) => u.role !== 'vendor')))
-  }, [mode, team.length])
-
-  const moveToProject = async () => {
-    try {
-      // เซิร์ฟเวอร์จะหา/สร้างกลุ่มงานแรกให้เองถ้าโปรเจกต์ยังไม่มีกลุ่มเลย (ไม่บล็อกผู้ใช้)
-      await api.patch(`/api/tasks/${task.id}`, { projectId })
-      onMoved()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'ผิดพลาด')
-    }
-  }
-  const moveAsSubtask = async () => {
-    if (!parentTaskId) return
-    try {
-      await api.patch(`/api/tasks/${task.id}`, { parentId: parentTaskId })
-      onMoved()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'ผิดพลาด')
-    }
-  }
-  const createDefect = async () => {
-    if (!projectId || !assigneeId) return
-    setBusy(true)
-    try {
-      // เซิร์ฟเวอร์จะหา/สร้างกลุ่มงานแรกให้เองถ้าโปรเจกต์ยังไม่มีกลุ่มเลย (ไม่บล็อกผู้ใช้)
-      await api.patch(`/api/tasks/${task.id}`, {
-        projectId, kind: 'defect', reporterType, assigneeId,
-        ...(links.trim() ? { description: links.trim() } : {}),
-      })
-      for (const file of files) {
-        const form = new FormData()
-        form.append('file', file)
-        await fetch(`/api/tasks/${task.id}/attachments`, { method: 'POST', body: form })
-      }
-      onMoved()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'ผิดพลาด')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const item = 'w-full text-left text-sm px-4 py-3 rounded-lg border border-border-subtle hover:bg-hover flex items-center gap-2.5'
-  const select = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
-  const label = 'text-xs font-medium text-muted mb-1 block'
-
-  return (
-    <div className="fixed inset-0 z-50">
-      <div onClick={onClose} className="absolute inset-0 bg-ink/30" />
-      <div className="absolute inset-x-0 top-24 mx-auto w-full max-w-sm px-4">
-        <div className="bg-white rounded-lg shadow-2xl p-5 max-h-[80vh] overflow-y-auto">
-          <div className="flex items-center justify-between mb-3">
-            <div className="font-semibold text-ink text-sm truncate">{task.code ? `${task.code} · ` : ''}{task.title}</div>
-            <button onClick={onClose} className="text-muted hover:text-soft shrink-0"><X className="w-5 h-5" /></button>
-          </div>
-
-          {mode === 'menu' && (
-            <div className="space-y-2">
-              {isOwner && (
-                <button className={item} onClick={() => onConvertToProject(task)}>🏗️ <span>ตั้งเป็นโปรเจกต์</span></button>
-              )}
-              <button className={item} onClick={() => setMode('move')}>➡️ <span>ย้ายไปที่โปรเจกต์</span></button>
-              <button className={item} onClick={() => setMode('subtask')}>🔗 <span>ย้ายเป็น Sub-task</span></button>
-              <button className={item} onClick={() => setMode('defect')}>🐛 <span>Defect</span></button>
-            </div>
-          )}
-
-          {mode === 'move' && (
-            <div className="space-y-3">
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={select}>
-                <option value="">เลือกโปรเจกต์…</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setMode('menu')} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ย้อนกลับ</button>
-                <button onClick={() => void moveToProject()} disabled={!projectId} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">ย้าย</button>
-              </div>
-            </div>
-          )}
-
-          {mode === 'subtask' && (
-            <div className="space-y-3">
-              <select value={projectId} onChange={(e) => { setProjectId(e.target.value); setParentTaskId('') }} className={select}>
-                <option value="">เลือกโปรเจกต์…</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <select value={parentTaskId} onChange={(e) => setParentTaskId(e.target.value)} className={select} disabled={!projectId}>
-                <option value="">{projectId && boardTasks.length === 0 ? 'โปรเจกต์นี้ยังไม่มี task' : 'เลือก task แม่…'}</option>
-                {boardTasks.map((t) => <option key={t.id} value={t.id}>{t.code ? `${t.code} · ` : ''}{t.title}</option>)}
-              </select>
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setMode('menu')} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ย้อนกลับ</button>
-                <button onClick={() => void moveAsSubtask()} disabled={!parentTaskId} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">ย้ายเป็น Sub-task</button>
-              </div>
-            </div>
-          )}
-
-          {mode === 'defect' && (
-            <div className="space-y-3">
-              <div>
-                <label className={label}>โปรเจกต์</label>
-                <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={select}>
-                  <option value="">เลือกโปรเจกต์…</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={label}>ผู้แจ้ง</label>
-                <select value={reporterType} onChange={(e) => setReporterType(e.target.value as 'customer' | 'self')} className={select}>
-                  <option value="self">พบเอง</option>
-                  <option value="customer">ลูกค้า</option>
-                </select>
-              </div>
-              <div>
-                <label className={label}>Assign to</label>
-                <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={select}>
-                  <option value="">เลือกผู้รับผิดชอบ…</option>
-                  {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={label}>ลิงก์อ้างอิง (ถ้ามี)</label>
-                <textarea value={links} onChange={(e) => setLinks(e.target.value)} placeholder="วางลิงก์ที่เกี่ยวข้อง…" rows={2} className={select} />
-              </div>
-              <div>
-                <label className={label}>แนบไฟล์ (ถ้ามี)</label>
-                <input type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} className="text-xs text-dim w-full" />
-              </div>
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setMode('menu')} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ย้อนกลับ</button>
-                <button onClick={() => void createDefect()} disabled={!projectId || !assigneeId || busy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">{busy ? 'กำลังบันทึก…' : 'สร้าง Defect'}</button>
-              </div>
-            </div>
-          )}
-          {error && <div className="text-xs text-danger-600 mt-3">{error}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** Tasknista §F2 — Backlog: งานลอยๆ ที่ยังไม่ผูกโปรเจค · +TASK สร้างไว้ก่อน แล้วจัดเข้าโปรเจกต์ย้อนหลัง */
-function BacklogSection({ projects, isOwner, onConvertToProject }: { projects: ProjectRow[]; isOwner: boolean; onConvertToProject: (task: BacklogTask) => void }) {
+/** Tasknista §F2 — Backlog: งานลอยๆ ที่ยังไม่ผูกโปรเจค · +TASK สร้างไว้ก่อน แล้วจัดเข้าโปรเจกต์ย้อนหลัง
+ * Tasknista §Backlog cross-project convert — เมนู "จัดการ" ใช้ตัวเดียวกับ Backlog ของโปรเจกต์ (ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR + เลือกโปรเจกต์ปลายทางเอง เพราะงานพวกนี้ยังไม่มีโปรเจกต์เลย) */
+function BacklogSection({ isOwner, onConvertToProject }: { isOwner: boolean; onConvertToProject: (task: BacklogTask) => void }) {
   const { data, reload } = useLoad<BacklogTask[]>(() => api.get('/api/tasks/backlog'))
   const [title, setTitle] = useState('')
-  const [moving, setMoving] = useState<BacklogTask | null>(null)
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: ConvertTo } | null>(null)
   const list = data ?? []
-  const active = projects.filter((p) => p.statusKind !== 'archived')
 
   const add = async () => {
     if (!title.trim()) return
@@ -654,19 +647,22 @@ function BacklogSection({ projects, isOwner, onConvertToProject }: { projects: P
               <span className="flex-1 text-sm text-body truncate">{t.title}</span>
               {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
               {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
-              <button onClick={() => setMoving(t)} className="text-xs border border-border-subtle rounded-lg px-2.5 py-1.5 text-dim bg-white hover:bg-hover whitespace-nowrap">จัดการ ▾</button>
+              <BacklogConvertMenu
+                onConvertDirect={(to) => setConvertModal({ taskId: t.id, to })}
+                onConvertPick={(to) => setConvertModal({ taskId: t.id, to })}
+                extraItems={isOwner ? [{ label: '🏗️ ตั้งเป็นโปรเจกต์', onClick: () => onConvertToProject(t) }] : undefined}
+              />
             </div>
           ))}
         </div>
       )}
-      {moving && (
-        <BacklogMoveModal
-          task={moving}
-          projects={active}
-          isOwner={isOwner}
-          onClose={() => setMoving(null)}
-          onMoved={() => { setMoving(null); void reload() }}
-          onConvertToProject={(t) => { setMoving(null); onConvertToProject(t) }}
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reload() }}
         />
       )}
     </div>
@@ -701,15 +697,20 @@ export function ProjectsPage() {
   const [view, setView] = useState<'table' | 'summary' | 'timeline' | 'board'>('table')
   const [catFilter, setCatFilter] = useState<'all' | 'product' | 'project'>('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [leadFilter, setLeadFilter] = useState('all')
+  const [healthFilter, setHealthFilter] = useState<'all' | PmHealth>('all')
   const [activeOnly, setActiveOnly] = useState(false)
   const statusOptionsInData = useMemo(
     () => [...new Map(rows.map((p) => [p.statusName, p.statusColor])).entries()],
     [rows],
   )
+  const leadOptionsInData = useMemo(() => [...new Set(rows.map((p) => p.leadName).filter((n): n is string => !!n))], [rows])
   // Tasknista §โปรเจกต์ — ทุกมุมมอง (Summary/Timeline/Board/รายการ) เรียงตามความเคลื่อนไหวล่าสุดเหมือนกัน
   const filteredRows = rows
     .filter((p) => catFilter === 'all' || p.category === catFilter)
     .filter((p) => statusFilter === 'all' || p.statusName === statusFilter)
+    .filter((p) => leadFilter === 'all' || p.leadName === leadFilter)
+    .filter((p) => healthFilter === 'all' || pmHealthOf(p) === healthFilter)
     .filter((p) => !activeOnly || p.lastActivityAt != null)
     .sort((a, b) => (b.lastActivityAt ?? Date.parse(b.createdAt)) - (a.lastActivityAt ?? Date.parse(a.createdAt)))
 
@@ -737,13 +738,21 @@ export function ProjectsPage() {
           <>
             <div className="flex items-center gap-3 mb-4 flex-wrap">
               <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium">
-                {([['table', 'รายการ'], ['summary', 'Summary'], ['timeline', 'Timeline'], ['board', 'Board']] as const).map(([v, lbl]) => (
+                {([['table', 'List'], ['summary', 'Summary'], ['timeline', 'Timeline'], ['board', 'Board']] as const).map(([v, lbl]) => (
                   <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-md ${view === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
                 ))}
               </div>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
                 <option value="all">สถานะ: ทั้งหมด</option>
                 {statusOptionsInData.map(([name]) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <select value={healthFilter} onChange={(e) => setHealthFilter(e.target.value as 'all' | PmHealth)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
+                <option value="all">สุขภาพ: ทั้งหมด</option>
+                {(['on_track', 'at_risk', 'delayed', 'completed'] as const).map((h) => <option key={h} value={h}>{PM_HEALTH_LABEL[h]}</option>)}
+              </select>
+              <select value={leadFilter} onChange={(e) => setLeadFilter(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
+                <option value="all">หัวหน้า: ทั้งหมด</option>
+                {leadOptionsInData.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
               <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
                 {([['all', 'ทั้งหมด'], ['product', 'Product'], ['project', 'Project']] as const).map(([k, lbl]) => (
@@ -759,10 +768,13 @@ export function ProjectsPage() {
             {view === 'table' && <TableView rows={filteredRows} />}
 
             {view === 'summary' && (
-              <div className="bg-white rounded-lg shadow-xs p-4 mb-5">
-                <div className="font-semibold text-ink text-sm mb-3">โปรเจกต์แยกตามสถานะ</div>
-                <StatusDonut rows={filteredRows.filter((p) => p.type === 'project')} />
-              </div>
+              <>
+                <ExecutiveWidgets rows={filteredRows} />
+                <div className="bg-white rounded-lg shadow-xs p-4 mb-5">
+                  <div className="font-semibold text-ink text-sm mb-3">โปรเจกต์แยกตามสถานะ</div>
+                  <StatusDonut rows={filteredRows.filter((p) => p.type === 'project')} />
+                </div>
+              </>
             )}
 
             {view === 'timeline' && (
@@ -775,7 +787,11 @@ export function ProjectsPage() {
               </div>
             )}
 
-            {canEdit && <BacklogSection key={backlogKey} projects={rows} isOwner={isOwner} onConvertToProject={(t) => { setConvertingTask(t); setNewOpen(true) }} />}
+            {canEdit && (
+              <CollapsibleBacklog>
+                <BacklogSection key={backlogKey} isOwner={isOwner} onConvertToProject={(t) => { setConvertingTask(t); setNewOpen(true) }} />
+              </CollapsibleBacklog>
+            )}
 
             {view === 'summary' && (
               <>

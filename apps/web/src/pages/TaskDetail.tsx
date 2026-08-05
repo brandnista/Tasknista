@@ -175,7 +175,10 @@ interface Detail {
   id: string
   projectId: string | null
   title: string
+  // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน
   description: string | null
+  // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" คนละฟิลด์กับ description แก้ได้เฉพาะ assignee ก่อนกดส่งงาน
+  assigneeNotes: string | null
   status: TaskStatus
   kind: 'task' | 'defect' | 'cr' | 'backlog'
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
@@ -289,6 +292,7 @@ export function TaskDetailPage() {
   const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
   const [comment, setComment] = useState('')
   const [descDraft, setDescDraft] = useState<string | null>(null)
+  const [assigneeNotesDraft, setAssigneeNotesDraft] = useState<string | null>(null)
   const [refCodeDraft, setRefCodeDraft] = useState<string | null>(null)
   const [newSubtask, setNewSubtask] = useState('')
   const [newSubtaskCode, setNewSubtaskCode] = useState('')
@@ -483,9 +487,9 @@ export function TaskDetailPage() {
           {t.code && <span className="text-xs font-mono text-muted bg-hover border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span>}
           <div className="flex items-start gap-2.5 mt-2">
             <button
-              onClick={() => canEdit && void patch({ status: done ? 'non_start' : 'done' })}
-              title={canEdit ? (done ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ') : 'ต้องมีสิทธิ์แก้ไข (editor) ในโปรเจกต์นี้'}
-              className={`shrink-0 mt-0.5 w-7 h-7 rounded-lg border-2 grid place-items-center transition ${done ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'} ${canEdit ? '' : 'opacity-60 cursor-default'}`}
+              onClick={() => canEdit && !isAssignee && void patch({ status: done ? 'non_start' : 'done' })}
+              title={canEdit && !isAssignee ? (done ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ') : 'ต้องมีสิทธิ์แก้ไข (ผู้จ่ายงาน) ในโปรเจกต์นี้'}
+              className={`shrink-0 mt-0.5 w-7 h-7 rounded-lg border-2 grid place-items-center transition ${done ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'} ${canEdit && !isAssignee ? '' : 'opacity-60 cursor-default'}`}
             >
               {done && <Check className="w-4 h-4" />}
             </button>
@@ -502,8 +506,8 @@ export function TaskDetailPage() {
           <div className="p-5 space-y-6 border-b md:border-b-0 md:border-r border-border-subtle min-w-0">
 
             <div>
-              <div className="text-xs font-medium text-muted mb-1.5">รายละเอียด</div>
-              {canEdit ? (
+              <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้จ่ายงาน</div>
+              {canEdit && !isAssignee ? (
                 <textarea
                   value={descDraft ?? t.description ?? ''}
                   onChange={(e) => setDescDraft(e.target.value)}
@@ -513,6 +517,22 @@ export function TaskDetailPage() {
                 />
               ) : (
                 <p className="text-sm text-soft whitespace-pre-line">{t.description ?? '—'}</p>
+              )}
+            </div>
+
+            <div>
+              {/* Tasknista §Back to Basic (ต่อยอด) — บันทึกของผู้รับงานเอง แก้ได้เฉพาะ assignee ก่อนกด "ส่งงาน" · ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย */}
+              <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้รับงาน</div>
+              {isAssignee && t.status !== 'waiting_for_test' && !done ? (
+                <textarea
+                  value={assigneeNotesDraft ?? t.assigneeNotes ?? ''}
+                  onChange={(e) => setAssigneeNotesDraft(e.target.value)}
+                  onBlur={() => { if (assigneeNotesDraft !== null && assigneeNotesDraft !== (t.assigneeNotes ?? '')) void patch({ assigneeNotes: assigneeNotesDraft || null }) }}
+                  placeholder="พิมพ์บันทึกของตัวเอง เช่น ทำไปถึงไหน ติดขัดอะไร…"
+                  className="w-full min-h-24 text-sm text-soft bg-hover rounded-lg p-3 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
+                />
+              ) : (
+                <p className="text-sm text-soft whitespace-pre-line">{t.assigneeNotes ?? '—'}</p>
               )}
             </div>
 
@@ -529,11 +549,11 @@ export function TaskDetailPage() {
                       {item.done && <Check className="w-3 h-3" />}
                     </button>
                     <span className={`flex-1 ${item.done ? 'text-muted line-through' : 'text-body'}`}>{item.text}</span>
-                    {canEdit && <button onClick={() => void removeChecklistItem(item.id)} className="opacity-0 group-hover:opacity-100 text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
+                    {canEdit && !isAssignee && <button onClick={() => void removeChecklistItem(item.id)} className="opacity-0 group-hover:opacity-100 text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
                   </div>
                 ))}
               </div>
-              {canEdit && (
+              {canEdit && !isAssignee && (
                 <div className="flex gap-2">
                   <input value={newChecklistText} onChange={(e) => setNewChecklistText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addChecklistItem() }} placeholder="+ เพิ่มเกณฑ์…" className={`${input} flex-1`} />
                   <button onClick={() => void addChecklistItem()} disabled={!newChecklistText.trim()} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
@@ -558,7 +578,7 @@ export function TaskDetailPage() {
                   </button>
                 ))}
               </div>
-              {canEdit && (
+              {canEdit && !isAssignee && (
                 <div className="flex gap-2">
                   <input value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="+ เพิ่มงานย่อย…" className={`${input} flex-1`} />
                   <input value={newSubtaskCode} onChange={(e) => setNewSubtaskCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="รหัส (ไม่บังคับ)" title="ตั้งรหัสงานย่อยเอง — เว้นว่างให้ระบบออกเลขอัตโนมัติ" className={`${input} w-32 font-mono`} />
@@ -611,7 +631,7 @@ export function TaskDetailPage() {
                 {canEdit && (
                   <button onClick={() => void addLink()} className="aspect-square rounded-lg border-2 border-dashed border-border-subtle grid place-items-center text-muted hover:border-brand-300 hover:text-brand-600" title="แนบลิงก์ (Google Docs/Figma/Canva)"><Link2 className="w-5 h-5" /></button>
                 )}
-                {canEdit && (
+                {canEdit && !isAssignee && (
                   <div className="relative aspect-square">
                     <button onClick={() => setDocMenuOpen((v) => !v)} className="w-full h-full rounded-lg border-2 border-dashed border-border-subtle grid place-items-center text-muted hover:border-brand-300 hover:text-brand-600" title="สร้าง/ผูกเอกสาร MOM/BRD/SOW/SRS/PEP/UIR/CR">
                       <FileText className="w-5 h-5" />
@@ -639,7 +659,7 @@ export function TaskDetailPage() {
                       <a href={d.kind === 'link' && d.externalUrl ? d.externalUrl : `/docs/${d.id}`} target="_blank" rel="noreferrer" className="flex-1 min-w-0 truncate text-body hover:underline flex items-center gap-1">
                         {d.title} <ExternalLink className="w-3 h-3 text-muted shrink-0" />
                       </a>
-                      {canEdit && <button onClick={() => void unlinkDocument(d.linkId)} title="เลิกผูก" className="text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
+                      {canEdit && !isAssignee && <button onClick={() => void unlinkDocument(d.linkId)} title="เลิกผูก" className="text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
                     </div>
                   ))}
                 </div>
@@ -704,7 +724,7 @@ export function TaskDetailPage() {
             <div>
               <div className="text-xs font-medium text-muted mb-2 flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5" /> รายการที่เชื่อมโยง
-                {canEdit && (
+                {canEdit && !isAssignee && (
                   <button onClick={() => setLinkPickerOpen(true)} className="ml-auto flex items-center gap-1 text-[11px] text-brand-600 hover:underline">
                     <Plus className="w-3 h-3" /> เชื่อมโยงรายการ
                   </button>
@@ -722,7 +742,7 @@ export function TaskDetailPage() {
                       </button>
                       {r.kind === 'defect' && <span className="text-[9px] text-danger-600">🐛</span>}
                       {r.kind === 'cr' && <span className="text-[9px] text-info-700">CR</span>}
-                      {canEdit && r.direction === 'outgoing' && (
+                      {canEdit && !isAssignee && r.direction === 'outgoing' && (
                         <button onClick={() => void removeReference(r.refId)} title="เลิกเชื่อมโยง" className="text-border hover:text-danger-600">
                           <X className="w-3 h-3" />
                         </button>
@@ -797,7 +817,7 @@ export function TaskDetailPage() {
               {t.kind === 'defect' && t.defectStatus && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted">Defect</span>
-                  {canEdit ? (
+                  {canEdit && !isAssignee ? (
                     <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="สถานะ Defect" className={`px-2 py-1 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
                       {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
                     </select>
@@ -831,13 +851,13 @@ export function TaskDetailPage() {
               )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted">กำหนดส่ง</span>
-                {canEdit ? (
+                {canEdit && !isAssignee ? (
                   <input type="date" defaultValue={t.dueDate ?? ''} onBlur={(e) => e.target.value !== (t.dueDate ?? '') && void patch({ dueDate: e.target.value || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
                 ) : (
                   <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
                 )}
               </div>
-              {canEdit && (
+              {canEdit && !isAssignee && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted">เริ่ม</span>
                   <input type="date" defaultValue={t.startDate ?? ''} onBlur={(e) => e.target.value !== (t.startDate ?? '') && void patch({ startDate: e.target.value || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />

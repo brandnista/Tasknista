@@ -19,7 +19,7 @@ const json = (cookie: string, body: unknown) => ({
 async function seedProjectForPond() {
   const owner = await loginAs(app, 'owner@example-co.test')
   const p = (await (await app.request('/api/projects', json(owner, { name: 'P', type: 'project' }), env)).json()) as { id: string }
-  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', role: 'editor' }), env)
+  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
   return p
 }
 

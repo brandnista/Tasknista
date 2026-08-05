@@ -40,7 +40,7 @@ async function makeProject(owner: string, code: string) {
   const p = (await (
     await app.request('/api/projects', json(owner, { name: `โปรเจกต์ ${code}`, type: 'project', code }), env)
   ).json()) as { id: string; code: string | null }
-  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', role: 'editor' }), env)
+  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
   return p
 }
 

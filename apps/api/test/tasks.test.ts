@@ -21,7 +21,7 @@ async function setupProject(cookie: string, asEditorUserId?: string) {
     await app.request('/api/projects', json(owner, { name: 'โปรเจกต์เทสต์', type: 'project' }), env)
   ).json()) as { id: string }
   if (asEditorUserId)
-    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: asEditorUserId, role: 'editor' }), env)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: asEditorUserId, positionId: 'pos_full_access' }), env)
   const g1 = (await (
     await app.request(`/api/projects/${p.id}/groups`, json(cookie, { name: 'Design' }), env)
   ).json()) as { id: string }

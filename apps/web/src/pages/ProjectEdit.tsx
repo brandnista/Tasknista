@@ -14,35 +14,36 @@ interface EditableProject extends ProjectRow {
 }
 interface StatusOpt { id: string; name: string; kind: string }
 interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' }
+interface PositionOpt { id: string; name: string }
 
 const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
 
 /**
- * Tasknista §permission (Jira-style project role) — owner มอบสิทธิ์ viewer/editor ให้ member เป็นรายโปรเจกต์
- * Tasknista §7 (2026-07-03) — เดิม select แต่ละแถวยิง API บันทึกทันที (แยกจากปุ่ม "บันทึก" ของ Grid แก้ไขโปรเจกต์)
- * เปลี่ยนเป็น controlled component: แค่เก็บ role ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
+ * Tasknista §Position-based permission — owner assign ตำแหน่ง (BA/PM/ฯลฯ) ให้ member เป็นรายโปรเจกต์ (สิทธิ์มาจากตำแหน่งที่เลือกล้วนๆ)
+ * Tasknista §7 (2026-07-03) — controlled component: แค่เก็บ positionId ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
  */
-function MembersSection({ roles, onRoleChange }: { roles: Record<string, 'viewer' | 'editor' | ''>; onRoleChange: (userId: string, role: 'viewer' | 'editor') => void }) {
+function MembersSection({ assignments, positions, onChange }: { assignments: Record<string, string>; positions: PositionOpt[]; onChange: (userId: string, positionId: string) => void }) {
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const team = (users ?? []).filter((u) => u.role === 'member')
   return (
     <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
       <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
       <p className="text-xs text-muted mb-4">
-        editor แก้ไขงาน/ข้อมูลโปรเจกต์นี้ได้ทั้งหมด · viewer ดูได้อย่างเดียว (รวมถึงงานที่ตัวเอง assign) · ยังไม่ตั้งค่า = viewer โดยปริยาย · กด "บันทึก" ด้านล่างเพื่อยืนยัน
+        สิทธิ์แก้ไข/มองเห็นเมนูมาจากตำแหน่งที่เลือก (ตั้งค่าตำแหน่งได้ที่ ตั้งค่า → ตำแหน่งและสิทธิ์) · ยังไม่ตั้งค่า = ยังไม่ใช่สมาชิก · กด "บันทึก" ด้านล่างเพื่อยืนยัน
       </p>
       <div className="divide-y divide-divider">
         {team.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-2.5">
             <span className="flex-1 text-sm text-body">{u.name}</span>
             <select
-              value={roles[u.id] ?? ''}
-              onChange={(e) => onRoleChange(u.id, e.target.value as 'viewer' | 'editor')}
+              value={assignments[u.id] ?? ''}
+              onChange={(e) => onChange(u.id, e.target.value)}
               className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
             >
               <option value="" disabled>— ยังไม่ใช่สมาชิก —</option>
-              <option value="viewer">ดูอย่างเดียว (viewer)</option>
-              <option value="editor">แก้ไขได้ (editor)</option>
+              {positions.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
             </select>
           </div>
         ))}
@@ -61,6 +62,7 @@ export function ProjectEditPage() {
   const clientList = clientsRes?.rows ?? []
   const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[] }>(() => api.get('/api/config'))
   const statusOptions = cfg?.projectStatuses ?? []
+  const { data: positionsData } = useLoad<{ positions: PositionOpt[] }>(() => api.get('/api/admin/positions'))
   const isOwner = user?.role === 'owner'
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
 
@@ -72,8 +74,8 @@ export function ProjectEditPage() {
   const [logoDirty, setLogoDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  // Tasknista §7 (2026-07-03) — role ต่อสมาชิกที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
-  const [memberRoles, setMemberRoles] = useState<Record<string, 'viewer' | 'editor' | ''>>({})
+  // Tasknista §Position-based permission — ตำแหน่งต่อสมาชิกที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
+  const [memberAssignments, setMemberAssignments] = useState<Record<string, string>>({})
 
   // เติมค่าจากโปรเจกต์ที่โหลดมา (ครั้งเดียวตอนได้ data)
   useEffect(() => {
@@ -92,7 +94,7 @@ export function ProjectEditPage() {
     })
     setLogo(project.logo)
     setLogoDirty(false)
-    setMemberRoles(Object.fromEntries((project.members ?? []).map((m) => [m.id, m.role ?? ''])))
+    setMemberAssignments(Object.fromEntries((project.members ?? []).map((m) => [m.id, m.positionId ?? ''])))
   }, [project])
 
   if (loading) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
@@ -134,9 +136,9 @@ export function ProjectEditPage() {
       await api.patch(`/api/projects/${id}`, body)
       // Tasknista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
       if (isOwner) {
-        const before = Object.fromEntries((project.members ?? []).map((m) => [m.id, m.role ?? '']))
-        const changed = Object.entries(memberRoles).filter(([userId, role]) => role && role !== before[userId])
-        await Promise.all(changed.map(([userId, role]) => api.post(`/api/projects/${id}/members`, { userId, role })))
+        const before = Object.fromEntries((project.members ?? []).map((m) => [m.id, m.positionId ?? '']))
+        const changed = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== before[userId])
+        await Promise.all(changed.map(([userId, positionId]) => api.post(`/api/projects/${id}/members`, { userId, positionId })))
       }
       navigate(`/projects/${id}`)
     } catch (e) {
@@ -243,8 +245,9 @@ export function ProjectEditPage() {
 
       {isOwner && (
         <MembersSection
-          roles={memberRoles}
-          onRoleChange={(userId, role) => setMemberRoles((r) => ({ ...r, [userId]: role }))}
+          assignments={memberAssignments}
+          positions={positionsData?.positions ?? []}
+          onChange={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
         />
       )}
 

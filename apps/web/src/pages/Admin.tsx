@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { GcalSettings } from '../components/GcalSettings'
 import { PageHeader } from '../components/PageHeader'
 import { BoardPresetSettings } from '../components/BoardPresetSettings'
+import { PositionSettings } from '../components/PositionSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useDialog } from '../components/Dialog'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
@@ -123,7 +124,7 @@ function AddUserForm({ memberDomain, teamsList, onDone }: { memberDomain?: strin
           disabled={!form.email || !form.name}
           className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg"
         >
-          เพิ่มผู้ใช้
+          เพิ่มผู้ใช้งาน
         </button>
       </div>
       <p className="text-[11px] text-muted">
@@ -237,6 +238,7 @@ export function AdminPage() {
   const { data: cfg, reload: reloadCfg } = useLoad<Config>(() => api.get('/api/config'))
   const [adding, setAdding] = useState(false)
   const [addingTeam, setAddingTeam] = useState(false)
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({})
 
   const saveCfg = async (patch: Partial<Config>) => {
     await api.patch('/api/admin/config', patch)
@@ -247,6 +249,24 @@ export function AdminPage() {
       status: u.status === 'active' ? 'disabled' : 'active',
     })
     await reload()
+  }
+  const saveEmail = async (u: AdminUser, email: string) => {
+    const next = email.trim().toLowerCase()
+    if (next === u.email) return
+    try {
+      await api.patch(`/api/admin/users/${u.id}`, { email: next })
+      setEmailErrors((prev) => {
+        if (!(u.id in prev)) return prev
+        const rest = { ...prev }
+        delete rest[u.id]
+        return rest
+      })
+      await reload()
+    } catch (e) {
+      const message =
+        e instanceof ApiError && e.message === 'email_exists' ? 'อีเมลนี้ถูกใช้แล้ว' : 'อีเมลไม่ถูกต้อง'
+      setEmailErrors((prev) => ({ ...prev, [u.id]: message }))
+    }
   }
   // Tasknista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน ใช้กับ Tab "Project Estimate" ทุกโปรเจกต์ (ไม่ผูก payroll เดิม)
   const saveUserEstimateFields = async (u: AdminUser, patch: { jobTitle?: string | null; costPerDaySatang?: number | null }) => {
@@ -270,7 +290,7 @@ export function AdminPage() {
               onClick={() => setAdding((v) => !v)}
               className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3.5 py-2 rounded-lg"
             >
-              <UserPlus className="w-4 h-4" /> เพิ่มผู้ใช้
+              <UserPlus className="w-4 h-4" /> เพิ่มผู้ใช้งาน
             </button>
           </div>
         }
@@ -299,7 +319,7 @@ export function AdminPage() {
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
           <div className="p-5 border-b border-border-subtle">
             <div className="font-semibold text-ink">
-              ผู้ใช้ <span className="text-xs font-normal text-muted">· {usersList?.length ?? 0} คน · ทีม {teamsList?.length ?? 0} ทีม</span>
+              ผู้ใช้งาน <span className="text-xs font-normal text-muted">· {usersList?.length ?? 0} คน · ทีม {teamsList?.length ?? 0} ทีม</span>
             </div>
           </div>
           {loading ? (
@@ -311,9 +331,9 @@ export function AdminPage() {
                   <tr>
                     <th className="text-left font-medium px-5 py-3">ชื่อ</th>
                     <th className="text-left font-medium px-3 py-3">อีเมล</th>
-                    <th className="text-left font-medium px-3 py-3">role</th>
+                    <th className="text-left font-medium px-3 py-3">สิทธิ์ระบบ</th>
                     <th className="text-left font-medium px-3 py-3">ทีม</th>
-                    <th className="text-left font-medium px-3 py-3">ตำแหน่ง</th>
+                    <th className="text-left font-medium px-3 py-3">ตำแหน่ง (ต้นทุน)</th>
                     <th className="text-right font-medium px-3 py-3">ต้นทุน/วัน (฿)</th>
                     <th className="text-right font-medium px-5 py-3"></th>
                   </tr>
@@ -322,7 +342,17 @@ export function AdminPage() {
                   {(usersList ?? []).map((u) => (
                     <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
                       <td className="px-5 py-3">{u.name}</td>
-                      <td className="px-3 text-muted">{u.email}</td>
+                      <td className="px-3">
+                        <input
+                          type="email"
+                          defaultValue={u.email}
+                          onBlur={(e) => void saveEmail(u, e.target.value)}
+                          className="w-44 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-muted"
+                        />
+                        {emailErrors[u.id] && (
+                          <div className="text-[10px] text-danger-600 mt-0.5">{emailErrors[u.id]}</div>
+                        )}
+                      </td>
                       <td className="px-3">
                         <span className={`text-[11px] px-2 py-0.5 rounded-full ${ROLE_BADGE[u.role]}`}>
                           {ROLE_LABEL[u.role]}
@@ -426,7 +456,7 @@ export function AdminPage() {
                 {(cfg.workHourCapMinutes / 60).toFixed(1)} ชม./วัน (ชนเพดาน = timer หยุด + บล็อก)
                 {cfg.memberDomain
                   ? ` · อีเมล ${cfg.memberDomain} login ได้เองเป็น member`
-                  : ' · auto-provision member ปิดอยู่ — เพิ่มผู้ใช้เองเท่านั้น'}
+                  : ' · auto-provision member ปิดอยู่ — เพิ่มผู้ใช้งานเองเท่านั้น'}
               </p>
             </div>
           )}
@@ -437,6 +467,8 @@ export function AdminPage() {
         <ProjectStatusSettings />
 
         <BoardPresetSettings />
+
+        <PositionSettings />
 
         <GcalSettings />
       </div>

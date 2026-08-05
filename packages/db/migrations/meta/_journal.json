@@ -393,6 +393,41 @@
       "when": 1785406790093,
       "tag": "0055_funny_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1785469504722,
+      "tag": "0056_overconfident_blacklash",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1785471816056,
+      "tag": "0057_bumpy_sunfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1785472040917,
+      "tag": "0058_mushy_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1785474499185,
+      "tag": "0059_bored_norrin_radd",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1785492829209,
+      "tag": "0060_unusual_spectrum",
+      "breakpoints": true
     }
   ]
 }

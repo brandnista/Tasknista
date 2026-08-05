@@ -1,8 +1,9 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
-import { formatSatang, minutesToHoursLabel } from '@seedoffice/core'
+import { formatSatang, minutesToHoursLabel, type PermissionTabKey, type PositionPermissions } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
+import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertMenu'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
@@ -80,15 +81,6 @@ function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
   return t.originDocType ?? (t.srsDocId ? 'SRS' : 'regular')
 }
 
-const CONVERT_LABEL: Record<'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr', string> = {
-  epic: 'ย้ายเป็น Epic',
-  story: 'ย้ายเป็น Story',
-  task: 'ย้ายเป็น Task',
-  subtask: 'ย้ายเป็น Subtask',
-  defect: 'ย้ายเป็น Defect',
-  cr: 'ย้ายเป็น CR',
-}
-
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
 function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick }: {
   t: ProjectBacklogTask
@@ -104,7 +96,6 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   onConvertDirect?: (to: 'epic' | 'story' | 'cr' | 'defect') => void
   onConvertPick?: (to: 'task' | 'subtask') => void
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
   return (
     <div
       draggable={draggable}
@@ -145,38 +136,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
       {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
       {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
-      {(onConvertDirect || onConvertPick) && (
-        <div className="relative shrink-0">
-          <button onClick={() => setMenuOpen((v) => !v)} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-            <MoreVertical className="w-3.5 h-3.5" />
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                {(['epic', 'story', 'cr', 'defect'] as const).map((to) => (
-                  <button
-                    key={to}
-                    onClick={() => { setMenuOpen(false); onConvertDirect?.(to) }}
-                    className="w-full text-left px-3 py-1.5 text-body hover:bg-hover"
-                  >
-                    {CONVERT_LABEL[to]}
-                  </button>
-                ))}
-                {(['task', 'subtask'] as const).map((to) => (
-                  <button
-                    key={to}
-                    onClick={() => { setMenuOpen(false); onConvertPick?.(to) }}
-                    className="w-full text-left px-3 py-1.5 text-body hover:bg-hover"
-                  >
-                    {CONVERT_LABEL[to]}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
     </div>
   )
 }
@@ -189,9 +149,20 @@ const BACKLOG_TAB_LABEL: Record<BacklogTab, string> = {
 /** Tasknista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
  * Tasknista §Document Traceability (2026-07-10) — แท็บตามประเภทเอกสารต้นทาง (ทั่วไป/MOM/BRD/SOW/SRS/PROP) แทนที่ 2 แถบเดิม (ทั่วไป/จาก SRS)
  * แสดงเฉพาะแท็บที่มีงานจริง (เหมือนพฤติกรรมเดิมที่ซ่อนแถบ SRS ถ้ายังไม่มีงานจาก SRS) + เลือกหลายรายการลบทีเดียวได้ · ลากแถวไปวางใน Sprint (มุมมอง Sprint) ได้ */
-function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, revealTab }: {
+// Tasknista §Position-based permission — map แท็บย่อยใน Backlog → key ใน myPermissions.tabs (ควบคุมการมองเห็น)
+const BACKLOG_TAB_TO_PERMISSION_KEY: Record<(typeof FIXED_BACKLOG_TABS)[number], PermissionTabKey> = {
+  epic: 'backlogEpic',
+  story: 'backlogStory',
+  task: 'backlogTask',
+  defect: 'backlogDefect',
+  cr: 'backlogCr',
+  summary: 'backlogSummary',
+}
+
+function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, refreshKey, revealTab }: {
   projectId: string
   canEdit: boolean
+  permissions?: PositionPermissions
   onOpenTask: (id: string) => void
   refreshKey: number
   // Tasknista §Sprint & Board fix — เพิ่ม nonce ทุกครั้งเพื่อบังคับสลับแท็บได้แม้เป็นแท็บเดิมซ้ำ (เช่นเอาออกจาก Sprint 2 ครั้งติดจากแท็บเดียวกัน)
@@ -199,7 +170,6 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
 }) {
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   const [title, setTitle] = useState('')
-  const [customCode, setCustomCode] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Tasknista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
@@ -211,6 +181,8 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
         }
       : {}
   const [tab, setTab] = useState<BacklogTab>('regular')
+  // Tasknista §Back to Basic (ต่อยอด) — Epic/Story ซ่อนเป็นค่าเริ่มต้น (เก็บที่ localStorage ต่อเครื่อง)
+  const [showEpicStory, setShowEpicStory] = useState(() => localStorage.getItem('tasknista_show_epic_story') === '1')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // Tasknista §Epic Layer — Epic ที่พับเก็บอยู่ (ค่าเริ่มต้น = กางทั้งหมด, กดครั้งแรกถึงจะพับ)
   const [closedEpics, setClosedEpics] = useState<Set<string>>(new Set())
@@ -253,9 +225,8 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
   const add = async () => {
     if (!title.trim()) return
     // Tasknista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), code: customCode.trim() || undefined, kind: 'backlog' })
+    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
     setTitle('')
-    setCustomCode('')
     void reload()
   }
   // Tasknista §Back to Basic (ต่อยอด) — สร้าง Task เพิ่มเองตรงในแท็บเอกสาร (เช่น SOW) นอกเหนือจากที่แตกมาจากการอัปโหลดเอกสารเท่านั้น
@@ -306,24 +277,49 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
         <span className="ml-auto text-[11px] bg-info-100 text-info-700 px-2 py-0.5 rounded-full">{list.length} งาน</span>
       </div>
 
-      <div className="flex bg-white/60 rounded-lg p-0.5 text-xs font-medium w-fit mb-3 flex-wrap">
-        {(['regular', ...docTabsPresent] as BacklogTab[]).map((v) => (
-          <button key={v} onClick={() => switchTab(v)} className={`px-2.5 py-1 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-            {BACKLOG_TAB_LABEL[v]} ({(v === 'regular' ? regularList : (byTab.get(v) ?? [])).length})
-          </button>
-        ))}
-        {FIXED_BACKLOG_TABS.map((v) => (
-          <button key={v} onClick={() => switchTab(v)} className={`px-2.5 py-1 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-            {BACKLOG_TAB_LABEL[v]}
-          </button>
-        ))}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <div className="flex bg-white/60 rounded-lg p-0.5 text-xs font-medium w-fit flex-wrap">
+          {(['regular', ...docTabsPresent] as BacklogTab[]).map((v) => (
+            <button key={v} onClick={() => switchTab(v)} className={`px-2.5 py-1 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+              {BACKLOG_TAB_LABEL[v]} ({(v === 'regular' ? regularList : (byTab.get(v) ?? [])).length})
+            </button>
+          ))}
+          {FIXED_BACKLOG_TABS
+            .filter((v) => showEpicStory || (v !== 'epic' && v !== 'story'))
+            .filter((v) => permissions?.tabs[BACKLOG_TAB_TO_PERMISSION_KEY[v]] ?? true)
+            .map((v) => (
+            <button key={v} onClick={() => switchTab(v)} className={`px-2.5 py-1 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+              {BACKLOG_TAB_LABEL[v]}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => {
+            const next = !showEpicStory
+            setShowEpicStory(next)
+            localStorage.setItem('tasknista_show_epic_story', next ? '1' : '0')
+            if (!next && (tab === 'epic' || tab === 'story')) switchTab('task')
+          }}
+          className="text-[11px] text-muted hover:text-brand-600 underline decoration-dotted"
+        >
+          {showEpicStory ? 'ซ่อน Epic/Story' : 'แสดง Epic/Story'}
+        </button>
       </div>
 
       {(FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
         <>
           {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} />}
           {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} />}
-          {tab === 'task' && <ProjectHierarchyTab projectId={projectId} level="task" canEdit={canEdit} onOpenTask={onOpenTask} onCreatedFloating={reload} />}
+          {tab === 'task' && (
+            <ProjectHierarchyTab
+              projectId={projectId}
+              level="task"
+              canEdit={canEdit}
+              // Tasknista §Position-based permission — ตัวอย่าง granular action แรก: ปุ่มสร้าง Task เช็ค actions.task.create ของตำแหน่งโดยเฉพาะ (ละเอียดกว่า canEdit เดิม)
+              canCreate={canEdit && (permissions?.actions.task.create ?? true)}
+              onOpenTask={onOpenTask}
+            />
+          )}
           {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} />}
           {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} />}
           {tab === 'summary' && <ProjectSummaryTab projectId={projectId} onOpenTask={onOpenTask} />}
@@ -333,14 +329,6 @@ function ProjectBacklogSection({ projectId, canEdit, onOpenTask, refreshKey, rev
       {tab === 'regular' && canEdit && (
         <div className="flex gap-2 mb-3">
           <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
-          <input
-            value={customCode}
-            onChange={(e) => setCustomCode(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void add() }}
-            placeholder="รหัส (ไม่บังคับ)"
-            title="ตั้งรหัสงานเอง — เว้นว่างให้ระบบออกเลขอัตโนมัติ"
-            className="w-32 text-sm bg-white border border-border rounded-lg px-3 py-2 font-mono focus:outline-hidden focus:border-brand-400"
-          />
           <button onClick={() => void add()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
         </div>
       )}
@@ -1243,6 +1231,8 @@ interface ProjectAllTask {
   parentId: string | null
   parentTitle: string | null
   epicId: string | null
+  // Tasknista §Back to Basic (ต่อยอด) — คีย์ Task ลอยได้โดยไม่ต้องมี Story แม่ (แยกจาก Story ที่ parentId=null เหมือนกันแต่ flag นี้เป็น false)
+  isStandaloneTask?: boolean
   status: TaskStatus
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   assigneeName: string | null
@@ -1547,13 +1537,13 @@ const HIERARCHY_TAB_META = {
 } as const
 
 /** Tasknista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
-function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask, onCreatedFloating }: {
+function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask }: {
   projectId: string
   level: 'story' | 'task' | 'cr'
   canEdit: boolean
+  // Tasknista §Position-based permission — สิทธิ์สร้างละเอียดกว่า canEdit (ใช้เฉพาะ level='task' ตอนนี้ — story/cr ยังใช้ canEdit เดิม)
+  canCreate?: boolean
   onOpenTask: (id: string) => void
-  // Tasknista §Back to Basic (ต่อยอด, revamp) — แจ้งพ่อ (ProjectBacklogSection) ให้ reload แท็บ "ทั่วไป" ด้วย เพราะคีย์ลอยจาก Task tab ไปโผล่ที่นั่น (คนละ useLoad กัน ไม่ sync กันเอง)
-  onCreatedFloating?: () => void
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const all = data ?? []
@@ -1561,10 +1551,12 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask, onCreatedF
     level === 'cr'
       ? all.filter((t) => t.kind === 'cr')
       : level === 'story'
-        ? all.filter((t) => t.kind === 'task' && t.parentId === null)
-        : all.filter((t) => t.kind === 'task' && t.parentId !== null)
+        // Tasknista §Back to Basic (ต่อยอด) — Story ตัวจริง = parentId ว่าง "และ" ไม่ใช่ Task ลอย (isStandaloneTask)
+        ? all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask)
+        // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
+        : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
   const storyOptions: PickableTask[] = useMemo(
-    () => all.filter((t) => t.kind === 'task' && t.parentId === null).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
+    () => all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
     [all],
   )
   const [title, setTitle] = useState('')
@@ -1604,13 +1596,12 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask, onCreatedF
     setTitle('')
     void reload()
   }
-  // Tasknista §Back to Basic (ต่อยอด, revamp) — แท็บ Task: คีย์ลอยเป็น kind='backlog' ก่อน (โผล่แท็บ "ทั่วไป") แล้วค่อยไปเลือก Story ทีหลังผ่านเมนู "จัดการ → ย้ายเป็น Task" (เลี่ยงข้อจำกัดที่ kind='task' parentId=null แยกจาก Story ไม่ได้)
-  const createFloating = async () => {
+  // Tasknista §Back to Basic (ต่อยอด, v3) — แท็บ Task: คีย์ลอยตรงๆ เสมอ (isStandaloneTask) ขึ้นแท็บ Task ทันที — เชื่อมกับ Epic/Story ทีหลังผ่านเมนู "จัดการ" เท่านั้น (ตัด dropdown เลือก Story ตอนสร้างออก กันสับสนว่าต้องเลือกก่อนสร้าง)
+  const createUnderStory = async () => {
     if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
+    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
     setTitle('')
     void reload()
-    onCreatedFloating?.()
   }
   const linkStoryToEpic = async (epicId: string) => {
     if (!linkMode) return
@@ -1659,26 +1650,25 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask, onCreatedF
       <div className="flex items-center gap-2 mb-3">
         <span className="font-semibold text-ink text-sm">{meta.title} ({items.length})</span>
       </div>
-      {canEdit && (
+      {(canCreate ?? canEdit) && (
         <div className="mb-3">
           <div className="flex gap-2">
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void (level === 'task' ? createFloating() : createDirect()) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void (level === 'task' ? createUnderStory() : createDirect()) }}
               placeholder={meta.placeholder}
               className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
             />
             <button
-              onClick={() => void (level === 'task' ? createFloating() : createDirect())}
+              onClick={() => void (level === 'task' ? createUnderStory() : createDirect())}
               disabled={!title.trim()}
               className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium"
             >
               {meta.createLabel}
             </button>
           </div>
-          {/* Tasknista §Back to Basic (ต่อยอด, revamp) — Task คีย์ลอยแล้วไปโผล่แท็บ "ทั่วไป" ก่อน ไม่ใช่แท็บนี้ทันที เพราะยังไม่มี Story */}
-          {level === 'task' && <div className="text-[11px] text-muted mt-1">คีย์แล้วจะไปโผล่ในแท็บ "ทั่วไป" ก่อน — กด "จัดการ → ย้ายเป็น Task" เพื่อเลือก Story ทีหลัง</div>}
+          {level === 'task' && <div className="text-[11px] text-muted mt-1">คีย์แล้วเชื่อมกับ Epic/Story ได้ทีหลังผ่านเมนู "จัดการ" ต่อแถว</div>}
         </div>
       )}
       {items.length === 0 ? (
@@ -1728,6 +1718,9 @@ function ProjectHierarchyTab({ projectId, level, canEdit, onOpenTask, onCreatedF
                       <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
                         <button onClick={() => { setMenuFor(null); setLinkTaskId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
                           🔗 เชื่อมกับ Story
+                        </button>
+                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                          🔗 เชื่อมกับ Epic
                         </button>
                       </div>
                     </>
@@ -1870,11 +1863,19 @@ export function ProjectDetailPage() {
     searchParams.get('tab') === 'assets' ? 'assets' : 'sprint',
   )
   // Tasknista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
-  const tabs: [typeof view, string][] = [
-    ['sprint', 'Sprint'],
-    ['docs', 'เอกสาร'],
-    ['assets', 'ประวัติเอกสาร'],
-  ]
+  // Tasknista §Position-based permission — กรองด้วย myPermissions.tabs (key ตรงกับ view value เป๊ะ: sprint/docs/assets) — ?? true = fail-open ระหว่างยังโหลดข้อมูลไม่เสร็จ ไม่ใช่ fail-closed
+  const tabs: [typeof view, string][] = (
+    [
+      ['sprint', 'Sprint'],
+      ['docs', 'เอกสาร'],
+      ['assets', 'ประวัติเอกสาร'],
+    ] as [typeof view, string][]
+  ).filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
+  // Tasknista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
+  useEffect(() => {
+    if (tabs.length > 0 && !tabs.some(([v]) => v === view)) setView(tabs[0]![0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.myPermissions])
 
   const groups = useMemo(() => board?.groups ?? [], [board])
   const allTasks = useMemo(() => groups.flatMap((g) => g.tasks), [groups])
@@ -1986,6 +1987,7 @@ export function ProjectDetailPage() {
           <ProjectBacklogSection
             projectId={id}
             canEdit={canEdit}
+            permissions={project.myPermissions}
             onOpenTask={openTask}
             refreshKey={backlogRefreshKey}
             revealTab={revealSignal}

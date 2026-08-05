@@ -17,7 +17,7 @@ beforeEach(async () => {
   // pond ต้องมี rate ถึงลงเวลาได้ (POST /tasks/:id/time เช็ค rateFor)
   await db.insert(rates).values({ id: 'r_w', userId: 'u_pond', rateSatangPerHour: 50000, effectiveFrom: '2020-01-01' }).onConflictDoNothing()
   // pond ต้องเป็น project editor ถึงจะแก้ task ในโปรเจกต์นี้ได้ (canEditProject gate)
-  await db.insert(projectMembers).values({ projectId: 'p_w', userId: 'u_pond', role: 'editor' }).onConflictDoNothing()
+  await db.insert(projectMembers).values({ projectId: 'p_w', userId: 'u_pond', positionId: 'pos_full_access' }).onConflictDoNothing()
 })
 
 const appMod = async () => (await import('../src/index')).app

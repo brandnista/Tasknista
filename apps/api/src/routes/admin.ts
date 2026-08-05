@@ -1,15 +1,20 @@
 import {
   bkkDateOf,
   BOARD_COLOR_KEYS,
+  PERMISSION_RESOURCE_KEYS,
+  PERMISSION_TAB_KEYS,
   resolvePresets,
+  resolvePositions,
   resolveStatuses,
   STATUS_COLOR_KEYS,
+  validatePositions,
   validatePresets,
   validateStatuses,
   type BoardPreset,
+  type Position,
   type ProjectStatus,
 } from '@seedoffice/core'
-import { companyConfig, createDb, projects, rates, sprints, teams, users } from '@seedoffice/db'
+import { companyConfig, createDb, projectMembers, projects, rates, sprints, teams, users } from '@seedoffice/db'
 import { asc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -95,6 +100,7 @@ export const adminRoutes = new Hono<AppEnv>()
     const body = z
       .object({
         name: z.string().min(1).optional(),
+        email: z.string().email().toLowerCase().optional(),
         role: z.enum(['owner', 'member', 'vendor']).optional(),
         status: z.enum(['active', 'disabled']).optional(),
         teamId: z.string().nullable().optional(),
@@ -103,10 +109,14 @@ export const adminRoutes = new Hono<AppEnv>()
         costPerDaySatang: z.number().int().nonnegative().nullable().optional(),
       })
       .safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const before = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
+    if (body.data.email && body.data.email !== before.email) {
+      const dup = (await db.select().from(users).where(eq(users.email, body.data.email)).limit(1))[0]
+      if (dup) return c.json({ error: 'email_exists' }, 409)
+    }
     const updated = await db
       .update(users)
       .set(body.data)
@@ -160,10 +170,12 @@ export const adminRoutes = new Hono<AppEnv>()
   })
 
   // สถานะโปรเจกต์ปรับเองได้ (SPEC §4.3) — owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/ชื่อ/สี)
-  // กันลบสถานะที่ยังมีโปรเจกต์ใช้อยู่ (ต้องย้ายโปรเจกต์ออกก่อน)
+  // Tasknista §PM View — category แยกชุดสถานะ product/project กันคนละคอลัมน์ (company_config.productStatuses/projectStatuses) ตาม category ของโปรเจกต์
+  // กันลบสถานะที่ยังมีโปรเจกต์ (เฉพาะ category นั้น) ใช้อยู่ (ต้องย้ายโปรเจกต์ออกก่อน)
   .put('/project-statuses', async (c) => {
     const body = z
       .object({
+        category: z.enum(['product', 'project']).default('project'),
         statuses: z
           .array(
             z.object({
@@ -178,13 +190,14 @@ export const adminRoutes = new Hono<AppEnv>()
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
-    const statuses = body.data.statuses as ProjectStatus[]
+    const { category, statuses: rawStatuses } = body.data
+    const statuses = rawStatuses as ProjectStatus[]
     const check = validateStatuses(statuses)
     if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
 
     const db = createDb(c.env.DB)
-    // กันลบสถานะที่ใช้อยู่
-    const used = await db.selectDistinct({ status: projects.status }).from(projects)
+    // กันลบสถานะที่ใช้อยู่ — เช็คเฉพาะโปรเจกต์ใน category เดียวกัน (แต่ละ category มีชุดสถานะ/id เป็นอิสระจากกัน)
+    const used = await db.selectDistinct({ status: projects.status }).from(projects).where(eq(projects.category, category))
     const newIds = new Set(statuses.map((s) => s.id))
     const orphan = used.map((u) => u.status).filter((s) => !newIds.has(s))
     if (orphan.length > 0)
@@ -193,16 +206,16 @@ export const adminRoutes = new Hono<AppEnv>()
         409,
       )
 
-    const before = (await db.select({ projectStatuses: companyConfig.projectStatuses }).from(companyConfig).limit(1))[0]
-    await db.update(companyConfig).set({ projectStatuses: statuses }).where(eq(companyConfig.id, 1))
+    const before = (await db.select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ [category === 'product' ? 'productStatuses' : 'projectStatuses']: statuses }).where(eq(companyConfig.id, 1))
     await writeAudit(c.env, {
       actorId: c.get('user').id,
-      action: 'config.project_statuses',
+      action: `config.${category}_statuses`,
       entity: 'company_config',
       entityId: '1',
-      meta: { before: before?.projectStatuses ?? null, after: statuses },
+      meta: { before: (category === 'product' ? before?.productStatuses : before?.projectStatuses) ?? null, after: statuses },
     })
-    return c.json({ projectStatuses: resolveStatuses(statuses) })
+    return c.json({ [category === 'product' ? 'productStatuses' : 'projectStatuses']: resolveStatuses(statuses) })
   })
 
   // Tasknista §Sprint & Board — preset คอลัมน์บอร์ดปรับเองได้ (owner บันทึกทั้งลิสต์)
@@ -255,6 +268,62 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.boardPresets ?? null, after: presetsData },
     })
     return c.json({ boardPresets: resolvePresets(presetsData) })
+  })
+
+  // Tasknista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ)
+  .get('/positions', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
+    return c.json({ positions: resolvePositions(cfg?.positions) })
+  })
+
+  // owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/checkbox สิทธิ์) — กันลบตำแหน่งที่ยังมีสมาชิกโปรเจกต์ใช้อยู่
+  .put('/positions', async (c) => {
+    const body = z
+      .object({
+        positions: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              sortOrder: z.number().int(),
+              permissions: z.object({
+                tabs: z.record(z.enum(PERMISSION_TAB_KEYS), z.boolean()),
+                actions: z.record(
+                  z.enum(PERMISSION_RESOURCE_KEYS),
+                  z.object({ create: z.boolean(), edit: z.boolean(), delete: z.boolean() }),
+                ),
+              }),
+            }),
+          )
+          .min(1),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const positionsData = body.data.positions as Position[]
+    const check = validatePositions(positionsData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const used = await db.selectDistinct({ positionId: projectMembers.positionId }).from(projectMembers)
+    const newIds = new Set(positionsData.map((p) => p.id))
+    const orphan = used.map((u) => u.positionId).filter((id): id is string => id !== null && !newIds.has(id))
+    if (orphan.length > 0)
+      return c.json(
+        { error: 'position_in_use', message: `ยังมีสมาชิกโปรเจกต์ใช้ตำแหน่ง: ${orphan.join(', ')} — ย้ายออกก่อนจึงลบได้` },
+        409,
+      )
+
+    const before = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ positions: positionsData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.positions',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.positions ?? null, after: positionsData },
+    })
+    return c.json({ positions: resolvePositions(positionsData) })
   })
 
   // ── ICS feed (SPEC §4.14 · E6) — ลิงก์ subscribe ปฏิทินทีม (owner สร้าง/รีเซ็ต/ปิด) ──

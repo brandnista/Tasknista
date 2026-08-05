@@ -2,6 +2,7 @@
  * ตั้งค่า → สถานะโปรเจกต์ (SPEC §4.3) — owner เพิ่ม/ลบ/เรียง/เปลี่ยนชื่อ+สี
  * kind=archived = สถานะ "ปิด/เก็บ" (ซ่อนจากลิสต์ที่ทำอยู่) · บันทึกทั้งลิสต์ทีเดียว (PUT)
  * ลบสถานะที่ยังมีโปรเจกต์ใช้ไม่ได้ (server ตอบ 409)
+ * Tasknista §PM View — แยกชุดสถานะตาม category (Product/Project) เพราะ pipeline ไม่เหมือนกัน (เช่น Product ไม่มี MA/Subscribed)
  */
 import { Check, ChevronDown, ChevronUp, Plus, Tags, Trash2 } from 'lucide-react'
 import { STATUS_COLOR_KEYS } from '@seedoffice/core'
@@ -18,20 +19,30 @@ interface Status {
   sortOrder: number
 }
 
+type Category = 'product' | 'project'
+
 export function ProjectStatusSettings() {
-  const { data, reload } = useLoad<{ projectStatuses: Status[] }>(() => api.get('/api/config'))
-  const [list, setList] = useState<Status[] | null>(null)
+  const { data, reload } = useLoad<{ projectStatuses: Status[]; productStatuses: Status[] }>(() => api.get('/api/config'))
+  const [category, setCategory] = useState<Category>('project')
+  const [lists, setLists] = useState<Record<Category, Status[]> | null>(null)
   const [openColor, setOpenColor] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    if (data) setList(data.projectStatuses.map((s, i) => ({ ...s, sortOrder: i })))
+    if (data) {
+      setLists({
+        project: data.projectStatuses.map((s, i) => ({ ...s, sortOrder: i })),
+        product: data.productStatuses.map((s, i) => ({ ...s, sortOrder: i })),
+      })
+    }
   }, [data])
 
-  if (!list) return null
+  if (!lists) return null
+  const list = lists[category]
 
+  const setList = (next: Status[]) => setLists({ ...lists, [category]: next })
   const update = (i: number, patch: Partial<Status>) => {
     setList(list.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
     setSaved(false)
@@ -59,7 +70,7 @@ export function ProjectStatusSettings() {
     setSaved(false)
     try {
       const statuses = list.map((s, i) => ({ ...s, name: s.name.trim(), sortOrder: i }))
-      await api.put('/api/admin/project-statuses', { statuses })
+      await api.put('/api/admin/project-statuses', { category, statuses })
       setSaved(true)
       await reload()
     } catch (e) {
@@ -71,10 +82,22 @@ export function ProjectStatusSettings() {
 
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-      <div className="p-5 border-b border-border-subtle flex items-center gap-2">
+      <div className="p-5 border-b border-border-subtle flex items-center gap-2 flex-wrap">
         <Tags className="w-4 h-4 text-muted" />
         <div className="font-semibold text-ink">สถานะโปรเจกต์</div>
         <span className="text-xs text-muted">ตั้งชื่อ/สี/ลำดับเอง · “เก็บ/ปิด” = ซ่อนจากลิสต์ที่ทำอยู่</span>
+        <div className="ml-auto flex bg-divider rounded-lg p-0.5 text-sm font-medium">
+          {(['project', 'product'] as const).map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => { setCategory(c); setOpenColor(null) }}
+              className={`px-3 py-1.5 rounded-md capitalize ${category === c ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}
+            >
+              {c === 'product' ? 'Product' : 'Project'}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="p-5 space-y-2">
@@ -153,7 +176,7 @@ export function ProjectStatusSettings() {
             disabled={saving}
             className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40"
           >
-            {saving ? 'กำลังบันทึก…' : 'บันทึกสถานะ'}
+            {saving ? 'กำลังบันทึก…' : `บันทึกสถานะ (${category === 'product' ? 'Product' : 'Project'})`}
           </button>
           {saved && <span className="text-xs text-success-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> บันทึกแล้ว</span>}
         </div>

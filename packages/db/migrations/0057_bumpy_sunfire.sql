@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `lead_id` text REFERENCES users(id);

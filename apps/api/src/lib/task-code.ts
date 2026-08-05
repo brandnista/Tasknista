@@ -21,8 +21,12 @@ export async function nextTaskCode(db: ReturnType<typeof createDb>, prefix: stri
   const existing = await db.select({ code: tasks.code }).from(tasks).where(like(tasks.code, `${prefix}-%`))
   let max = 0
   for (const row of existing) {
-    const n = Number(row.code?.slice(prefix.length + 1))
-    if (Number.isFinite(n) && n > max) max = n
+    const suffix = row.code?.slice(prefix.length + 1)
+    // Tasknista §Back to Basic (bugfix) — LIKE ยังจับ sub-task code ("<prefix>-N.M") ด้วย ต้องกรองออกก่อน ไม่งั้น Number("5.1") ผ่านเป็น 5.1 ทำให้เลขรหัสถัดไปเพี้ยน
+    if (suffix && /^\d+$/.test(suffix)) {
+      const n = Number(suffix)
+      if (n > max) max = n
+    }
   }
   return `${prefix}-${max + 1}`
 }
@@ -33,8 +37,12 @@ export async function nextTypedTaskCode(db: ReturnType<typeof createDb>, prefix:
   const existing = await db.select({ code: tasks.code }).from(tasks).where(like(tasks.code, `${scanPrefix}%`))
   let max = 0
   for (const row of existing) {
-    const n = Number(row.code?.slice(scanPrefix.length + 8 /* ddmmyyyy */ + 1))
-    if (Number.isFinite(n) && n > max) max = n
+    const suffix = row.code?.slice(scanPrefix.length + 8 /* ddmmyyyy */ + 1)
+    // Tasknista §Back to Basic (bugfix) — LIKE ยังจับ sub-task code ที่ต่อท้ายด้วย ".N" ด้วย ต้องกรองออกก่อน ไม่งั้น Number("0018.1") ผ่านเป็น 18.1 ทำให้เลขรหัสถัดไปเพี้ยน
+    if (suffix && /^\d+$/.test(suffix)) {
+      const n = Number(suffix)
+      if (n > max) max = n
+    }
   }
   return `${scanPrefix}${ddmmyyyy(Date.now())}-${String(max + 1).padStart(4, '0')}`
 }
@@ -45,8 +53,11 @@ export async function nextTypedEpicCode(db: ReturnType<typeof createDb>, prefix:
   const existing = await db.select({ code: epics.code }).from(epics).where(like(epics.code, `${scanPrefix}%`))
   let max = 0
   for (const row of existing) {
-    const n = Number(row.code?.slice(scanPrefix.length + 8 + 1))
-    if (Number.isFinite(n) && n > max) max = n
+    const suffix = row.code?.slice(scanPrefix.length + 8 + 1)
+    if (suffix && /^\d+$/.test(suffix)) {
+      const n = Number(suffix)
+      if (n > max) max = n
+    }
   }
   return `${scanPrefix}${ddmmyyyy(Date.now())}-${String(max + 1).padStart(4, '0')}`
 }

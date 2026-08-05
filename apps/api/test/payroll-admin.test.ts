@@ -26,7 +26,7 @@ beforeEach(async () => {
 async function seedWork(cookie: string) {
   const owner = await loginAs(app, 'owner@example-co.test')
   const p = (await (await app.request('/api/projects', json(owner, { name: 'WP', type: 'project' }), env)).json()) as { id: string }
-  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', role: 'editor' }), env)
+  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
   const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(cookie, { name: 'G' }), env)).json()) as { id: string }
   const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(cookie, { title: 'งาน' }), env)).json()) as { id: string }
   // 2 วัน × 8 ชม. ในงวด 25 พ.ค.–24 มิ.ย.

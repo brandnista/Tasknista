@@ -5,21 +5,24 @@ import {
   costSatang,
   defaultStatusId,
   estimateDays,
+  hasAnyEditRight,
   isPatchableLogo,
   marginSatang,
   parseProjectLogo,
+  positionById,
   quotationSatang,
+  resolvePositions,
   resolveStatuses,
   statusById,
   uploadLogo,
 } from '@seedoffice/core'
-import { auditLogs, clients, companyConfig, createDb, docLinks, docs, milestones, payments, PROJECT_MEMBER_ROLES, projectMembers, projects, tasks, timeEntries, users, type Project } from '@seedoffice/db'
-import { and, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
+import { auditLogs, clients, companyConfig, createDb, docLinks, docs, milestones, payments, projectMembers, projects, tasks, timeEntries, users, type Project } from '@seedoffice/db'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { canEditProject, getProjectRole } from '../lib/project-role'
+import { canEditProject, getProjectPermissions, getProjectRole } from '../lib/project-role'
 import { ownerOnly, teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -63,11 +66,18 @@ export const projectRoutes = new Hono<AppEnv>()
     const prodStatuses = resolveStatuses(cfgRow?.productStatuses)
     const statusesFor = (cat: string) => (cat === 'product' ? prodStatuses : projStatuses)
     const rows = await db
-      .select({ project: projects, clientName: clients.name })
+      .select({ project: projects, clientName: clients.name, leadName: users.name })
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(users, eq(projects.leadId, users.id))
       .where(isNull(projects.deletedAt))
       .orderBy(desc(projects.createdAt))
+    // Tasknista §PM View — progress ต่อโปรเจกต์ (งานทั้งหมด vs เสร็จแล้ว) ใช้กับ progress bar ในมุมมอง List/Board/Summary
+    const allTasks = await db.select({ projectId: tasks.projectId, status: tasks.status }).from(tasks).where(isNotNull(tasks.projectId))
+    const progressOf = (projectId: string) => {
+      const mine = allTasks.filter((t) => t.projectId === projectId)
+      return { total: mine.length, done: mine.filter((t) => t.status === 'done').length }
+    }
     const openTasks = await db
       .select({
         projectId: tasks.projectId,
@@ -99,8 +109,11 @@ export const projectRoutes = new Hono<AppEnv>()
       .from(timeEntries)
       .where(isNull(timeEntries.deletedAt))
     const allMilestones = await db
-      .select({ projectId: milestones.projectId, budgetSatang: milestones.budgetSatang, status: milestones.status })
+      .select({ projectId: milestones.projectId, name: milestones.name, dueDate: milestones.dueDate, budgetSatang: milestones.budgetSatang, status: milestones.status })
       .from(milestones)
+      .orderBy(asc(milestones.sortOrder))
+    // Tasknista §PM View — Timeline (Gantt) โชว์จุด milestone จริงต่อโปรเจกต์
+    const milestonesOf = (projectId: string) => allMilestones.filter((m) => m.projectId === projectId).map(({ name, dueDate, status }) => ({ name, dueDate, status }))
     // Tasknista §โปรเจกต์ Summary — "อัปเดตล่าสุด" จับจากงาน (task) ที่ขยับล่าสุดในโปรเจกต์ (audit_logs entity='task')
     const activity = await db
       .select({ projectId: tasks.projectId, at: auditLogs.at })
@@ -128,10 +141,13 @@ export const projectRoutes = new Hono<AppEnv>()
             ...r.project,
             ...statusFields(statusesFor(r.project.category), r.project.status),
             clientName: r.clientName,
+            leadName: r.leadName,
             openTodo: firstOpen.get(r.project.id) ?? null,
             paidPct: paidPctOf(r.project.id),
             health: h.health,
             usagePct: h.usagePct,
+            progress: progressOf(r.project.id),
+            milestones: milestonesOf(r.project.id),
             lastActivityAt: lastActivityOf.get(r.project.id) ?? null,
           },
           role,
@@ -153,16 +169,27 @@ export const projectRoutes = new Hono<AppEnv>()
     if (!row || row.project.deletedAt) return c.json({ error: 'not_found' }, 404)
     const cfgRow = (await db.select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses }).from(companyConfig).limit(1))[0]
     const statuses = resolveStatuses(row.project.category === 'product' ? cfgRow?.productStatuses : cfgRow?.projectStatuses)
-    // Tasknista — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/role) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
-    const members = await db
-      .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, role: projectMembers.role })
-      .from(projectMembers)
-      .innerJoin(users, eq(projectMembers.userId, users.id))
-      .where(eq(projectMembers.projectId, row.project.id))
+    const cfgPositions = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
+    const positionsList = resolvePositions(cfgPositions?.positions)
+    // Tasknista §Position-based permission — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/ตำแหน่ง) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
+    const members = (
+      await db
+        .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, positionId: projectMembers.positionId })
+        .from(projectMembers)
+        .innerJoin(users, eq(projectMembers.userId, users.id))
+        .where(eq(projectMembers.projectId, row.project.id))
+    ).map((m) => ({ ...m, positionName: positionById(positionsList, m.positionId)?.name ?? null }))
     const me = c.get('user')
+    // Tasknista §Position-based permission — permission bundle เต็ม (tabs/actions) สำหรับคุมการมองเห็นเมนู/แท็บ + สิทธิ์เพิ่ม/แก้ไข/ลบละเอียด
+    // (Performance review 2026-08-03) คำนวณครั้งเดียว แล้ว derive myRole จากผลลัพธ์นี้เลย แทนการเรียก getProjectRole() แยกซึ่งข้างในคำนวณ permission ซ้ำอีกรอบ
+    const myPermissions = await getProjectPermissions(db, row.project.id, me.id, me.role)
     // Tasknista §permission — สิทธิ์ของฉันในโปรเจกต์นี้โดยเฉพาะ (owner/editor/viewer) ให้ FE ใช้คุม UI โดยไม่ต้อง fetch แยก
-    const myRole = await getProjectRole(db, row.project.id, me.id, me.role)
-    return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, members, myRole }, me.role))
+    const myRole: 'owner' | 'editor' | 'viewer' = me.role === 'owner' ? 'owner' : hasAnyEditRight(myPermissions) ? 'editor' : 'viewer'
+    // Tasknista §Back to Basic (ต่อยอด) — Project Lead อาจไม่ใช่สมาชิกโปรเจกต์ (ไม่อยู่ใน project_members) จึงหาชื่อแยกจาก members ด้านบน
+    const lead = row.project.leadId
+      ? (await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, row.project.leadId)).limit(1))[0]
+      : null
+    return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, leadName: lead?.name ?? null, members, myRole, myPermissions }, me.role))
   })
 
   // สร้างโปรเจกต์ (owner เท่านั้น — Tasknista §permission: จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า) — ลูกค้าใหม่พิมพ์ชื่อ = สร้าง client ให้เลย
@@ -176,6 +203,8 @@ export const projectRoutes = new Hono<AppEnv>()
         status: z.string().optional(), // ตรวจกับ config ด้านล่าง
         clientId: z.string().optional(),
         clientName: z.string().min(1).optional(), // ใช้เมื่อไม่มี clientId
+        // Tasknista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ
+        leadId: z.string().optional(),
         quotedSatang: z.number().int().nonnegative().optional(),
         recurringPeriod: z.enum(['monthly', 'yearly']).optional(),
         startDate: isoDate.optional(),
@@ -223,6 +252,7 @@ export const projectRoutes = new Hono<AppEnv>()
         category,
         status,
         clientId,
+        leadId: d.leadId ?? null,
         quotedSatang: d.type === 'project' ? (d.quotedSatang ?? null) : null,
         billingType: d.type === 'recurring' ? 'recurring' : 'fixed',
         recurringPeriod: d.type === 'recurring' ? (d.recurringPeriod ?? 'monthly') : null,
@@ -260,6 +290,7 @@ export const projectRoutes = new Hono<AppEnv>()
         code: z.string().max(12).nullable().optional(),
         status: z.string().optional(), // ตรวจกับ config ด้านล่าง
         clientId: z.string().nullable().optional(),
+        leadId: z.string().nullable().optional(),
         quotedSatang: z.number().int().nonnegative().nullable().optional(),
         recurringPeriod: z.enum(['monthly', 'yearly']).nullable().optional(),
         startDate: isoDate.nullable().optional(),
@@ -482,32 +513,33 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Tasknista §permission — ตั้ง/เปลี่ยน role ของสมาชิกในโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
-  // upsert บน (projectId, userId) — เรียกซ้ำ = เปลี่ยน role เดิม ไม่สร้างแถวซ้ำ (unique index กันไว้)
+  // Tasknista §Position-based permission — ตั้ง/เปลี่ยนตำแหน่งของสมาชิกในโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
+  // upsert บน (projectId, userId) — เรียกซ้ำ = เปลี่ยนตำแหน่งเดิม ไม่สร้างแถวซ้ำ (unique index กันไว้)
   .post('/:id/members', ownerOnly, async (c) => {
-    const body = z
-      .object({ userId: z.string(), role: z.enum(PROJECT_MEMBER_ROLES) })
-      .safeParse(await c.req.json())
+    const body = z.object({ userId: z.string(), positionId: z.string() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const project = (await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const targetUser = (await db.select().from(users).where(eq(users.id, body.data.userId)).limit(1))[0]
     if (!targetUser) return c.json({ error: 'user_not_found' }, 404)
-    // role ต่อโปรเจกต์มีผลเฉพาะ member (owner แก้ได้ทุกอย่างอยู่แล้ว · vendor ถูก teamOnly กันไว้ชั้นนอก) — กันตั้ง role ให้คนที่ไม่ใช้งานจริง
+    // ตำแหน่งต่อโปรเจกต์มีผลเฉพาะ member (owner แก้ได้ทุกอย่างอยู่แล้ว · vendor ถูก teamOnly กันไว้ชั้นนอก) — กันตั้งตำแหน่งให้คนที่ไม่ใช้งานจริง
     if (targetUser.role !== 'member')
-      return c.json({ error: 'not_a_member', message: 'ตั้ง role ต่อโปรเจกต์ได้เฉพาะผู้ใช้ role member เท่านั้น' }, 400)
+      return c.json({ error: 'not_a_member', message: 'ตั้งตำแหน่งต่อโปรเจกต์ได้เฉพาะผู้ใช้ role member เท่านั้น' }, 400)
+    const cfg = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
+    if (!positionById(resolvePositions(cfg?.positions), body.data.positionId))
+      return c.json({ error: 'position_not_found' }, 404)
     const upserted = await db
       .insert(projectMembers)
-      .values({ projectId: project.id, userId: targetUser.id, role: body.data.role })
-      .onConflictDoUpdate({ target: [projectMembers.projectId, projectMembers.userId], set: { role: body.data.role } })
+      .values({ projectId: project.id, userId: targetUser.id, positionId: body.data.positionId })
+      .onConflictDoUpdate({ target: [projectMembers.projectId, projectMembers.userId], set: { positionId: body.data.positionId } })
       .returning()
     await writeAudit(c.env, {
       actorId: c.get('user').id,
-      action: 'project.member_role',
+      action: 'project.member_position',
       entity: 'project',
       entityId: project.id,
-      meta: { userId: targetUser.id, role: body.data.role },
+      meta: { userId: targetUser.id, positionId: body.data.positionId },
     })
     return c.json(upserted[0])
   })

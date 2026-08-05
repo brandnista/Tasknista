@@ -32,13 +32,14 @@ export function ConvertBacklogModal({
   taskId: string
   to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr'
   title: string
-  currentProjectId: string
+  // Tasknista §Company Backlog convert — ไม่ระบุ (งานลอยๆ ไม่มีโปรเจกต์เดิม) = บังคับให้เลือกโปรเจกต์ปลายทางเอง (placeholder ว่างไว้)
+  currentProjectId?: string
   excludeTaskIds?: string[]
   onClose: () => void
   onConverted: () => void
 }) {
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
-  const [targetProjectId, setTargetProjectId] = useState(currentProjectId)
+  const [targetProjectId, setTargetProjectId] = useState(currentProjectId ?? '')
   const [step, setStep] = useState<'project' | 'parent'>('project')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -94,6 +95,7 @@ export function ConvertBacklogModal({
             onChange={(e) => setTargetProjectId(e.target.value)}
             className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 mb-3"
           >
+            {!currentProjectId && <option value="">— เลือกโปรเจกต์ปลายทาง —</option>}
             {(projects ?? []).map((p) => (
               <option key={p.id} value={p.id}>{p.code ? `${p.code} · ` : ''}{p.name}</option>
             ))}

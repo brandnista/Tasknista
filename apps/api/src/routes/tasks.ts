@@ -1,4 +1,4 @@
-import { bkkDateOf, presetById, resolvePresets } from '@seedoffice/core'
+import { bkkDateOf, hasAnyEditRight, positionById, presetById, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
 import {
   companyConfig,
   createDb,
@@ -25,7 +25,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { canEditProject, canEditTask, getProjectRole } from '../lib/project-role'
+import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
@@ -35,6 +35,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const taskPatchSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
+  // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
+  assigneeNotes: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
   // Tasknista §SOW Task/Subtask — Reference Code แก้ไขได้ (เดิมตั้งได้แค่ตอนแตกเอกสาร)
   originCode: z.string().nullable().optional(),
@@ -210,8 +212,9 @@ export const taskRoutes = new Hono<AppEnv>()
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    const role = await getProjectRole(db, projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    // Tasknista §Position-based permission — ตัวอย่าง granular action แรก: เช็ค actions.task.create ของตำแหน่งที่ assign (ละเอียดกว่า canEditProject เดิม)
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
     let group = (await db.select().from(taskGroups).where(eq(taskGroups.projectId, projectId)).orderBy(asc(taskGroups.sortOrder)).limit(1))[0]
     if (!group) {
       group = (await db.insert(taskGroups).values({ projectId, name: 'ทั่วไป', sortOrder: 0 }).returning())[0]!
@@ -316,6 +319,7 @@ export const taskRoutes = new Hono<AppEnv>()
         kind: tasks.kind,
         parentId: tasks.parentId,
         epicId: tasks.epicId,
+        isStandaloneTask: tasks.isStandaloneTask,
         status: tasks.status,
         defectStatus: tasks.defectStatus,
         assigneeName: users.name,
@@ -381,6 +385,8 @@ export const taskRoutes = new Hono<AppEnv>()
         code: z.string().trim().max(40).optional(),
         originDocType: z.enum(['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR']).optional(),
         kind: z.enum(['backlog', 'task']).optional(),
+        // Tasknista §Back to Basic (ต่อยอด) — คีย์ Task ลอยจากแท็บ Task ตรงๆ ได้โดยไม่ต้องมี Story แม่ก่อน
+        standalone: z.boolean().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -389,14 +395,19 @@ export const taskRoutes = new Hono<AppEnv>()
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    const role = await getProjectRole(db, projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    // Tasknista §Position-based permission — เช็ค actions.task.create ของตำแหน่งที่ assign
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
     const kind = body.data.kind ?? 'task'
     const code = body.data.code || (await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), kind === 'backlog' ? 'Backlog' : 'Task'))
     const created = (
       await db
         .insert(tasks)
-        .values({ projectId, groupId: null, sortOrder: 0, createdBy: me.id, code, title: body.data.title, originDocType: body.data.originDocType ?? null, kind })
+        .values({
+          projectId, groupId: null, sortOrder: 0, createdBy: me.id, code, title: body.data.title,
+          originDocType: body.data.originDocType ?? null, kind,
+          isStandaloneTask: kind === 'task' && (body.data.standalone ?? false),
+        })
         .returning()
     )[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
@@ -452,14 +463,19 @@ export const taskRoutes = new Hono<AppEnv>()
       // Tasknista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
       .where(and(eq(tasks.assigneeId, me.id), isNotNull(tasks.dispatchedAt)))
       .orderBy(asc(tasks.dueDate))
+    // Tasknista §Position-based permission — derive จาก positionId ที่ assign (ไม่อ่าน role คอลัมน์เดิมแล้ว)
     const myMemberships = await db
-      .select({ projectId: projectMembers.projectId, role: projectMembers.role })
+      .select({ projectId: projectMembers.projectId, positionId: projectMembers.positionId })
       .from(projectMembers)
       .where(eq(projectMembers.userId, me.id))
+    const cfgPositions = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
+    const positionsList = resolvePositions(cfgPositions?.positions)
     const roleOf = (projectId: string): 'owner' | 'editor' | 'viewer' => {
       if (me.role === 'owner') return 'owner'
       if (me.role === 'vendor') return 'viewer'
-      return myMemberships.find((m) => m.projectId === projectId)?.role === 'editor' ? 'editor' : 'viewer'
+      const positionId = myMemberships.find((m) => m.projectId === projectId)?.positionId
+      const perm = positionById(positionsList, positionId)?.permissions ?? VIEW_ONLY_PERMISSIONS
+      return hasAnyEditRight(perm) ? 'editor' : 'viewer'
     }
     // Tasknista §Back to Basic (ต่อยอด) — ความคืบหน้าเกณฑ์ว่าเสร็จ (checklist) ต่องาน ให้หน้า "งานของฉัน" โชว์ได้โดยไม่ต้องเปิดเข้าไปทีละงาน
     const taskIds = rows.map((r) => r.task.id)
@@ -501,11 +517,31 @@ export const taskRoutes = new Hono<AppEnv>()
     // พนักงานต้องเป็น editor ของโปรเจกต์นั้นถึงจะแก้ไขได้ · หรือเป็น assignee ของงานนี้เอง (§Task Detail permission fix — แก้งานตัวเองได้เสมอ)
     // backlog (before.projectId เป็น null) ยังเปิดให้ทุกคนย้าย/แปลง/ตั้งเป็นโปรเจกต์ได้ตามเดิม ไม่ผ่านเช็คนี้
     const me = c.get('user')
-    if (!(await canEditTask(db, before, me))) return c.json({ error: 'forbidden' }, 403)
-    // Tasknista §Task Detail permission fix — assignee ที่ผ่านมาได้เพราะเป็นเจ้าของงาน (ไม่ใช่ editor ของโปรเจกต์) ห้ามเปลี่ยนผู้รับผิดชอบเอง (ให้ editor/PM เป็นคนเปลี่ยนแทน กันโยนงานหนีเอง)
-    if ('assigneeId' in body.data && before.projectId && me.role === 'member' && before.assigneeId === me.id) {
-      const role = await getProjectRole(db, before.projectId, me.id, me.role)
-      if (!canEditProject(role)) return c.json({ error: 'forbidden', message: 'เปลี่ยนผู้รับผิดชอบเองไม่ได้ ให้ผู้จัดการโปรเจกต์เปลี่ยนแทน' }, 403)
+    // Tasknista §Position-based permission (Performance review 2026-08-03) — คำนวณ permission ของโปรเจกต์นี้ครั้งเดียว แล้วส่งต่อให้ canEditTask/isAssigneeOnlyEditor
+    // ใช้ร่วมกัน กัน query ซ้ำ (เดิมแต่ละฟังก์ชันไปคำนวณเองแยกกัน กรณี member ที่แก้งานคนอื่น = คำนวณซ้ำ 2 รอบต่อ 1 คำขอ)
+    const permissions =
+      before.projectId && me.role === 'member' ? await getProjectPermissions(db, before.projectId, me.id, me.role) : undefined
+    if (!(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
+    const isAssigneeOnly = await isAssigneeOnlyEditor(db, before, me, permissions)
+    // Tasknista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
+    if (before.projectId && !isAssigneeOnly && me.role === 'member') {
+      if (!permissions!.actions.task.edit) return c.json({ error: 'forbidden' }, 403)
+    }
+    // Tasknista §Back to Basic (ต่อยอด) — หลังจ่ายงานแล้ว assignee ที่ผ่าน canEditTask มาได้เพราะเป็นเจ้าของงานเท่านั้น (ไม่ใช่ editor ของโปรเจกต์)
+    // ห้ามแก้ไขฟิลด์ของผู้จ่ายงานเลย — แก้ได้แค่ assigneeNotes (บันทึกของตัวเอง) กับกด "ส่งงาน" (status: on_processing→waiting_for_test) เท่านั้น
+    // เกณฑ์ว่าเสร็จ/ไฟล์แนบ ผ่านคนละ endpoint (checklist/attachments) จึงไม่ต้องเช็คตรงนี้
+    if (isAssigneeOnly) {
+      const allowedKeys = new Set(['assigneeNotes', 'status'])
+      if (Object.keys(body.data).some((k) => !allowedKeys.has(k)))
+        return c.json({ error: 'forbidden', message: 'แก้ไขได้แค่บันทึกของตัวเองกับกด "ส่งงาน" เท่านั้น ให้ผู้จ่ายงานเป็นคนแก้ไขฟิลด์อื่น' }, 403)
+      if ('status' in body.data && !(before.status === 'on_processing' && body.data.status === 'waiting_for_test'))
+        return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะเองไม่ได้ ต้องกด "ส่งงาน" เท่านั้น' }, 403)
+    }
+    // Tasknista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
+    // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา on_processing ก่อนถึงจะแก้ต่อได้
+    if ('assigneeNotes' in body.data) {
+      if (before.assigneeId !== me.id) return c.json({ error: 'forbidden', message: 'แก้บันทึกของผู้รับงานคนอื่นไม่ได้' }, 403)
+      if (before.status === 'waiting_for_test' || before.status === 'done') return c.json({ error: 'forbidden', message: 'แก้บันทึกไม่ได้แล้วหลังส่งงาน' }, 403)
     }
     // Tasknista §4 — Company Backlog: เฉพาะ owner ล็อค/ปลดล็อคได้ · ล็อคแล้ว member แก้ไข/ย้าย/แปลง task นี้ไม่ได้เลย
     if (before.projectId === null && me.role !== 'owner') {
@@ -516,6 +552,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const patch: Record<string, unknown> = { ...body.data }
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
+    // Tasknista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
+    if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test') patch.submittedAt = new Date()
     // Tasknista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
     // Tasknista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
@@ -568,26 +606,24 @@ export const taskRoutes = new Hono<AppEnv>()
       },
     })
 
-    // Tasknista §My Work/Notification — เฉพาะ Subtask (parentId ไม่ว่าง) เท่านั้นที่แจ้งเตือน ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ
-    if (before.parentId !== null) {
-      if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) {
-        await db.insert(notifications).values({
-          userId: body.data.assigneeId,
-          type: 'subtask_assigned',
-          taskId: before.id,
-          projectId: before.projectId,
-          message: `คุณได้รับมอบหมายงานย่อย "${before.title}"`,
-        })
-      }
-      if (body.data.status === 'done' && before.status !== 'done' && before.assignedBy) {
-        await db.insert(notifications).values({
-          userId: before.assignedBy,
-          type: 'subtask_completed',
-          taskId: before.id,
-          projectId: before.projectId,
-          message: `งานย่อย "${before.title}" ที่คุณมอบหมายเสร็จแล้ว`,
-        })
-      }
+    // Tasknista §My Work/Notification — ทุกระดับ (Story/Task/Subtask/Defect/CR) ไม่ใช่แค่ Subtask เหมือนเดิม (เดิม gate ด้วย parentId!==null ทำให้ Defect/CR/Story ที่ parentId เป็น null ไม่แจ้งเตือนเลย — ผลคือสถิติ "งานที่ถูก Assign วันนี้" ไม่ขึ้นสำหรับงานพวกนี้) ไม่ส่งอีเมล/แจ้งเตือนออกนอกระบบ
+    if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) {
+      await db.insert(notifications).values({
+        userId: body.data.assigneeId,
+        type: 'subtask_assigned',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `คุณได้รับมอบหมายงาน${before.parentId ? 'ย่อย' : ''} "${before.title}"`,
+      })
+    }
+    if (body.data.status === 'done' && before.status !== 'done' && before.assignedBy) {
+      await db.insert(notifications).values({
+        userId: before.assignedBy,
+        type: 'subtask_completed',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน${before.parentId ? 'ย่อย' : ''} "${before.title}" ที่คุณมอบหมายเสร็จแล้ว`,
+      })
     }
     // Tasknista §Task lifecycle notifications — ครบ flow ส่งงาน/อนุมัติ/ตีกลับ ทุก level (ไม่ใช่แค่ subtask เหมือน 2 อันบน)
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test' && before.assignedBy) {
@@ -749,8 +785,9 @@ export const taskRoutes = new Hono<AppEnv>()
         if (before.locked) return c.json({ error: 'locked' }, 403)
         if (before.createdBy !== me.id) return c.json({ error: 'forbidden' }, 403)
       } else {
-        const role = await getProjectRole(db, before.projectId, me.id, me.role)
-        if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+        // Tasknista §Position-based permission — ตัวอย่าง granular action: เช็ค actions.task.delete ของตำแหน่งที่ assign
+        const permissions = await getProjectPermissions(db, before.projectId, me.id, me.role)
+        if (!permissions.actions.task.delete) return c.json({ error: 'forbidden' }, 403)
       }
     }
     // T12 — กันลบ task ที่มี time entries (ข้อมูลเงิน, soft-delete only ตาม SPEC §11) หรือมีงานย่อยอยู่ ก่อนจะไปแตะ FK ใดๆ

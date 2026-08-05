@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `is_standalone_task` integer DEFAULT false NOT NULL;

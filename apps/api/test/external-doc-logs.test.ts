@@ -27,7 +27,7 @@ async function makeProjectWithSowTask(owner: string, editor: string, code: strin
   const p = (await (
     await app.request('/api/projects', json(owner, { name: `โปรเจกต์ ${code}`, type: 'project', code }), env)
   ).json()) as { id: string }
-  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', role: 'editor' }), env)
+  await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
   // สร้าง SOW task ผ่าน template breakout (ให้ originDocType='SOW' จริง)
   const doc = (await (
     await app.request('/api/docs/template', json(editor, { templateType: 'sow', title: 'SOW ทดสอบ', projectId: p.id }), env)

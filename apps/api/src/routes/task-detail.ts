@@ -19,7 +19,7 @@ import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { canEditTask, getProjectRole } from '../lib/project-role'
+import { canEditTask, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
@@ -218,6 +218,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!task) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
     if (!(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
+    // Tasknista §Back to Basic (ต่อยอด) — assignee ติ๊กเกณฑ์ว่าเสร็จได้ (PATCH) แต่เพิ่มเกณฑ์ใหม่เองไม่ได้ (เป็นของผู้จ่ายงาน)
+    if (await isAssigneeOnlyEditor(db, task, me)) return c.json({ error: 'forbidden' }, 403)
     const siblings = await db.select().from(taskChecklistItems).where(eq(taskChecklistItems.taskId, task.id))
     const inserted = await db
       .insert(taskChecklistItems)
@@ -235,6 +237,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, item.taskId)).limit(1))[0]
     const me = c.get('user')
     if (task && !(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
+    // Tasknista §Back to Basic (ต่อยอด) — assignee ติ๊ก done ได้อย่างเดียว แก้ข้อความเกณฑ์เองไม่ได้ (เป็นของผู้จ่ายงาน)
+    if (task && 'text' in body.data && (await isAssigneeOnlyEditor(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     const updated = await db.update(taskChecklistItems).set(body.data).where(eq(taskChecklistItems.id, item.id)).returning()
     return c.json(updated[0])
   })
@@ -246,6 +250,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, item.taskId)).limit(1))[0]
     const me = c.get('user')
     if (task && !(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
+    if (task && (await isAssigneeOnlyEditor(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     await db.delete(taskChecklistItems).where(eq(taskChecklistItems.id, item.id))
     return c.json({ ok: true })
   })

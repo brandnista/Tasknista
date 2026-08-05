@@ -8,6 +8,11 @@
   "compatibility_date": "2026-06-10",
   "compatibility_flags": ["nodejs_compat"],
 
+  // (2026-08-05) ย้ายมาบัญชี Cloudflare "Brandnista Co., Ltd." (brandnista.tech@gmail.com) + โดเมนบริษัท office.pronista.com
+  "routes": [
+    { "pattern": "office.pronista.com", "custom_domain": true }
+  ],
+
   // SPA: ทุก path ที่ไม่ใช่ไฟล์จริง → index.html · /api/* วิ่งเข้า worker ก่อนเสมอ
   "assets": {
     "directory": "apps/web/dist",
@@ -29,7 +34,11 @@
   // ค่าที่ผูกบริษัท/credential ทั้งหมดเป็น secret (`wrangler secret put`): GOOGLE_CLIENT_ID ·
   // GOOGLE_CLIENT_SECRET (login OAuth) · INBOX_ENC_KEY (กุญแจเข้ารหัส token อีเมลกลาง) — repo public ห้ามมีค่าจริง
   "vars": {
-    "APP_URL": "https://office.seedwebs.com",
+    "APP_URL": "https://office.pronista.com",
+    // (2026-07-31) GOOGLE_CLIENT_ID/SECRET ตั้งเป็น secret แล้ว (Google login ใช้งานได้จริง)
+    // (2026-08-03) Security review — DEV_AUTH ต้องเป็น "0" เสมอในไฟล์นี้ (ค่าที่ deploy ขึ้น production จริง)
+    // dev-login = login เป็นใครก็ได้โดยไม่ต้องมีรหัสผ่าน ถ้าเปิดบน production = ใครก็ตามที่รู้ URL เข้าเป็น owner ได้ทันที
+    // การสลับ user ทดสอบยังทำได้ตามเดิมตอนรัน local ผ่าน .dev.vars (DEV_AUTH=1 อยู่แล้ว, override ค่านี้เฉพาะตอน `wrangler dev`, ไม่ถูก deploy)
     "DEV_AUTH": "0"
   },
 
@@ -45,17 +54,17 @@
     { "tag": "v2", "new_sqlite_classes": ["InboxThreadHub"] }
   ],
 
-  // D1: สร้างจริงแล้ว (T02) · local dev ใช้ sqlite ในเครื่อง ไม่แตะ remote · migrate remote = `pnpm db:migrate:remote`
+  // D1: (2026-08-05) database ใหม่บนบัญชี Brandnista Co., Ltd. — ย้ายข้อมูลจากบัญชีเดิมมาแล้วผ่าน export/import
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "seedoffice",
-      "database_id": "a83e812d-362f-41e5-bb79-3a11a45ca7cc",
+      "database_id": "2aee0022-07e9-4b27-a93a-26aca1240dbc",
       "migrations_dir": "packages/db/migrations"
     }
   ],
 
-  // R2: ไฟล์แนบ task/ใบเสร็จ/รูปเอกสาร (T10/D3) · bucket จริงสร้างก่อน deploy
+  // R2: ไฟล์แนบ task/ใบเสร็จ/รูปเอกสาร (T10/D3) · (2026-08-05) bucket ใหม่บนบัญชี Brandnista Co., Ltd. — R2 enable แล้ว
   "r2_buckets": [
     {
       "binding": "FILES",

@@ -41,8 +41,9 @@ export function TaskMetaBadges({ t }: { t: MyWorkTask }) {
   )
 }
 
-/** สรุปงานของฉัน (การ์ด 4 ใบ + "ต้องรีบทำ") — ใช้ร่วมกันระหว่างหน้า "งานของฉัน" กับส่วน "ภาพรวมงานของฉัน" บนหน้า ภาพรวม (Tasknista §permission) */
-export function MyWorkSummary({ tasks, onOpenTask }: { tasks: MyWorkTask[]; onOpenTask: (task: MyWorkTask) => void }) {
+/** สรุปงานของฉัน (การ์ด 4 ใบ + "ต้องรีบทำ") — ใช้ร่วมกันระหว่างหน้า "งานของฉัน" กับส่วน "ภาพรวมงานของฉัน" บนหน้า ภาพรวม (Tasknista §permission)
+ * hideStats: หน้า "งานของฉัน" มี stat strip แบบ compact ของตัวเองแล้ว (Tasknista §My Work UX) — ซ่อนการ์ด 4 ใบตรงนี้กันซ้ำ เหลือแค่ลิสต์ "งานวันนี้"/"ต้องรีบทำ" */
+export function MyWorkSummary({ tasks, onOpenTask, hideStats }: { tasks: MyWorkTask[]; onOpenTask: (task: MyWorkTask) => void; hideStats?: boolean }) {
   const stats = useMemo(() => {
     const today = bkkToday()
     const notDone = tasks.filter((t) => t.status !== 'done')
@@ -74,19 +75,21 @@ export function MyWorkSummary({ tasks, onOpenTask }: { tasks: MyWorkTask[]; onOp
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        {cards.map((c) => (
-          <div key={c.label} className="bg-white rounded-lg shadow-xs p-4 flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 ${c.cls}`}>
-              <c.icon className="w-4.5 h-4.5" />
+      {!hideStats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          {cards.map((c) => (
+            <div key={c.label} className="bg-white rounded-lg shadow-xs p-4 flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 ${c.cls}`}>
+                <c.icon className="w-4.5 h-4.5" />
+              </div>
+              <div>
+                <div className="text-xl font-bold text-ink leading-none">{c.value}</div>
+                <div className="text-xs text-muted mt-0.5">{c.label}</div>
+              </div>
             </div>
-            <div>
-              <div className="text-xl font-bold text-ink leading-none">{c.value}</div>
-              <div className="text-xs text-muted mt-0.5">{c.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {todayTasks.length > 0 && (
         <div className="bg-white rounded-lg shadow-xs p-4 mb-5">

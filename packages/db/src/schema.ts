@@ -128,6 +128,19 @@ export const companyConfig = sqliteTable('company_config', {
   // Tasknista §Project Estimate — % buffer/margin default ใช้คำนวณต้นทุน (owner แก้ได้ที่ตั้งค่า ไม่ hardcode)
   costBufferPercent: integer('cost_buffer_percent').notNull().default(20),
   costMarginPercent: integer('cost_margin_percent').notNull().default(30),
+  // Tasknista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/permissions)
+  // project_members.positionId อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน sprints.boardPresetId อ้าง boardPresets)
+  positions: text('positions', { mode: 'json' }).$type<
+    {
+      id: string
+      name: string
+      sortOrder: number
+      permissions: {
+        tabs: Record<string, boolean>
+        actions: Record<string, { create: boolean; edit: boolean; delete: boolean }>
+      }
+    }[]
+  >(),
 })
 
 /** ลูกค้า (CRM §4.17 — entity จริงตั้งแต่ T08 เลี่ยง refactor) */
@@ -159,6 +172,8 @@ export const projects = sqliteTable(
     url: text('url'), // Tasknista §2.11 — ลิงก์เว็บไซต์จริงของโปรเจกต์/โปรดักต์ (ถ้ามี)
     logo: text('logo'), // emoji
     clientId: text('client_id').references(() => clients.id),
+    // Tasknista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ เลือกได้ 1 คนตอนสร้างโปรเจกต์ (ไม่บังคับ)
+    leadId: text('lead_id').references(() => users.id),
     type: text('type', { enum: ['project', 'recurring'] }).notNull(),
     // ประเภทงาน (Tasknista §F1): กำหนดว่าใช้ชุดสถานะไหน (product → productStatuses · project → projectStatuses)
     category: text('category', { enum: ['product', 'project'] }).notNull().default('project'),
@@ -189,7 +204,9 @@ export const PROJECT_MEMBER_ROLES = ['viewer', 'editor'] as const
 
 /** สมาชิกในโปรเจกต์ (Tasknista §F1) — assign ได้หลายคนต่อโปรเจกต์
  * Tasknista §permission — สิทธิ์ระดับโปรเจกต์ของ 'member' เท่านั้น (owner เห็น/แก้ได้ทุกอย่างเสมอ · vendor คือ 'viewer' เสมอ ไม่ผ่าน column นี้)
- * editor = แก้ไข task ทั้งหมด + ข้อมูลโปรเจกต์ได้ · viewer = อ่านอย่างเดียว (รวมถึงงานที่ตัวเอง assign) · default 'viewer' (ปลอดภัยกว่าสำหรับสมาชิกใหม่) */
+ * editor = แก้ไข task ทั้งหมด + ข้อมูลโปรเจกต์ได้ · viewer = อ่านอย่างเดียว (รวมถึงงานที่ตัวเอง assign) · default 'viewer' (ปลอดภัยกว่าสำหรับสมาชิกใหม่)
+ * Tasknista §Position-based permission — `role` เดิม deprecated แล้ว (คงไว้เผื่อ rollback ไม่อ่าน/ไม่เขียนอีกต่อไป) แทนที่ด้วย `positionId`
+ * (อ้าง id ใน company_config.positions ไม่มี DB-level FK — เหมือน sprints.boardPresetId) null = ยังไม่ตั้ง (fallback = ดูอย่างเดียว) */
 export const projectMembers = sqliteTable(
   'project_members',
   {
@@ -201,6 +218,7 @@ export const projectMembers = sqliteTable(
       .notNull()
       .references(() => users.id),
     role: text('role', { enum: PROJECT_MEMBER_ROLES }).notNull().default('viewer'),
+    positionId: text('position_id'),
   },
   (t) => [uniqueIndex('project_members_uq_idx').on(t.projectId, t.userId)],
 )
@@ -319,6 +337,9 @@ export const tasks = sqliteTable(
     code: text('code'),
     // Tasknista §2.6 — ย้าย backlog เป็น Sub-task ของ task ที่มีอยู่แล้ว (self-ref)
     parentId: text('parent_id').references((): AnySQLiteColumn => tasks.id),
+    // Tasknista §Back to Basic (ต่อยอด) — คีย์ Task ลอยๆ ได้โดยไม่ต้องมี Story แม่ก่อน (parentId ยังว่างได้)
+    // ต้องมี flag แยกเพราะ kind='task'+parentId=null ปกติแปลว่า Story (โครงสร้างเดิม) — flag นี้บอกว่า "ตั้งใจให้เป็น Task ลอย" ไปโผล่แท็บ Task ไม่ใช่แท็บ Story
+    isStandaloneTask: integer('is_standalone_task', { mode: 'boolean' }).notNull().default(false),
     // Tasknista §2.6 — ย้าย backlog เป็น Defect: kind แยกประเภทงาน · reporterType = ผู้แจ้ง
     // Tasknista §Project Refactor — เพิ่ม 'cr' (Change Request ระดับ task แยกจาก doc type 'CR') สำหรับแท็บ CR ในหน้าโปรเจกต์
     // Tasknista §Back to Basic (ต่อยอด) — เพิ่ม 'backlog' แยกงานที่คีย์จากแท็บ "ทั่วไป" ออกจาก Story (kind='task' ระดับบนสุดเหมือนกันแต่คนละความหมาย) ให้เด็ดขาด
@@ -343,7 +364,10 @@ export const tasks = sqliteTable(
     sprintStatus: text('sprint_status'),
     sortOrder: integer('sort_order').notNull().default(0),
     title: text('title').notNull(),
+    // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน (canEdit && !isAssignee)
     description: text('description'),
+    // Tasknista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" คนละฟิลด์กับ description เด็ดขาด แก้ได้เฉพาะ assignee เอง และแก้ไม่ได้แล้วหลังส่งงาน (status=waiting_for_test/done) — ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย
+    assigneeNotes: text('assignee_notes'),
     assigneeId: text('assignee_id').references(() => users.id),
     // Tasknista §My Work/Notification — คนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     assignedBy: text('assigned_by').references(() => users.id),
@@ -365,6 +389,8 @@ export const tasks = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+    // Tasknista §My Work UX — เวลาที่กด "ส่งงาน" ล่าสุด (status → waiting_for_test) ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
+    submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     index('tasks_project_idx').on(t.projectId),
