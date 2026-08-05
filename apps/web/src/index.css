@@ -87,6 +87,12 @@ body {
   background: var(--page);
 }
 
+/* Pronista §Mobile lock — กันหน้าจอ "ดิ้น"/เลื่อนหลุดบนมือถือ: rubber-band bounce ที่ขอบบน-ล่าง + swipe ซ้าย-ขวาที่บาง
+   browser ตีความเป็น back/forward navigation โดยไม่ตั้งใจ (ค่า default ของ browser คือ auto = อนุญาตทั้งคู่) */
+html, body {
+  overscroll-behavior: none;
+}
+
 /* dialog animation — fade backdrop + pop card (เข้า/ออกสั้นๆ เรียบหรู) */
 @keyframes so-fade-in {
   from { opacity: 0; }
