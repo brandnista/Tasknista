@@ -39,7 +39,7 @@ interface DispatchedRow extends KanbanTask {
 }
 interface NotificationRow {
   id: string
-  type: 'subtask_assigned' | 'subtask_completed' | 'task_dispatched' | 'task_submitted' | 'task_approved' | 'task_bounced'
+  type: 'subtask_assigned' | 'subtask_completed' | 'task_dispatched' | 'task_submitted' | 'task_approved' | 'task_bounced' | 'expiry_reminder'
   taskId: string | null
   projectId: string | null
   message: string

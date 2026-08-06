@@ -1,11 +1,13 @@
 import {
   baseSatang,
+  bkkDateOf,
   bufferMinutes,
   costPerHourFromDay,
   costSatang,
   defaultStatusId,
   estimateDays,
   hasAnyEditRight,
+  isNearExpiry,
   isPatchableLogo,
   marginSatang,
   parseProjectLogo,
@@ -13,7 +15,9 @@ import {
   POSITION_FULL_ACCESS_ID,
   quotationSatang,
   resolvePositions,
+  resolveServiceTypes,
   resolveStatuses,
+  serviceTypeById,
   statusById,
   uploadLogo,
 } from '@seedoffice/core'
@@ -62,10 +66,16 @@ export const projectRoutes = new Hono<AppEnv>()
   // งานต่อเนื่อง: แนบ todo เปิดอยู่ที่ใกล้กำหนดสุด (ตาราง "เรียงตาม todo ที่ต้องส่งก่อน")
   .get('/', async (c) => {
     const db = createDb(c.env.DB)
-    const cfgRow = (await db.select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses }).from(companyConfig).limit(1))[0]
+    const cfgRow = (
+      await db
+        .select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses, serviceTypes: companyConfig.serviceTypes })
+        .from(companyConfig)
+        .limit(1)
+    )[0]
     const projStatuses = resolveStatuses(cfgRow?.projectStatuses)
     const prodStatuses = resolveStatuses(cfgRow?.productStatuses)
     const statusesFor = (cat: string) => (cat === 'product' ? prodStatuses : projStatuses)
+    const svcTypes = resolveServiceTypes(cfgRow?.serviceTypes)
     const rows = await db
       .select({ project: projects, clientName: clients.name, leadName: users.name })
       .from(projects)
@@ -129,6 +139,7 @@ export const projectRoutes = new Hono<AppEnv>()
       if (!cur || at > cur) lastActivityOf.set(a.projectId, at)
     }
     const role = c.get('user').role
+    const today = bkkDateOf(Date.now())
     return c.json(
       rows.map((r) => {
         const cost = costSatang(allEntries.filter((e) => e.projectId === r.project.id))
@@ -150,6 +161,9 @@ export const projectRoutes = new Hono<AppEnv>()
             progress: progressOf(r.project.id),
             milestones: milestonesOf(r.project.id),
             lastActivityAt: lastActivityOf.get(r.project.id) ?? null,
+            // Pronista §Subscription Notify — ใกล้/เลยวันหมดอายุบริการแล้ว (ยังไม่ต่ออายุ) ใช้กรองแท็บ "บริการใกล้หมดอายุ"
+            nearExpiry: isNearExpiry(r.project.serviceEndDate, r.project.notifyBeforeDays, today),
+            serviceTypeName: serviceTypeById(svcTypes, r.project.serviceType)?.name ?? null,
           },
           role,
         )
@@ -168,8 +182,14 @@ export const projectRoutes = new Hono<AppEnv>()
         .limit(1)
     )[0]
     if (!row || row.project.deletedAt) return c.json({ error: 'not_found' }, 404)
-    const cfgRow = (await db.select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses }).from(companyConfig).limit(1))[0]
+    const cfgRow = (
+      await db
+        .select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses, serviceTypes: companyConfig.serviceTypes })
+        .from(companyConfig)
+        .limit(1)
+    )[0]
     const statuses = resolveStatuses(row.project.category === 'product' ? cfgRow?.productStatuses : cfgRow?.projectStatuses)
+    const serviceTypeName = serviceTypeById(resolveServiceTypes(cfgRow?.serviceTypes), row.project.serviceType)?.name ?? null
     const cfgPositions = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
     const positionsList = resolvePositions(cfgPositions?.positions)
     // Pronista §Position-based permission — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/ตำแหน่ง) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
@@ -190,7 +210,7 @@ export const projectRoutes = new Hono<AppEnv>()
     const lead = row.project.leadId
       ? (await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, row.project.leadId)).limit(1))[0]
       : null
-    return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, leadName: lead?.name ?? null, members, myRole, myPermissions }, me.role))
+    return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, leadName: lead?.name ?? null, serviceTypeName, members, myRole, myPermissions }, me.role))
   })
 
   // สร้างโปรเจกต์ (owner เท่านั้น — Pronista §permission: จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า) — ลูกค้าใหม่พิมพ์ชื่อ = สร้าง client ให้เลย
@@ -217,6 +237,11 @@ export const projectRoutes = new Hono<AppEnv>()
         sprint: z.string().max(60).optional(),
         priority: z.enum(['low', 'normal', 'high']).optional(),
         members: z.array(z.string()).max(50).optional(),
+        // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (ไม่ระบุ serviceEndDate = lifetime)
+        serviceType: z.string().optional(),
+        serviceStartDate: isoDate.optional(),
+        serviceEndDate: isoDate.optional(),
+        notifyBeforeDays: z.number().int().positive().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
@@ -230,6 +255,14 @@ export const projectRoutes = new Hono<AppEnv>()
     if (d.status && !statusById(statuses, d.status)) return c.json({ error: 'invalid_status' }, 400)
     // ไม่ระบุ = active ตัวแรกของชุดสถานะตาม category
     const status = d.status ?? defaultStatusId(statuses)
+
+    if (d.serviceType) {
+      const cfgSvc = (await db.select({ serviceTypes: companyConfig.serviceTypes }).from(companyConfig).limit(1))[0]
+      if (!serviceTypeById(resolveServiceTypes(cfgSvc?.serviceTypes), d.serviceType))
+        return c.json({ error: 'invalid_service_type' }, 400)
+    }
+    if (d.serviceEndDate && d.serviceStartDate && d.serviceStartDate > d.serviceEndDate)
+      return c.json({ error: 'invalid_service_period', message: 'วันเริ่มต้นต้องอยู่ก่อนวันสิ้นสุด' }, 400)
 
     let clientId = d.clientId ?? null
     if (!clientId && d.clientName) {
@@ -262,6 +295,10 @@ export const projectRoutes = new Hono<AppEnv>()
         sprint: d.sprint ?? null,
         priority: d.priority ?? 'normal',
         tags: d.tags ?? null,
+        serviceType: d.serviceType ?? null,
+        serviceStartDate: d.serviceStartDate ?? null,
+        serviceEndDate: d.serviceEndDate ?? null,
+        notifyBeforeDays: d.notifyBeforeDays ?? null,
       })
       .returning()
     const p = inserted[0]
@@ -307,6 +344,11 @@ export const projectRoutes = new Hono<AppEnv>()
         estimateNetWorkingDays: z.number().int().positive().nullable().optional(),
         // Pronista §Project Refactor — เนื้อหาแท็บ "API Document" (richtext อิสระต่อโปรเจกต์)
         apiDocNotes: z.string().nullable().optional(),
+        // Pronista §Subscription Notify — แก้ประเภท/ช่วงเวลาให้บริการภายหลัง (เช่น ต่ออายุ) — เคลียร์ serviceEndDate = lifetime
+        serviceType: z.string().nullable().optional(),
+        serviceStartDate: isoDate.nullable().optional(),
+        serviceEndDate: isoDate.nullable().optional(),
+        notifyBeforeDays: z.number().int().positive().nullable().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -321,6 +363,11 @@ export const projectRoutes = new Hono<AppEnv>()
         statusById(resolveStatuses(cfg?.productStatuses), body.data.status)
       if (!ok) return c.json({ error: 'invalid_status' }, 400)
     }
+    if (body.data.serviceType) {
+      const cfgSvc = (await db.select({ serviceTypes: companyConfig.serviceTypes }).from(companyConfig).limit(1))[0]
+      if (!serviceTypeById(resolveServiceTypes(cfgSvc?.serviceTypes), body.data.serviceType))
+        return c.json({ error: 'invalid_service_type' }, 400)
+    }
     const before = (
       await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1)
     )[0]
@@ -328,9 +375,12 @@ export const projectRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     const myRole = await getProjectRole(db, before.id, me.id, me.role)
     if (!canEditProject(myRole)) return c.json({ error: 'forbidden' }, 403)
+    // เปลี่ยน/เคลียร์วันหมดอายุ (เช่น ต่ออายุ) → reset สถานะแจ้งเตือน กันไม่ให้ cron มองว่าเคยเตือนไปแล้วรอบก่อน
+    const patch: typeof body.data & { expiryNotifiedAt?: null } = { ...body.data }
+    if ('serviceEndDate' in body.data && body.data.serviceEndDate !== before.serviceEndDate) patch.expiryNotifiedAt = null
     const updated = await db
       .update(projects)
-      .set(body.data)
+      .set(patch)
       .where(eq(projects.id, before.id))
       .returning()
     // เปลี่ยน/เคลียร์ไอคอนทั้งที่ของเดิมเป็นโลโก้อัปโหลด → ลบไฟล์ R2 เก่าทิ้ง (กันขยะ)

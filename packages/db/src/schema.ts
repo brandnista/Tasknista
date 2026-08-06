@@ -141,6 +141,9 @@ export const companyConfig = sqliteTable('company_config', {
       }
     }[]
   >(),
+  // Pronista §Subscription Notify — แคตตาล็อกประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ) แก้ไขได้ที่ตั้งค่า (null = ใช้ DEFAULT — resolve ใน core/subscription)
+  // projects.serviceType อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน positions)
+  serviceTypes: text('service_types', { mode: 'json' }).$type<{ id: string; name: string; sortOrder: number }[]>(),
 })
 
 /** ลูกค้า (CRM §4.17 — entity จริงตั้งแต่ T08 เลี่ยง refactor) */
@@ -191,6 +194,13 @@ export const projects = sqliteTable(
     estimateNetWorkingDays: integer('estimate_net_working_days'),
     // Pronista §Project Refactor — เนื้อหา richtext อิสระต่อโปรเจกต์ สำหรับแท็บ "API Document" (developer API docs/technical specs)
     apiDocNotes: text('api_doc_notes'),
+    // Pronista §Subscription Notify — ประเภทโปรเจกต์ (อ้าง id ใน company_config.serviceTypes) + ช่วงเวลาให้บริการ (null = lifetime ไม่มีวันหมดอายุ)
+    serviceType: text('service_type'),
+    serviceStartDate: text('service_start_date'), // YYYY-MM-DD
+    serviceEndDate: text('service_end_date'), // YYYY-MM-DD — null = lifetime
+    notifyBeforeDays: integer('notify_before_days'), // แจ้งเตือนล่วงหน้ากี่วันก่อนหมดอายุ
+    // กันแจ้งเตือนซ้ำทุกวันหลังเข้าเกณฑ์ — reset เป็น null ทุกครั้งที่ serviceEndDate เปลี่ยน (ต่ออายุ)
+    expiryNotifiedAt: integer('expiry_notified_at', { mode: 'timestamp_ms' }),
     // Pronista §Project Refactor — soft-delete เท่านั้น (กฎเหล็ก) — ลบได้เฉพาะ owner (Admin)
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1230,6 +1240,8 @@ export const NOTIFICATION_TYPES = [
   'task_submitted',
   'task_approved',
   'task_bounced',
+  // Pronista §Subscription Notify — เตือน Project Lead ก่อนโปรเจกต์ใกล้หมดอายุบริการ (คอลัมน์ TEXT ธรรมดา ไม่ต้อง migration)
+  'expiry_reminder',
 ] as const
 
 export const notifications = sqliteTable(

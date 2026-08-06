@@ -38,6 +38,13 @@ export interface ProjectRow {
   leadName?: string | null
   progress?: { total: number; done: number }
   milestones?: { name: string; dueDate: string | null; status: 'planned' | 'active' | 'done' }[]
+  // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (null serviceEndDate = lifetime)
+  serviceType?: string | null
+  serviceTypeName?: string | null
+  serviceStartDate?: string | null
+  serviceEndDate?: string | null
+  notifyBeforeDays?: number | null
+  nearExpiry?: boolean
 }
 
 export const HEALTH_DOT: Record<'green' | 'amber' | 'red', string> = {

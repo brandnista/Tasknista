@@ -5,14 +5,17 @@ import {
   PERMISSION_TAB_KEYS,
   resolvePresets,
   resolvePositions,
+  resolveServiceTypes,
   resolveStatuses,
   STATUS_COLOR_KEYS,
   validatePositions,
   validatePresets,
+  validateServiceTypes,
   validateStatuses,
   type BoardPreset,
   type Position,
   type ProjectStatus,
+  type ServiceType,
 } from '@seedoffice/core'
 import { companyConfig, createDb, projectMembers, projects, rates, sprints, teams, users } from '@seedoffice/db'
 import { asc, eq } from 'drizzle-orm'
@@ -324,6 +327,49 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.positions ?? null, after: positionsData },
     })
     return c.json({ positions: resolvePositions(positionsData) })
+  })
+
+  // Pronista §Subscription Notify — แคตตาล็อกประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ)
+  .get('/service-types', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ serviceTypes: companyConfig.serviceTypes }).from(companyConfig).limit(1))[0]
+    return c.json({ serviceTypes: resolveServiceTypes(cfg?.serviceTypes) })
+  })
+
+  // owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/แก้ชื่อ) — กันลบประเภทที่ยังมีโปรเจกต์ใช้อยู่
+  .put('/service-types', async (c) => {
+    const body = z
+      .object({
+        serviceTypes: z
+          .array(z.object({ id: z.string(), name: z.string(), sortOrder: z.number().int() }))
+          .min(1),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const serviceTypesData = body.data.serviceTypes as ServiceType[]
+    const check = validateServiceTypes(serviceTypesData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const used = await db.selectDistinct({ serviceType: projects.serviceType }).from(projects)
+    const newIds = new Set(serviceTypesData.map((s) => s.id))
+    const orphan = used.map((u) => u.serviceType).filter((id): id is string => id !== null && !newIds.has(id))
+    if (orphan.length > 0)
+      return c.json(
+        { error: 'service_type_in_use', message: `ยังมีโปรเจกต์ใช้ประเภท: ${orphan.join(', ')} — เปลี่ยนประเภทของโปรเจกต์นั้นก่อนจึงลบได้` },
+        409,
+      )
+
+    const before = (await db.select({ serviceTypes: companyConfig.serviceTypes }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ serviceTypes: serviceTypesData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.service_types',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.serviceTypes ?? null, after: serviceTypesData },
+    })
+    return c.json({ serviceTypes: resolveServiceTypes(serviceTypesData) })
   })
 
   // ── ICS feed (SPEC §4.14 · E6) — ลิงก์ subscribe ปฏิทินทีม (owner สร้าง/รีเซ็ต/ปิด) ──

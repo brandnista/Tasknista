@@ -282,6 +282,48 @@ function CollapsibleBacklog({ children }: { children: React.ReactNode }) {
   )
 }
 
+/** Pronista §Subscription Notify — Dashboard รวมโปรเจกต์ที่ใกล้/เลยวันหมดอายุบริการ (nearExpiry จาก server)
+ * คอลัมน์ตามที่กำหนด: ชื่อโปรเจกต์ / โปรเจกต์ไทป์ / ชื่อลูกค้า / วันที่หมดอายุ — เรียงตามวันหมดอายุใกล้สุดก่อน */
+function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
+  const navigate = useNavigate()
+  const list = rows.filter((p) => p.nearExpiry).sort((a, b) => (a.serviceEndDate ?? '').localeCompare(b.serviceEndDate ?? ''))
+
+  if (list.length === 0)
+    return <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">ไม่มีโปรเจกต์ที่ใกล้หมดอายุบริการ</div>
+
+  return (
+    <div className="bg-white rounded-lg shadow-xs overflow-hidden overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-hover text-dim text-xs">
+          <tr>
+            <th className="text-left font-medium px-5 py-3">ชื่อโปรเจกต์</th>
+            <th className="text-left font-medium px-3 py-3">โปรเจกต์ไทป์</th>
+            <th className="text-left font-medium px-3 py-3">ชื่อลูกค้า</th>
+            <th className="text-left font-medium px-3 py-3 w-40">วันที่หมดอายุ</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-divider">
+          {list.map((p) => {
+            const overdue = p.serviceEndDate ? p.serviceEndDate < new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10) : false
+            return (
+              <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="hover:bg-hover cursor-pointer">
+                <td className="px-5 py-3 text-body">
+                  <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> {p.name}</div>
+                </td>
+                <td className="px-3 py-3 text-muted">{p.serviceTypeName ?? '—'}</td>
+                <td className="px-3 py-3 text-muted">{p.clientName ?? '—'}</td>
+                <td className={`px-3 py-3 whitespace-nowrap ${overdue ? 'text-danger-600 font-medium' : 'text-body'}`}>
+                  {p.serviceEndDate ? fmtThaiDate(p.serviceEndDate) : '—'}{overdue && <span className="ml-1.5 text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">เลยกำหนด</span>}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 const PAGE_SIZES = [10, 25, 50, 100] as const
 
 /** มุมมองตาราง (ชื่อ + สถานะ) แบบ default — เรียงลำดับ, เลือกจำนวนต่อหน้าได้ */
@@ -429,6 +471,7 @@ const addWeeks = (start: string, weeks: string) => {
 }
 
 interface ClientOpt { id: string; name: string }
+interface ServiceTypeOpt { id: string; name: string }
 
 /** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
 const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
@@ -436,12 +479,16 @@ const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, ''
 function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => void; onCreated: () => void; initialName?: string }) {
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const { data: clientData } = useLoad<{ rows: ClientOpt[] }>(() => api.get('/api/clients'))
+  const { data: serviceTypeData } = useLoad<{ serviceTypes: ServiceTypeOpt[] }>(() => api.get('/api/admin/service-types'))
   const clients = clientData?.rows ?? []
+  const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const team = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
     name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
     startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: initialName ? autoProjectKey(initialName) : '',
+    // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
+    serviceType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
   })
   const [codeTouched, setCodeTouched] = useState(false)
   const [newClient, setNewClient] = useState(false)
@@ -452,6 +499,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
 
   const submit = async () => {
     try {
+      const notifyBeforeDays = form.hasServicePeriod && form.notifyValue ? Number(form.notifyValue) * (form.notifyUnit === 'month' ? 30 : 1) : null
       const created = await api.post<{ id: string }>('/api/projects', {
         name: form.name,
         type: 'project',
@@ -465,6 +513,10 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
         ...(form.code ? { code: form.code } : {}),
         ...(form.startDate ? { startDate: form.startDate } : {}),
         ...(form.dueDate ? { dueDate: form.dueDate } : {}),
+        ...(form.serviceType ? { serviceType: form.serviceType } : {}),
+        ...(form.hasServicePeriod && form.serviceStartDate ? { serviceStartDate: form.serviceStartDate } : {}),
+        ...(form.hasServicePeriod && form.serviceEndDate ? { serviceEndDate: form.serviceEndDate } : {}),
+        ...(notifyBeforeDays ? { notifyBeforeDays } : {}),
       })
       // Pronista §Project Refactor — เปิดโปรเจกต์ที่เพิ่งสร้างในแท็บใหม่ทันที (เหมือนแพตเทิร์นเดิมใน Docs.tsx ตอนสร้างเอกสาร)
       window.open(`/projects/${created.id}`, '_blank', 'noopener')
@@ -511,6 +563,49 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                 ))}
               </div>
             </div>
+
+            {form.category === 'project' && (
+              <>
+                <div>
+                  <label className={label}>โปรเจกต์ไทป์</label>
+                  <select value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className={input}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {serviceTypes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-body cursor-pointer mb-2">
+                    <input type="checkbox" checked={form.hasServicePeriod} onChange={(e) => setForm({ ...form, hasServicePeriod: e.target.checked })} />
+                    มีระยะเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
+                  </label>
+                  {form.hasServicePeriod && (
+                    <div className="space-y-3 pl-1">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={label}>วันเริ่มบริการ</label>
+                          <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
+                        </div>
+                        <div>
+                          <label className={label}>วันหมดอายุบริการ</label>
+                          <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={label}>แจ้งเตือนล่วงหน้าก่อนหมดอายุ</label>
+                        <div className="flex gap-2">
+                          <input type="number" min={1} value={form.notifyValue} onChange={(e) => setForm({ ...form, notifyValue: e.target.value })} className={`${input} w-24`} />
+                          <select value={form.notifyUnit} onChange={(e) => setForm({ ...form, notifyUnit: e.target.value as 'day' | 'month' })} className={input}>
+                            <option value="day">วัน</option>
+                            <option value="month">เดือน</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -694,7 +789,8 @@ export function ProjectsPage() {
   }, [])
 
   const rows = data ?? []
-  const [view, setView] = useState<'table' | 'summary' | 'timeline' | 'board'>('table')
+  const [view, setView] = useState<'table' | 'summary' | 'timeline' | 'board' | 'expiring'>('table')
+  const expiringCount = rows.filter((p) => p.nearExpiry).length
   const [catFilter, setCatFilter] = useState<'all' | 'product' | 'project'>('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [leadFilter, setLeadFilter] = useState('all')
@@ -742,6 +838,13 @@ export function ProjectsPage() {
                   <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-md ${view === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
                 ))}
               </div>
+              <button
+                onClick={() => setView('expiring')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${view === 'expiring' ? 'bg-danger-600 text-white' : 'bg-white border border-border-subtle text-dim hover:bg-hover'}`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5" /> บริการใกล้หมดอายุ
+                {expiringCount > 0 && <span className={`text-[10px] rounded-full px-1.5 ${view === 'expiring' ? 'bg-white/20' : 'bg-danger-50 text-danger-600'}`}>{expiringCount}</span>}
+              </button>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
                 <option value="all">สถานะ: ทั้งหมด</option>
                 {statusOptionsInData.map(([name]) => <option key={name} value={name}>{name}</option>)}
@@ -766,6 +869,8 @@ export function ProjectsPage() {
             </div>
 
             {view === 'table' && <TableView rows={filteredRows} />}
+
+            {view === 'expiring' && <ExpiringServicesTable rows={rows} />}
 
             {view === 'summary' && (
               <>
