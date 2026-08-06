@@ -14,6 +14,7 @@ import { externalDocLogRoutes } from './routes/external-doc-logs'
 import { teamActivityRoutes } from './routes/team-activity'
 import { financeRoutes } from './routes/finance'
 import { icsFeedRoutes } from './routes/ics'
+import { importDataRoutes } from './routes/import-data'
 import { inboxSettingsRoutes } from './routes/inbox-settings'
 import { inboxThreadRoutes } from './routes/inbox-threads'
 import { overviewRoutes } from './routes/overview'
@@ -98,6 +99,8 @@ app.use('/api/projects/:id/payments', requireAuth, teamOnly)
 app.use('/api/milestones/*', requireAuth, teamOnly)
 app.use('/api/payments/*', requireAuth, teamOnly)
 app.route('/api', taskRoutes)
+// Pronista §Import Data — /api/projects/:id/import/* อยู่ใต้ /api/projects/* (requireAuth ด้านบน) แล้ว teamOnly เช็คในตัว route เอง
+app.route('/api', importDataRoutes)
 app.route('/api', sprintRoutes)
 // Pronista §My Work/Notification — แจ้งเตือนส่วนตัว ไม่ได้อยู่ใต้ /api/tasks/* หรือ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
 app.use('/api/notifications', requireAuth)
