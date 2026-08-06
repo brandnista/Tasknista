@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
 import { formatSatang, minutesToHoursLabel, type PermissionTabKey, type PositionPermissions } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -6,7 +6,6 @@ import { Avatar } from '../components/Avatar'
 import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertMenu'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { ProjectIcon } from '../components/ProjectIcon'
-import { ImportDataModal } from '../components/ImportDataModal'
 import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
@@ -1892,8 +1891,6 @@ export function ProjectDetailPage() {
   const progressPct = allTasks.length > 0 ? Math.round((doneCount / allTasks.length) * 100) : 0
   // Pronista §SOW Task/Subtask — อัปโหลดไฟล์ Word ของ SOW แตกเป็น Task/Subtask ลง Backlog (เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว)
   const [uploadOpen, setUploadOpen] = useState(false)
-  // Pronista §Import Data — อัปงานเข้าระบบทีเดียวจาก Excel (+ เอกสารแนบ) วางไว้ข้างปุ่มอัปโหลด SOW ที่หัวโปรเจกต์ (เห็นได้ทุกแท็บ เพราะผลลัพธ์กระทบทั้ง Backlog และเอกสาร)
-  const [importOpen, setImportOpen] = useState(false)
   const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
   // Pronista §Sprint & Board fix — สัญญาณให้ ProjectBacklogSection สลับไปแท็บที่งานที่เพิ่งเอาออกจาก Sprint กลับมาอยู่ (ไม่งั้นดูเหมือนงานหายเพราะแท็บที่เปิดค้างไม่ตรง)
   const [revealSignal, setRevealSignal] = useState<{ tab: BacklogTab; nonce: number } | null>(null)
@@ -1914,13 +1911,6 @@ export function ProjectDetailPage() {
           <span className={`text-xs px-2 py-0.5 rounded-full ${statusChip(project.statusColor)}`}>{project.statusName}</span>
           {canEditProject && (
             <div className="ml-auto flex items-center gap-3">
-              <button
-                onClick={() => setImportOpen(true)}
-                title="อัปงานเข้าระบบทีเดียวจาก Excel + เอกสารแนบ"
-                className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
-              >
-                <Upload className="w-3.5 h-3.5" /> Import Data
-              </button>
               <button
                 onClick={() => setUploadOpen(true)}
                 title="อัปโหลดเอกสาร SOW มาแตกเป็น Task/Subtask"
@@ -2035,14 +2025,6 @@ export function ProjectDetailPage() {
           lockedProject={{ id: project.id, code: project.code, name: project.name }}
           onClose={() => setUploadOpen(false)}
           onCreated={() => { setUploadOpen(false); void reload(); setBacklogRefreshKey((k) => k + 1) }}
-        />
-      )}
-
-      {importOpen && id && (
-        <ImportDataModal
-          project={{ id: project.id, code: project.code, name: project.name }}
-          onClose={() => { setImportOpen(false); void reload(); setBacklogRefreshKey((k) => k + 1) }}
-          onImported={() => { void reload(); setBacklogRefreshKey((k) => k + 1) }}
         />
       )}
     </div>
