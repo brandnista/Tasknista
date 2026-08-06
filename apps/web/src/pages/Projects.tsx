@@ -437,9 +437,11 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const { data: clientData } = useLoad<{ rows: ClientOpt[] }>(() => api.get('/api/clients'))
   const clients = clientData?.rows ?? []
-  // Pronista §Position-based permission fix — เลือกได้เฉพาะ role member เท่านั้น (owner มีสิทธิ์เต็มอยู่แล้วไม่ต้องตั้งตำแหน่ง · vendor ต้องผ่าน teamOnly ชั้นนอก)
+  // Pronista §Position-based permission fix — checklist "สมาชิกในโปรเจกต์" เลือกได้เฉพาะ role member เท่านั้น (owner มีสิทธิ์เต็มอยู่แล้วไม่ต้องตั้งตำแหน่ง · vendor ต้องผ่าน teamOnly ชั้นนอก)
   // ตรงกับที่ POST /:id/members และหน้าแก้ไขโปรเจกต์รองรับ — เลือก owner/vendor ตรงนี้จะสร้างแถวสมาชิกที่หน้าแก้ไขโปรเจกต์จัดการไม่ได้ (นับใน "สมาชิก (N)" แต่หายไปจากลิสต์แก้ไข)
   const team = (users ?? []).filter((u) => u.role === 'member')
+  // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — owner เป็น Lead ได้ปกติ จึงใช้ลิสต์แยก ไม่ผูกกับ team ด้านบน
+  const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
     name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
@@ -527,7 +529,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                 <label className={label}>Project Lead / หัวหน้าโครงการ</label>
                 <select value={form.leadId} onChange={(e) => setForm({ ...form, leadId: e.target.value })} className={input}>
                   <option value="">— ไม่ระบุ —</option>
-                  {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  {leadOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </div>
             </div>
