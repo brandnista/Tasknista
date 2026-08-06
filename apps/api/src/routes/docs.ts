@@ -245,6 +245,10 @@ export const docRoutes = new Hono<AppEnv>()
     // Pronista §Document Traceability — ผู้ใช้เลือกแท็กประเภทเอกสารตอนอัปโหลดไฟล์ทั่วไปได้ (ไม่บังคับ) เพื่อใช้ฟิลเตอร์หน้าเอกสาร
     const docTypeRaw = form.get('docType')
     const docType = typeof docTypeRaw === 'string' && DOC_TYPES.includes(docTypeRaw as (typeof DOC_TYPES)[number]) ? (docTypeRaw as (typeof DOC_TYPES)[number]) : null
+    // Pronista §Document project link fix — อัปโหลดไฟล์ทั่วไปเดิมไม่มีทางผูกโปรเจกต์ได้เลย (ไม่มีช่องให้เลือก + endpoint ไม่รับ projectId)
+    // ผลคือเอกสารที่อัปด้วยทางนี้ไม่โผล่ "ประวัติเอกสาร" เพราะหน้านั้นกรองเอาเฉพาะเอกสารที่ผูกโปรเจกต์ (ผ่าน docLinks) เท่านั้น — ไม่บังคับ (ไม่ใช่ทุกไฟล์ต้องผูกโปรเจกต์)
+    const projectIdRaw = form.get('projectId')
+    const projectId = typeof projectIdRaw === 'string' && projectIdRaw ? projectIdRaw : null
     if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400)
     if (file.size === 0 || file.size > MAX_FILE_BYTES) return c.json({ error: 'file_too_large' }, 413)
     if (!ACCEPTED_FILE_MIME.has(file.type)) return c.json({ error: 'invalid_type', message: 'รับเฉพาะ Word (.docx/.doc) และ PDF' }, 415)
@@ -252,6 +256,13 @@ export const docRoutes = new Hono<AppEnv>()
     if (targetParentId) {
       const access = await getDocAccess(db, targetParentId, me.id, me.role)
       if (!canEditDoc(access)) return c.json({ error: 'forbidden' }, 403)
+    }
+    let project: (typeof projects.$inferSelect) | undefined
+    if (projectId) {
+      project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
+      if (!project) return c.json({ error: 'project_not_found' }, 404)
+      const role = await getProjectRole(db, project.id, me.id, me.role)
+      if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
     }
     const safeName = file.name.replaceAll('/', '_').slice(0, 120)
     const r2Key = `docs/${crypto.randomUUID()}-${safeName}`
@@ -278,7 +289,8 @@ export const docRoutes = new Hono<AppEnv>()
         updatedBy: me.id,
       })
       .returning()
-    await writeAudit(c.env, { actorId: me.id, action: 'doc.create', entity: 'doc', entityId: inserted[0]!.id, meta: { filename: safeName, kind: 'file' } })
+    if (project) await db.insert(docLinks).values({ docId: inserted[0]!.id, projectId: project.id, createdBy: me.id })
+    await writeAudit(c.env, { actorId: me.id, action: 'doc.create', entity: 'doc', entityId: inserted[0]!.id, meta: { filename: safeName, kind: 'file', projectId: project?.id ?? null } })
     return c.json(inserted[0], 201)
   })
 

@@ -77,8 +77,17 @@ function AddMenu({ x, y, onClose, onPage, onLink, onUpload, onTemplate, onUpload
 }
 
 /** เลือกแท็กประเภทเอกสาร (ไม่บังคับ) หลังเลือกไฟล์แล้ว ก่อนอัปโหลดจริง — ใช้เพื่อให้ฟิลเตอร์หน้าเอกสารหาไฟล์ที่อัปโหลดเองเจอ */
-function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string; onClose: () => void; onConfirm: (docType: DocType | null) => void }) {
+// Pronista §Document project link fix — เอกสารที่อัปโหลดผ่านทางนี้เดิมผูกโปรเจกต์ไม่ได้เลย (ไม่มีช่องให้เลือก) ทำให้ไม่โผล่ "ประวัติเอกสาร"
+// (หน้านั้นกรองเอาเฉพาะเอกสารที่มี docLinks ผูกโปรเจกต์) — เพิ่มช่องเลือกโปรเจกต์แบบพิมพ์ค้นหา (ไม่บังคับ ตามแพตเทิร์นเดียวกับ TemplatePickerModal)
+function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string; onClose: () => void; onConfirm: (docType: DocType | null, projectId: string | null) => void }) {
   const [docType, setDocType] = useState<DocType | ''>('')
+  const { data: projectOpts } = useLoad<{ id: string; name: string }[]>(() => api.get('/api/projects'))
+  const [projectId, setProjectId] = useState('')
+  const [projectQuery, setProjectQuery] = useState('')
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
+  const selectedProject = (projectOpts ?? []).find((p) => p.id === projectId)
+  const filteredProjects = (projectOpts ?? []).filter((p) => p.name.toLowerCase().includes(projectQuery.toLowerCase()))
+  const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
   return (
     <div className="fixed inset-0 z-50">
       <div onClick={onClose} className="absolute inset-0 bg-ink/30" />
@@ -89,14 +98,41 @@ function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string
           <select
             value={docType}
             onChange={(e) => setDocType(e.target.value as DocType | '')}
-            className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 mb-4"
+            className={`${input} mb-3`}
           >
             <option value="">ไม่ระบุประเภท</option>
             {DOC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <div className="relative mb-4">
+            <label className="text-xs font-medium text-muted mb-1 block">โปรเจกต์ (ไม่บังคับ — ผูกแล้วจะโผล่ในประวัติเอกสารของโปรเจกต์นั้น)</label>
+            <input
+              value={projectDropdownOpen ? projectQuery : (selectedProject?.name ?? '')}
+              onChange={(e) => { setProjectQuery(e.target.value); setProjectId('') }}
+              onFocus={() => { setProjectQuery(''); setProjectDropdownOpen(true) }}
+              onBlur={() => setTimeout(() => setProjectDropdownOpen(false), 150)}
+              placeholder="พิมพ์ค้นหาโปรเจกต์… (ไม่เลือก = ไม่ผูกโปรเจกต์)"
+              className={input}
+            />
+            {projectDropdownOpen && (
+              <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-border rounded-lg shadow-lg">
+                {filteredProjects.length === 0 && <div className="px-3 py-2 text-xs text-muted">ไม่พบโปรเจกต์</div>}
+                {filteredProjects.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setProjectId(p.id); setProjectQuery(''); setProjectDropdownOpen(false) }}
+                    className="w-full text-left text-sm px-3 py-2 hover:bg-hover"
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
-            <button onClick={() => onConfirm(docType || null)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">อัปโหลด</button>
+            <button onClick={() => onConfirm(docType || null, projectId || null)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">อัปโหลด</button>
           </div>
         </div>
       </div>
@@ -472,7 +508,7 @@ export function DocsPage() {
     uploadParent.current = parentId
     uploadRef.current?.click()
   }
-  const confirmUpload = async (docType: DocType | null) => {
+  const confirmUpload = async (docType: DocType | null, projectId: string | null) => {
     const file = pendingUpload
     setPendingUpload(null)
     if (!file) return
@@ -481,6 +517,7 @@ export function DocsPage() {
     form.append('title', file.name)
     if (uploadParent.current) form.append('parentId', uploadParent.current)
     if (docType) form.append('docType', docType)
+    if (projectId) form.append('projectId', projectId)
     const res = await fetch('/api/docs/upload', { method: 'POST', body: form })
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { message?: string }
@@ -697,7 +734,7 @@ export function DocsPage() {
       <input ref={uploadRef} type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) setPendingUpload(f); e.target.value = '' }} />
       {pendingUpload && (
-        <UploadDocTypeModal filename={pendingUpload.name} onClose={() => setPendingUpload(null)} onConfirm={(docType) => void confirmUpload(docType)} />
+        <UploadDocTypeModal filename={pendingUpload.name} onClose={() => setPendingUpload(null)} onConfirm={(docType, projectId) => void confirmUpload(docType, projectId)} />
       )}
       {templatePicker && (
         <TemplatePickerModal
