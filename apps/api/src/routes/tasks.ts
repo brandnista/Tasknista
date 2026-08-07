@@ -1,4 +1,4 @@
-import { bkkDateOf, hasAnyEditRight, positionById, presetById, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
+import { bkkDateOf, hasAnyEditRight, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
 import {
   companyConfig,
   createDb,
@@ -59,6 +59,7 @@ const taskPatchSchema = z.object({
   locked: z.boolean().optional(), // Pronista §4 — ล็อค task ใน Company Backlog (owner เท่านั้นที่ตั้งได้)
   defectStatus: z.enum(DEFECT_STATUSES).optional(), // Pronista §5 — สถานะเฉพาะ Defect
   sprintStatus: z.string().nullable().optional(), // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด (อ้าง id คอลัมน์ใน preset ของ sprint ที่ผูกอยู่)
+  labelIds: z.array(z.string()).optional(), // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels) เลือกได้หลายอัน
 })
 
 /** board ของโปรเจกต์ + CRUD group/task — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation) */
@@ -584,6 +585,12 @@ export const taskRoutes = new Hono<AppEnv>()
       const preset = sprint?.boardPresetId ? presetById(resolvePresets(cfg?.boardPresets), sprint.boardPresetId) : undefined
       if (!preset || !preset.columns.some((col) => col.id === body.data.sprintStatus))
         return c.json({ error: 'invalid_sprint_status' }, 400)
+    }
+    // Pronista §Workspace — labelIds ทุกตัวต้องมีจริงในแคตตาล็อก company_config.labels
+    if (body.data.labelIds !== undefined) {
+      const cfg = (await db.select({ labels: companyConfig.labels }).from(companyConfig).limit(1))[0]
+      const validIds = new Set(resolveLabels(cfg?.labels).map((l) => l.id))
+      if (body.data.labelIds.some((id) => !validIds.has(id))) return c.json({ error: 'invalid_label' }, 400)
     }
 
     const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()

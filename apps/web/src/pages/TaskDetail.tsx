@@ -1,4 +1,4 @@
-import { formatHMS, minutesToHoursLabel } from '@seedoffice/core'
+import { formatHMS, minutesToHoursLabel, resolveLabels, type Label } from '@seedoffice/core'
 import {
   AlertTriangle,
   Check,
@@ -21,6 +21,8 @@ import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
+import { LabelChips } from '../components/LabelChips'
+import { STATUS_SWATCH } from '../lib/project-ui'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
 
@@ -189,6 +191,8 @@ interface Detail {
   kind: 'task' | 'defect' | 'cr' | 'backlog'
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   priority: 'low' | 'normal' | 'high'
+  // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels) เลือกได้หลายอัน
+  labelIds: string[] | null
   assigneeId: string | null
   assigneeName: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
@@ -287,6 +291,9 @@ export function TaskDetailPage() {
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
+  // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้แสดง+เลือกในแถบข้าง
+  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const { data: trace } = useLoad<TraceResponse>(() => api.get(`/api/tasks/${taskId}/trace`), [taskId])
   // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ
   const { data: refs, reload: reloadRefs } = useLoad<RefRow[]>(() => api.get(`/api/tasks/${taskId}/references`), [taskId])
@@ -853,6 +860,46 @@ export function TaskDetailPage() {
                   ) : (
                     <span className={`px-2 py-1 rounded-lg text-xs ${PRIORITY_CLASS[t.priority]}`}>{PRIORITY_THAI[t.priority]}</span>
                   )}
+                </div>
+              )}
+              {!isAssignee && (
+                <div className="flex items-start justify-between text-sm gap-2">
+                  <span className="text-muted shrink-0 pt-1">Labels</span>
+                  <div className="flex-1 flex flex-col items-end gap-1.5">
+                    <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
+                    {canEdit && (
+                      <div className="relative">
+                        <button type="button" onClick={() => setLabelPickerOpen((v) => !v)} className="text-xs text-brand-700 hover:text-brand-800 flex items-center gap-1">
+                          <Plus className="w-3 h-3" /> แท็ก
+                        </button>
+                        {labelPickerOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setLabelPickerOpen(false)} />
+                            <div className="absolute right-0 top-full mt-1 z-50 w-48 bg-white rounded-lg shadow-2xl border border-border-subtle p-2 space-y-1">
+                              {resolveLabels(cfg?.labels).map((l) => {
+                                const active = (t.labelIds ?? []).includes(l.id)
+                                return (
+                                  <button
+                                    key={l.id}
+                                    type="button"
+                                    onClick={() => {
+                                      const next = active ? (t.labelIds ?? []).filter((id) => id !== l.id) : [...(t.labelIds ?? []), l.id]
+                                      void patch({ labelIds: next })
+                                    }}
+                                    className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-hover text-left"
+                                  >
+                                    <span className={`w-3 h-3 rounded-full shrink-0 ${STATUS_SWATCH[l.color] ?? 'bg-slate-400'}`} />
+                                    <span className="flex-1 text-xs text-body">{l.name}</span>
+                                    {active && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               <div className="flex items-center justify-between text-sm">

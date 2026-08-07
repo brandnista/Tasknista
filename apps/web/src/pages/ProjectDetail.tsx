@@ -1,9 +1,10 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
-import { formatSatang, minutesToHoursLabel, type PermissionTabKey, type PositionPermissions } from '@seedoffice/core'
+import { formatSatang, minutesToHoursLabel, type Label, type PermissionTabKey, type PositionPermissions } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertMenu'
+import { LabelChips } from '../components/LabelChips'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
@@ -65,6 +66,8 @@ interface ProjectBacklogTask {
   epicId?: string | null
   epicTitle?: string | null
   epicCode?: string | null
+  // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels)
+  labelIds?: string[] | null
 }
 interface BacklogEpic { id: string; title: string; code: string | null; doneCount: number; totalCount: number }
 interface BacklogResponse { tasks: ProjectBacklogTask[]; epics: BacklogEpic[] }
@@ -82,9 +85,10 @@ function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
 }
 
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
-function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick }: {
+function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog }: {
   t: ProjectBacklogTask
   onOpenTask: (id: string) => void
+  labelCatalog?: Label[]
   draggable?: boolean
   onDragStart?: (e: DragEvent) => void
   onDragEnd?: () => void
@@ -135,6 +139,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
       {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
       {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
+      <LabelChips catalog={labelCatalog} ids={t.labelIds} />
       {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
       <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
     </div>
@@ -169,6 +174,8 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
   revealTab?: { tab: BacklogTab; nonce: number } | null
 }) {
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
+  // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog
+  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
   const [title, setTitle] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
@@ -387,6 +394,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
                 <BacklogTaskRow
                   t={parent}
                   onOpenTask={onOpenTask}
+                  labelCatalog={cfg?.labels}
                   draggable={canEdit && children.length > 0}
                   onDragStart={(e) => { e.dataTransfer.setData('text/plain', parent.id); setDragTaskId(parent.id) }}
                   onDragEnd={() => setDragTaskId(null)}
@@ -412,6 +420,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
                             <BacklogTaskRow
                               t={child}
                               onOpenTask={onOpenTask}
+                              labelCatalog={cfg?.labels}
                               draggable={canEdit}
                               onDragStart={(e) => { e.dataTransfer.setData('text/plain', child.id); setDragTaskId(child.id) }}
                               onDragEnd={() => setDragTaskId(null)}
@@ -429,6 +438,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
                                 key={gk.id}
                                 t={gk}
                                 onOpenTask={onOpenTask}
+                                labelCatalog={cfg?.labels}
                                 draggable={canEdit}
                                 onDragStart={(e) => { e.dataTransfer.setData('text/plain', gk.id); setDragTaskId(gk.id) }}
                                 onDragEnd={() => setDragTaskId(null)}
@@ -480,6 +490,7 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
               key={t.id}
               t={t}
               onOpenTask={onOpenTask}
+              labelCatalog={cfg?.labels}
               draggable={canEdit}
               onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); setDragTaskId(t.id) }}
               onDragEnd={() => setDragTaskId(null)}

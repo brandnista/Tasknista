@@ -1,4 +1,4 @@
-import { resolvePresets, resolveStatuses } from '@seedoffice/core'
+import { resolveLabels, resolvePresets, resolveStatuses } from '@seedoffice/core'
 import { companyConfig, createDb, users } from '@seedoffice/db'
 import { asc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -32,6 +32,7 @@ export const userRoutes = new Hono<AppEnv>()
           projectStatuses: companyConfig.projectStatuses,
           productStatuses: companyConfig.productStatuses,
           boardPresets: companyConfig.boardPresets,
+          labels: companyConfig.labels,
         })
         .from(companyConfig)
         .limit(1)
@@ -43,5 +44,6 @@ export const userRoutes = new Hono<AppEnv>()
       projectStatuses: resolveStatuses(cfg.projectStatuses),
       productStatuses: resolveStatuses(cfg.productStatuses),
       boardPresets: resolvePresets(cfg.boardPresets), // Pronista §Sprint & Board
+      labels: resolveLabels(cfg.labels), // Pronista §Workspace
     })
   })

@@ -1,7 +1,9 @@
 import { CheckCircle2, ChevronLeft, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
+import { LabelChips } from '../components/LabelChips'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { fmtThaiDate, STATUS_SWATCH, statusChip } from '../lib/project-ui'
@@ -36,6 +38,8 @@ interface BoardTask {
   dueDate: string | null
   // Pronista §Epic Layer — Epic ที่ task นี้สังกัด (สืบมาจาก parent ตอนสร้าง เหมือน originDocType) ใช้จัดกลุ่ม swimlane บน Timeline
   epicId: string | null
+  // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels)
+  labelIds: string[] | null
 }
 interface BoardParent { id: string; code: string | null; title: string }
 interface BoardEpic { id: string; title: string; code: string | null }
@@ -230,6 +234,8 @@ export function BoardPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { data, reload } = useLoad<BoardData>(() => api.get(`/api/sprints/${sprintId}/board`), [sprintId])
+  // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนการ์ด
+  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
   const [dragId, setDragId] = useState<string | null>(null)
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const [tab, setTab] = useState<'kanban' | 'timeline'>('kanban')
@@ -317,6 +323,7 @@ export function BoardPage() {
             📄 {t.srsRefCode}
           </a>
         )}
+        <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
         {t.assigneeName && (
           <Avatar name={t.assigneeName} avatarUrl={t.assigneeAvatarUrl} className="w-5 h-5 text-[9px] ml-auto" colorClass={avatarColor(t.assigneeName)} />
         )}
