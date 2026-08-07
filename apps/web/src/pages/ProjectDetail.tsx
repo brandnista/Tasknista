@@ -555,7 +555,7 @@ const addDaysToDate = (dateStr: string, days: number) => {
 
 /** Pronista §Project Refactor — กลับลำดับสร้าง Sprint: กด "+ Sprint" สร้าง container ว่างทันที (ดู createInstantSprint ใน SprintSection)
  * ฟอร์มชื่อ/วันที่/ระยะเวลา/เป้าหมาย (เดิมอยู่ใน CreateSprintModal ตอนสร้าง) ย้ายมารวมกับการเลือก Preset ตรงนี้แทน — กรอกตอนกด "เริ่ม Sprint" ซึ่งเป็นจังหวะที่รู้ขอบเขตงานจริงแล้ว */
-function SprintStartModal({ sprintId, defaultStartDate, defaultEndDate, onClose, onStarted }: {
+export function SprintStartModal({ sprintId, defaultStartDate, defaultEndDate, onClose, onStarted }: {
   sprintId: string
   defaultStartDate: string
   defaultEndDate: string

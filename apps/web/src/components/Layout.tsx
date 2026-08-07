@@ -2,6 +2,7 @@ import {
   ClipboardList,
   FolderKanban,
   History,
+  Layers,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -39,6 +40,8 @@ type Role = Me['role']
 const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[] }[] = [
   { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'] },
   { to: '/my-tasks', label: 'งานของฉัน', icon: ClipboardList, roles: ['owner', 'member', 'vendor', 'guest'] },
+  // Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ (สิทธิ์เห็นเนื้อหาจริงคุมด้วย tabs.sprint ต่อโปรเจกต์อยู่แล้ว เหมือนแท็บ Sprint เดิม)
+  { to: '/workspace', label: 'Workspace', icon: Layers, roles: ['owner', 'member', 'vendor', 'guest'] },
   { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'] },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member'] },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member'] },
