@@ -6,8 +6,27 @@
  */
 import { presetById, resolvePresets } from '@seedoffice/core'
 import { companyConfig, createDb, epics, sprints, tasks, users } from '@seedoffice/db'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { canEditProject, type EffectiveProjectRole } from './project-role'
+
+export interface WorkspaceBacklogItem {
+  id: string
+  code: string | null
+  title: string
+  kind: 'epic' | 'task' | 'backlog'
+  workType: 'epic' | 'story' | 'task' | 'subtask'
+  status: string | null
+  dueDate: string | null
+  priority: 'low' | 'normal' | 'high' | null
+  assigneeId: string | null
+  assigneeName: string | null
+  assignedBy: string | null
+  dispatcherName: string | null
+  epicId: string | null
+  parentId: string | null
+  labelIds: string[] | null
+}
 
 export async function loadPreset(db: ReturnType<typeof createDb>, boardPresetId: string | null) {
   if (!boardPresetId) return undefined
@@ -143,4 +162,72 @@ export async function loadProjectBacklog(
       .map((r) => ({ ...r.task, assigneeName: r.assigneeName, epicTitle: r.epicTitle, epicCode: r.epicCode })),
     epics: epicList,
   }
+}
+
+// Pronista §Workspace Backlog Grid — ทุก "work item" ที่ยังไม่เข้า Sprint ของโปรเจกต์เดียว (Epic + Story/Task/Subtask + งานทั่วไป kind='backlog')
+// ต่างจาก loadProjectBacklog เดิม (กรองแคบเฉพาะ kind='backlog'/เอกสาร/SOW) — ฟังก์ชันนี้แยกใหม่เฉพาะ Grid รวมของ Workspace ไม่แตะ endpoint เดิม
+export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>, projectId: string): Promise<WorkspaceBacklogItem[]> {
+  const dispatcher = alias(users, 'dispatcher')
+
+  const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(asc(epics.createdAt))
+
+  // หา parent ของทุก task (ไม่กรอง sprint) แค่พอรู้ depth ของ chain (Story→Task→Subtask) แม้ parent จะถูกลากเข้า sprint ไปแล้วก็ตาม
+  const parentLookup = await db
+    .select({ id: tasks.id, parentId: tasks.parentId })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), eq(tasks.kind, 'task')))
+  const parentIdById = new Map(parentLookup.map((t) => [t.id, t.parentId]))
+
+  const rows = await db
+    .select({ task: tasks, assigneeName: users.name, dispatcherName: dispatcher.name })
+    .from(tasks)
+    .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
+    .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog'])))
+    .orderBy(asc(tasks.createdAt))
+
+  // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที)
+  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' => {
+    if (t.kind === 'backlog') return 'task'
+    if (t.parentId === null) return t.isStandaloneTask ? 'task' : 'story'
+    return (parentIdById.get(t.parentId) ?? null) !== null ? 'subtask' : 'task'
+  }
+
+  const epicItems: WorkspaceBacklogItem[] = epicRows.map((e) => ({
+    id: e.id,
+    code: e.code,
+    title: e.title,
+    kind: 'epic',
+    workType: 'epic',
+    status: null,
+    dueDate: null,
+    priority: null,
+    assigneeId: null,
+    assigneeName: null,
+    assignedBy: null,
+    dispatcherName: null,
+    epicId: null,
+    parentId: null,
+    labelIds: null,
+  }))
+
+  const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
+    id: r.task.id,
+    code: r.task.code,
+    title: r.task.title,
+    kind: r.task.kind === 'backlog' ? 'backlog' : 'task',
+    workType: classify(r.task),
+    status: r.task.status,
+    dueDate: r.task.dueDate,
+    priority: r.task.priority,
+    assigneeId: r.task.assigneeId,
+    assigneeName: r.assigneeName,
+    assignedBy: r.task.assignedBy,
+    dispatcherName: r.dispatcherName,
+    epicId: r.task.epicId,
+    parentId: r.task.parentId,
+    labelIds: r.task.labelIds,
+  }))
+
+  return [...epicItems, ...taskItems]
 }

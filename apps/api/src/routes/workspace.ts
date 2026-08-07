@@ -7,7 +7,7 @@ import { createDb, projects } from '@seedoffice/db'
 import { isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { getProjectPermissions, getProjectRole } from '../lib/project-role'
-import { loadProjectBacklog, loadProjectSprintBoards } from '../lib/workspace-query'
+import { loadProjectAllBacklogItems, loadProjectBacklog, loadProjectSprintBoards } from '../lib/workspace-query'
 import type { AppEnv } from '../types'
 
 /** โปรเจกต์ (ไม่ถูกลบ) ที่ผู้ใช้คนนี้มีสิทธิ์เห็นแท็บ Sprint — กรองซ้ำที่ server เสมอ ไม่เชื่อ query param จาก client เป็น authorization */
@@ -51,6 +51,7 @@ export const workspaceRoutes = new Hono<AppEnv>()
   })
 
   // Backlog ของทุกโปรเจกต์ที่เข้าถึงได้ (หรือเฉพาะที่ระบุใน ?projectIds=) — group ต่อโปรเจกต์ ให้ frontend render เป็น section พับได้
+  // Pronista §Workspace Backlog Grid — ไม่ถูกเรียกจากหน้าไหนแล้ว (Workspace.tsx เปลี่ยนไปใช้ /workspace/backlog-items ที่เป็น flat grid แทน) เก็บไว้เผื่อใช้ทีหลัง
   .get('/workspace/backlog', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -63,4 +64,18 @@ export const workspaceRoutes = new Hono<AppEnv>()
       }),
     )
     return c.json({ tasksByProject })
+  })
+
+  // Pronista §Workspace Backlog Grid — flat array ของทุก work item (Epic/Story/Task/Subtask/ทั่วไป) ที่ยังไม่เข้า Sprint ข้ามทุกโปรเจกต์ที่เข้าถึงได้ ติด projectId/projectCode/projectName ทุกแถว
+  .get('/workspace/backlog-items', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const list = narrowByQuery(await accessibleProjects(db, me), c.req.query('projectIds'))
+    const perProject = await Promise.all(
+      list.map(async (p) => {
+        const items = await loadProjectAllBacklogItems(db, p.id)
+        return items.map((it) => ({ ...it, projectId: p.id, projectCode: p.code, projectName: p.name }))
+      }),
+    )
+    return c.json({ items: perProject.flat() })
   })
