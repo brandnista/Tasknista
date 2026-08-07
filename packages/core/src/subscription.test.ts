@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SERVICE_TYPES, isNearExpiry, resolveServiceTypes, serviceTypeById, validateServiceTypes } from './subscription'
+import {
+  DEFAULT_PRODUCT_TYPES,
+  DEFAULT_SERVICE_TYPES,
+  isNearExpiry,
+  productTypeById,
+  resolveProductTypes,
+  resolveServiceTypes,
+  serviceTypeById,
+  validateProductTypes,
+  validateServiceTypes,
+} from './subscription'
 
 describe('isNearExpiry', () => {
   it('true เมื่อวันหมดอายุอยู่ในช่วงแจ้งเตือนล่วงหน้า', () => {
@@ -56,5 +66,42 @@ describe('validateServiceTypes', () => {
   it('ไม่ผ่านเมื่อชื่อว่าง', () => {
     const list = [{ id: 'x', name: '  ', sortOrder: 0 }]
     expect(validateServiceTypes(list).ok).toBe(false)
+  })
+})
+
+describe('resolveProductTypes / productTypeById', () => {
+  it('คืน DEFAULT_PRODUCT_TYPES 12 รายการเมื่อยังไม่ตั้งค่า', () => {
+    const list = resolveProductTypes(null)
+    expect(list).toEqual(DEFAULT_PRODUCT_TYPES)
+    expect(list).toHaveLength(12)
+  })
+  it('เรียงตาม sortOrder และหา id ได้', () => {
+    const custom = [
+      { id: 'b', name: 'B', sortOrder: 1 },
+      { id: 'a', name: 'A', sortOrder: 0 },
+    ]
+    expect(resolveProductTypes(custom).map((p) => p.id)).toEqual(['a', 'b'])
+    expect(productTypeById(custom, 'b')?.name).toBe('B')
+    expect(productTypeById(custom, 'missing')).toBeUndefined()
+  })
+})
+
+describe('validateProductTypes', () => {
+  it('ผ่านเมื่อข้อมูลถูกต้อง', () => {
+    expect(validateProductTypes(DEFAULT_PRODUCT_TYPES)).toEqual({ ok: true })
+  })
+  it('ไม่ผ่านเมื่อ list ว่าง', () => {
+    expect(validateProductTypes([])).toEqual({ ok: false, error: 'ต้องมีอย่างน้อย 1 ประเภทสินค้า' })
+  })
+  it('ไม่ผ่านเมื่อ id ซ้ำ', () => {
+    const list = [
+      { id: 'x', name: 'X', sortOrder: 0 },
+      { id: 'x', name: 'Y', sortOrder: 1 },
+    ]
+    expect(validateProductTypes(list).ok).toBe(false)
+  })
+  it('ไม่ผ่านเมื่อชื่อว่าง', () => {
+    const list = [{ id: 'x', name: '  ', sortOrder: 0 }]
+    expect(validateProductTypes(list).ok).toBe(false)
   })
 })

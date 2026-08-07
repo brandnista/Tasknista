@@ -41,6 +41,9 @@ export interface ProjectRow {
   // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (null serviceEndDate = lifetime)
   serviceType?: string | null
   serviceTypeName?: string | null
+  // Pronista §Subscription Notify (Product Type) — ใช้เมื่อ category='product' เท่านั้น (คนละแคตตาล็อกกับ serviceType)
+  productType?: string | null
+  productTypeName?: string | null
   serviceStartDate?: string | null
   serviceEndDate?: string | null
   notifyBeforeDays?: number | null

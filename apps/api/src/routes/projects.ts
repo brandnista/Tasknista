@@ -13,8 +13,10 @@ import {
   parseProjectLogo,
   positionById,
   POSITION_FULL_ACCESS_ID,
+  productTypeById,
   quotationSatang,
   resolvePositions,
+  resolveProductTypes,
   resolveServiceTypes,
   resolveStatuses,
   serviceTypeById,
@@ -68,7 +70,12 @@ export const projectRoutes = new Hono<AppEnv>()
     const db = createDb(c.env.DB)
     const cfgRow = (
       await db
-        .select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses, serviceTypes: companyConfig.serviceTypes })
+        .select({
+          projectStatuses: companyConfig.projectStatuses,
+          productStatuses: companyConfig.productStatuses,
+          serviceTypes: companyConfig.serviceTypes,
+          productTypes: companyConfig.productTypes,
+        })
         .from(companyConfig)
         .limit(1)
     )[0]
@@ -76,6 +83,7 @@ export const projectRoutes = new Hono<AppEnv>()
     const prodStatuses = resolveStatuses(cfgRow?.productStatuses)
     const statusesFor = (cat: string) => (cat === 'product' ? prodStatuses : projStatuses)
     const svcTypes = resolveServiceTypes(cfgRow?.serviceTypes)
+    const prdTypes = resolveProductTypes(cfgRow?.productTypes)
     const rows = await db
       .select({ project: projects, clientName: clients.name, leadName: users.name })
       .from(projects)
@@ -164,6 +172,7 @@ export const projectRoutes = new Hono<AppEnv>()
             // Pronista §Subscription Notify — ใกล้/เลยวันหมดอายุบริการแล้ว (ยังไม่ต่ออายุ) ใช้กรองแท็บ "บริการใกล้หมดอายุ"
             nearExpiry: isNearExpiry(r.project.serviceEndDate, r.project.notifyBeforeDays, today),
             serviceTypeName: serviceTypeById(svcTypes, r.project.serviceType)?.name ?? null,
+            productTypeName: productTypeById(prdTypes, r.project.productType)?.name ?? null,
           },
           role,
         )
@@ -184,12 +193,18 @@ export const projectRoutes = new Hono<AppEnv>()
     if (!row || row.project.deletedAt) return c.json({ error: 'not_found' }, 404)
     const cfgRow = (
       await db
-        .select({ projectStatuses: companyConfig.projectStatuses, productStatuses: companyConfig.productStatuses, serviceTypes: companyConfig.serviceTypes })
+        .select({
+          projectStatuses: companyConfig.projectStatuses,
+          productStatuses: companyConfig.productStatuses,
+          serviceTypes: companyConfig.serviceTypes,
+          productTypes: companyConfig.productTypes,
+        })
         .from(companyConfig)
         .limit(1)
     )[0]
     const statuses = resolveStatuses(row.project.category === 'product' ? cfgRow?.productStatuses : cfgRow?.projectStatuses)
     const serviceTypeName = serviceTypeById(resolveServiceTypes(cfgRow?.serviceTypes), row.project.serviceType)?.name ?? null
+    const productTypeName = productTypeById(resolveProductTypes(cfgRow?.productTypes), row.project.productType)?.name ?? null
     const cfgPositions = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
     const positionsList = resolvePositions(cfgPositions?.positions)
     // Pronista §Position-based permission — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/ตำแหน่ง) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
@@ -210,7 +225,7 @@ export const projectRoutes = new Hono<AppEnv>()
     const lead = row.project.leadId
       ? (await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, row.project.leadId)).limit(1))[0]
       : null
-    return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, leadName: lead?.name ?? null, serviceTypeName, members, myRole, myPermissions }, me.role))
+    return c.json(serialize({ ...row.project, ...statusFields(statuses, row.project.status), clientName: row.clientName, leadName: lead?.name ?? null, serviceTypeName, productTypeName, members, myRole, myPermissions }, me.role))
   })
 
   // สร้างโปรเจกต์ (owner เท่านั้น — Pronista §permission: จัดการข้อมูลโปรเจกต์เป็นงานของหัวหน้า) — ลูกค้าใหม่พิมพ์ชื่อ = สร้าง client ให้เลย
@@ -239,6 +254,8 @@ export const projectRoutes = new Hono<AppEnv>()
         members: z.array(z.string()).max(50).optional(),
         // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (ไม่ระบุ serviceEndDate = lifetime)
         serviceType: z.string().optional(),
+        // Pronista §Subscription Notify (Product Type) — ใช้เมื่อ category='product' เท่านั้น (คนละแคตตาล็อกกับ serviceType)
+        productType: z.string().optional(),
         serviceStartDate: isoDate.optional(),
         serviceEndDate: isoDate.optional(),
         notifyBeforeDays: z.number().int().positive().optional(),
@@ -260,6 +277,11 @@ export const projectRoutes = new Hono<AppEnv>()
       const cfgSvc = (await db.select({ serviceTypes: companyConfig.serviceTypes }).from(companyConfig).limit(1))[0]
       if (!serviceTypeById(resolveServiceTypes(cfgSvc?.serviceTypes), d.serviceType))
         return c.json({ error: 'invalid_service_type' }, 400)
+    }
+    if (d.productType) {
+      const cfgPrd = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+      if (!productTypeById(resolveProductTypes(cfgPrd?.productTypes), d.productType))
+        return c.json({ error: 'invalid_product_type' }, 400)
     }
     if (d.serviceEndDate && d.serviceStartDate && d.serviceStartDate > d.serviceEndDate)
       return c.json({ error: 'invalid_service_period', message: 'วันเริ่มต้นต้องอยู่ก่อนวันสิ้นสุด' }, 400)
@@ -296,6 +318,7 @@ export const projectRoutes = new Hono<AppEnv>()
         priority: d.priority ?? 'normal',
         tags: d.tags ?? null,
         serviceType: d.serviceType ?? null,
+        productType: d.productType ?? null,
         serviceStartDate: d.serviceStartDate ?? null,
         serviceEndDate: d.serviceEndDate ?? null,
         notifyBeforeDays: d.notifyBeforeDays ?? null,
@@ -346,6 +369,8 @@ export const projectRoutes = new Hono<AppEnv>()
         apiDocNotes: z.string().nullable().optional(),
         // Pronista §Subscription Notify — แก้ประเภท/ช่วงเวลาให้บริการภายหลัง (เช่น ต่ออายุ) — เคลียร์ serviceEndDate = lifetime
         serviceType: z.string().nullable().optional(),
+        // Pronista §Subscription Notify (Product Type) — ใช้เมื่อ category='product' เท่านั้น
+        productType: z.string().nullable().optional(),
         serviceStartDate: isoDate.nullable().optional(),
         serviceEndDate: isoDate.nullable().optional(),
         notifyBeforeDays: z.number().int().positive().nullable().optional(),
@@ -367,6 +392,11 @@ export const projectRoutes = new Hono<AppEnv>()
       const cfgSvc = (await db.select({ serviceTypes: companyConfig.serviceTypes }).from(companyConfig).limit(1))[0]
       if (!serviceTypeById(resolveServiceTypes(cfgSvc?.serviceTypes), body.data.serviceType))
         return c.json({ error: 'invalid_service_type' }, 400)
+    }
+    if (body.data.productType) {
+      const cfgPrd = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+      if (!productTypeById(resolveProductTypes(cfgPrd?.productTypes), body.data.productType))
+        return c.json({ error: 'invalid_product_type' }, 400)
     }
     const before = (
       await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1)

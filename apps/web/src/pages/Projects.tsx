@@ -310,7 +310,7 @@ function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
                 <td className="px-5 py-3 text-body">
                   <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> {p.name}</div>
                 </td>
-                <td className="px-3 py-3 text-muted">{p.serviceTypeName ?? '—'}</td>
+                <td className="px-3 py-3 text-muted">{(p.category === 'product' ? p.productTypeName : p.serviceTypeName) ?? '—'}</td>
                 <td className="px-3 py-3 text-muted">{p.clientName ?? '—'}</td>
                 <td className={`px-3 py-3 whitespace-nowrap ${overdue ? 'text-danger-600 font-medium' : 'text-body'}`}>
                   {p.serviceEndDate ? fmtThaiDate(p.serviceEndDate) : '—'}{overdue && <span className="ml-1.5 text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">เลยกำหนด</span>}
@@ -472,6 +472,7 @@ const addWeeks = (start: string, weeks: string) => {
 
 interface ClientOpt { id: string; name: string }
 interface ServiceTypeOpt { id: string; name: string }
+interface ProductTypeOpt { id: string; name: string }
 
 /** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
 const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
@@ -480,15 +481,17 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const { data: clientData } = useLoad<{ rows: ClientOpt[] }>(() => api.get('/api/clients'))
   const { data: serviceTypeData } = useLoad<{ serviceTypes: ServiceTypeOpt[] }>(() => api.get('/api/admin/service-types'))
+  const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
   const clients = clientData?.rows ?? []
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
+  const productTypes = productTypeData?.productTypes ?? []
   const team = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
     name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
     startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: initialName ? autoProjectKey(initialName) : '',
-    // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
-    serviceType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
+    // Pronista §Subscription Notify — ประเภทโปรเจกต์ (project) / ประเภทสินค้า (product) + ช่วงเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
+    serviceType: '', productType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
   })
   const [codeTouched, setCodeTouched] = useState(false)
   const [newClient, setNewClient] = useState(false)
@@ -514,6 +517,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
         ...(form.startDate ? { startDate: form.startDate } : {}),
         ...(form.dueDate ? { dueDate: form.dueDate } : {}),
         ...(form.serviceType ? { serviceType: form.serviceType } : {}),
+        ...(form.productType ? { productType: form.productType } : {}),
         ...(form.hasServicePeriod && form.serviceStartDate ? { serviceStartDate: form.serviceStartDate } : {}),
         ...(form.hasServicePeriod && form.serviceEndDate ? { serviceEndDate: form.serviceEndDate } : {}),
         ...(notifyBeforeDays ? { notifyBeforeDays } : {}),
@@ -564,8 +568,8 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
               </div>
             </div>
 
-            {form.category === 'project' && (
-              <>
+            <>
+              {form.category === 'project' ? (
                 <div>
                   <label className={label}>โปรเจกต์ไทป์</label>
                   <select value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className={input}>
@@ -573,39 +577,47 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                     {serviceTypes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
-
+              ) : (
                 <div>
-                  <label className="flex items-center gap-2 text-sm text-body cursor-pointer mb-2">
-                    <input type="checkbox" checked={form.hasServicePeriod} onChange={(e) => setForm({ ...form, hasServicePeriod: e.target.checked })} />
-                    มีระยะเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
-                  </label>
-                  {form.hasServicePeriod && (
-                    <div className="space-y-3 pl-1">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className={label}>วันเริ่มบริการ</label>
-                          <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
-                        </div>
-                        <div>
-                          <label className={label}>วันหมดอายุบริการ</label>
-                          <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
-                        </div>
+                  <label className={label}>Product Type</label>
+                  <select value={form.productType} onChange={(e) => setForm({ ...form, productType: e.target.value })} className={input}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {productTypes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="flex items-center gap-2 text-sm text-body cursor-pointer mb-2">
+                  <input type="checkbox" checked={form.hasServicePeriod} onChange={(e) => setForm({ ...form, hasServicePeriod: e.target.checked })} />
+                  มีระยะเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
+                </label>
+                {form.hasServicePeriod && (
+                  <div className="space-y-3 pl-1">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className={label}>วันเริ่มบริการ</label>
+                        <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
                       </div>
                       <div>
-                        <label className={label}>แจ้งเตือนล่วงหน้าก่อนหมดอายุ</label>
-                        <div className="flex gap-2">
-                          <input type="number" min={1} value={form.notifyValue} onChange={(e) => setForm({ ...form, notifyValue: e.target.value })} className={`${input} w-24`} />
-                          <select value={form.notifyUnit} onChange={(e) => setForm({ ...form, notifyUnit: e.target.value as 'day' | 'month' })} className={input}>
-                            <option value="day">วัน</option>
-                            <option value="month">เดือน</option>
-                          </select>
-                        </div>
+                        <label className={label}>วันหมดอายุบริการ</label>
+                        <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
                       </div>
                     </div>
-                  )}
-                </div>
-              </>
-            )}
+                    <div>
+                      <label className={label}>แจ้งเตือนล่วงหน้าก่อนหมดอายุ</label>
+                      <div className="flex gap-2">
+                        <input type="number" min={1} value={form.notifyValue} onChange={(e) => setForm({ ...form, notifyValue: e.target.value })} className={`${input} w-24`} />
+                        <select value={form.notifyUnit} onChange={(e) => setForm({ ...form, notifyUnit: e.target.value as 'day' | 'month' })} className={input}>
+                          <option value="day">วัน</option>
+                          <option value="month">เดือน</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
 
             <div className="grid grid-cols-2 gap-3">
               <div>

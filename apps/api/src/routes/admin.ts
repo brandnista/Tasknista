@@ -5,15 +5,18 @@ import {
   PERMISSION_TAB_KEYS,
   resolvePresets,
   resolvePositions,
+  resolveProductTypes,
   resolveServiceTypes,
   resolveStatuses,
   STATUS_COLOR_KEYS,
   validatePositions,
   validatePresets,
+  validateProductTypes,
   validateServiceTypes,
   validateStatuses,
   type BoardPreset,
   type Position,
+  type ProductType,
   type ProjectStatus,
   type ServiceType,
 } from '@seedoffice/core'
@@ -370,6 +373,49 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.serviceTypes ?? null, after: serviceTypesData },
     })
     return c.json({ serviceTypes: resolveServiceTypes(serviceTypesData) })
+  })
+
+  // Pronista §Subscription Notify (Product Type) — แคตตาล็อกชื่อผลิตภัณฑ์ (Sellnista/Paynista/ฯลฯ) ใช้เมื่อ category='product'
+  .get('/product-types', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+    return c.json({ productTypes: resolveProductTypes(cfg?.productTypes) })
+  })
+
+  // owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/แก้ชื่อ) — กันลบประเภทที่ยังมีโปรเจกต์ใช้อยู่
+  .put('/product-types', async (c) => {
+    const body = z
+      .object({
+        productTypes: z
+          .array(z.object({ id: z.string(), name: z.string(), sortOrder: z.number().int() }))
+          .min(1),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const productTypesData = body.data.productTypes as ProductType[]
+    const check = validateProductTypes(productTypesData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const used = await db.selectDistinct({ productType: projects.productType }).from(projects)
+    const newIds = new Set(productTypesData.map((p) => p.id))
+    const orphan = used.map((u) => u.productType).filter((id): id is string => id !== null && !newIds.has(id))
+    if (orphan.length > 0)
+      return c.json(
+        { error: 'product_type_in_use', message: `ยังมีโปรเจกต์ใช้ประเภทสินค้า: ${orphan.join(', ')} — เปลี่ยนประเภทของโปรเจกต์นั้นก่อนจึงลบได้` },
+        409,
+      )
+
+    const before = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ productTypes: productTypesData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.product_types',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.productTypes ?? null, after: productTypesData },
+    })
+    return c.json({ productTypes: resolveProductTypes(productTypesData) })
   })
 
   // ── ICS feed (SPEC §4.14 · E6) — ลิงก์ subscribe ปฏิทินทีม (owner สร้าง/รีเซ็ต/ปิด) ──

@@ -16,6 +16,7 @@ interface StatusOpt { id: string; name: string; kind: string }
 interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' }
 interface PositionOpt { id: string; name: string }
 interface ServiceTypeOpt { id: string; name: string }
+interface ProductTypeOpt { id: string; name: string }
 
 const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
 
@@ -66,14 +67,16 @@ export function ProjectEditPage() {
   const { data: positionsData } = useLoad<{ positions: PositionOpt[] }>(() => api.get('/api/admin/positions'))
   const { data: serviceTypeData } = useLoad<{ serviceTypes: ServiceTypeOpt[] }>(() => api.get('/api/admin/service-types'))
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
+  const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
+  const productTypes = productTypeData?.productTypes ?? []
   const isOwner = user?.role === 'owner'
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
 
   const [form, setForm] = useState({
     name: '', description: '', url: '', status: 'dev' as ProjectRow['status'], clientId: '', code: '',
     budgetBaht: '', startDate: '', dueDate: '', recurringPeriod: 'monthly' as 'monthly' | 'yearly',
-    // Pronista §Subscription Notify — ประเภทโปรเจกต์ + ช่วงเวลาให้บริการ (แก้ไขได้ภายหลัง เช่น ต่ออายุ)
-    serviceType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
+    // Pronista §Subscription Notify — ประเภทโปรเจกต์ (project) / ประเภทสินค้า (product) + ช่วงเวลาให้บริการ (แก้ไขได้ภายหลัง เช่น ต่ออายุ)
+    serviceType: '', productType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
   })
   const [logo, setLogo] = useState<string | null>(null)
   const [logoDirty, setLogoDirty] = useState(false)
@@ -97,6 +100,7 @@ export function ProjectEditPage() {
       dueDate: project.dueDate ?? '',
       recurringPeriod: project.recurringPeriod ?? 'monthly',
       serviceType: project.serviceType ?? '',
+      productType: project.productType ?? '',
       hasServicePeriod: !!project.serviceEndDate,
       serviceStartDate: project.serviceStartDate ?? '',
       serviceEndDate: project.serviceEndDate ?? '',
@@ -144,11 +148,13 @@ export function ProjectEditPage() {
       }
       if (project.category === 'project') {
         body.serviceType = form.serviceType || null
-        body.serviceStartDate = form.hasServicePeriod ? form.serviceStartDate || null : null
-        body.serviceEndDate = form.hasServicePeriod ? form.serviceEndDate || null : null
-        body.notifyBeforeDays =
-          form.hasServicePeriod && form.notifyValue ? Number(form.notifyValue) * (form.notifyUnit === 'month' ? 30 : 1) : null
+      } else {
+        body.productType = form.productType || null
       }
+      body.serviceStartDate = form.hasServicePeriod ? form.serviceStartDate || null : null
+      body.serviceEndDate = form.hasServicePeriod ? form.serviceEndDate || null : null
+      body.notifyBeforeDays =
+        form.hasServicePeriod && form.notifyValue ? Number(form.notifyValue) * (form.notifyUnit === 'month' ? 30 : 1) : null
       // logo: ส่งเฉพาะตอนเปลี่ยน lucide/เคลียร์ (อัปโหลดบันทึกที่ server แล้ว → ไม่ส่งซ้ำ)
       if (logoDirty) body.logo = logo
       await api.patch(`/api/projects/${id}`, body)
@@ -260,17 +266,27 @@ export function ProjectEditPage() {
           )}
         </div>
 
-        {project.category === 'project' && (
+        {(
           <div className="mt-5 pt-5 border-t border-border-subtle">
             <h3 className="text-sm font-semibold text-ink mb-3">บริการ / Subscription Notify</h3>
             <div className="grid sm:grid-cols-2 gap-4">
-              <label className="block">
-                <div className="text-xs font-medium text-muted mb-1.5">โปรเจกต์ไทป์</div>
-                <select value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className={input}>
-                  <option value="">— ไม่ระบุ —</option>
-                  {serviceTypes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </label>
+              {project.category === 'project' ? (
+                <label className="block">
+                  <div className="text-xs font-medium text-muted mb-1.5">โปรเจกต์ไทป์</div>
+                  <select value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className={input}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {serviceTypes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <label className="block">
+                  <div className="text-xs font-medium text-muted mb-1.5">Product Type</div>
+                  <select value={form.productType} onChange={(e) => setForm({ ...form, productType: e.target.value })} className={input}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {productTypes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <label className="flex items-center gap-2 text-sm text-body cursor-pointer mt-3 mb-2">
               <input type="checkbox" checked={form.hasServicePeriod} onChange={(e) => setForm({ ...form, hasServicePeriod: e.target.checked })} />

@@ -435,6 +435,13 @@
       "when": 1786010385603,
       "tag": "0061_familiar_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1786082810331,
+      "tag": "0062_known_william_stryker",
+      "breakpoints": true
     }
   ]
 }

@@ -144,6 +144,9 @@ export const companyConfig = sqliteTable('company_config', {
   // Pronista §Subscription Notify — แคตตาล็อกประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ) แก้ไขได้ที่ตั้งค่า (null = ใช้ DEFAULT — resolve ใน core/subscription)
   // projects.serviceType อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน positions)
   serviceTypes: text('service_types', { mode: 'json' }).$type<{ id: string; name: string; sortOrder: number }[]>(),
+  // Pronista §Subscription Notify (Product Type) — แคตตาล็อกชื่อผลิตภัณฑ์ (Sellnista/Paynista/ฯลฯ) ใช้เมื่อ category='product' (null = ใช้ DEFAULT — resolve ใน core/subscription)
+  // projects.productType อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน serviceTypes)
+  productTypes: text('product_types', { mode: 'json' }).$type<{ id: string; name: string; sortOrder: number }[]>(),
 })
 
 /** ลูกค้า (CRM §4.17 — entity จริงตั้งแต่ T08 เลี่ยง refactor) */
@@ -196,6 +199,8 @@ export const projects = sqliteTable(
     apiDocNotes: text('api_doc_notes'),
     // Pronista §Subscription Notify — ประเภทโปรเจกต์ (อ้าง id ใน company_config.serviceTypes) + ช่วงเวลาให้บริการ (null = lifetime ไม่มีวันหมดอายุ)
     serviceType: text('service_type'),
+    // Pronista §Subscription Notify (Product Type) — ใช้เมื่อ category='product' เท่านั้น (อ้าง id ใน company_config.productTypes) — คนละแกนกับ serviceType (ใช้ตอน category='project')
+    productType: text('product_type'),
     serviceStartDate: text('service_start_date'), // YYYY-MM-DD
     serviceEndDate: text('service_end_date'), // YYYY-MM-DD — null = lifetime
     notifyBeforeDays: integer('notify_before_days'), // แจ้งเตือนล่วงหน้ากี่วันก่อนหมดอายุ

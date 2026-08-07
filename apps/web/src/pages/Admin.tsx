@@ -5,6 +5,7 @@ import { PageHeader } from '../components/PageHeader'
 import { BoardPresetSettings } from '../components/BoardPresetSettings'
 import { PositionSettings } from '../components/PositionSettings'
 import { ServiceTypeSettings } from '../components/ServiceTypeSettings'
+import { ProductTypeSettings } from '../components/ProductTypeSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
 import { api, ApiError } from '../lib/api'
 import { useDialog } from '../components/Dialog'
@@ -472,6 +473,8 @@ export function AdminPage() {
         <PositionSettings />
 
         <ServiceTypeSettings />
+
+        <ProductTypeSettings />
 
         <GcalSettings />
       </div>

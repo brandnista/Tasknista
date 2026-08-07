@@ -59,3 +59,53 @@ export function validateServiceTypes(list: ServiceType[]): { ok: true } | { ok: 
   }
   return { ok: true }
 }
+
+/**
+ * Pronista §Subscription Notify (Product Type) — แคตตาล็อกชื่อผลิตภัณฑ์ (Sellnista/Paynista/ฯลฯ) ใช้เมื่อ category='product'
+ * โครงสร้าง/พฤติกรรมเหมือน ServiceType ทุกอย่าง (คนละแคตตาล็อกกัน — service สำหรับ category='project', product สำหรับ category='product')
+ */
+export interface ProductType {
+  id: string
+  name: string
+  sortOrder: number
+}
+
+/** ค่าเริ่มต้น = รายชื่อผลิตภัณฑ์ในเครือ Brandnista ตามที่กำหนดไว้ตอนออกแบบฟีเจอร์ (seed ตอน migrate — แก้ไข/เพิ่ม/ลบได้ที่ตั้งค่าภายหลัง) */
+export const DEFAULT_PRODUCT_TYPES: ProductType[] = [
+  { id: 'prd_sellnista', name: 'Sellnista', sortOrder: 0 },
+  { id: 'prd_paynista', name: 'Paynista', sortOrder: 1 },
+  { id: 'prd_signnista', name: 'Signnista', sortOrder: 2 },
+  { id: 'prd_sharenista', name: 'Sharenista', sortOrder: 3 },
+  { id: 'prd_munista', name: 'Munista', sortOrder: 4 },
+  { id: 'prd_jobnista', name: 'Jobnista', sortOrder: 5 },
+  { id: 'prd_auctionnista', name: 'Auctionnista', sortOrder: 6 },
+  { id: 'prd_allnista', name: 'Allnista', sortOrder: 7 },
+  { id: 'prd_beautynista', name: 'Beautynista', sortOrder: 8 },
+  { id: 'prd_brandnista', name: 'Brandnista', sortOrder: 9 },
+  { id: 'prd_pronista', name: 'Pronista', sortOrder: 10 },
+  { id: 'prd_packnista', name: 'Packnista', sortOrder: 11 },
+]
+
+export function resolveProductTypes(raw: ProductType[] | null | undefined): ProductType[] {
+  const list = raw && raw.length > 0 ? raw : DEFAULT_PRODUCT_TYPES
+  return [...list].sort((a, b) => a.sortOrder - b.sortOrder)
+}
+
+export function productTypeById(raw: ProductType[] | null | undefined, id: string | null | undefined): ProductType | undefined {
+  if (!id) return undefined
+  return resolveProductTypes(raw).find((p) => p.id === id)
+}
+
+/** ตรวจ config ที่จะบันทึก (CRUD ผ่าน API) — คืน error ภาษาไทยถ้าไม่ผ่าน */
+export function validateProductTypes(list: ProductType[]): { ok: true } | { ok: false; error: string } {
+  if (!Array.isArray(list) || list.length === 0) return { ok: false, error: 'ต้องมีอย่างน้อย 1 ประเภทสินค้า' }
+  const ids = new Set<string>()
+  for (const p of list) {
+    if (!ID_RE.test(p.id)) return { ok: false, error: `id ประเภทสินค้าไม่ถูกต้อง: ${p.id}` }
+    if (ids.has(p.id)) return { ok: false, error: `id ประเภทสินค้าซ้ำ: ${p.id}` }
+    ids.add(p.id)
+    const name = p.name?.trim() ?? ''
+    if (name.length === 0 || name.length > 60) return { ok: false, error: 'ชื่อประเภทสินค้าต้องยาว 1–60 ตัว' }
+  }
+  return { ok: true }
+}
