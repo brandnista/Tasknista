@@ -94,7 +94,7 @@ export function ProjectStatusSettings() {
               onClick={() => { setCategory(c); setOpenColor(null) }}
               className={`px-3 py-1.5 rounded-md capitalize ${category === c ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}
             >
-              {c === 'product' ? 'Product' : 'Project'}
+              {c === 'product' ? 'Product' : 'Service'}
             </button>
           ))}
         </div>
@@ -176,7 +176,7 @@ export function ProjectStatusSettings() {
             disabled={saving}
             className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40"
           >
-            {saving ? 'กำลังบันทึก…' : `บันทึกสถานะ (${category === 'product' ? 'Product' : 'Project'})`}
+            {saving ? 'กำลังบันทึก…' : `บันทึกสถานะ (${category === 'product' ? 'Product' : 'Service'})`}
           </button>
           {saved && <span className="text-xs text-success-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> บันทึกแล้ว</span>}
         </div>

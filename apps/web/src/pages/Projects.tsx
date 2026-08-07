@@ -283,7 +283,7 @@ function CollapsibleBacklog({ children }: { children: React.ReactNode }) {
 }
 
 /** Pronista §Subscription Notify — Dashboard รวมโปรเจกต์ที่ใกล้/เลยวันหมดอายุบริการ (nearExpiry จาก server)
- * คอลัมน์ตามที่กำหนด: ชื่อโปรเจกต์ / โปรเจกต์ไทป์ / ชื่อลูกค้า / วันที่หมดอายุ — เรียงตามวันหมดอายุใกล้สุดก่อน */
+ * คอลัมน์ตามที่กำหนด: ชื่อโปรเจกต์ / Service Type / ชื่อลูกค้า / วันที่หมดอายุ — เรียงตามวันหมดอายุใกล้สุดก่อน */
 function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
   const navigate = useNavigate()
   const list = rows.filter((p) => p.nearExpiry).sort((a, b) => (a.serviceEndDate ?? '').localeCompare(b.serviceEndDate ?? ''))
@@ -297,7 +297,7 @@ function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
         <thead className="bg-hover text-dim text-xs">
           <tr>
             <th className="text-left font-medium px-5 py-3">ชื่อโปรเจกต์</th>
-            <th className="text-left font-medium px-3 py-3">โปรเจกต์ไทป์</th>
+            <th className="text-left font-medium px-3 py-3">Service Type</th>
             <th className="text-left font-medium px-3 py-3">ชื่อลูกค้า</th>
             <th className="text-left font-medium px-3 py-3 w-40">วันที่หมดอายุ</th>
           </tr>
@@ -562,7 +562,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
               <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium">
                 {(['product', 'project'] as const).map((t) => (
                   <button key={t} onClick={() => setForm({ ...form, category: t })} className={`flex-1 px-2.5 py-1.5 rounded-md capitalize ${form.category === t ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-                    {t === 'product' ? '🟢 Product' : '🔵 Project'}
+                    {t === 'product' ? '🟢 Product' : '🔵 Service'}
                   </button>
                 ))}
               </div>
@@ -571,7 +571,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
             <>
               {form.category === 'project' ? (
                 <div>
-                  <label className={label}>โปรเจกต์ไทป์</label>
+                  <label className={label}>Service Type</label>
                   <select value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className={input}>
                     <option value="">— ไม่ระบุ —</option>
                     {serviceTypes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -870,7 +870,7 @@ export function ProjectsPage() {
                 {leadOptionsInData.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
               <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
-                {([['all', 'ทั้งหมด'], ['product', 'Product'], ['project', 'Project']] as const).map(([k, lbl]) => (
+                {([['all', 'ทั้งหมด'], ['product', 'Product'], ['project', 'Service']] as const).map(([k, lbl]) => (
                   <button key={k} onClick={() => setCatFilter(k)} className={`px-2.5 py-1 rounded-md ${catFilter === k ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
                 ))}
               </div>

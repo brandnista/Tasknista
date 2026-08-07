@@ -272,7 +272,7 @@ export function ProjectEditPage() {
             <div className="grid sm:grid-cols-2 gap-4">
               {project.category === 'project' ? (
                 <label className="block">
-                  <div className="text-xs font-medium text-muted mb-1.5">โปรเจกต์ไทป์</div>
+                  <div className="text-xs font-medium text-muted mb-1.5">Service Type</div>
                   <select value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className={input}>
                     <option value="">— ไม่ระบุ —</option>
                     {serviceTypes.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
