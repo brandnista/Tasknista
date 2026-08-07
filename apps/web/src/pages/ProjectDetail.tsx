@@ -164,7 +164,7 @@ const BACKLOG_TAB_TO_PERMISSION_KEY: Record<(typeof FIXED_BACKLOG_TABS)[number],
   summary: 'backlogSummary',
 }
 
-function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, refreshKey, revealTab }: {
+function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, onOpenTask, refreshKey, revealTab, readOnly }: {
   projectId: string
   canEdit: boolean
   permissions?: PositionPermissions
@@ -172,7 +172,11 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
   refreshKey: number
   // Pronista §Sprint & Board fix — เพิ่ม nonce ทุกครั้งเพื่อบังคับสลับแท็บได้แม้เป็นแท็บเดิมซ้ำ (เช่นเอาออกจาก Sprint 2 ครั้งติดจากแท็บเดียวกัน)
   revealTab?: { tab: BacklogTab; nonce: number } | null
+  // Pronista §Workspace — แท็บ Sprint เดิมในโปรเจกต์เหลือแค่ดู จัดการเต็มรูปแบบย้ายไปที่ Workspace แล้ว (ไม่กระทบ canEdit จริงของผู้ใช้ที่ส่งมา ใช้แค่ปิด mutation ในมุมมองนี้)
+  readOnly?: boolean
 }) {
+  // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย ทำให้ทุกจุดที่เช็ค canEdit อยู่แล้วในฟังก์ชันนี้ (รวมถึงที่ส่งต่อลง sub-tab) กลายเป็น read-only อัตโนมัติโดยไม่ต้องไล่แก้ทีละจุด
+  const canEdit = canEditProp && !readOnly
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog
   const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
@@ -226,7 +230,6 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
   }, [list])
   const regularList = byTab.get('regular') ?? []
   const docTabsPresent = BACKLOG_DOC_TABS.filter((k) => (byTab.get(k) ?? []).length > 0)
-  if (list.length === 0 && !canEdit) return null
   const activeList = tab === 'regular' ? regularList : (byTab.get(tab) ?? [])
 
   const add = async () => {
@@ -238,6 +241,8 @@ function ProjectBacklogSection({ projectId, canEdit, permissions, onOpenTask, re
   }
   // Pronista §Back to Basic (ต่อยอด) — สร้าง Task เพิ่มเองตรงในแท็บเอกสาร (เช่น SOW) นอกเหนือจากที่แตกมาจากการอัปโหลดเอกสารเท่านั้น
   const [docTabTitle, setDocTabTitle] = useState('')
+  // Pronista §Workspace — early-return ต้องมาหลัง hook ตัวสุดท้าย (docTabTitle) เสมอ กัน "Rendered more hooks" ตอน canEdit สลับ false/true ข้าม render (เช่น list ว่างตอนกำลังโหลด data แล้วไม่ว่างหลังโหลดเสร็จ)
+  if (list.length === 0 && !canEdit) return null
   const addDocTabTask = async (docTab: (typeof BACKLOG_DOC_TABS)[number]) => {
     if (!docTabTitle.trim()) return
     await api.post(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
@@ -678,7 +683,15 @@ interface CurrentSprintData {
 /** Pronista §Sprint & Board — Default view ตอนเข้าโปรเจกต์: จัดการ Backlog เข้า Sprint + ดูประวัติ/report ย้อนหลัง
  * §Sprint & Board แก้ไข flow — ลาก task มาจาก ProjectBacklogSection (Backlog เดียวของโปรเจกต์) วางที่นี่แทนปุ่ม +Sprint เดิม
  * เลือก Preset ตอนกด "เริ่ม Sprint" แทนตอนสร้าง (SprintStartModal) · เพิ่ม/ปิด sprint กระทบ Backlog ของโปรเจกต์ → เรียก onBacklogChanged ให้ ProjectBacklogSection รีโหลดด้วย */
-function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: string; canEdit: boolean; onBacklogChanged: (revealTab?: BacklogTab) => void }) {
+function SprintSection({ projectId, canEdit: canEditProp, onBacklogChanged, readOnly }: {
+  projectId: string
+  canEdit: boolean
+  onBacklogChanged: (revealTab?: BacklogTab) => void
+  // Pronista §Workspace — แท็บ Sprint เดิมในโปรเจกต์เหลือแค่ดู จัดการเต็มรูปแบบย้ายไปที่ Workspace แล้ว
+  readOnly?: boolean
+}) {
+  // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย (ดูคอมเมนต์เดียวกันใน ProjectBacklogSection)
+  const canEdit = canEditProp && !readOnly
   const navigate = useNavigate()
   const { data, reload } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
   const { data: history, reload: reloadHistory } = useLoad<SprintRow[]>(() => api.get(`/api/projects/${projectId}/sprints`), [projectId])
@@ -832,9 +845,9 @@ function SprintSection({ projectId, canEdit, onBacklogChanged }: { projectId: st
           <div className="text-[11px] text-muted mb-2">ลากงานจาก 📥 Backlog ของโปรเจกต์ ด้านบนมาวางด้านล่างนี้เพื่อจัดเข้า Sprint นี้ — เพิ่ม/เอาออกได้จนกว่าจะกด "เริ่ม Sprint"</div>
         )}
         <div
-          onDragOver={sprint.status === 'planned' ? (e: DragEvent) => { e.preventDefault(); setDropHoverId(sprint.id) } : undefined}
+          onDragOver={canEdit && sprint.status === 'planned' ? (e: DragEvent) => { e.preventDefault(); setDropHoverId(sprint.id) } : undefined}
           onDragLeave={() => setDropHoverId(null)}
-          onDrop={sprint.status === 'planned' ? (e: DragEvent) => { e.preventDefault(); setDropHoverId(null); const id = e.dataTransfer.getData('text/plain'); if (id) void addToSprint(sprint.id, id) } : undefined}
+          onDrop={canEdit && sprint.status === 'planned' ? (e: DragEvent) => { e.preventDefault(); setDropHoverId(null); const id = e.dataTransfer.getData('text/plain'); if (id) void addToSprint(sprint.id, id) } : undefined}
           className={`bg-hover rounded-lg p-3 min-h-32 border-2 border-dashed ${isDropHovering ? 'border-brand-400 bg-brand-50' : 'border-transparent'}`}
         >
           <div className="text-xs font-semibold text-body mb-2">🏃 ใน Sprint นี้ ({sprintTasks.length})</div>
@@ -2002,24 +2015,33 @@ export function ProjectDetailPage() {
       </div>
 
       {view === 'sprint' && id && (
-        <div className="grid lg:grid-cols-2 gap-4 items-start">
-          <ProjectBacklogSection
-            projectId={id}
-            canEdit={canEdit}
-            permissions={project.myPermissions}
-            onOpenTask={openTask}
-            refreshKey={backlogRefreshKey}
-            revealTab={revealSignal}
-          />
-          <SprintSection
-            projectId={id}
-            canEdit={canEdit}
-            onBacklogChanged={(revealTab) => {
-              setBacklogRefreshKey((k) => k + 1)
-              if (revealTab) setRevealSignal((s) => ({ tab: revealTab, nonce: (s?.nonce ?? 0) + 1 }))
-            }}
-          />
-        </div>
+        <>
+          {/* Pronista §Workspace — จัดการ Sprint/Backlog เต็มรูปแบบย้ายไปที่เมนู Workspace แล้ว แท็บนี้เหลือแค่ดูของโปรเจกต์นี้ */}
+          <div className="bg-info-50 text-info-700 text-sm rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2 flex-wrap">
+            <span>จัดการ Sprint และ Backlog แบบเต็มรูปแบบได้ที่</span>
+            <Link to={`/workspace?project=${id}`} className="font-medium underline hover:no-underline">Workspace</Link>
+          </div>
+          <div className="grid lg:grid-cols-2 gap-4 items-start">
+            <ProjectBacklogSection
+              projectId={id}
+              canEdit={canEdit}
+              permissions={project.myPermissions}
+              onOpenTask={openTask}
+              refreshKey={backlogRefreshKey}
+              revealTab={revealSignal}
+              readOnly
+            />
+            <SprintSection
+              projectId={id}
+              canEdit={canEdit}
+              onBacklogChanged={(revealTab) => {
+                setBacklogRefreshKey((k) => k + 1)
+                if (revealTab) setRevealSignal((s) => ({ tab: revealTab, nonce: (s?.nonce ?? 0) + 1 }))
+              }}
+              readOnly
+            />
+          </div>
+        </>
       )}
 
       {view === 'docs' && id && <ProjectDocsSection projectId={id} />}
