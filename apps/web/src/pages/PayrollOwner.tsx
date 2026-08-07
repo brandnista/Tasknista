@@ -191,7 +191,7 @@ export function PayrollOwnerPage() {
                         <span className="inline-flex items-center gap-1.5">
                           {flagged && <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />}
                           {r.name}
-                          {r.role === 'vendor' && <span className="text-[10px] text-muted">(ผู้รับจ้าง)</span>}
+                          {(r.role === 'vendor' || r.role === 'guest') && <span className="text-[10px] text-muted">({r.role === 'vendor' ? 'ผู้รับจ้าง' : 'Guest'})</span>}
                         </span>
                       </td>
                       <td className="text-right px-2">{minutesToHoursLabel(r.minutesTotal)}</td>

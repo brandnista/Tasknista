@@ -12,9 +12,9 @@ export async function getDocAccess(
   db: ReturnType<typeof createDb>,
   docId: string,
   userId: string,
-  globalRole: 'owner' | 'member' | 'vendor',
+  globalRole: 'owner' | 'member' | 'vendor' | 'guest',
 ): Promise<DocAccess> {
-  if (globalRole === 'vendor') return 'none'
+  if (globalRole === 'vendor' || globalRole === 'guest') return 'none'
   const doc = (await db.select().from(docs).where(eq(docs.id, docId)).limit(1))[0]
   if (!doc) return 'none'
   if (globalRole === 'owner' || doc.ownerId === userId) return 'owner'

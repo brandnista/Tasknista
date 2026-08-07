@@ -30,9 +30,9 @@ export const payrollRoutes = new Hono<AppEnv>().get('/payroll/me', async (c) => 
     .filter((r) => r.effectiveFrom <= today)
     .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]
 
-  // เงินสดย่อยรอเบิกของฉัน (จ่ายเอง · ยังไม่ถูกคืน/ปฏิเสธ) — SPEC §4.7 (vendor ไม่มี petty cash)
+  // เงินสดย่อยรอเบิกของฉัน (จ่ายเอง · ยังไม่ถูกคืน/ปฏิเสธ) — SPEC §4.7 (vendor/guest ไม่มี petty cash)
   const myPending =
-    me.role === 'vendor'
+    me.role === 'vendor' || me.role === 'guest'
       ? []
       : await db
           .select({ amountSatang: expenses.amountSatang, description: expenses.description, status: expenses.status })

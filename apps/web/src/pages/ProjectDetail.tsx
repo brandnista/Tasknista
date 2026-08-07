@@ -1853,7 +1853,7 @@ export function ProjectDetailPage() {
   const { data: project } = useLoad<ProjectRow>(() => api.get(`/api/projects/${id}`), [id])
   // Pronista §permission (Jira-style project role) — editor ของ "โปรเจกต์นี้" เท่านั้นที่แก้ได้ (ไม่ใช่ owner ระบบทั้งบริษัทเท่านั้นอีกต่อไป)
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
-  const canEdit = user?.role !== 'vendor' && canEditProject
+  const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && canEditProject
   const { data: board, reload } = useLoad<{ groups: BoardGroup[] }>(() => api.get(`/api/projects/${id}/board`), [id])
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()

@@ -271,8 +271,8 @@ export const inboxThreadRoutes = new Hono<AppEnv>()
         .select({ id: users.id, role: users.role, status: users.status })
         .from(users)
         .where(eq(users.id, body.data.assigneeId))
-      // vendor ไม่เห็นอีเมลกลาง — มอบหมายให้ไม่ได้
-      if (!assignee || assignee.status !== 'active' || assignee.role === 'vendor')
+      // vendor/guest ไม่เห็นอีเมลกลาง — มอบหมายให้ไม่ได้
+      if (!assignee || assignee.status !== 'active' || assignee.role === 'vendor' || assignee.role === 'guest')
         return c.json({ error: 'invalid_assignee' }, 400)
     }
 

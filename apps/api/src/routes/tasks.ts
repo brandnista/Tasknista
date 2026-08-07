@@ -472,7 +472,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const positionsList = resolvePositions(cfgPositions?.positions)
     const roleOf = (projectId: string): 'owner' | 'editor' | 'viewer' => {
       if (me.role === 'owner') return 'owner'
-      if (me.role === 'vendor') return 'viewer'
+      if (me.role === 'vendor' || me.role === 'guest') return 'viewer'
       const positionId = myMemberships.find((m) => m.projectId === projectId)?.positionId
       const perm = positionById(positionsList, positionId)?.permissions ?? VIEW_ONLY_PERMISSIONS
       return hasAnyEditRight(perm) ? 'editor' : 'viewer'

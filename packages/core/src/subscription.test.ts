@@ -54,7 +54,7 @@ describe('validateServiceTypes', () => {
     expect(validateServiceTypes(DEFAULT_SERVICE_TYPES)).toEqual({ ok: true })
   })
   it('ไม่ผ่านเมื่อ list ว่าง', () => {
-    expect(validateServiceTypes([])).toEqual({ ok: false, error: 'ต้องมีอย่างน้อย 1 ประเภทโปรเจกต์' })
+    expect(validateServiceTypes([])).toEqual({ ok: false, error: 'ต้องมีอย่างน้อย 1 ประเภทบริการ' })
   })
   it('ไม่ผ่านเมื่อ id ซ้ำ', () => {
     const list = [

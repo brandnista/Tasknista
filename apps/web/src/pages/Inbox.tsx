@@ -94,7 +94,7 @@ interface DetailData {
 interface UserOpt {
   id: string
   name: string
-  role: 'owner' | 'member' | 'vendor'
+  role: 'owner' | 'member' | 'vendor' | 'guest'
 }
 
 const FOLDERS = [
@@ -327,7 +327,7 @@ function ThreadActions({
     onChanged()
   }
   const pill = STATUS_PILL[thread.status] ?? STATUS_PILL.open!
-  const team = (userOpts ?? []).filter((u) => u.role !== 'vendor')
+  const team = (userOpts ?? []).filter((u) => u.role !== 'vendor' && u.role !== 'guest')
   const assignee = team.find((u) => u.id === thread.assigneeId)
   const snoozeItems: { label: string; days: number }[] = [
     { label: 'เลื่อนถึงพรุ่งนี้ 9:00', days: 1 },

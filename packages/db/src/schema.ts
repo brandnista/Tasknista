@@ -30,7 +30,8 @@ export const users = sqliteTable('users', {
   lastName: text('last_name'), // นามสกุล
   nickname: text('nickname'), // ชื่อเล่น (ถ้ามี = ใช้เป็น display name)
   googleSub: text('google_sub').unique(),
-  role: text('role', { enum: ['owner', 'member', 'vendor'] }).notNull(),
+  // Pronista §User Role — guest มีสิทธิ์เข้าถึงเหมือน vendor ทุกอย่าง (external, view-only, ไม่เห็นการเงิน) แค่แยก label ไว้จัดกลุ่มคนละประเภท
+  role: text('role', { enum: ['owner', 'member', 'vendor', 'guest'] }).notNull(),
   status: text('status', { enum: ['active', 'disabled'] }).notNull().default('active'),
   avatarUrl: text('avatar_url'),
   teamId: text('team_id').references(() => teams.id),

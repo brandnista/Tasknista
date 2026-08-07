@@ -62,7 +62,7 @@ export const adminRoutes = new Hono<AppEnv>()
       .object({
         email: z.string().email().toLowerCase(),
         name: z.string().min(1),
-        role: z.enum(['owner', 'member', 'vendor']),
+        role: z.enum(['owner', 'member', 'vendor', 'guest']),
         teamId: z.string().nullable().optional(),
         // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
         jobTitle: z.string().max(80).nullable().optional(),
@@ -107,7 +107,7 @@ export const adminRoutes = new Hono<AppEnv>()
       .object({
         name: z.string().min(1).optional(),
         email: z.string().email().toLowerCase().optional(),
-        role: z.enum(['owner', 'member', 'vendor']).optional(),
+        role: z.enum(['owner', 'member', 'vendor', 'guest']).optional(),
         status: z.enum(['active', 'disabled']).optional(),
         teamId: z.string().nullable().optional(),
         // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)

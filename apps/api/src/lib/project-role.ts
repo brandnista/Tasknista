@@ -21,10 +21,11 @@ export async function getProjectPermissions(
   db: ReturnType<typeof createDb>,
   projectId: string,
   userId: string,
-  globalRole: 'owner' | 'member' | 'vendor',
+  globalRole: 'owner' | 'member' | 'vendor' | 'guest',
 ): Promise<PositionPermissions> {
   if (globalRole === 'owner') return FULL_ACCESS_PERMISSIONS
-  if (globalRole === 'vendor') return VENDOR_PROJECT_PERMISSIONS
+  // Pronista §User Role — guest ได้สิทธิ์เหมือน vendor ทุกอย่าง (ค่าคงที่ ไม่ผูกกับแคตตาล็อกตำแหน่ง)
+  if (globalRole === 'vendor' || globalRole === 'guest') return VENDOR_PROJECT_PERMISSIONS
   const row = (
     await db
       .select({ positionId: projectMembers.positionId })
@@ -47,12 +48,12 @@ export async function getProjectRole(
   db: ReturnType<typeof createDb>,
   projectId: string,
   userId: string,
-  globalRole: 'owner' | 'member' | 'vendor',
+  globalRole: 'owner' | 'member' | 'vendor' | 'guest',
   // Pronista §Position-based permission (Performance review 2026-08-03) — เผื่อ caller คำนวณ permissions ไว้แล้ว ส่งเข้ามาแทนได้ กัน query ซ้ำ (optional เฉยๆ ไม่กระทบ call site เดิม)
   precomputedPermissions?: PositionPermissions,
 ): Promise<EffectiveProjectRole> {
   if (globalRole === 'owner') return 'owner'
-  if (globalRole === 'vendor') return 'viewer'
+  if (globalRole === 'vendor' || globalRole === 'guest') return 'viewer'
   const permissions = precomputedPermissions ?? (await getProjectPermissions(db, projectId, userId, globalRole))
   return hasAnyEditRight(permissions) ? 'editor' : 'viewer'
 }
@@ -68,11 +69,11 @@ export function canEditProject(role: EffectiveProjectRole): boolean {
 export async function canEditTask(
   db: ReturnType<typeof createDb>,
   task: { projectId: string | null; assigneeId: string | null },
-  me: { id: string; role: 'owner' | 'member' | 'vendor' },
+  me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' },
   precomputedPermissions?: PositionPermissions,
 ): Promise<boolean> {
   if (!task.projectId) return true // backlog ลอย — ทุกคนแก้ได้ตามเดิม
-  if (me.role !== 'member') return true // owner ผ่านเสมอ (vendor ถูกกันที่ teamOnly ไปแล้ว)
+  if (me.role !== 'member') return true // owner ผ่านเสมอ (vendor/guest ถูกกันที่ teamOnly ไปแล้ว)
   if (task.assigneeId === me.id) return true
   return canEditProject(await getProjectRole(db, task.projectId, me.id, me.role, precomputedPermissions))
 }
@@ -82,7 +83,7 @@ export async function canEditTask(
 export async function isAssigneeOnlyEditor(
   db: ReturnType<typeof createDb>,
   task: { projectId: string | null; assigneeId: string | null },
-  me: { id: string; role: 'owner' | 'member' | 'vendor' },
+  me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' },
   precomputedPermissions?: PositionPermissions,
 ): Promise<boolean> {
   if (!task.projectId || me.role !== 'member' || task.assigneeId !== me.id) return false

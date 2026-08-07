@@ -285,7 +285,7 @@ export function TaskDetailPage() {
   const { confirmDialog, promptDialog } = useDialog()
   const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
-  const canEdit = user?.role !== 'vendor' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
+  const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const { data: trace } = useLoad<TraceResponse>(() => api.get(`/api/tasks/${taskId}/trace`), [taskId])
   // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ

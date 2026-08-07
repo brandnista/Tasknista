@@ -37,9 +37,9 @@ function CapBanner() {
 type Role = Me['role']
 
 const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[] }[] = [
-  { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor'] },
-  { to: '/my-tasks', label: 'งานของฉัน', icon: ClipboardList, roles: ['owner', 'member', 'vendor'] },
-  { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor'] },
+  { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'] },
+  { to: '/my-tasks', label: 'งานของฉัน', icon: ClipboardList, roles: ['owner', 'member', 'vendor', 'guest'] },
+  { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'] },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member'] },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member'] },
   { to: '/admin', label: 'ตั้งค่า', icon: Settings, roles: ['owner'] },

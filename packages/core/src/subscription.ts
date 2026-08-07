@@ -48,14 +48,14 @@ const ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 
 /** ตรวจ config ที่จะบันทึก (CRUD ผ่าน API) — คืน error ภาษาไทยถ้าไม่ผ่าน */
 export function validateServiceTypes(list: ServiceType[]): { ok: true } | { ok: false; error: string } {
-  if (!Array.isArray(list) || list.length === 0) return { ok: false, error: 'ต้องมีอย่างน้อย 1 ประเภทโปรเจกต์' }
+  if (!Array.isArray(list) || list.length === 0) return { ok: false, error: 'ต้องมีอย่างน้อย 1 ประเภทบริการ' }
   const ids = new Set<string>()
   for (const s of list) {
-    if (!ID_RE.test(s.id)) return { ok: false, error: `id ประเภทโปรเจกต์ไม่ถูกต้อง: ${s.id}` }
-    if (ids.has(s.id)) return { ok: false, error: `id ประเภทโปรเจกต์ซ้ำ: ${s.id}` }
+    if (!ID_RE.test(s.id)) return { ok: false, error: `id ประเภทบริการไม่ถูกต้อง: ${s.id}` }
+    if (ids.has(s.id)) return { ok: false, error: `id ประเภทบริการซ้ำ: ${s.id}` }
     ids.add(s.id)
     const name = s.name?.trim() ?? ''
-    if (name.length === 0 || name.length > 60) return { ok: false, error: 'ชื่อประเภทโปรเจกต์ต้องยาว 1–60 ตัว' }
+    if (name.length === 0 || name.length > 60) return { ok: false, error: 'ชื่อประเภทบริการต้องยาว 1–60 ตัว' }
   }
   return { ok: true }
 }

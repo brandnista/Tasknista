@@ -20,7 +20,7 @@ interface AdminUser {
   id: string
   email: string
   name: string
-  role: 'owner' | 'member' | 'vendor'
+  role: 'owner' | 'member' | 'vendor' | 'guest'
   status: 'active' | 'disabled'
   teamId: string | null
   teamName: string | null
@@ -108,6 +108,7 @@ function AddUserForm({ memberDomain, teamsList, onDone }: { memberDomain?: strin
         >
           <option value="member">พนักงาน</option>
           <option value="vendor">ผู้รับจ้าง</option>
+          <option value="guest">Guest</option>
           <option value="owner">Admin</option>
         </select>
         <select
@@ -252,6 +253,12 @@ export function AdminPage() {
     })
     await reload()
   }
+  // Pronista §User Role — แก้ "สิทธิ์ระบบ" ของผู้ใช้เดิมได้ที่นี่ (หน้า /admin ทั้งหน้า + endpoint นี้ผูก ownerOnly อยู่แล้ว = Admin เท่านั้นที่แก้ได้)
+  const saveUserRole = async (u: AdminUser, role: AdminUser['role']) => {
+    if (role === u.role) return
+    await api.patch(`/api/admin/users/${u.id}`, { role })
+    await reload()
+  }
   const saveEmail = async (u: AdminUser, email: string) => {
     const next = email.trim().toLowerCase()
     if (next === u.email) return
@@ -356,9 +363,16 @@ export function AdminPage() {
                         )}
                       </td>
                       <td className="px-3">
-                        <span className={`text-[11px] px-2 py-0.5 rounded-full ${ROLE_BADGE[u.role]}`}>
-                          {ROLE_LABEL[u.role]}
-                        </span>
+                        <select
+                          value={u.role}
+                          onChange={(e) => void saveUserRole(u, e.target.value as AdminUser['role'])}
+                          className={`text-[11px] px-2 py-1 rounded-full border-0 ${ROLE_BADGE[u.role]}`}
+                        >
+                          <option value="member">{ROLE_LABEL.member}</option>
+                          <option value="vendor">{ROLE_LABEL.vendor}</option>
+                          <option value="guest">{ROLE_LABEL.guest}</option>
+                          <option value="owner">{ROLE_LABEL.owner}</option>
+                        </select>
                       </td>
                       <td className="px-3 text-muted">{u.teamName ?? '—'}</td>
                       <td className="px-3">

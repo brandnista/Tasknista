@@ -21,7 +21,7 @@ export interface SelfPayroll {
   netSatang: number
   ownerNote: string | null
   currentRateSatangPerHour: number | null
-  role: 'owner' | 'member' | 'vendor'
+  role: 'owner' | 'member' | 'vendor' | 'guest'
   pendingReimburseSatang: number
   pendingReimburseItems: { description: string; amountSatang: number; status: 'pending' | 'approved' }[]
 }
@@ -45,7 +45,7 @@ function SelfView() {
   const { data: d } = useLoad<SelfPayroll>(() => api.get('/api/payroll/me'))
   if (!d) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
-  const isVendor = d.role === 'vendor'
+  const isVendor = d.role === 'vendor' || d.role === 'guest'
   const sumByKind = (kind: AdjustmentKind) =>
     d.adjustments.filter((a) => a.kind === kind).reduce((s, a) => s + a.amountSatang, 0)
   const maxProjectMinutes = Math.max(1, ...d.byProject.map((p) => p.minutes))

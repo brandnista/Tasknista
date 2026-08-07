@@ -164,7 +164,7 @@ export const overviewRoutes = new Hono<AppEnv>()
     // เกณฑ์ความหนาแน่น (ปรับได้): ว่าง ≤3 · พอเหมาะ 4-6 · งานล้นมือ ≥7 งานที่ยังไม่เสร็จ
     const densityOf = (n: number): 'overloaded' | 'moderate' | 'free' => (n >= 7 ? 'overloaded' : n >= 4 ? 'moderate' : 'free')
     const teamWorkload = activeUsers
-      .filter((u) => u.role !== 'vendor')
+      .filter((u) => u.role !== 'vendor' && u.role !== 'guest')
       .map((u) => ({
         id: u.id, name: u.name, avatarUrl: u.avatarUrl,
         unfinished: unfinishedByUser.get(u.id) ?? 0,

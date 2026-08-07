@@ -241,7 +241,7 @@ export function BoardPage() {
   const tasks = data?.tasks ?? []
   const parentsMap = new Map((data?.parents ?? []).map((p) => [p.id, p]))
   const columns = preset ? [...preset.columns].sort((a, b) => a.sortOrder - b.sortOrder) : []
-  const canEdit = user?.role !== 'vendor'
+  const canEdit = user?.role !== 'vendor' && user?.role !== 'guest'
 
   const changeStatus = async (taskId: string, sprintStatus: string) => {
     await api.patch(`/api/tasks/${taskId}`, { sprintStatus })

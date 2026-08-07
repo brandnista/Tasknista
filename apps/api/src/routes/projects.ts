@@ -45,7 +45,7 @@ function serialize<
     usagePct?: number | null
   },
 >(p: T, role: string) {
-  if (role === 'vendor') {
+  if (role === 'vendor' || role === 'guest') {
     const rest: Partial<T> = { ...p }
     delete rest.quotedSatang
     delete rest.paidPct

@@ -7,13 +7,14 @@ import { IconPicker } from '../components/IconPicker'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { type ProjectRow } from '../lib/project-ui'
+import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
 interface EditableProject extends ProjectRow {
   type: 'project' | 'recurring'
 }
 interface StatusOpt { id: string; name: string; kind: string }
-interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' }
+interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }
 interface PositionOpt { id: string; name: string }
 interface ServiceTypeOpt { id: string; name: string }
 interface ProductTypeOpt { id: string; name: string }
@@ -24,9 +25,23 @@ const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2
  * Pronista §Position-based permission — owner assign ตำแหน่ง (BA/PM/ฯลฯ) ให้ member เป็นรายโปรเจกต์ (สิทธิ์มาจากตำแหน่งที่เลือกล้วนๆ)
  * Pronista §7 (2026-07-03) — controlled component: แค่เก็บ positionId ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
  */
-function MembersSection({ assignments, positions, onChange }: { assignments: Record<string, string>; positions: PositionOpt[]; onChange: (userId: string, positionId: string) => void }) {
+function MembersSection({
+  assignments,
+  positions,
+  existingMemberIds,
+  onChange,
+}: {
+  assignments: Record<string, string>
+  positions: PositionOpt[]
+  existingMemberIds: Set<string>
+  onChange: (userId: string, positionId: string) => void
+}) {
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
+  // ตำแหน่ง (catalog) มีผลเฉพาะ role=member — owner/vendor/guest สิทธิ์คงที่ตาม role อยู่แล้ว ตั้งตำแหน่งไม่ได้ (backend ปฏิเสธ)
   const team = (users ?? []).filter((u) => u.role === 'member')
+  // owner/vendor/guest ที่ถูกเลือกไว้ตอนสร้างโปรเจกต์ (เห็นในนี้ได้ แต่แก้ตำแหน่งไม่ได้ — สิทธิ์มาจาก role โดยตรง)
+  const fixedAccessMembers = (users ?? []).filter((u) => u.role !== 'member' && existingMemberIds.has(u.id))
+  const fixedAccessLabel = (role: TeamUser['role']) => (role === 'owner' ? 'เข้าถึงเต็มรูปแบบ' : 'ดูอย่างเดียว')
   return (
     <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
       <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
@@ -51,6 +66,19 @@ function MembersSection({ assignments, positions, onChange }: { assignments: Rec
         ))}
         {team.length === 0 && <div className="text-sm text-muted py-3">ไม่มีพนักงาน (member) ในระบบ</div>}
       </div>
+      {fixedAccessMembers.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-border-subtle">
+          <p className="text-[11px] text-muted mb-2">สมาชิกอื่นในโปรเจกต์นี้ — สิทธิ์มาจาก "สิทธิ์ระบบ" โดยตรง (ไม่ผ่านตำแหน่ง แก้ที่นี่ไม่ได้)</p>
+          <div className="divide-y divide-divider">
+            {fixedAccessMembers.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 py-2">
+                <span className="flex-1 text-sm text-body">{u.name}</span>
+                <span className="text-xs text-muted">{ROLE_LABEL[u.role]} · {fixedAccessLabel(u.role)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -322,6 +350,7 @@ export function ProjectEditPage() {
         <MembersSection
           assignments={memberAssignments}
           positions={positionsData?.positions ?? []}
+          existingMemberIds={new Set((project.members ?? []).map((m) => m.id))}
           onChange={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
         />
       )}

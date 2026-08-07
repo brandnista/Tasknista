@@ -1,5 +1,5 @@
 /**
- * ตั้งค่า → ประเภทโปรเจกต์ (Pronista §Subscription Notify) — owner เพิ่ม/ลบ/เรียง/ตั้งชื่อประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ)
+ * ตั้งค่า → ประเภทบริการ (Service Type) (Pronista §Subscription Notify) — owner เพิ่ม/ลบ/เรียง/ตั้งชื่อประเภทบริการ (Website Dev/Mobile App/ฯลฯ)
  * เลือกได้ตอนสร้างโปรเจกต์ที่มีระยะเวลาให้บริการ · บันทึกทั้งลิสต์ทีเดียว (PUT) · ลบประเภทที่ยังมีโปรเจกต์ใช้อยู่ไม่ได้ (server ตอบ 409)
  */
 import type { ServiceType } from '@seedoffice/core'
@@ -64,7 +64,7 @@ export function ServiceTypeSettings() {
     <div className="bg-white rounded-lg shadow-xs overflow-hidden">
       <div className="p-5 border-b border-border-subtle flex items-center gap-2 flex-wrap">
         <Tag className="w-4 h-4 text-muted" />
-        <div className="font-semibold text-ink">ประเภทโปรเจกต์</div>
+        <div className="font-semibold text-ink">ประเภทบริการ (Service Type)</div>
         <span className="text-xs text-muted">เลือกได้ตอนสร้างโปรเจกต์ที่มีระยะเวลาให้บริการ (Subscription Notify)</span>
       </div>
 
@@ -92,14 +92,14 @@ export function ServiceTypeSettings() {
         ))}
 
         <button type="button" onClick={add} className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800 pt-1">
-          <Tag className="w-4 h-4" /> เพิ่มประเภทโปรเจกต์
+          <Tag className="w-4 h-4" /> เพิ่มประเภทบริการ
         </button>
 
         {error && <div className="text-xs text-danger-600">{error}</div>}
 
         <div className="flex items-center gap-3 pt-2">
           <button onClick={() => void save()} disabled={saving} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">
-            {saving ? 'กำลังบันทึก…' : 'บันทึกประเภทโปรเจกต์'}
+            {saving ? 'กำลังบันทึก…' : 'บันทึกประเภทบริการ'}
           </button>
           {saved && <span className="text-xs text-success-600 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> บันทึกแล้ว</span>}
         </div>

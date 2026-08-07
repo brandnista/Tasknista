@@ -5,7 +5,7 @@ export interface Me {
   id: string
   name: string
   email: string
-  role: 'owner' | 'member' | 'vendor'
+  role: 'owner' | 'member' | 'vendor' | 'guest'
   avatarUrl: string | null
   firstName: string | null
   lastName: string | null

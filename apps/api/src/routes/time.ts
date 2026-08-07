@@ -189,7 +189,7 @@ export const timeRoutes = new Hono<AppEnv>()
       .innerJoin(users, eq(timeEntries.userId, users.id))
       .where(and(eq(timeEntries.taskId, c.req.param('id')), isNull(timeEntries.deletedAt)))
       .orderBy(desc(timeEntries.workDate), desc(timeEntries.createdAt))
-    const visible = me.role === 'vendor' ? rows.filter((r) => r.entry.userId === me.id) : rows
+    const visible = me.role === 'vendor' || me.role === 'guest' ? rows.filter((r) => r.entry.userId === me.id) : rows
     return c.json(
       visible.map((r) => ({
         id: r.entry.id,

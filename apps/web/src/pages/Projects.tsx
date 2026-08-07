@@ -485,7 +485,10 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
   const clients = clientData?.rows ?? []
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const productTypes = productTypeData?.productTypes ?? []
-  const team = (users ?? []).filter((u) => u.role !== 'vendor')
+  // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — จำกัดเฉพาะคนภายใน (ไม่รวม vendor/guest)
+  const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor' && u.role !== 'guest')
+  // สมาชิกในโปรเจกต์ — เลือกได้ทุกคนที่ตั้งค่าไว้ในเมนู ตั้งค่า ไม่จำกัด role (สิทธิ์จริงมาจาก role/ตำแหน่งอยู่แล้ว ไม่ใช่จากการติ๊กตรงนี้)
+  const allUsers = users ?? []
 
   const [form, setForm] = useState({
     name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
@@ -587,36 +590,38 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                 </div>
               )}
 
-              <div>
-                <label className="flex items-center gap-2 text-sm text-body cursor-pointer mb-2">
-                  <input type="checkbox" checked={form.hasServicePeriod} onChange={(e) => setForm({ ...form, hasServicePeriod: e.target.checked })} />
-                  มีระยะเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
-                </label>
-                {form.hasServicePeriod && (
-                  <div className="space-y-3 pl-1">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className={label}>วันเริ่มบริการ</label>
-                        <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
+              {form.category === 'project' && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-body cursor-pointer mb-2">
+                    <input type="checkbox" checked={form.hasServicePeriod} onChange={(e) => setForm({ ...form, hasServicePeriod: e.target.checked })} />
+                    มีระยะเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
+                  </label>
+                  {form.hasServicePeriod && (
+                    <div className="space-y-3 pl-1">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={label}>วันเริ่มบริการ</label>
+                          <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
+                        </div>
+                        <div>
+                          <label className={label}>วันหมดอายุบริการ</label>
+                          <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
+                        </div>
                       </div>
                       <div>
-                        <label className={label}>วันหมดอายุบริการ</label>
-                        <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
+                        <label className={label}>แจ้งเตือนล่วงหน้าก่อนหมดอายุ</label>
+                        <div className="flex gap-2">
+                          <input type="number" min={1} value={form.notifyValue} onChange={(e) => setForm({ ...form, notifyValue: e.target.value })} className={`${input} w-24`} />
+                          <select value={form.notifyUnit} onChange={(e) => setForm({ ...form, notifyUnit: e.target.value as 'day' | 'month' })} className={input}>
+                            <option value="day">วัน</option>
+                            <option value="month">เดือน</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <label className={label}>แจ้งเตือนล่วงหน้าก่อนหมดอายุ</label>
-                      <div className="flex gap-2">
-                        <input type="number" min={1} value={form.notifyValue} onChange={(e) => setForm({ ...form, notifyValue: e.target.value })} className={`${input} w-24`} />
-                        <select value={form.notifyUnit} onChange={(e) => setForm({ ...form, notifyUnit: e.target.value as 'day' | 'month' })} className={input}>
-                          <option value="day">วัน</option>
-                          <option value="month">เดือน</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </>
 
             <div className="grid grid-cols-2 gap-3">
@@ -632,7 +637,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                 <label className={label}>Project Lead / หัวหน้าโครงการ</label>
                 <select value={form.leadId} onChange={(e) => setForm({ ...form, leadId: e.target.value })} className={input}>
                   <option value="">— ไม่ระบุ —</option>
-                  {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  {leadOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </div>
             </div>
@@ -660,7 +665,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
             <div>
               <label className={label}>สมาชิกในโปรเจกต์ (เลือกได้หลายคน)</label>
               <div className="border border-border-subtle rounded-lg max-h-32 overflow-y-auto divide-y divide-divider">
-                {team.map((u) => (
+                {allUsers.map((u) => (
                   <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-hover">
                     <input type="checkbox" checked={members.includes(u.id)} onChange={() => setMembers(toggle(members, u.id))} />
                     <span className="text-body">{u.name}</span>

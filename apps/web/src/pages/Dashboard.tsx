@@ -141,7 +141,7 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
-      {user?.role !== 'vendor' && (
+      {user?.role !== 'vendor' && user?.role !== 'guest' && (
         <>
           <TeamBox />
           <TeamCalendar />
