@@ -21,12 +21,13 @@ import {
   timerSessions,
   users,
 } from '@seedoffice/db'
-import { and, asc, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
+import { loadProjectBacklog } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -241,72 +242,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const projectId = c.req.param('id')
     const me = c.get('user')
     const myRole = await getProjectRole(db, projectId, me.id, me.role)
-    const rowsAll = await db
-      .select({ task: tasks, assigneeName: users.name, epicTitle: epics.title, epicCode: epics.code })
-      .from(tasks)
-      .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .leftJoin(epics, eq(tasks.epicId, epics.id))
-      .where(
-        and(
-          eq(tasks.projectId, projectId),
-          isNull(tasks.groupId),
-          isNull(tasks.sprintId),
-          // Pronista §Back to Basic (ต่อยอด) — ตัด Story/Task-ลอย/Defect/CR ออกจากลิสต์นี้ (ไปโผล่เฉพาะแท็บของตัวเองผ่าน /tasks/all): เหลือแค่งานทั่วไปแท้ (kind='backlog'), งานที่มาจากเอกสาร (originDocType ใดๆ, ระดับบนสุด), และลูกของ SOW (ทุกระดับ)
-          or(
-            and(isNull(tasks.parentId), or(eq(tasks.kind, 'backlog'), isNotNull(tasks.originDocType))),
-            eq(tasks.originDocType, 'SOW'),
-          ),
-        ),
-      )
-      .orderBy(asc(tasks.createdAt))
-    // Pronista §Backlog ownership — แท็บ "ทั่วไป" (kind='backlog') เป็นของส่วนตัวคนคีย์ · Owner/Editor เห็นของทุกคน ส่วน Member เห็นแค่ของตัวเอง (แท็บเอกสาร/SOW ไม่ใช่ของส่วนตัว ไม่กรอง)
-    const rows = canEditProject(myRole) ? rowsAll : rowsAll.filter((r) => r.task.kind !== 'backlog' || r.task.createdBy === me.id)
-
-    // Pronista §Sprint & Board fix — ซ่อน Task พ่อของ SOW ที่ subtask ทั้งหมดย้ายออกจาก Backlog ไปหมดแล้ว (เข้า Sprint แล้วหรือถูกลบ) — parent ที่ไม่เคยมี subtask เลย (parse ไม่เจอ) ยังโชว์ไว้เหมือนเดิม
-    const sowParentIds = rows.filter((r) => r.task.originDocType === 'SOW' && r.task.parentId === null).map((r) => r.task.id)
-    let hiddenParentIds = new Set<string>()
-    if (sowParentIds.length > 0) {
-      const totalChildren = await db.select({ parentId: tasks.parentId }).from(tasks).where(inArray(tasks.parentId, sowParentIds))
-      const totalByParent = new Map<string, number>()
-      for (const row of totalChildren) totalByParent.set(row.parentId!, (totalByParent.get(row.parentId!) ?? 0) + 1)
-      const remainingByParent = new Map<string, number>()
-      for (const r of rows) if (r.task.parentId) remainingByParent.set(r.task.parentId, (remainingByParent.get(r.task.parentId) ?? 0) + 1)
-      hiddenParentIds = new Set(sowParentIds.filter((id) => (totalByParent.get(id) ?? 0) > 0 && (remainingByParent.get(id) ?? 0) === 0))
-    }
-
-    // Pronista §Epic Layer — % ความคืบหน้ารวมของ Epic นับจากงานทั้งหมดในเอกสาร (รวมที่ย้ายเข้า Sprint ไปแล้วด้วย) ไม่ใช่แค่ที่เหลือใน Backlog
-    const epicIds = [...new Set(rows.map((r) => r.task.epicId).filter((id): id is string => id !== null))]
-    let epicList: { id: string; title: string; code: string | null; doneCount: number; totalCount: number }[] = []
-    if (epicIds.length > 0) {
-      const epicRows = await db.select().from(epics).where(inArray(epics.id, epicIds))
-      const epicTasks = await db
-        .select({ id: tasks.id, parentId: tasks.parentId, epicId: tasks.epicId, status: tasks.status })
-        .from(tasks)
-        .where(inArray(tasks.epicId, epicIds))
-      const parentIdSet = new Set(epicTasks.map((t) => t.parentId).filter((id): id is string => id !== null))
-      const progressByEpic = new Map<string, { done: number; total: number }>()
-      for (const t of epicTasks) {
-        if (parentIdSet.has(t.id)) continue // Task พ่อที่มี subtask ของตัวเอง ไม่นับเป็นหน่วยงานจริง (นับที่ subtask/leaf แทน)
-        const cur = progressByEpic.get(t.epicId!) ?? { done: 0, total: 0 }
-        cur.total += 1
-        if (t.status === 'done') cur.done += 1
-        progressByEpic.set(t.epicId!, cur)
-      }
-      epicList = epicRows.map((e) => ({
-        id: e.id,
-        title: e.title,
-        code: e.code,
-        doneCount: progressByEpic.get(e.id)?.done ?? 0,
-        totalCount: progressByEpic.get(e.id)?.total ?? 0,
-      }))
-    }
-
-    return c.json({
-      tasks: rows
-        .filter((r) => !hiddenParentIds.has(r.task.id))
-        .map((r) => ({ ...r.task, assigneeName: r.assigneeName, epicTitle: r.epicTitle, epicCode: r.epicCode })),
-      epics: epicList,
-    })
+    return c.json(await loadProjectBacklog(db, projectId, myRole, me.id))
   })
 
   // Pronista §Project Refactor — task ทั้งหมดของโปรเจกต์ (ไม่กรอง sprint/group) แบบเบาๆ ใช้กับ TaskPickerModal (เลือก parent ตอน "จัดการ"→ย้ายประเภท) และแท็บ EPIC/Story/Task/CR

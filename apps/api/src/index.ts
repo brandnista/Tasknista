@@ -31,6 +31,7 @@ import { notificationRoutes } from './routes/notifications'
 import { profileRoutes } from './routes/profile'
 import { tokenRoutes } from './routes/tokens'
 import { userRoutes } from './routes/users'
+import { workspaceRoutes } from './routes/workspace'
 import { runScheduled } from './scheduled'
 
 export { PresenceHub } from './do/presence-hub'
@@ -63,6 +64,9 @@ app.use('/api/projects', requireAuth)
 app.route('/api/projects', projectRoutes)
 // Pronista §Sprint & Board — /api/sprints/:id/* ไม่ได้อยู่ใต้ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
 app.use('/api/sprints/*', requireAuth)
+// Pronista §Workspace — รวม Sprint/Backlog ข้ามโปรเจกต์ (อ่านอย่างเดียว — mutation ใช้ endpoint เดิมของ sprints/tasks ทั้งหมด)
+app.use('/api/workspace/*', requireAuth)
+app.route('/api', workspaceRoutes)
 // ลูกค้า/CRM: owner+member เท่านั้น (SPEC §4.17)
 app.use('/api/clients', requireAuth, teamOnly)
 app.use('/api/clients/*', requireAuth, teamOnly)

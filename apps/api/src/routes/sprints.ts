@@ -1,64 +1,16 @@
-import { bkkDateOf, columnsOf, firstColumnId, presetById, resolvePresets } from '@seedoffice/core'
-import { companyConfig, createDb, epics, projects, sprintTaskSnapshots, sprints, tasks, users } from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { bkkDateOf, columnsOf, firstColumnId } from '@seedoffice/core'
+import { createDb, projects, sprintTaskSnapshots, sprints, tasks, users } from '@seedoffice/db'
+import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { canEditProject, getProjectRole } from '../lib/project-role'
 import { completeSprint } from '../lib/sprint'
+import { loadEpics, loadParents, loadPreset, loadProjectSprintBoards, loadSprintBoard } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
-
-async function loadPreset(db: ReturnType<typeof createDb>, boardPresetId: string | null) {
-  if (!boardPresetId) return undefined
-  const cfg = (await db.select({ boardPresets: companyConfig.boardPresets }).from(companyConfig).limit(1))[0]
-  return presetById(resolvePresets(cfg?.boardPresets), boardPresetId)
-}
-
-// Pronista §Sprint & Board fix — ให้ frontend จัดกลุ่ม/ยุบการ์ด subtask ตาม parent ได้ (Task View / Mixed View) โดยไม่ต้อง query เพิ่มฝั่ง client
-async function loadParents(db: ReturnType<typeof createDb>, rowTasks: (typeof tasks.$inferSelect)[]) {
-  const parentIds = [...new Set(rowTasks.map((t) => t.parentId).filter((id): id is string => id !== null))]
-  if (parentIds.length === 0) return []
-  return db.select({ id: tasks.id, code: tasks.code, title: tasks.title }).from(tasks).where(inArray(tasks.id, parentIds))
-}
-
-// Pronista §Epic Layer — ให้ frontend วาด swimlane ต่อ Epic บน Sprint Timeline โดยไม่ต้อง query เพิ่มฝั่ง client
-async function loadEpics(db: ReturnType<typeof createDb>, rowTasks: (typeof tasks.$inferSelect)[]) {
-  const epicIds = [...new Set(rowTasks.map((t) => t.epicId).filter((id): id is string => id !== null))]
-  if (epicIds.length === 0) return []
-  return db.select({ id: epics.id, title: epics.title, code: epics.code }).from(epics).where(inArray(epics.id, epicIds))
-}
-
-// Pronista §Back to Basic (ต่อยอด) — ข้อมูล Board ของ sprint เดียว (ใช้ทั้งใน /sprints/current ที่คืนทุก sprint พร้อมกัน และ /sprints/:id/board ของหน้า Board แยกต่อ sprint)
-async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: typeof sprints.$inferSelect) {
-  const preset = await loadPreset(db, sprint.boardPresetId)
-  const rows = await db
-    .select({ task: tasks, assigneeName: users.name, assigneeAvatarUrl: users.avatarUrl })
-    .from(tasks)
-    .leftJoin(users, eq(tasks.assigneeId, users.id))
-    .where(eq(tasks.sprintId, sprint.id))
-    .orderBy(asc(tasks.sortOrder))
-  // Pronista §Sprint queueing — งานย่อยขั้นที่ 3 (ลูกของ Task ที่อยู่ใน Sprint นี้) ไม่ได้เข้า Sprint เอง แต่โชว์ให้เห็นบริบทได้ (กดขยายดู)
-  const taskIds = rows.map((r) => r.task.id)
-  const grandchildRows =
-    taskIds.length > 0
-      ? await db
-          .select({ task: tasks, assigneeName: users.name })
-          .from(tasks)
-          .leftJoin(users, eq(tasks.assigneeId, users.id))
-          .where(inArray(tasks.parentId, taskIds))
-      : []
-  return {
-    sprint,
-    preset: preset ?? null,
-    tasks: rows.map((r) => ({ ...r.task, assigneeName: r.assigneeName, assigneeAvatarUrl: r.assigneeAvatarUrl })),
-    subtasks: grandchildRows.map((r) => ({ ...r.task, assigneeName: r.assigneeName })),
-    parents: await loadParents(db, rows.map((r) => r.task)),
-    epics: await loadEpics(db, rows.map((r) => r.task)),
-  }
-}
 
 /** Sprint & Board (Pronista §Sprint & Board) — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation, เหมือน taskRoutes) */
 export const sprintRoutes = new Hono<AppEnv>()
@@ -91,13 +43,7 @@ export const sprintRoutes = new Hono<AppEnv>()
   .get('/projects/:id/sprints/current', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
-    const open = await db
-      .select()
-      .from(sprints)
-      .where(and(eq(sprints.projectId, projectId), ne(sprints.status, 'completed')))
-      .orderBy(asc(sprints.createdAt))
-    const ordered = [...open.filter((s) => s.status === 'active'), ...open.filter((s) => s.status !== 'active')]
-    const items = await Promise.all(ordered.map((sprint) => loadSprintBoard(db, sprint)))
+    const items = await loadProjectSprintBoards(db, projectId)
     // Pronista §Back to Basic — คง sprint/preset/tasks/subtasks/parents/epics เดิมไว้ที่ระดับบนสุด (ชี้ไปที่ตัวแรกใน items เสมอ = active ถ้ามี) เพื่อไม่ให้ Board.tsx ที่ยังอ่านชื่อฟิลด์เดิมพังไป — เพิ่ม items ใหม่ให้ SprintSection ใช้ render ทุก sprint แยกกัน
     const first = items[0]
     return c.json({
