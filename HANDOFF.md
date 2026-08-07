@@ -1,7 +1,7 @@
 # Pronista (newtask-app) — Development Handoff
 
 > เขียนไว้ให้ทำงานต่อได้ในเครื่อง/session อื่น โดยไม่ต้องไล่อ่าน conversation เดิม
-> อัปเดตล่าสุด: 2026-07-30
+> อัปเดตล่าสุด: 2026-08-06 — **เปิดไฟล์นี้ก่อนเริ่มคุยกับ Claude Code ใน session ใหม่เสมอ** (พิมพ์ "อ่าน HANDOFF.md ก่อนเริ่มทำงาน" เป็นข้อความแรก) ดู §3-C สำหรับสถานะล่าสุด
 
 ## 1. โปรเจกต์นี้คืออะไร
 
@@ -21,7 +21,7 @@ pnpm workspaces:
 - ไฟล์แนบ = R2 (binding `FILES`)
 - **เป็น git repo แล้ว** (init 2026-07-30) — remote: `https://github.com/thanawatbrandnista-arm/Pronista` (branch `master`) มี commit เดียว ("Initial commit") ยังไม่มี PR/branch workflow ให้ไล่ ใช้ไฟล์นี้แทนถ้าต้องการ context เชิงฟีเจอร์ (commit history มีแค่ snapshot เดียว ไม่ได้ไล่ตามลำดับ stream)
   - ⚠️ **ไฟล์ที่ไม่ติดไปกับ git** (อยู่ใน `.gitignore` โดยตั้งใจ): `.dev.vars` (secret จริง — คัดลอกจากเครื่องเดิมเอง หรือ copy จาก `.dev.vars.example` แล้วกรอกใหม่), `.wrangler/` (ฐานข้อมูล D1 local ทั้งหมด — เครื่องใหม่จะเริ่มด้วยฐานข้อมูลว่าง ต้อง `pnpm db:migrate` แล้ว seed/สร้างข้อมูลทดสอบเองใหม่ หรือคัดลอกโฟลเดอร์นี้มาจากเครื่องเดิมถ้าอยากได้ข้อมูลเดิม), `node_modules/`
-  - ⚠️ **ยังไม่เคย deploy ขึ้น Cloudflare จริง** และ **ยังไม่เคย apply migration ขึ้น D1 remote (production)** — เครื่องที่ต่อยอดต้องรัน `wrangler login` ก่อน (ตอนนี้ `wrangler whoami` ยัง "not authenticated" อยู่) แล้วค่อย `pnpm db:migrate:remote` + `pnpm deploy`
+  - ✅ **(อัปเดต 2026-08-06) Deploy จริงแล้ว** — Production = `https://office.pronista.com`, Staging = `https://staging.pronista.com` (env `staging` ใน `wrangler.jsonc` — D1/R2 แยกชุดจาก production เด็ดขาด) ดู §3-C สำหรับ workflow การ deploy ปัจจุบัน
 
 ### คำสั่งหลัก
 ```
@@ -163,6 +163,35 @@ Dev login: `POST /api/auth/dev-login {"email":"bank@team.local"}` (มี dev us
 | `0055_funny_bloodaxe.sql` | `tasks.dispatchedAt` (เกตจ่ายงาน §3-B.5) |
 
 `tasks.kind` enum ขยายจาก `'task'\|'defect'` → เพิ่ม `'cr'` (ระหว่างทาง) → เพิ่ม `'backlog'` (ล่าสุด) **ไม่มี migration ของทั้งคู่** เพราะคอลัมน์เป็น TEXT ธรรมดาใน SQLite ไม่มี CHECK constraint บังคับ (แก้แค่ TS-level enum ที่ `packages/db/src/schema.ts`)
+
+## 3-C. Git branch/deploy workflow + Subscription Notify + fixes (2026-08-06)
+
+### Workflow ปัจจุบัน (สำคัญ — อ่านก่อนแก้อะไร)
+
+- **`master`** = source of truth, deploy ได้ทุกเมื่อที่พี่ (เจ้าของ) อนุมัติ
+- งานใหม่ทุกชิ้น → แตก **feature branch** จาก `master` → ทำ+verify (typecheck/lint/test) → **ถามพี่ก่อน merge เข้า master เสมอ** (ไม่ merge เองอัตโนมัติ)
+- Deploy: `pnpm build && npx wrangler deploy --env staging` (Staging) หรือไม่ใส่ `--env` (Production) — **ถามก่อน deploy production เสมอ** (กฎเดิมใน `CLAUDE.md`), Staging ถามก่อนเช่นกันแต่ผ่อนกว่า
+- Migration ต้อง apply แยกทั้ง local (`pnpm db:migrate`), staging remote (`npx wrangler d1 migrations apply seedoffice-staging --env staging --remote`), และ production remote (`npx wrangler d1 migrations apply seedoffice --remote`) — คนละฐานข้อมูลกันหมด
+- ⚠️ **เทสฟีเจอร์ที่ยังไม่ merge เข้า master บน Staging ได้** โดยไม่ต้อง merge จริง — สร้างแบรนช์ชั่วคราว (เช่น `staging-deploy`) จาก `master` แล้ว `git merge feature/xxx` เข้าไป, build+deploy จากแบรนช์นั้น, merge เสร็จ deploy เสร็จก็ลบแบรนช์ชั่วคราวทิ้งได้ (ประวัติจริงอยู่ที่ `master` + `feature/xxx` เท่านั้น)
+- **สถานะ ณ ตอนเขียน (2026-08-06 18:15)**:
+  - `master`: มี Import Data (คืนกลับมาแล้ว) + fix บั๊กสมาชิกโปรเจกต์ 2 ตัว (ดูล่าง) — **ยังไม่ deploy ขึ้น production**
+  - `feature/subscription-notify`: ฟีเจอร์ Subscription Notify ครบ — **ยังไม่ merge เข้า master** (รอพี่อนุมัติหลังทดสอบ)
+  - Staging (`staging.pronista.com`) ตอนนี้รันโค้ดจาก **`master` + `feature/subscription-notify` รวมกัน** (deploy จากแบรนช์ชั่วคราว ไม่ใช่จาก `master` เพียวๆ)
+  - Production (`office.pronista.com`) ยังเป็นเวอร์ชันเก่าก่อนหน้าเซสชันนี้ทั้งหมด — รอคำสั่ง deploy
+
+### ฟีเจอร์ Subscription Notify (ใหม่ — บน `feature/subscription-notify`)
+
+แจ้งเตือนวันหมดอายุบริการของโปรเจกต์ล่วงหน้า:
+- Schema: `projects.serviceType/serviceStartDate/serviceEndDate/notifyBeforeDays/expiryNotifiedAt`, `company_config.serviceTypes` (แคตตาล็อกประเภทโปรเจกต์ แก้ไขได้ที่ตั้งค่า) — migration `0061_familiar_karma.sql`
+- Core: `packages/core/src/subscription.ts` (`isNearExpiry`, `resolveServiceTypes` ฯลฯ + เทสต์)
+- Backend: `GET/PUT /api/admin/service-types` (`admin.ts`), ฟิลด์ service ใน `POST/PATCH /api/projects` (`projects.ts`), cron แจ้งเตือนรายวันใน `scheduled.ts` (ผูกกับรอบ backup 03:00 BKK — ส่ง notification type `expiry_reminder` ไปหา `projects.leadId`)
+- Frontend: `ServiceTypeSettings.tsx` (ตั้งค่า), ฟิลด์ในฟอร์มสร้าง/แก้ไขโปรเจกต์ (`Projects.tsx`/`ProjectEdit.tsx`), แท็บ "⚠️ บริการใกล้หมดอายุ" ที่หน้า Projects list (`ExpiringServicesTable` ใน `Projects.tsx`)
+- ⚠️ พบว่า **cron ทำงานจริงบน Staging** ทั้งที่ comment ใน `wrangler.jsonc` ตั้งใจให้ staging ไม่มี cron ("กัน cron ยิงงานจริงบน staging") — ยังไม่ได้แก้ ถ้าจะแก้ต้องดูว่า cron triggers scope ต่อ environment ได้จริงไหมใน wrangler รุ่นนี้
+
+### บั๊กที่แก้ (บน `master` แล้ว)
+
+1. **สมาชิกโปรเจกต์นับไม่ตรงกัน** — ตอนสร้างโปรเจกต์ checkbox "สมาชิกในโปรเจกต์" เคยให้เลือก owner ได้ด้วย (`role !== 'vendor'`) ทำให้เกิดแถว `project_members` ที่หน้าแก้ไขโปรเจกต์มองไม่เห็น (หน้าแก้ไขกรองแค่ `role === 'member'` ตรงกับที่ `POST /:id/members` ยอมรับ) → แก้ checklist ให้เลือกได้แค่ `role === 'member'` (`Projects.tsx`)
+2. **ผลกระทบต่อเนื่อง** — การแก้ข้อ 1 ทำให้ dropdown "Project Lead" ที่ใช้ลิสต์เดียวกันเลือก owner ไม่ได้ไปด้วย (ทั้งที่ Lead เป็นแค่ field ข้อมูล ไม่ผ่านระบบตำแหน่ง) → แยกลิสต์ `team` (member checklist) กับ `leadOptions` (`role !== 'vendor'`, สำหรับ Lead) ออกจากกัน
 
 ## 4. Schema/Migration reference (docs-related fields สำคัญ)
 
