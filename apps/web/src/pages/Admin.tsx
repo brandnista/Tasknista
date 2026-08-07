@@ -6,6 +6,7 @@ import { BoardPresetSettings } from '../components/BoardPresetSettings'
 import { PositionSettings } from '../components/PositionSettings'
 import { ServiceTypeSettings } from '../components/ServiceTypeSettings'
 import { ProductTypeSettings } from '../components/ProductTypeSettings'
+import { LabelSettings } from '../components/LabelSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
 import { api, ApiError } from '../lib/api'
 import { useDialog } from '../components/Dialog'
@@ -489,6 +490,8 @@ export function AdminPage() {
         <ServiceTypeSettings />
 
         <ProductTypeSettings />
+
+        <LabelSettings />
 
         <GcalSettings />
       </div>

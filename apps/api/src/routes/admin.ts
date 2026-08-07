@@ -3,25 +3,28 @@ import {
   BOARD_COLOR_KEYS,
   PERMISSION_RESOURCE_KEYS,
   PERMISSION_TAB_KEYS,
+  resolveLabels,
   resolvePresets,
   resolvePositions,
   resolveProductTypes,
   resolveServiceTypes,
   resolveStatuses,
   STATUS_COLOR_KEYS,
+  validateLabels,
   validatePositions,
   validatePresets,
   validateProductTypes,
   validateServiceTypes,
   validateStatuses,
   type BoardPreset,
+  type Label,
   type Position,
   type ProductType,
   type ProjectStatus,
   type ServiceType,
 } from '@seedoffice/core'
-import { companyConfig, createDb, projectMembers, projects, rates, sprints, teams, users } from '@seedoffice/db'
-import { asc, eq } from 'drizzle-orm'
+import { companyConfig, createDb, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
+import { asc, eq, isNotNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -416,6 +419,50 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.productTypes ?? null, after: productTypesData },
     })
     return c.json({ productTypes: resolveProductTypes(productTypesData) })
+  })
+
+  // Pronista §Workspace — แคตตาล็อกแท็กสีของ Task (Bug/Urgent/Blocked/ฯลฯ)
+  .get('/labels', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ labels: companyConfig.labels }).from(companyConfig).limit(1))[0]
+    return c.json({ labels: resolveLabels(cfg?.labels) })
+  })
+
+  // owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/แก้ชื่อ/สี) — กันลบ label ที่ยังมี task ผูกอยู่ (labelIds เป็น array ต่างจาก serviceType/productType ที่เป็นค่าเดียว)
+  .put('/labels', async (c) => {
+    const body = z
+      .object({
+        labels: z
+          .array(z.object({ id: z.string(), name: z.string(), color: z.string(), sortOrder: z.number().int() }))
+          .min(1),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const labelsData = body.data.labels as Label[]
+    const check = validateLabels(labelsData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const used = await db.select({ labelIds: tasks.labelIds }).from(tasks).where(isNotNull(tasks.labelIds))
+    const usedIds = new Set(used.flatMap((u) => u.labelIds ?? []))
+    const newIds = new Set(labelsData.map((l) => l.id))
+    const orphan = [...usedIds].filter((id) => !newIds.has(id))
+    if (orphan.length > 0)
+      return c.json(
+        { error: 'label_in_use', message: `ยังมี Task ผูก label: ${orphan.join(', ')} — เอาออกจาก Task ก่อนจึงลบได้` },
+        409,
+      )
+
+    const before = (await db.select({ labels: companyConfig.labels }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ labels: labelsData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.labels',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.labels ?? null, after: labelsData },
+    })
+    return c.json({ labels: resolveLabels(labelsData) })
   })
 
   // ── ICS feed (SPEC §4.14 · E6) — ลิงก์ subscribe ปฏิทินทีม (owner สร้าง/รีเซ็ต/ปิด) ──
