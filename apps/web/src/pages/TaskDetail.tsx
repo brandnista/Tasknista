@@ -472,7 +472,6 @@ export function TaskDetailPage() {
   ].sort((a, b) => a.at - b.at)
   // Pronista §System Requirements Update — ประวัติการเปลี่ยนแปลง: เฉพาะความเคลื่อนไหวสถานะ/ผู้รับผิดชอบ/ประเภทงาน ไม่รวมคอมเมนต์/แนบไฟล์/เวลา
   const historyFeed = feed.filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
-  const shownFeed = feedTab === 'all' ? feed : historyFeed
 
   const siblingTotal = t.siblings.length + 1
   const siblingDone = t.siblings.filter((s) => s.status === 'done').length + (done ? 1 : 0)
@@ -525,6 +524,33 @@ export function TaskDetailPage() {
           )}
         </div>
 
+        {/* Pronista §System Requirements Update — ย้ายแท็บ "ประวัติการเปลี่ยนแปลง" ขึ้นมาไว้ใต้หัวเรื่องเลย ไม่ต้องเลื่อนลงไปหาในฟีดด้านล่าง */}
+        <div className="px-5 pt-3 border-b border-border-subtle">
+          <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit mb-3">
+            <button onClick={() => setFeedTab('all')} className={`px-2.5 py-1 rounded-md ${feedTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายละเอียด</button>
+            <button onClick={() => setFeedTab('history')} className={`px-2.5 py-1 rounded-md ${feedTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ประวัติการเปลี่ยนแปลง</button>
+          </div>
+        </div>
+
+        {feedTab === 'history' ? (
+          <div className="p-5 space-y-3">
+            {historyFeed.length === 0 && <div className="text-sm text-border">ยังไม่มีประวัติการเปลี่ยนแปลง</div>}
+            {historyFeed.map((f) => (
+              <div key={`h-${f.id}`} className="flex gap-2 text-xs">
+                <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
+                <div className="flex-1 leading-snug pt-0.5">
+                  <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
+                  {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
+                    <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
+                  )}
+                  {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
+                    <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="grid md:grid-cols-[1fr_300px]">
           <div className="p-5 space-y-6 border-b md:border-b-0 md:border-r border-border-subtle min-w-0">
 
@@ -777,15 +803,10 @@ export function TaskDetailPage() {
             </div>
 
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
-                  <button onClick={() => setFeedTab('all')} className={`px-2.5 py-1 rounded-md ${feedTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ความเคลื่อนไหวทั้งหมด</button>
-                  <button onClick={() => setFeedTab('history')} className={`px-2.5 py-1 rounded-md ${feedTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ประวัติการเปลี่ยนแปลง</button>
-                </div>
-              </div>
+              <div className="text-xs font-medium text-muted mb-2">ความเคลื่อนไหว</div>
               <div className="space-y-3">
-                {shownFeed.length === 0 && <div className="text-sm text-border">{feedTab === 'history' ? 'ยังไม่มีประวัติการเปลี่ยนแปลง' : 'ยังไม่มีความเคลื่อนไหว'}</div>}
-                {shownFeed.map((f) =>
+                {feed.length === 0 && <div className="text-sm text-border">ยังไม่มีความเคลื่อนไหว</div>}
+                {feed.map((f) =>
                   f.kind === 'comment' ? (
                     <div key={`c-${f.id}`} className="flex gap-2">
                       <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
@@ -821,17 +842,15 @@ export function TaskDetailPage() {
                   ),
                 )}
               </div>
-              {feedTab === 'all' && (
-                <div className="flex gap-2 mt-3">
-                  <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
-                  {isAssignee && (
-                    <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
-                      <AlertTriangle className="w-4 h-4" /> ติดขัด
-                    </button>
-                  )}
-                  <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
-                </div>
-              )}
+              <div className="flex gap-2 mt-3">
+                <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
+                {isAssignee && (
+                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
+                    <AlertTriangle className="w-4 h-4" /> ติดขัด
+                  </button>
+                )}
+                <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
+              </div>
             </div>
           </div>
 
@@ -1019,6 +1038,7 @@ export function TaskDetailPage() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {linkPickerOpen && (

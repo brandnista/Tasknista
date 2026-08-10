@@ -61,9 +61,21 @@ export const VENDOR_PROJECT_PERMISSIONS: PositionPermissions = VIEW_ONLY_PERMISS
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 
+/** ตำแหน่งที่บันทึกไว้ตั้งแต่ก่อนเพิ่ม tab/resource key ใหม่ (เช่น 'releases'/'release') จะไม่มี key นั้นใน JSON เดิม
+ * เติมให้ครบด้วยค่า false เสมอ กัน `permissions.actions[k]` เป็น undefined ตอนอ่าน (ทั้งหน้าตั้งค่าและตอนเช็คสิทธิ์จริง) */
+function normalizePosition(p: Position): Position {
+  return {
+    ...p,
+    permissions: {
+      tabs: { ...allTabs(false), ...p.permissions.tabs },
+      actions: { ...allActions(ALL_ACTIONS_FALSE), ...p.permissions.actions },
+    },
+  }
+}
+
 export function resolvePositions(raw: Position[] | null | undefined): Position[] {
   const list = raw && raw.length > 0 ? raw : DEFAULT_POSITIONS
-  return [...list].sort((a, b) => a.sortOrder - b.sortOrder)
+  return [...list].map(normalizePosition).sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
 export function positionById(raw: Position[] | null | undefined, id: string | null | undefined): Position | undefined {
