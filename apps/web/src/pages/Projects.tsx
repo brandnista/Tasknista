@@ -487,10 +487,11 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
   const clients = clientData?.rows ?? []
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const productTypes = productTypeData?.productTypes ?? []
-  // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — จำกัดเฉพาะคนภายใน (ไม่รวม vendor/guest)
-  const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor' && u.role !== 'guest')
-  // สมาชิกในโปรเจกต์ — เลือกได้ทุกคนที่ตั้งค่าไว้ในเมนู ตั้งค่า ไม่จำกัด role (สิทธิ์จริงมาจาก role/ตำแหน่งอยู่แล้ว ไม่ใช่จากการติ๊กตรงนี้)
-  const allUsers = users ?? []
+  // Pronista §Position-based permission fix — checklist "สมาชิกในโปรเจกต์" เลือกได้เฉพาะ role member เท่านั้น (owner มีสิทธิ์เต็มอยู่แล้วไม่ต้องตั้งตำแหน่ง · vendor ต้องผ่าน teamOnly ชั้นนอก)
+  // ตรงกับที่ POST /:id/members และหน้าแก้ไขโปรเจกต์รองรับ — เลือก owner/vendor ตรงนี้จะสร้างแถวสมาชิกที่หน้าแก้ไขโปรเจกต์จัดการไม่ได้ (นับใน "สมาชิก (N)" แต่หายไปจากลิสต์แก้ไข)
+  const team = (users ?? []).filter((u) => u.role === 'member')
+  // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — owner เป็น Lead ได้ปกติ จึงใช้ลิสต์แยก ไม่ผูกกับ team ด้านบน
+  const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
     name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
@@ -660,7 +661,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
             <div>
               <label className={label}>สมาชิกในโปรเจกต์ (เลือกได้หลายคน)</label>
               <div className="border border-border-subtle rounded-lg max-h-32 overflow-y-auto divide-y divide-divider">
-                {allUsers.map((u) => (
+                {team.map((u) => (
                   <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-hover">
                     <input type="checkbox" checked={members.includes(u.id)} onChange={() => setMembers(toggle(members, u.id))} />
                     <span className="text-body">{u.name}</span>
