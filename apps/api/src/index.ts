@@ -32,6 +32,7 @@ import { profileRoutes } from './routes/profile'
 import { tokenRoutes } from './routes/tokens'
 import { userRoutes } from './routes/users'
 import { workspaceRoutes } from './routes/workspace'
+import { workspaceRoomRoutes } from './routes/workspace-rooms'
 import { runScheduled } from './scheduled'
 
 export { PresenceHub } from './do/presence-hub'
@@ -67,6 +68,10 @@ app.use('/api/sprints/*', requireAuth)
 // Pronista §Workspace — รวม Sprint/Backlog ข้ามโปรเจกต์ (อ่านอย่างเดียว — mutation ใช้ endpoint เดิมของ sprints/tasks ทั้งหมด)
 app.use('/api/workspace/*', requireAuth)
 app.route('/api', workspaceRoutes)
+// Pronista §Workspace Rooms — ห้องทำงาน (ชื่อ+สมาชิก) คนละเรื่องกับ /api/workspace/* ด้านบน
+app.use('/api/workspaces', requireAuth)
+app.use('/api/workspaces/*', requireAuth)
+app.route('/api', workspaceRoomRoutes)
 // ลูกค้า/CRM: owner+member เท่านั้น (SPEC §4.17)
 app.use('/api/clients', requireAuth, teamOnly)
 app.use('/api/clients/*', requireAuth, teamOnly)

@@ -2019,7 +2019,7 @@ export function ProjectDetailPage() {
           {/* Pronista §Workspace — จัดการ Sprint/Backlog เต็มรูปแบบย้ายไปที่เมนู Workspace แล้ว แท็บนี้เหลือแค่ดูของโปรเจกต์นี้ */}
           <div className="bg-info-50 text-info-700 text-sm rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2 flex-wrap">
             <span>จัดการ Sprint และ Backlog แบบเต็มรูปแบบได้ที่</span>
-            <Link to={`/workspace?project=${id}`} className="font-medium underline hover:no-underline">Workspace</Link>
+            <Link to="/workspace" className="font-medium underline hover:no-underline">Workspace</Link>
           </div>
           <div className="grid lg:grid-cols-2 gap-4 items-start">
             <ProjectBacklogSection

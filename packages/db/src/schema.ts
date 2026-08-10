@@ -44,6 +44,36 @@ export const users = sqliteTable('users', {
     .$defaultFn(() => new Date()),
 })
 
+// Pronista §Workspace Rooms — "ห้อง" ทำงานของทีม (ชื่อ + สมาชิก) คนละเรื่องกับ projects — เข้าไปแล้วเจอหน้า Workspace (Backlog/Sprint) เดิม
+// ยังไม่ผูกกับ projects ใดๆ (การกรองโปรเจกต์/สมาชิกในนั้นทำผ่านฟิลเตอร์ของหน้า Workspace เดิม ไม่เกี่ยวกับห้องนี้)
+export const workspaces = sqliteTable('workspaces', {
+  id: id(),
+  name: text('name').notNull(),
+  createdBy: text('created_by')
+    .notNull()
+    .references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
+export const workspaceMembers = sqliteTable(
+  'workspace_members',
+  {
+    id: id(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    addedAt: integer('added_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex('workspace_members_unique').on(t.workspaceId, t.userId)],
+)
+
 export const sessions = sqliteTable(
   'sessions',
   {

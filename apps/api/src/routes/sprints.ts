@@ -186,15 +186,16 @@ export const sprintRoutes = new Hono<AppEnv>()
     return c.json(after)
   })
 
-  // ลาก task จาก Backlog ของโปรเจกต์เข้า sprint — เฉพาะตอนยังไม่ Start (planned) เท่านั้น (Pronista §Sprint & Board แก้ไข flow)
-  // ยังไม่รู้คอลัมน์บอร์ด (เลือก preset ตอน start) — ตั้ง sprintStatus ว่างไว้ก่อน, ตอน start ค่อยจัดลงคอลัมน์แรกทีเดียว
+  // ลาก task จาก Backlog ของโปรเจกต์เข้า sprint — ทั้งตอนยังไม่ Start (planned) และหลัง Start แล้ว (active)
+  // planned: ยังไม่รู้คอลัมน์บอร์ด (เลือก preset ตอน start) — ตั้ง sprintStatus ว่างไว้ก่อน, ตอน start ค่อยจัดลงคอลัมน์แรกทีเดียว
+  // active: รู้ preset อยู่แล้ว — จัดลงคอลัมน์แรกของบอร์ดทันที (เหมือนงานที่ลากเข้าตอน planned แล้วโดน start จัดคอลัมน์ให้)
   .post('/sprints/:id/tasks', teamOnly, async (c) => {
     const body = z.object({ taskId: z.string() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const sprint = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
     if (!sprint) return c.json({ error: 'not_found' }, 404)
-    if (sprint.status !== 'planned') return c.json({ error: 'sprint_not_planned', message: 'เพิ่มงานเข้า Sprint ได้เฉพาะตอนยังไม่ Start' }, 409)
+    if (sprint.status === 'completed') return c.json({ error: 'sprint_completed', message: 'Sprint นี้ปิดไปแล้ว เพิ่มงานเข้าไม่ได้' }, 409)
     const me = c.get('user')
     const role = await getProjectRole(db, sprint.projectId, me.id, me.role)
     if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
@@ -203,12 +204,15 @@ export const sprintRoutes = new Hono<AppEnv>()
     if (!task) return c.json({ error: 'task_not_found' }, 404)
     if (task.projectId !== sprint.projectId) return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานใน Backlog ของโปรเจกต์นี้เท่านั้น' }, 400)
 
+    const preset = sprint.status === 'active' ? await loadPreset(db, sprint.boardPresetId) : undefined
+    const sprintStatus = preset ? firstColumnId(preset) : null
+
     // Pronista §Sprint & Board fix — ลาก Task พ่อของ SOW เข้า Sprint = ดึง subtask ทั้งหมดที่ยังอยู่ Backlog เข้าไปแทน (Task พ่อเองไม่เข้า sprint — ยังคงกฎเดิมที่ Task พ่อ SOW ลาก sprint โดยตรงไม่ได้)
     const isSowParent = task.originDocType === 'SOW' && task.parentId === null
     if (isSowParent) {
       const children = await db
         .update(tasks)
-        .set({ sprintId: sprint.id, sprintStatus: null })
+        .set({ sprintId: sprint.id, sprintStatus })
         .where(and(eq(tasks.parentId, task.id), isNull(tasks.groupId), isNull(tasks.sprintId)))
         .returning()
       if (children.length === 0)
@@ -223,7 +227,7 @@ export const sprintRoutes = new Hono<AppEnv>()
 
     const updated = await db
       .update(tasks)
-      .set({ sprintId: sprint.id, sprintStatus: null })
+      .set({ sprintId: sprint.id, sprintStatus })
       .where(eq(tasks.id, task.id))
       .returning()
     return c.json({ added: updated })

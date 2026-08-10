@@ -5,9 +5,9 @@
  * §รอบ 2 — Backlog Grid เป็นตารางแบนรวมทุก work item (Epic/Story/Task/Subtask) ข้ามโปรเจกต์ ไม่แยก section ต่อโปรเจกต์ ฟิลเตอร์เอาแทน
  */
 import type { Label } from '@seedoffice/core'
-import { AlertTriangle, CheckCircle2, Layers, Play, Plus, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Layers, Play, Plus, X } from 'lucide-react'
 import { type DragEvent, useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
@@ -94,6 +94,13 @@ export function WorkspacePage() {
   const { confirmDialog } = useDialog()
   const [searchParams] = useSearchParams()
   const preselect = searchParams.get('project')
+  const { workspaceId } = useParams<{ workspaceId: string }>()
+
+  // Pronista §Workspace Rooms — เข้าห้องได้เฉพาะสมาชิก (เช็คซ้ำที่ server เสมอ) — โหลดชื่อห้องมาโชว์เป็น breadcrumb
+  const { data: room, loading: roomLoading, error: roomError } = useLoad<{ id: string; name: string }>(
+    () => api.get(`/api/workspaces/${workspaceId}`),
+    [workspaceId],
+  )
 
   const { data: projects } = useLoad<AccessibleProject[]>(() => api.get('/api/workspace/accessible-projects'))
   const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
@@ -211,10 +218,21 @@ export function WorkspacePage() {
 
   const sprintItems = boardData?.sprints ?? []
 
+  // Pronista §Workspace Rooms — ต้องอยู่หลัง hook ตัวสุดท้ายเสมอ กัน "Rendered more hooks" (โหลด/error สลับกันข้าม render ได้)
+  if (roomLoading) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
+  if (roomError || !room) {
+    return (
+      <div className="p-6">
+        <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-3 mb-3">ไม่พบ Workspace นี้ หรือคุณไม่ใช่สมาชิก</div>
+        <Link to="/workspace" className="text-sm text-brand-700 hover:underline inline-flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> กลับไปหน้า Workspace</Link>
+      </div>
+    )
+  }
+
   return (
     <>
       <PageHeader
-        title="Workspace"
+        title={room.name}
         action={
           <div className="relative">
             <button
@@ -241,6 +259,7 @@ export function WorkspacePage() {
       />
 
       <div className="p-3 sm:p-6 space-y-4">
+        <Link to="/workspace" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> ทุก Workspace</Link>
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
 
         {/* ฟิลเตอร์ */}
@@ -367,15 +386,15 @@ export function WorkspacePage() {
                     </div>
                   </div>
 
-                  {sprint.status === 'planned' && (
+                  {sprint.status !== 'completed' && (
                     <div className="text-[11px] text-muted mb-2">
                       ลากงานจาก Backlog ของ <span className="font-medium">{item.projectName}</span> มาวางด้านล่างนี้ — ลากข้ามโปรเจกต์ไม่ได้
                     </div>
                   )}
                   <div
-                    onDragOver={sprint.status === 'planned' && isDropValid ? (e: DragEvent) => { e.preventDefault(); setDropHoverSprintId(sprint.id) } : undefined}
+                    onDragOver={sprint.status !== 'completed' && isDropValid ? (e: DragEvent) => { e.preventDefault(); setDropHoverSprintId(sprint.id) } : undefined}
                     onDragLeave={() => setDropHoverSprintId(null)}
-                    onDrop={sprint.status === 'planned' && isDropValid ? (e: DragEvent) => { e.preventDefault(); void dropOnSprint(sprint.id) } : undefined}
+                    onDrop={sprint.status !== 'completed' && isDropValid ? (e: DragEvent) => { e.preventDefault(); void dropOnSprint(sprint.id) } : undefined}
                     className={`bg-hover rounded-lg p-3 min-h-24 border-2 border-dashed ${isDropHovering ? 'border-brand-400 bg-brand-50' : 'border-transparent'}`}
                   >
                     <div className="text-xs font-semibold text-body mb-2">ในนี้ ({item.tasks.length})</div>
@@ -399,7 +418,7 @@ export function WorkspacePage() {
                             {t.assigneeName && (
                               <Avatar name={t.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(t.assigneeName)} />
                             )}
-                            {sprint.status === 'planned' && (
+                            {sprint.status !== 'completed' && (
                               <button onClick={() => void removeFromSprint(sprint.id, t.id)} className="text-muted hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>
                             )}
                           </div>

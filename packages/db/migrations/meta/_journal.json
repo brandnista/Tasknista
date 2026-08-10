@@ -449,6 +449,13 @@
       "when": 1786094730347,
       "tag": "0063_mighty_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1786331374303,
+      "tag": "0064_lethal_joystick",
+      "breakpoints": true
     }
   ]
 }

@@ -24,6 +24,7 @@ import { ProjectsPage } from './pages/Projects'
 import { SprintSnapshotPage } from './pages/SprintSnapshot'
 import { TaskDetailPage } from './pages/TaskDetail'
 import { WorkspacePage } from './pages/Workspace'
+import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
 
 function Protected({ children, roles }: { children: ReactNode; roles?: Me['role'][] }) {
   const { user, loading } = useAuth()
@@ -48,7 +49,8 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'my-tasks', element: <MyTasksPage /> },
-      { path: 'workspace', element: <WorkspacePage /> },
+      { path: 'workspace', element: <WorkspaceRoomsPage /> },
+      { path: 'workspace/:workspaceId', element: <WorkspacePage /> },
       { path: 'projects', element: <ProjectsPage /> },
       {
         path: 'projects/:id/edit',
