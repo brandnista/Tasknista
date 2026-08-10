@@ -24,6 +24,7 @@ import { ProjectsPage } from './pages/Projects'
 import { SprintSnapshotPage } from './pages/SprintSnapshot'
 import { TaskDetailPage } from './pages/TaskDetail'
 import { WorkspacePage } from './pages/Workspace'
+import { WorkspaceBoardPage } from './pages/WorkspaceBoard'
 import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
 
 function Protected({ children, roles }: { children: ReactNode; roles?: Me['role'][] }) {
@@ -51,6 +52,7 @@ const router = createBrowserRouter([
       { path: 'my-tasks', element: <MyTasksPage /> },
       { path: 'workspace', element: <WorkspaceRoomsPage /> },
       { path: 'workspace/:workspaceId', element: <WorkspacePage /> },
+      { path: 'workspace/:workspaceId/sprints/:sprintId/board', element: <WorkspaceBoardPage /> },
       { path: 'projects', element: <ProjectsPage /> },
       {
         path: 'projects/:id/edit',

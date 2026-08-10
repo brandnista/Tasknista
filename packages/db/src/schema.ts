@@ -54,6 +54,8 @@ export const users = sqliteTable('users', {
 export const workspaces = sqliteTable('workspaces', {
   id: id(),
   name: text('name').notNull(),
+  // Pronista §System Requirements Update — ประเภทห้อง: 'business' = Backlog เดี่ยว (List/Kanban + Import task) ไม่มี Sprint · 'developer' = Backlog+Sprint เต็มรูปแบบ (มีปุ่ม +Sprint)
+  type: text('type', { enum: ['business', 'developer'] }).notNull().default('developer'),
   createdBy: text('created_by')
     .notNull()
     .references(() => users.id),

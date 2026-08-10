@@ -1339,7 +1339,8 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
   )
 }
 
-/** Pronista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag */
+/** Pronista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag
+ * Pronista §System Requirements Update — คีย์งานใหม่แบบเลือกประเภทได้ (Epic/Story/Task/Subtask/Defect) อยู่ที่ Workspace แล้ว ไม่ใช่ที่นี่ (แท็บนี้เป็น read-only เสมอ — ProjectBacklogSection ถูกเรียกด้วย readOnly เสมอ) */
 function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpenTask: (id: string) => void }) {
   const { data: epicsList } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const { data } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])

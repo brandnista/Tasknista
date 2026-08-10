@@ -6,10 +6,11 @@
  * §รอบ 3 (ต่อยอด) — Sprint ผูกห้อง Workspace โดยตรง (ไม่ผูกโปรเจกต์เดียวอีกต่อไป) งานในนั้นมาจากหลายโปรเจกต์ในห้องเดียวกันได้ · ห้องใหม่เริ่มว่างเปล่าจนกว่าจะดึงโปรเจกต์เข้าห้อง (แก้ไขชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้องได้ที่นี่)
  */
 import type { Label } from '@seedoffice/core'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Layers, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
+import { ImportDataModal } from '../components/ImportDataModal'
 import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
@@ -18,6 +19,8 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatu
 import { useLoad } from '../lib/useLoad'
 import { avatarColor, SprintStartModal } from './ProjectDetail'
 import { Avatar } from '../components/Avatar'
+
+type WorkspaceType = 'business' | 'developer'
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
@@ -66,7 +69,7 @@ interface WsSprint {
   notDoneCount: number | null
 }
 interface WsSprintItem { sprint: WsSprint; tasks: WsTask[] }
-interface RoomDetail { id: string; name: string; canManage: boolean; projects: AccessibleProject[] }
+interface RoomDetail { id: string; name: string; type: WorkspaceType; canManage: boolean; projects: AccessibleProject[] }
 
 const WORKTYPE_ORDER: Record<WorkType, number> = { epic: 0, story: 1, task: 2, subtask: 3 }
 const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask' }
@@ -78,6 +81,16 @@ const WORKTYPE_BADGE: Record<WorkType, string> = {
 }
 const selectCls = 'text-sm bg-white border border-border rounded-lg px-2.5 py-1.5'
 const isOverdue = (dueDate: string | null, status: TaskStatus | null) => !!dueDate && dueDate < bkkToday() && status !== 'done'
+
+// Pronista §System Requirements Update — แถวคีย์งานใหม่ 1 จุดใน Backlog Grid เลือกประเภทได้ (Epic/Story/Task/Subtask/Defect) กรอบสีซ้ายเปลี่ยนตามประเภทที่เลือกทันที
+type CreateWorkType = 'epic' | 'story' | 'task' | 'subtask' | 'defect'
+const CREATE_TYPE_LABEL: Record<CreateWorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect' }
+const CREATE_TYPE_BORDER: Record<CreateWorkType, string> = {
+  epic: 'border-l-teal-500', story: 'border-l-violet-500', task: 'border-l-info-500', subtask: 'border-l-border', defect: 'border-l-danger-500',
+}
+const CREATE_TYPE_DOT: Record<CreateWorkType, string> = {
+  epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500',
+}
 
 function ProjectChip({ code, name }: { code: string | null; name: string }) {
   return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-brand-50 text-brand-700 shrink-0">{code || name}</span>
@@ -222,9 +235,16 @@ export function WorkspacePage() {
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
+  const [addType, setAddType] = useState<CreateWorkType>('story')
+  const [addTypeMenuOpen, setAddTypeMenuOpen] = useState(false)
+  const [addParentId, setAddParentId] = useState('')
 
   const [error, setError] = useState('')
   const [editingRoom, setEditingRoom] = useState(false)
+  // Pronista §System Requirements Update — ห้อง Business: มุมมอง Backlog List/Kanban สลับได้ + นำเข้างาน (ไม่มี Sprint)
+  const [backlogView, setBacklogView] = useState<'list' | 'kanban'>('list')
+  const [importProjectId, setImportProjectId] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
 
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   const [dropHoverSprintId, setDropHoverSprintId] = useState<string | null>(null)
@@ -244,13 +264,31 @@ export function WorkspacePage() {
     }
   }
 
+  // Pronista §System Requirements Update — ประเภทที่ต้องเลือก parent ในโปรเจกต์เดียวกัน (Task ใต้ Story / Subtask ใต้ Task)
+  const needsAddParent = addType === 'task' || addType === 'subtask'
+  const addParentOptions = (backlogData?.items ?? []).filter(
+    (i) => i.projectId === effectiveAddProjectId && i.workType === (addType === 'task' ? 'story' : 'task'),
+  )
+  const effectiveAddParentId = addParentId || addParentOptions[0]?.id || ''
+
   const addItem = async () => {
     const title = addTitle.trim()
-    if (!title || !effectiveAddProjectId) return
+    if (!title || !effectiveAddProjectId || (needsAddParent && !effectiveAddParentId)) return
     setError('')
     try {
-      await api.post(`/api/projects/${effectiveAddProjectId}/backlog`, { title, kind: 'backlog' })
+      if (addType === 'epic') {
+        await api.post(`/api/projects/${effectiveAddProjectId}/epics`, { title })
+      } else if (addType === 'story') {
+        await api.post(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
+      } else if (addType === 'defect') {
+        const created = await api.post<{ id: string }>(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
+        await api.post(`/api/tasks/${created.id}/convert`, { to: 'defect' })
+      } else {
+        const created = await api.post<{ id: string }>(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
+        await api.post(`/api/tasks/${created.id}/convert`, { to: addType, targetParentId: effectiveAddParentId })
+      }
       setAddTitle('')
+      setAddParentId('')
       void reloadBacklog()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'สร้างงานไม่สำเร็จ')
@@ -338,12 +376,29 @@ export function WorkspacePage() {
                 <Pencil className="w-3.5 h-3.5" /> แก้ไขห้อง
               </button>
             )}
-            <button
-              onClick={() => void createSprint()}
-              className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium"
-            >
-              <Plus className="w-4 h-4" /> Sprint
-            </button>
+            {room.type === 'business' && room.projects.length > 0 && (
+              <>
+                {room.projects.length > 1 && (
+                  <select value={importProjectId || room.projects[0]!.id} onChange={(e) => setImportProjectId(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
+                    {room.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
+                <button
+                  onClick={() => { setImportProjectId((id) => id || room.projects[0]!.id); setImportOpen(true) }}
+                  className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-3 py-1.5 text-dim hover:bg-hover"
+                >
+                  <Upload className="w-3.5 h-3.5" /> นำเข้างาน
+                </button>
+              </>
+            )}
+            {room.type === 'developer' && (
+              <button
+                onClick={() => void createSprint()}
+                className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium"
+              >
+                <Plus className="w-4 h-4" /> Sprint
+              </button>
+            )}
           </div>
         }
       />
@@ -388,10 +443,77 @@ export function WorkspacePage() {
               </select>
             </div>
 
-            <div className="grid lg:grid-cols-2 gap-4">
+            <div className={room.type === 'developer' ? 'grid lg:grid-cols-2 gap-4' : 'space-y-4'}>
               {/* Backlog Grid — ตารางแบนรวมทุก work item ข้ามโปรเจกต์ในห้อง */}
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                  {room.type === 'business' && (
+                    <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
+                      <button onClick={() => setBacklogView('list')} className={`px-2.5 py-1 rounded-md inline-flex items-center gap-1 ${backlogView === 'list' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+                        <ListIcon className="w-3.5 h-3.5" /> List
+                      </button>
+                      <button onClick={() => setBacklogView('kanban')} className={`px-2.5 py-1 rounded-md inline-flex items-center gap-1 ${backlogView === 'kanban' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+                        <LayoutGrid className="w-3.5 h-3.5" /> Kanban
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {room.type === 'business' && backlogView === 'kanban' ? (
+                  <div className="space-y-3">
+                    {filteredItems.some((i) => i.kind === 'epic') && (
+                      <div className="bg-white rounded-lg shadow-xs p-2.5 flex flex-wrap gap-2">
+                        {filteredItems.filter((i) => i.kind === 'epic').map((it) => (
+                          <span key={it.id} className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${WORKTYPE_BADGE.epic}`}>{it.code ? `${it.code} — ` : ''}{it.title}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {TASK_STATUS_ORDER.map((s) => {
+                        const colItems = filteredItems.filter((i) => i.status === s)
+                        return (
+                          <div
+                            key={s}
+                            onDragOver={(e: DragEvent) => e.preventDefault()}
+                            onDrop={(e: DragEvent) => { e.preventDefault(); if (dragTaskId) void changeStatus(dragTaskId, s); setDragTaskId(null) }}
+                            className="bg-hover/60 rounded-lg p-2 min-h-32 w-64 shrink-0"
+                          >
+                            <div className="flex items-center gap-1.5 px-1.5 py-1 mb-1.5">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TASK_STATUS_BADGE[s]}`}>{TASK_STATUS_LABEL[s]}</span>
+                              <span className="text-xs text-muted">{colItems.length}</span>
+                            </div>
+                            <div className="space-y-2">
+                              {colItems.map((it) => (
+                                <div
+                                  key={it.id}
+                                  draggable
+                                  onDragStart={(e: DragEvent) => { e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
+                                  onDragEnd={() => setDragTaskId(null)}
+                                  onClick={() => navigate(`/tasks/${it.id}`)}
+                                  className={`bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                                >
+                                  <div className="flex items-start gap-1.5 flex-wrap">
+                                    <ProjectChip code={it.projectCode} name={it.projectName} />
+                                    {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
+                                  </div>
+                                  <div className="text-sm text-body mt-1">{it.title}</div>
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
+                                    <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
+                                    <DueDateChip dueDate={it.dueDate} status={it.status} />
+                                    {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] ml-auto shrink-0" colorClass={avatarColor(it.assigneeName)} />}
+                                  </div>
+                                </div>
+                              ))}
+                              {colItems.length === 0 && <div className="text-center text-[11px] text-border py-3">ไม่มีงาน</div>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
                 <div className="bg-white rounded-lg shadow-xs overflow-hidden">
                   {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
                   <div className="divide-y divide-divider">
@@ -427,22 +549,62 @@ export function WorkspacePage() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center gap-2 p-3 border-t border-divider">
-                    <select value={effectiveAddProjectId} onChange={(e) => setAddProjectId(e.target.value)} className={selectCls}>
+                  <div className={`flex flex-wrap items-center gap-2 p-3 border-t-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setAddTypeMenuOpen((v) => !v)}
+                        className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-2.5 py-1.5 hover:bg-hover"
+                      >
+                        <span className={`w-2 h-2 rounded-full ${CREATE_TYPE_DOT[addType]}`} />
+                        {CREATE_TYPE_LABEL[addType]}
+                      </button>
+                      {addTypeMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setAddTypeMenuOpen(false)} />
+                          <div className="absolute left-0 bottom-full mb-1 w-36 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                            {(['epic', 'story', 'task', 'subtask', 'defect'] as CreateWorkType[]).map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => { setAddType(t); setAddParentId(''); setAddTypeMenuOpen(false) }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
+                              >
+                                <span className={`w-2 h-2 rounded-full ${CREATE_TYPE_DOT[t]}`} />
+                                {CREATE_TYPE_LABEL[t]}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
                       {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
+                    {needsAddParent && (
+                      addParentOptions.length === 0 ? (
+                        <span className="text-xs text-muted shrink-0">
+                          {addType === 'task' ? 'ต้องมี Story ในโปรเจกต์นี้ก่อน' : 'ต้องมี Task ในโปรเจกต์นี้ก่อน'}
+                        </span>
+                      ) : (
+                        <select value={effectiveAddParentId} onChange={(e) => setAddParentId(e.target.value)} className={`${selectCls} max-w-48`}>
+                          {addParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
+                        </select>
+                      )
+                    )}
                     <input
                       value={addTitle}
                       onChange={(e) => setAddTitle(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
-                      placeholder="พิมพ์ชื่องานแล้วกด Enter…"
-                      className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
+                      placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter…`}
+                      className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
                     />
                   </div>
                 </div>
+                )}
               </div>
 
-              {/* Sprint — การ์ดต่อ sprint ผูกห้องนี้ (ข้ามโปรเจกต์ในห้องได้) */}
+              {/* Sprint — การ์ดต่อ sprint ผูกห้องนี้ (ข้ามโปรเจกต์ในห้องได้) — เฉพาะห้อง Developer เท่านั้น */}
+              {room.type === 'developer' && (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-ink">🏃 Sprint</div>
                 {sprintItems.length === 0 && (
@@ -527,6 +689,7 @@ export function WorkspacePage() {
                   )
                 })}
               </div>
+              )}
             </div>
           </>
         )}
@@ -539,8 +702,10 @@ export function WorkspacePage() {
           defaultEndDate={starting.endDate}
           onClose={() => setStarting(null)}
           onStarted={() => {
+            const startedId = starting.id
             setStarting(null)
             reloadAll()
+            navigate(`/workspace/${workspaceId}/sprints/${startedId}/board`)
           }}
         />
       )}
@@ -553,6 +718,14 @@ export function WorkspacePage() {
           onClose={() => setEditingRoom(false)}
           onChanged={() => { void reloadRoom(); reloadAll() }}
           onDeleted={() => navigate('/workspace')}
+        />
+      )}
+
+      {importOpen && room && importProjectId && (
+        <ImportDataModal
+          project={room.projects.find((p) => p.id === importProjectId) ?? room.projects[0]!}
+          onClose={() => setImportOpen(false)}
+          onImported={() => { setImportOpen(false); void reloadBacklog() }}
         />
       )}
     </>

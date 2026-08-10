@@ -34,16 +34,18 @@ export const workspaceRoomRoutes = new Hono<AppEnv>()
     const membersByWorkspace = new Map<string, string[]>()
     for (const r of memberRows) membersByWorkspace.set(r.workspaceId, [...(membersByWorkspace.get(r.workspaceId) ?? []), r.userId])
     const mine = me.role === 'owner' ? all : all.filter((w) => (membersByWorkspace.get(w.id) ?? []).includes(me.id))
-    return c.json(mine.map((w) => ({ id: w.id, name: w.name, memberCount: (membersByWorkspace.get(w.id) ?? []).length, createdAt: w.createdAt })))
+    return c.json(mine.map((w) => ({ id: w.id, name: w.name, type: w.type, memberCount: (membersByWorkspace.get(w.id) ?? []).length, createdAt: w.createdAt })))
   })
 
   // สร้างห้องใหม่ — ผู้สร้างเป็นสมาชิกอัตโนมัติ + เพิ่มสมาชิกที่เลือกตอนสร้างได้เลย
   .post('/workspaces', teamOnly, async (c) => {
-    const body = z.object({ name: z.string().min(1).max(80), memberIds: z.array(z.string()).default([]) }).safeParse(await c.req.json())
+    const body = z
+      .object({ name: z.string().min(1).max(80), type: z.enum(['business', 'developer']).default('developer'), memberIds: z.array(z.string()).default([]) })
+      .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const created = (await db.insert(workspaces).values({ name: body.data.name, createdBy: me.id }).returning())[0]
+    const created = (await db.insert(workspaces).values({ name: body.data.name, type: body.data.type, createdBy: me.id }).returning())[0]
     if (!created) return c.json({ error: 'create_failed' }, 500)
     const memberIds = [...new Set([me.id, ...body.data.memberIds])]
     const validUsers = memberIds.length > 0 ? await db.select({ id: users.id }).from(users).where(inArray(users.id, memberIds)) : []

@@ -10,7 +10,7 @@ import type { AppEnv } from '../types'
 
 const MAX_PACKAGE_BYTES = 30 * 1024 * 1024
 // Pronista §permission — ป้ายชื่อ role ที่ผู้ใช้เห็น (ตรงกับ apps/web/src/lib/role-label.ts) ใช้แค่โชว์ในชีต "ตัวเลือก" ของ Template
-const ROLE_LABEL_TH: Record<'owner' | 'member' | 'vendor', string> = { owner: 'Admin', member: 'พนักงาน', vendor: 'ผู้รับจ้าง' }
+const ROLE_LABEL_TH: Record<'owner' | 'member' | 'vendor' | 'guest', string> = { owner: 'Admin', member: 'พนักงาน', vendor: 'ผู้รับจ้าง', guest: 'ลูกค้า' }
 
 /** Pronista §Import Data — อัปงานเข้าระบบทีเดียวจาก Excel (+ เอกสารแนบใน ZIP) แทนคีย์ทีละ Task
  * flow เดียวกับ docs-upload-breakout.ts: parse (อ่าน+validate อย่างเดียว) → confirm (ค่อยเขียน DB จริง) — mount ใต้ /api/projects/:id/import/*

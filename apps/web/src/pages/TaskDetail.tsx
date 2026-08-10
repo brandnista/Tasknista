@@ -273,6 +273,11 @@ const ACTION_LABEL: Record<string, string> = {
   'time_entry.update': 'แก้เวลา',
   'time_entry.delete': 'ลบเวลา',
 }
+// Pronista §System Requirements Update — แท็บ "ประวัติการเปลี่ยนแปลง" แยกจากฟีดคอมเมนต์ — เฉพาะ action ที่เป็นความเคลื่อนไหวของสถานะ/ผู้รับผิดชอบงาน (ไม่รวมคอมเมนต์/แนบไฟล์/เวลา)
+const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.done', 'task.convert'])
+function isTaskStatus(v: unknown): v is { status: TaskStatus } {
+  return !!v && typeof v === 'object' && typeof (v as { status?: unknown }).status === 'string' && (v as { status: string }).status in TASK_STATUS_LABEL
+}
 const DELETE_TASK_ERROR_LABEL = {
   has_time_entries: 'ลบไม่ได้ เพราะมีการลงเวลาในงานนี้แล้ว (ข้อมูลการเงิน) — ย้ายเวลาไปงานอื่นก่อน หรือเก็บงานนี้ไว้เฉยๆ',
   has_subtasks: 'ลบไม่ได้ เพราะยังมีงานย่อยอยู่ — ลบหรือย้ายงานย่อยออกก่อน',
@@ -294,6 +299,8 @@ export function TaskDetailPage() {
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้แสดง+เลือกในแถบข้าง
   const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
+  // Pronista §System Requirements Update — สลับฟีด "ความเคลื่อนไหวทั้งหมด" (คอมเมนต์+ประวัติ) กับ "ประวัติการเปลี่ยนแปลง" (เฉพาะสถานะ/ผู้รับผิดชอบ ไม่มีคอมเมนต์)
+  const [feedTab, setFeedTab] = useState<'all' | 'history'>('all')
   const { data: trace } = useLoad<TraceResponse>(() => api.get(`/api/tasks/${taskId}/trace`), [taskId])
   // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ
   const { data: refs, reload: reloadRefs } = useLoad<RefRow[]>(() => api.get(`/api/tasks/${taskId}/references`), [taskId])
@@ -463,6 +470,9 @@ export function TaskDetailPage() {
     ...t.comments.map((c): FeedEntry => ({ kind: 'comment', id: c.id, at: c.createdAt, body: c.body, userName: c.userName, userAvatarUrl: c.userAvatarUrl, isBlocked: c.isBlocked })),
     ...t.activity.map((a): FeedEntry => ({ kind: 'activity', id: a.id, at: a.at, actorName: a.actorName, actorAvatarUrl: a.actorAvatarUrl, action: a.action, meta: a.meta })),
   ].sort((a, b) => a.at - b.at)
+  // Pronista §System Requirements Update — ประวัติการเปลี่ยนแปลง: เฉพาะความเคลื่อนไหวสถานะ/ผู้รับผิดชอบ/ประเภทงาน ไม่รวมคอมเมนต์/แนบไฟล์/เวลา
+  const historyFeed = feed.filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
+  const shownFeed = feedTab === 'all' ? feed : historyFeed
 
   const siblingTotal = t.siblings.length + 1
   const siblingDone = t.siblings.filter((s) => s.status === 'done').length + (done ? 1 : 0)
@@ -767,10 +777,15 @@ export function TaskDetailPage() {
             </div>
 
             <div>
-              <div className="text-xs font-medium text-muted mb-2">ความเคลื่อนไหว</div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
+                  <button onClick={() => setFeedTab('all')} className={`px-2.5 py-1 rounded-md ${feedTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ความเคลื่อนไหวทั้งหมด</button>
+                  <button onClick={() => setFeedTab('history')} className={`px-2.5 py-1 rounded-md ${feedTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ประวัติการเปลี่ยนแปลง</button>
+                </div>
+              </div>
               <div className="space-y-3">
-                {feed.length === 0 && <div className="text-sm text-border">ยังไม่มีความเคลื่อนไหว</div>}
-                {feed.map((f) =>
+                {shownFeed.length === 0 && <div className="text-sm text-border">{feedTab === 'history' ? 'ยังไม่มีประวัติการเปลี่ยนแปลง' : 'ยังไม่มีความเคลื่อนไหว'}</div>}
+                {shownFeed.map((f) =>
                   f.kind === 'comment' ? (
                     <div key={`c-${f.id}`} className="flex gap-2">
                       <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
@@ -793,6 +808,10 @@ export function TaskDetailPage() {
                       <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
                       <div className="flex-1 leading-snug pt-0.5">
                         <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
+                        {/* Pronista §System Requirements Update — ประวัติเปลี่ยนสถานะ: โชว์ "สถานะเดิม → สถานะใหม่" จาก audit meta.before/after */}
+                        {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
+                          <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
+                        )}
                         {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
                         {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
                           <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
@@ -802,15 +821,17 @@ export function TaskDetailPage() {
                   ),
                 )}
               </div>
-              <div className="flex gap-2 mt-3">
-                <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
-                {isAssignee && (
-                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
-                    <AlertTriangle className="w-4 h-4" /> ติดขัด
-                  </button>
-                )}
-                <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
-              </div>
+              {feedTab === 'all' && (
+                <div className="flex gap-2 mt-3">
+                  <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
+                  {isAssignee && (
+                    <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
+                      <AlertTriangle className="w-4 h-4" /> ติดขัด
+                    </button>
+                  )}
+                  <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
+                </div>
+              )}
             </div>
           </div>
 
