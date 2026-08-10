@@ -21,6 +21,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   sprint: 'Sprint',
   docs: 'เอกสาร',
   assets: 'ประวัติเอกสาร',
+  releases: 'Version Release',
   backlogEpic: 'Backlog: Epic',
   backlogStory: 'Backlog: Story',
   backlogTask: 'Backlog: Task',
@@ -35,6 +36,7 @@ const RESOURCE_LABEL: Record<PermissionResourceKey, string> = {
   sprint: 'Sprint',
   defect: 'Defect',
   cr: 'CR',
+  release: 'Version Release',
 }
 
 const DENY_ALL_PERMISSIONS = (): Position['permissions'] => ({

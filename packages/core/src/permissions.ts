@@ -5,15 +5,15 @@
  * ยังไม่ตั้ง → ใช้ DEFAULT (เข้าถึงเต็มรูปแบบ/ดูอย่างเดียว) · pure ล้วน ใช้ทั้ง API + web (mirror project-status.ts/board-preset.ts)
  */
 
-/** ตรงกับแท็บจริงใน ProjectDetail.tsx วันนี้ — top-level (sprint/docs/assets) + sub-tab ใน Backlog (backlog*) */
+/** ตรงกับแท็บจริงใน ProjectDetail.tsx วันนี้ — top-level (sprint/docs/assets/releases) + sub-tab ใน Backlog (backlog*) */
 export const PERMISSION_TAB_KEYS = [
-  'sprint', 'docs', 'assets',
+  'sprint', 'docs', 'assets', 'releases',
   'backlogEpic', 'backlogStory', 'backlogTask', 'backlogDefect', 'backlogCr', 'backlogSummary',
 ] as const
 export type PermissionTabKey = (typeof PERMISSION_TAB_KEYS)[number]
 
 /** Epic/Story ไม่มี action ของตัวเอง (fold เข้า task — เป็นแถวใน tasks table เดียวกัน ไม่มี endpoint แยก) */
-export const PERMISSION_RESOURCE_KEYS = ['task', 'doc', 'sprint', 'defect', 'cr'] as const
+export const PERMISSION_RESOURCE_KEYS = ['task', 'doc', 'sprint', 'defect', 'cr', 'release'] as const
 export type PermissionResourceKey = (typeof PERMISSION_RESOURCE_KEYS)[number]
 
 export interface ResourceActions {

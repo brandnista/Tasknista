@@ -903,6 +903,28 @@ export const externalDocumentLogSowTasks = sqliteTable(
   (t) => [index('external_doc_log_sow_log_idx').on(t.logId), uniqueIndex('external_doc_log_sow_uq_idx').on(t.logId, t.taskId)],
 )
 
+/** Pronista §Version Release — แท็บ "Version Release" ต่อโปรเจกต์ (อยู่ต่อจาก "ประวัติเอกสาร") log เวอร์ชันที่ปล่อยจริงพร้อม release note
+ * sortOrder ใช้แสดง "ลำดับ" ในตาราง — เรียงจากค่ามากไปน้อย (เวอร์ชันล่าสุดอยู่บนสุด) กำหนดค่าใหม่ตอนสร้าง = max(sortOrder ที่มี)+1 */
+export const projectReleases = sqliteTable(
+  'project_releases',
+  {
+    id: id(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    version: text('version').notNull(), // เช่น "v2.1.0 (230)"
+    notes: text('notes').notNull(), // markdown — เขียนผ่าน RichTextField เดียวกับ field richtext ของ doc-templates
+    sortOrder: integer('sort_order').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('project_releases_project_idx').on(t.projectId)],
+)
+
 export const ADJUSTMENT_KINDS = [
   'allowance',
   'depreciation',

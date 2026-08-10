@@ -11,6 +11,7 @@ import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
 import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
+import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
@@ -1891,16 +1892,17 @@ export function ProjectDetailPage() {
   // Pronista §Project Estimate — Tab เห็นเฉพาะ owner (ต้นทุนทีมทั้งหมด ไม่ใช่แค่งบรวม)
   // Pronista §External Document Version Logging — เพิ่มแท็บ External Design Assets (log เวอร์ชันเอกสารภายนอก เช่น Canva)
   // Pronista §Document Management MVP — เชื่อมสองทางกับหน้า "ประวัติเอกสาร": ลิงก์มาพร้อม ?tab=assets ให้เด้งไปแท็บนี้ตรงๆ
-  const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
+  const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'releases' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
     searchParams.get('tab') === 'assets' ? 'assets' : 'sprint',
   )
-  // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
-  // Pronista §Position-based permission — กรองด้วย myPermissions.tabs (key ตรงกับ view value เป๊ะ: sprint/docs/assets) — ?? true = fail-open ระหว่างยังโหลดข้อมูลไม่เสร็จ ไม่ใช่ fail-closed
+  // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร/Version Release — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
+  // Pronista §Position-based permission — กรองด้วย myPermissions.tabs (key ตรงกับ view value เป๊ะ: sprint/docs/assets/releases) — ?? true = fail-open ระหว่างยังโหลดข้อมูลไม่เสร็จ ไม่ใช่ fail-closed
   const tabs: [typeof view, string][] = (
     [
       ['sprint', 'Sprint'],
       ['docs', 'เอกสาร'],
       ['assets', 'ประวัติเอกสาร'],
+      ['releases', 'Version Release'],
     ] as [typeof view, string][]
   ).filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
   // Pronista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
@@ -2047,6 +2049,14 @@ export function ProjectDetailPage() {
       {view === 'docs' && id && <ProjectDocsSection projectId={id} />}
 
       {view === 'assets' && id && <DocumentHistoryTable projectId={id} projectName={project.name} canEdit={canEdit} />}
+
+      {view === 'releases' && id && (
+        <ProjectReleasesTab
+          projectId={id}
+          canCreate={project.myPermissions?.actions.release.create ?? false}
+          canDelete={project.myPermissions?.actions.release.delete ?? false}
+        />
+      )}
 
       {/* Pronista §Back to Basic — API Document/Project Estimate ถอดออกจาก Tab บนสุด (ยังไม่อยู่ใน Phase นี้) เก็บ component+route ไว้เผื่อกลับมาใช้ ไม่มีปุ่มเข้าถึงแล้วเท่านั้น */}
       {view === 'apidoc' && id && <ApiDocumentSection key={project.id} projectId={id} canEdit={canEdit} />}

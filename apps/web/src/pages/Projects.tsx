@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { BacklogConvertMenu, CONVERT_LABEL, type ConvertTo } from '../components/BacklogConvertMenu'
+import { ClientCombobox } from '../components/ClientCombobox'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
+import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { StatusDonut } from '../components/StatusDonut'
@@ -497,7 +499,6 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
     serviceType: '', productType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
   })
   const [codeTouched, setCodeTouched] = useState(false)
-  const [newClient, setNewClient] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   const [error, setError] = useState('')
 
@@ -644,22 +645,16 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
 
             <div>
               <label className={label}>ลูกค้า (ถ้ามี)</label>
-              {newClient ? (
-                <div className="flex gap-2">
-                  <input placeholder="ชื่อลูกค้าใหม่…" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} className={input} autoFocus />
-                  <button onClick={() => { setNewClient(false); setForm({ ...form, clientName: '' }) }} className="text-xs px-2.5 rounded-lg border border-border-subtle text-dim hover:bg-hover whitespace-nowrap">ยกเลิก</button>
-                </div>
-              ) : (
-                <select
-                  value={form.clientId}
-                  onChange={(e) => { if (e.target.value === '__new__') { setNewClient(true); setForm({ ...form, clientId: '' }) } else setForm({ ...form, clientId: e.target.value }) }}
-                  className={input}
-                >
-                  <option value="">— ไม่ระบุ —</option>
-                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  <option value="__new__">+ ลูกค้าใหม่…</option>
-                </select>
-              )}
+              <ClientCombobox
+                clients={clients}
+                clientId={form.clientId}
+                clientName={form.clientName}
+                onSelect={(id) => setForm({ ...form, clientId: id, clientName: '' })}
+                onCreate={(name) => setForm({ ...form, clientId: '', clientName: name })}
+                onClear={() => setForm({ ...form, clientId: '', clientName: '' })}
+                allowClear
+                placeholder="— ไม่ระบุ —"
+              />
             </div>
 
             <div>
@@ -679,7 +674,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={label}>วันเริ่ม</label>
-                <input type="date" value={form.startDate} onChange={(e) => { const s = e.target.value; setForm({ ...form, startDate: s, dueDate: s && form.sprint ? addWeeks(s, form.sprint) : form.dueDate }) }} className={input} />
+                <DateInputTH value={form.startDate} onChange={(s) => setForm({ ...form, startDate: s, dueDate: s && form.sprint ? addWeeks(s, form.sprint) : form.dueDate })} className={input} />
               </div>
               <div>
                 <label className={label}>Sprint (กี่สัปดาห์)</label>
@@ -693,7 +688,7 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={label}>คาดว่าเสร็จ {form.sprint && form.startDate && <span className="text-[10px] text-brand-600">(ล้อกับ Sprint)</span>}</label>
-                <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={input} />
+                <DateInputTH value={form.dueDate} onChange={(v) => setForm({ ...form, dueDate: v })} className={input} />
               </div>
               <div>
                 <label className={label}>Project Key (รหัสอ้างอิง)</label>

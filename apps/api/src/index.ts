@@ -21,6 +21,7 @@ import { payrollAdminRoutes } from './routes/payroll-admin'
 import { payrollRoutes } from './routes/payroll'
 import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
+import { projectReleaseRoutes } from './routes/project-releases'
 import { projectRoutes } from './routes/projects'
 import { sprintRoutes } from './routes/sprints'
 import { taskDetailRoutes } from './routes/task-detail'
@@ -132,6 +133,9 @@ app.use('/api/external-doc-logs/*', requireAuth)
 // Pronista §Document Version History — /api/document-history (แยก path เดี่ยว teamOnly อยู่ใน route) ต้องมี requireAuth ของตัวเอง
 app.use('/api/document-history', requireAuth)
 app.route('/api', externalDocLogRoutes)
+// Pronista §Version Release — /api/projects/:id/releases อยู่ใต้ /api/projects/* (requireAuth ด้านบน) แต่ /api/releases/:id แยก path
+app.use('/api/releases/*', requireAuth)
+app.route('/api', projectReleaseRoutes)
 // เงินสดย่อย: owner+member (vendor ❌ — SPEC §2)
 app.use('/api/expenses', requireAuth, teamOnly)
 app.use('/api/expenses/*', requireAuth, teamOnly)
