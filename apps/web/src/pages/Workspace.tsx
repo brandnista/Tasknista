@@ -1,13 +1,14 @@
 /**
- * Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ที่มีสิทธิ์เห็น (คล้าย Jira 1 Board ต่อทีม ไม่แยกตามโปรเจกต์)
- * อ่านข้อมูลจาก /api/workspace/* (aggregate อ่านอย่างเดียว) แต่ mutation ทั้งหมดยิง endpoint เดิมของ sprints/tasks
+ * Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ที่ถูกดึงเข้าห้องนี้ (คล้าย Jira 1 Board ต่อทีม ไม่แยกตามโปรเจกต์)
+ * อ่านข้อมูลจาก /api/workspace/* (aggregate อ่านอย่างเดียว, แคบด้วย ?workspaceId=) แต่ mutation ทั้งหมดยิง endpoint เดิมของ sprints/tasks
  * (สร้าง/เริ่ม/ปิด Sprint, ลากงานเข้า Sprint, สร้าง backlog task, เปลี่ยน status) — ดูแผน "Workspace" ประกอบ
  * §รอบ 2 — Backlog Grid เป็นตารางแบนรวมทุก work item (Epic/Story/Task/Subtask) ข้ามโปรเจกต์ ไม่แยก section ต่อโปรเจกต์ ฟิลเตอร์เอาแทน
+ * §รอบ 3 (ต่อยอด) — Sprint ผูกห้อง Workspace โดยตรง (ไม่ผูกโปรเจกต์เดียวอีกต่อไป) งานในนั้นมาจากหลายโปรเจกต์ในห้องเดียวกันได้ · ห้องใหม่เริ่มว่างเปล่าจนกว่าจะดึงโปรเจกต์เข้าห้อง (แก้ไขชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้องได้ที่นี่)
  */
 import type { Label } from '@seedoffice/core'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Layers, Play, Plus, X } from 'lucide-react'
-import { type DragEvent, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Layers, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
+import { type DragEvent, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
@@ -31,6 +32,7 @@ interface WsTask {
   assigneeName: string | null
   labelIds: string[] | null
   kind?: string
+  projectId: string
 }
 type WorkType = 'epic' | 'story' | 'task' | 'subtask'
 interface WsBacklogItem {
@@ -53,7 +55,8 @@ interface WsBacklogItem {
 }
 interface WsSprint {
   id: string
-  projectId: string
+  projectId: string | null
+  workspaceId: string | null
   name: string | null
   status: 'planned' | 'active' | 'completed'
   startDate: string
@@ -62,7 +65,8 @@ interface WsSprint {
   doneCount: number | null
   notDoneCount: number | null
 }
-interface WsSprintItem { sprint: WsSprint; tasks: WsTask[]; projectId: string; projectCode: string | null; projectName: string }
+interface WsSprintItem { sprint: WsSprint; tasks: WsTask[] }
+interface RoomDetail { id: string; name: string; canManage: boolean; projects: AccessibleProject[] }
 
 const WORKTYPE_ORDER: Record<WorkType, number> = { epic: 0, story: 1, task: 2, subtask: 3 }
 const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask' }
@@ -89,31 +93,125 @@ function DueDateChip({ dueDate, status }: { dueDate: string | null; status: Task
   )
 }
 
+/** Pronista §Workspace Rooms (ต่อยอด) — แก้ชื่อห้อง + ดึง/เอาโปรเจกต์เข้า-ออกห้อง + ลบห้อง (เฉพาะผู้สร้างห้องหรือ owner บริษัท — เช็คซ้ำที่ server เสมอ) */
+function RoomEditModal({ workspaceId, currentName, linkedProjects, onClose, onChanged, onDeleted }: {
+  workspaceId: string
+  currentName: string
+  linkedProjects: AccessibleProject[]
+  onClose: () => void
+  onChanged: () => void
+  onDeleted: () => void
+}) {
+  const { confirmDialog } = useDialog()
+  const { data: allProjects } = useLoad<{ id: string; code: string | null; name: string }[]>(() => api.get('/api/projects'))
+  const [name, setName] = useState(currentName)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const linkedIds = new Set(linkedProjects.map((p) => p.id))
+
+  const saveName = async () => {
+    if (!name.trim() || name.trim() === currentName) return
+    setSaving(true)
+    setError('')
+    try {
+      await api.patch(`/api/workspaces/${workspaceId}`, { name: name.trim() })
+      onChanged()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'แก้ไขชื่อไม่สำเร็จ')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleProject = async (projectId: string, linked: boolean) => {
+    setError('')
+    try {
+      if (linked) await api.delete(`/api/workspaces/${workspaceId}/projects/${projectId}`)
+      else await api.post(`/api/workspaces/${workspaceId}/projects`, { projectId })
+      onChanged()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'แก้ไขโปรเจกต์ในห้องไม่สำเร็จ')
+    }
+  }
+
+  const deleteRoom = async () => {
+    const ok = await confirmDialog({ title: `ลบ Workspace "${currentName}"?`, message: 'สมาชิก/โปรเจกต์ที่ผูกไว้ในห้องนี้จะถูกเลิกผูก (โปรเจกต์/งานจริงไม่หาย)', confirmLabel: 'ลบห้อง', danger: true })
+    if (!ok) return
+    try {
+      await api.delete(`/api/workspaces/${workspaceId}`)
+      onDeleted()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'ลบห้องไม่สำเร็จ')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <div onClick={onClose} className="absolute inset-0 bg-ink/30" />
+      <div className="absolute inset-x-0 top-14 mx-auto w-full max-w-md px-4">
+        <div className="bg-white rounded-lg shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <div className="font-semibold text-ink text-sm">แก้ไข Workspace</div>
+            <button onClick={onClose} className="text-muted hover:text-soft shrink-0"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted mb-1 block">ชื่อ Workspace</label>
+              <div className="flex gap-2">
+                <input value={name} onChange={(e) => setName(e.target.value)} className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
+                <button onClick={() => void saveName()} disabled={saving || !name.trim() || name.trim() === currentName} className="text-sm bg-brand-600 text-white px-3 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">บันทึก</button>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted mb-1 block">โปรเจกต์ในห้องนี้ ({linkedProjects.length})</label>
+              <div className="border border-border-subtle rounded-lg max-h-56 overflow-y-auto divide-y divide-divider">
+                {(allProjects ?? []).length === 0 && <div className="text-xs text-muted px-3 py-4 text-center">ยังไม่มีโปรเจกต์ในระบบ</div>}
+                {(allProjects ?? []).map((p) => (
+                  <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-hover">
+                    <input type="checkbox" checked={linkedIds.has(p.id)} onChange={() => void toggleProject(p.id, linkedIds.has(p.id))} />
+                    <span className="text-body truncate">{p.name}</span>
+                    {p.code && <span className="text-[10px] font-mono text-muted ml-auto shrink-0">{p.code}</span>}
+                  </label>
+                ))}
+              </div>
+              <div className="text-[11px] text-muted mt-1">ห้องใหม่เริ่มว่างเปล่า — ติ๊กโปรเจกต์ที่อยากให้ Backlog/Sprint ของห้องนี้ดึงงานเข้ามา</div>
+            </div>
+            {error && <div className="text-xs text-danger-600">{error}</div>}
+            <div className="pt-2 border-t border-divider">
+              <button onClick={() => void deleteRoom()} className="flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700">
+                <Trash2 className="w-4 h-4" /> ลบ Workspace นี้
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function WorkspacePage() {
   const navigate = useNavigate()
   const { confirmDialog } = useDialog()
-  const [searchParams] = useSearchParams()
-  const preselect = searchParams.get('project')
   const { workspaceId } = useParams<{ workspaceId: string }>()
 
-  // Pronista §Workspace Rooms — เข้าห้องได้เฉพาะสมาชิก (เช็คซ้ำที่ server เสมอ) — โหลดชื่อห้องมาโชว์เป็น breadcrumb
-  const { data: room, loading: roomLoading, error: roomError } = useLoad<{ id: string; name: string }>(
+  // Pronista §Workspace Rooms — เข้าห้องได้เฉพาะสมาชิก (เช็คซ้ำที่ server เสมอ) — โหลดชื่อห้อง/โปรเจกต์ในห้องมาโชว์เป็น breadcrumb
+  const { data: room, loading: roomLoading, error: roomError, reload: reloadRoom } = useLoad<RoomDetail>(
     () => api.get(`/api/workspaces/${workspaceId}`),
     [workspaceId],
   )
 
-  const { data: projects } = useLoad<AccessibleProject[]>(() => api.get('/api/workspace/accessible-projects'))
+  const { data: projects } = useLoad<AccessibleProject[]>(() => api.get(`/api/workspace/accessible-projects?workspaceId=${workspaceId}`), [workspaceId])
   const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
-  const [projectFilter, setProjectFilter] = useState(preselect ?? 'all')
+  const [projectFilter, setProjectFilter] = useState('all')
   const queryIds = projectFilter === 'all' ? '' : projectFilter
 
   const { data: backlogData, reload: reloadBacklog } = useLoad<{ items: WsBacklogItem[] }>(
-    () => api.get(`/api/workspace/backlog-items${queryIds ? `?projectIds=${queryIds}` : ''}`),
-    [queryIds],
+    () => api.get(`/api/workspace/backlog-items?workspaceId=${workspaceId}${queryIds ? `&projectIds=${queryIds}` : ''}`),
+    [workspaceId, queryIds],
   )
   const { data: boardData, reload: reloadBoard } = useLoad<{ sprints: WsSprintItem[] }>(
-    () => api.get(`/api/workspace/board${queryIds ? `?projectIds=${queryIds}` : ''}`),
-    [queryIds],
+    () => api.get(`/api/workspaces/${workspaceId}/sprints/current`),
+    [workspaceId],
   )
   const reloadAll = () => { void reloadBacklog(); void reloadBoard() }
 
@@ -124,16 +222,17 @@ export function WorkspacePage() {
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
-  useEffect(() => { if (!addProjectId && projects && projects[0]) setAddProjectId(projects[0].id) }, [projects, addProjectId])
 
   const [error, setError] = useState('')
+  const [editingRoom, setEditingRoom] = useState(false)
 
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
-  const [dragTaskProjectId, setDragTaskProjectId] = useState<string | null>(null)
   const [dropHoverSprintId, setDropHoverSprintId] = useState<string | null>(null)
 
-  const [newSprintPicker, setNewSprintPicker] = useState(false)
-  const [starting, setStarting] = useState<{ id: string; projectId: string; startDate: string; endDate: string } | null>(null)
+  const [starting, setStarting] = useState<{ id: string; startDate: string; endDate: string } | null>(null)
+
+  const projectName = (id: string) => projects?.find((p) => p.id === id)
+  const effectiveAddProjectId = addProjectId || projects?.[0]?.id || ''
 
   const changeStatus = async (taskId: string, status: TaskStatus) => {
     setError('')
@@ -147,10 +246,10 @@ export function WorkspacePage() {
 
   const addItem = async () => {
     const title = addTitle.trim()
-    if (!title || !addProjectId) return
+    if (!title || !effectiveAddProjectId) return
     setError('')
     try {
-      await api.post(`/api/projects/${addProjectId}/backlog`, { title, kind: 'backlog' })
+      await api.post(`/api/projects/${effectiveAddProjectId}/backlog`, { title, kind: 'backlog' })
       setAddTitle('')
       void reloadBacklog()
     } catch (e) {
@@ -158,11 +257,11 @@ export function WorkspacePage() {
     }
   }
 
-  const createSprintFor = async (projectId: string) => {
-    setNewSprintPicker(false)
+  // Pronista §Workspace Sprint (ต่อยอด) — กด "+ Sprint" สร้าง container ว่างทันทีที่ผูกห้องนี้เลย ไม่ต้องเลือกโปรเจกต์ (งานในนั้นมาจากหลายโปรเจกต์ในห้องได้)
+  const createSprint = async () => {
     setError('')
     try {
-      await api.post(`/api/projects/${projectId}/sprints`)
+      await api.post(`/api/workspaces/${workspaceId}/sprints`)
       void reloadBoard()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'สร้าง Sprint ไม่สำเร็จ')
@@ -195,14 +294,13 @@ export function WorkspacePage() {
     setDropHoverSprintId(null)
     const taskId = dragTaskId
     setDragTaskId(null)
-    setDragTaskProjectId(null)
     if (!taskId) return
     setError('')
     try {
       await api.post(`/api/sprints/${sprintId}/tasks`, { taskId })
       reloadAll()
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'ลากเข้า Sprint ไม่สำเร็จ — ต้องเป็นงานในโปรเจกต์เดียวกับ Sprint เท่านั้น')
+      setError(e instanceof ApiError ? e.message : 'ลากเข้า Sprint ไม่สำเร็จ')
     }
   }
 
@@ -234,26 +332,18 @@ export function WorkspacePage() {
       <PageHeader
         title={room.name}
         action={
-          <div className="relative">
+          <div className="flex items-center gap-2">
+            {room.canManage && (
+              <button onClick={() => setEditingRoom(true)} className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-3 py-1.5 text-dim hover:bg-hover">
+                <Pencil className="w-3.5 h-3.5" /> แก้ไขห้อง
+              </button>
+            )}
             <button
-              onClick={() => setNewSprintPicker((v) => !v)}
+              onClick={() => void createSprint()}
               className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium"
             >
               <Plus className="w-4 h-4" /> Sprint
             </button>
-            {newSprintPicker && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setNewSprintPicker(false)} />
-                <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-white rounded-lg shadow-2xl border border-border-subtle p-1 max-h-72 overflow-y-auto">
-                  <div className="text-[11px] text-muted px-2 py-1.5">สร้าง Sprint ในโปรเจกต์ไหน</div>
-                  {(projects ?? []).map((p) => (
-                    <button key={p.id} onClick={() => void createSprintFor(p.id)} className="w-full text-left text-sm px-2 py-1.5 rounded-lg hover:bg-hover truncate">
-                      {p.name}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
           </div>
         }
       />
@@ -262,175 +352,184 @@ export function WorkspacePage() {
         <Link to="/workspace" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> ทุก Workspace</Link>
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
 
-        {/* ฟิลเตอร์ */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Layers className="w-4 h-4 text-muted shrink-0" />
-          <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className={selectCls}>
-            <option value="all">ทุกโปรเจกต์</option>
-            {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className={selectCls}>
-            <option value="all">ผู้จ่ายงานทั้งหมด</option>
-            {dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={selectCls}>
-            <option value="all">ผู้รับงานทั้งหมด</option>
-            {assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | TaskStatus)} className={selectCls}>
-            <option value="all">ทุกสถานะ</option>
-            {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-          </select>
-          <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value as 'all' | WorkType)} className={selectCls}>
-            <option value="all">ทุกประเภทงาน</option>
-            {(['epic', 'story', 'task', 'subtask'] as WorkType[]).map((w) => <option key={w} value={w}>{WORKTYPE_LABEL[w]}</option>)}
-          </select>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-4">
-          {/* Backlog Grid — ตารางแบนรวมทุก work item ข้ามโปรเจกต์ */}
-          <div className="space-y-3">
-            <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
-            <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-              {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
-              <div className="divide-y divide-divider">
-                {filteredItems.map((it) => (
-                  <div
-                    key={it.id}
-                    draggable={it.kind !== 'epic'}
-                    onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id); setDragTaskProjectId(it.projectId) }}
-                    onDragEnd={() => { setDragTaskId(null); setDragTaskProjectId(null) }}
-                    className={`flex items-center gap-2 px-3 py-2 flex-wrap ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
-                  >
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
-                    <ProjectChip code={it.projectCode} name={it.projectName} />
-                    {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
-                    {it.kind === 'epic' ? (
-                      <span className="flex-1 text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
-                    ) : (
-                      <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
-                    )}
-                    {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
-                    <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
-                    {it.status && (
-                      <select
-                        value={it.status}
-                        onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
-                        className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
-                      >
-                        {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-                      </select>
-                    )}
-                    <DueDateChip dueDate={it.dueDate} status={it.status} />
-                    {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
-                  </div>
-                ))}
+        {room.projects.length === 0 ? (
+          <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">
+            ห้องนี้ยังว่างเปล่า — ยังไม่มีโปรเจกต์ถูกดึงเข้าห้อง
+            {room.canManage && (
+              <div className="mt-2">
+                <button onClick={() => setEditingRoom(true)} className="text-brand-700 hover:underline font-medium">กด "แก้ไขห้อง" เพื่อเพิ่มโปรเจกต์</button>
               </div>
-              <div className="flex items-center gap-2 p-3 border-t border-divider">
-                <select value={addProjectId} onChange={(e) => setAddProjectId(e.target.value)} className={selectCls}>
-                  {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <input
-                  value={addTitle}
-                  onChange={(e) => setAddTitle(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
-                  placeholder="พิมพ์ชื่องานแล้วกด Enter…"
-                  className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Sprint — การ์ดต่อ sprint ข้ามโปรเจกต์ */}
-          <div className="space-y-3">
-            <div className="text-sm font-semibold text-ink">🏃 Sprint</div>
-            {sprintItems.length === 0 && (
-              <div className="bg-white rounded-lg shadow-xs p-6 text-center text-sm text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
             )}
-            {sprintItems.map((item) => {
-              const { sprint } = item
-              const isDropValid = dragTaskProjectId === sprint.projectId
-              const isDropHovering = dropHoverSprintId === sprint.id
-              const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, done: 0 }
-              for (const t of item.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
-              return (
-                <div key={sprint.id} className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-                  <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <ProjectChip code={item.projectCode} name={item.projectName} />
-                    <span className="font-semibold text-ink">{sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${sprint.status === 'active' ? 'bg-success-50 text-success-700' : 'bg-warning-50 text-warning-700'}`}>
-                      {sprint.status === 'active' ? 'กำลังทำ' : 'วางแผน'}
-                    </span>
-                    {sprint.goal && <span className="text-xs text-body basis-full sm:basis-auto">🎯 {sprint.goal}</span>}
-                    <div className="ml-auto flex items-center gap-2">
-                      {item.tasks.length > 0 && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          {TASK_STATUS_ORDER.map((s) => (
-                            <span key={s} title={TASK_STATUS_LABEL[s]} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TASK_STATUS_BADGE[s]}`}>{counts[s]}</span>
-                          ))}
-                        </div>
-                      )}
-                      {sprint.status === 'active' && (
-                        <button onClick={() => navigate(`/projects/${sprint.projectId}/sprints/${sprint.id}/board`)} className="text-sm border border-border-subtle rounded-lg px-3 py-1.5 text-dim hover:bg-hover">
-                          ไปที่ Board →
-                        </button>
-                      )}
-                      {sprint.status === 'planned' && (
-                        <button onClick={() => setStarting({ id: sprint.id, projectId: sprint.projectId, startDate: sprint.startDate, endDate: sprint.endDate })} className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium">
-                          <Play className="w-4 h-4" /> เริ่ม Sprint
-                        </button>
-                      )}
-                      <button onClick={() => void completeSprint(sprint.id)} className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-3 py-1.5 text-dim hover:bg-hover">
-                        <CheckCircle2 className="w-4 h-4" /> ปิด Sprint
-                      </button>
-                    </div>
-                  </div>
+          </div>
+        ) : (
+          <>
+            {/* ฟิลเตอร์ */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Layers className="w-4 h-4 text-muted shrink-0" />
+              <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className={selectCls}>
+                <option value="all">ทุกโปรเจกต์</option>
+                {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className={selectCls}>
+                <option value="all">ผู้จ่ายงานทั้งหมด</option>
+                {dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={selectCls}>
+                <option value="all">ผู้รับงานทั้งหมด</option>
+                {assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | TaskStatus)} className={selectCls}>
+                <option value="all">ทุกสถานะ</option>
+                {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+              </select>
+              <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value as 'all' | WorkType)} className={selectCls}>
+                <option value="all">ทุกประเภทงาน</option>
+                {(['epic', 'story', 'task', 'subtask'] as WorkType[]).map((w) => <option key={w} value={w}>{WORKTYPE_LABEL[w]}</option>)}
+              </select>
+            </div>
 
-                  {sprint.status !== 'completed' && (
-                    <div className="text-[11px] text-muted mb-2">
-                      ลากงานจาก Backlog ของ <span className="font-medium">{item.projectName}</span> มาวางด้านล่างนี้ — ลากข้ามโปรเจกต์ไม่ได้
-                    </div>
-                  )}
-                  <div
-                    onDragOver={sprint.status !== 'completed' && isDropValid ? (e: DragEvent) => { e.preventDefault(); setDropHoverSprintId(sprint.id) } : undefined}
-                    onDragLeave={() => setDropHoverSprintId(null)}
-                    onDrop={sprint.status !== 'completed' && isDropValid ? (e: DragEvent) => { e.preventDefault(); void dropOnSprint(sprint.id) } : undefined}
-                    className={`bg-hover rounded-lg p-3 min-h-24 border-2 border-dashed ${isDropHovering ? 'border-brand-400 bg-brand-50' : 'border-transparent'}`}
-                  >
-                    <div className="text-xs font-semibold text-body mb-2">ในนี้ ({item.tasks.length})</div>
-                    {item.tasks.length === 0 ? (
-                      <div className="text-center text-xs text-muted py-4">ยังไม่มีงานใน Sprint — ลาก Backlog มาใส่</div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {item.tasks.map((t) => (
-                          <div key={t.id} className="flex items-center gap-2 bg-white rounded-lg px-2.5 py-2 text-sm border border-border-subtle flex-wrap">
-                            {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-                            <button onClick={() => navigate(`/tasks/${t.id}`)} className="flex-1 truncate text-left hover:underline min-w-24">{t.title}</button>
-                            <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
-                            <select
-                              value={t.status}
-                              onChange={(e) => void changeStatus(t.id, e.target.value as TaskStatus)}
-                              className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[t.status]}`}
-                            >
-                              {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-                            </select>
-                            <DueDateChip dueDate={t.dueDate} status={t.status} />
-                            {t.assigneeName && (
-                              <Avatar name={t.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(t.assigneeName)} />
-                            )}
-                            {sprint.status !== 'completed' && (
-                              <button onClick={() => void removeFromSprint(sprint.id, t.id)} className="text-muted hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>
-                            )}
-                          </div>
-                        ))}
+            <div className="grid lg:grid-cols-2 gap-4">
+              {/* Backlog Grid — ตารางแบนรวมทุก work item ข้ามโปรเจกต์ในห้อง */}
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                <div className="bg-white rounded-lg shadow-xs overflow-hidden">
+                  {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
+                  <div className="divide-y divide-divider">
+                    {filteredItems.map((it) => (
+                      <div
+                        key={it.id}
+                        draggable={it.kind !== 'epic'}
+                        onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
+                        onDragEnd={() => setDragTaskId(null)}
+                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                      >
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
+                        <ProjectChip code={it.projectCode} name={it.projectName} />
+                        {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
+                        {it.kind === 'epic' ? (
+                          <span className="flex-1 text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
+                        ) : (
+                          <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
+                        )}
+                        {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
+                        <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
+                        {it.status && (
+                          <select
+                            value={it.status}
+                            onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
+                            className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
+                          >
+                            {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                          </select>
+                        )}
+                        <DueDateChip dueDate={it.dueDate} status={it.status} />
+                        {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
                       </div>
-                    )}
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 p-3 border-t border-divider">
+                    <select value={effectiveAddProjectId} onChange={(e) => setAddProjectId(e.target.value)} className={selectCls}>
+                      {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <input
+                      value={addTitle}
+                      onChange={(e) => setAddTitle(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
+                      placeholder="พิมพ์ชื่องานแล้วกด Enter…"
+                      className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
+                    />
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        </div>
+              </div>
+
+              {/* Sprint — การ์ดต่อ sprint ผูกห้องนี้ (ข้ามโปรเจกต์ในห้องได้) */}
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-ink">🏃 Sprint</div>
+                {sprintItems.length === 0 && (
+                  <div className="bg-white rounded-lg shadow-xs p-6 text-center text-sm text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
+                )}
+                {sprintItems.map((item) => {
+                  const { sprint } = item
+                  const isDropHovering = dropHoverSprintId === sprint.id
+                  const canDrop = sprint.status !== 'completed' && !!dragTaskId
+                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, done: 0 }
+                  for (const t of item.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
+                  return (
+                    <div key={sprint.id} className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
+                      <div className="flex flex-wrap items-center gap-2 mb-3">
+                        <span className="font-semibold text-ink">{sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${sprint.status === 'active' ? 'bg-success-50 text-success-700' : 'bg-warning-50 text-warning-700'}`}>
+                          {sprint.status === 'active' ? 'กำลังทำ' : 'วางแผน'}
+                        </span>
+                        {sprint.goal && <span className="text-xs text-body basis-full sm:basis-auto">🎯 {sprint.goal}</span>}
+                        <div className="ml-auto flex items-center gap-2">
+                          {item.tasks.length > 0 && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {TASK_STATUS_ORDER.map((s) => (
+                                <span key={s} title={TASK_STATUS_LABEL[s]} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TASK_STATUS_BADGE[s]}`}>{counts[s]}</span>
+                              ))}
+                            </div>
+                          )}
+                          {sprint.status === 'planned' && (
+                            <button onClick={() => setStarting({ id: sprint.id, startDate: sprint.startDate, endDate: sprint.endDate })} className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium">
+                              <Play className="w-4 h-4" /> เริ่ม Sprint
+                            </button>
+                          )}
+                          <button onClick={() => void completeSprint(sprint.id)} className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-3 py-1.5 text-dim hover:bg-hover">
+                            <CheckCircle2 className="w-4 h-4" /> ปิด Sprint
+                          </button>
+                        </div>
+                      </div>
+
+                      {sprint.status !== 'completed' && (
+                        <div className="text-[11px] text-muted mb-2">ลากงานจาก Backlog ด้านซ้ายมาวางด้านล่างนี้ — ข้ามโปรเจกต์ในห้องเดียวกันได้</div>
+                      )}
+                      <div
+                        onDragOver={canDrop ? (e: DragEvent) => { e.preventDefault(); setDropHoverSprintId(sprint.id) } : undefined}
+                        onDragLeave={() => setDropHoverSprintId(null)}
+                        onDrop={canDrop ? (e: DragEvent) => { e.preventDefault(); void dropOnSprint(sprint.id) } : undefined}
+                        className={`bg-hover rounded-lg p-3 min-h-24 border-2 border-dashed ${isDropHovering ? 'border-brand-400 bg-brand-50' : 'border-transparent'}`}
+                      >
+                        <div className="text-xs font-semibold text-body mb-2">ในนี้ ({item.tasks.length})</div>
+                        {item.tasks.length === 0 ? (
+                          <div className="text-center text-xs text-muted py-4">ยังไม่มีงานใน Sprint — ลาก Backlog มาใส่</div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {item.tasks.map((t) => {
+                              const proj = projectName(t.projectId)
+                              return (
+                                <div key={t.id} className="flex items-center gap-2 bg-white rounded-lg px-2.5 py-2 text-sm border border-border-subtle flex-wrap">
+                                  {proj && <ProjectChip code={proj.code} name={proj.name} />}
+                                  {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+                                  <button onClick={() => navigate(`/tasks/${t.id}`)} className="flex-1 truncate text-left hover:underline min-w-24">{t.title}</button>
+                                  <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
+                                  <select
+                                    value={t.status}
+                                    onChange={(e) => void changeStatus(t.id, e.target.value as TaskStatus)}
+                                    className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[t.status]}`}
+                                  >
+                                    {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                                  </select>
+                                  <DueDateChip dueDate={t.dueDate} status={t.status} />
+                                  {t.assigneeName && (
+                                    <Avatar name={t.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(t.assigneeName)} />
+                                  )}
+                                  {sprint.status !== 'completed' && (
+                                    <button onClick={() => void removeFromSprint(sprint.id, t.id)} className="text-muted hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {starting && (
@@ -440,12 +539,20 @@ export function WorkspacePage() {
           defaultEndDate={starting.endDate}
           onClose={() => setStarting(null)}
           onStarted={() => {
-            const startedId = starting.id
-            const projectId = starting.projectId
             setStarting(null)
             reloadAll()
-            navigate(`/projects/${projectId}/sprints/${startedId}/board`)
           }}
+        />
+      )}
+
+      {editingRoom && room && (
+        <RoomEditModal
+          workspaceId={room.id}
+          currentName={room.name}
+          linkedProjects={room.projects}
+          onClose={() => setEditingRoom(false)}
+          onChanged={() => { void reloadRoom(); reloadAll() }}
+          onDeleted={() => navigate('/workspace')}
         />
       )}
     </>

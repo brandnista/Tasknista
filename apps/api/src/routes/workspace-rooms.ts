@@ -1,18 +1,26 @@
 /**
- * Pronista §Workspace Rooms — "ห้อง" ทำงานของทีม (ชื่อ + สมาชิก) คนละเรื่องกับ projects/`workspace.ts` (aggregate Backlog/Sprint)
- * กด "+ Create Workspace" ตั้งชื่อ+เพิ่มสมาชิก → เข้าไปในห้องแล้วเจอหน้า Workspace (Backlog/Sprint) เดิมทั้งดุ้น (ยังไม่กรองโปรเจกต์ตามห้อง — ดูฟีดแบ็กที่ตกลงกันไว้)
- * เข้าห้องได้เฉพาะสมาชิก (หรือ owner บริษัทเห็นได้ทุกห้องเพื่อดูแลระบบ)
+ * Pronista §Workspace Rooms — "ห้อง" ทำงานของทีม (ชื่อ + สมาชิก + โปรเจกต์ที่ดึงเข้าห้อง) คนละเรื่องกับ projects/`workspace.ts` (aggregate Backlog/Sprint)
+ * กด "+ Create Workspace" ตั้งชื่อ+เพิ่มสมาชิก → ห้องใหม่เริ่มว่างเปล่า (ไม่มีโปรเจกต์ผูกไว้) จนกว่าจะเพิ่มโปรเจกต์เข้าห้องเอง (ดู workspace_projects)
+ * เข้าห้องได้เฉพาะสมาชิก (หรือ owner บริษัทเห็นได้ทุกห้องเพื่อดูแลระบบ) · แก้ชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้อง = ผู้สร้างห้องหรือ owner บริษัทเท่านั้น
  */
-import { createDb, users, workspaceMembers, workspaces } from '@seedoffice/db'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { createDb, projects, sprints, users, workspaceMembers, workspaceProjects, workspaces } from '@seedoffice/db'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { writeAudit } from '../lib/audit'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
 async function isMember(db: ReturnType<typeof createDb>, workspaceId: string, userId: string) {
   const row = (await db.select({ id: workspaceMembers.id }).from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId))).limit(1))[0]
   return !!row
+}
+
+/** แก้ชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้อง — เฉพาะผู้สร้างห้องหรือ owner บริษัท (กว้างกว่าสมาชิกทั่วไปที่แค่เพิ่ม/เอาคนออกได้) */
+async function canManageRoom(db: ReturnType<typeof createDb>, workspaceId: string, me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' }) {
+  if (me.role === 'owner') return true
+  const row = (await db.select({ createdBy: workspaces.createdBy }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
+  return !!row && row.createdBy === me.id
 }
 
 export const workspaceRoomRoutes = new Hono<AppEnv>()
@@ -57,7 +65,73 @@ export const workspaceRoomRoutes = new Hono<AppEnv>()
       .from(workspaceMembers)
       .innerJoin(users, eq(workspaceMembers.userId, users.id))
       .where(eq(workspaceMembers.workspaceId, workspaceId))
-    return c.json({ ...workspace, members: memberRows })
+    const projectRows = await db
+      .select({ id: projects.id, code: projects.code, name: projects.name })
+      .from(workspaceProjects)
+      .innerJoin(projects, eq(workspaceProjects.projectId, projects.id))
+      .where(eq(workspaceProjects.workspaceId, workspaceId))
+    return c.json({ ...workspace, members: memberRows, projects: projectRows, canManage: await canManageRoom(db, workspaceId, me) })
+  })
+
+  // แก้ชื่อห้อง — ผู้สร้างห้องหรือ owner บริษัทเท่านั้น
+  .patch('/workspaces/:id', teamOnly, async (c) => {
+    const body = z.object({ name: z.string().min(1).max(80) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const workspaceId = c.req.param('id')
+    const workspace = (await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
+    if (!workspace) return c.json({ error: 'not_found' }, 404)
+    if (!(await canManageRoom(db, workspaceId, me))) return c.json({ error: 'forbidden' }, 403)
+    const updated = (await db.update(workspaces).set({ name: body.data.name }).where(eq(workspaces.id, workspaceId)).returning())[0]
+    await writeAudit(c.env, { actorId: me.id, action: 'workspace.rename', entity: 'workspace', entityId: workspaceId, meta: { name: body.data.name } })
+    return c.json(updated)
+  })
+
+  // ลบห้อง — ผู้สร้างห้องหรือ owner บริษัทเท่านั้น (ไม่กระทบโปรเจกต์/task จริง — แค่เลิกใช้ห้องนี้)
+  .delete('/workspaces/:id', teamOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const workspaceId = c.req.param('id')
+    const workspace = (await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
+    if (!workspace) return c.json({ error: 'not_found' }, 404)
+    if (!(await canManageRoom(db, workspaceId, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Workspace Sprint (ต่อยอด) — กันลบห้องที่ยังมี Sprint ที่ยังไม่ปิด (งานในนั้นจะกลายเป็นข้อมูลลอย หา sprint ไม่เจอ) ต้องปิด Sprint ให้หมดก่อน
+    const openSprint = (await db.select({ id: sprints.id }).from(sprints).where(and(eq(sprints.workspaceId, workspaceId), ne(sprints.status, 'completed'))).limit(1))[0]
+    if (openSprint) return c.json({ error: 'has_open_sprints', message: 'ห้องนี้ยังมี Sprint ที่ยังไม่ปิด ปิด Sprint ให้หมดก่อนถึงจะลบห้องได้' }, 409)
+    // Sprint ที่ปิดแล้ว (completed) ยังมี FK ชี้มาที่ห้องนี้อยู่ — ปลดออก (เก็บประวัติ/snapshot ไว้เหมือนเดิม แค่ไม่มีห้องแล้ว) ก่อนลบห้องจริง
+    await db.update(sprints).set({ workspaceId: null }).where(eq(sprints.workspaceId, workspaceId))
+    await db.delete(workspaceProjects).where(eq(workspaceProjects.workspaceId, workspaceId))
+    await db.delete(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId))
+    await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+    await writeAudit(c.env, { actorId: me.id, action: 'workspace.delete', entity: 'workspace', entityId: workspaceId, meta: {} })
+    return c.json({ ok: true })
+  })
+
+  // เพิ่มโปรเจกต์เข้าห้อง — ผู้สร้างห้องหรือ owner บริษัทเท่านั้น (ห้องใหม่เริ่มว่างเปล่า จนกว่าจะเพิ่มตรงนี้)
+  .post('/workspaces/:id/projects', teamOnly, async (c) => {
+    const body = z.object({ projectId: z.string() }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const workspaceId = c.req.param('id')
+    const workspace = (await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
+    if (!workspace) return c.json({ error: 'not_found' }, 404)
+    if (!(await canManageRoom(db, workspaceId, me))) return c.json({ error: 'forbidden' }, 403)
+    const project = (await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
+    if (!project) return c.json({ error: 'project_not_found' }, 404)
+    await db.insert(workspaceProjects).values({ workspaceId, projectId: body.data.projectId }).onConflictDoNothing()
+    return c.json({ ok: true }, 201)
+  })
+
+  // เอาโปรเจกต์ออกจากห้อง — ผู้สร้างห้องหรือ owner บริษัทเท่านั้น
+  .delete('/workspaces/:id/projects/:projectId', teamOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const workspaceId = c.req.param('id')
+    if (!(await canManageRoom(db, workspaceId, me))) return c.json({ error: 'forbidden' }, 403)
+    await db.delete(workspaceProjects).where(and(eq(workspaceProjects.workspaceId, workspaceId), eq(workspaceProjects.projectId, c.req.param('projectId'))))
+    return c.json({ ok: true })
   })
 
   // เพิ่มสมาชิก — เฉพาะสมาชิกในห้องเดิม (หรือ owner บริษัท)

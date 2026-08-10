@@ -79,6 +79,25 @@ export const workspaceMembers = sqliteTable(
   (t) => [uniqueIndex('workspace_members_unique').on(t.workspaceId, t.userId)],
 )
 
+/** Pronista §Workspace Rooms (ต่อยอด) — โปรเจกต์ที่ถูก "ดึงเข้าห้อง" นี้แล้ว (ห้องใหม่ = ว่างเปล่า จนกว่าจะเพิ่ม)
+ * คุมว่า Backlog Grid/Sprint ของห้องนี้อ่านโปรเจกต์ไหนบ้าง (แคบกว่า accessibleProjects เดิมที่เห็นทุกโปรเจกต์) */
+export const workspaceProjects = sqliteTable(
+  'workspace_projects',
+  {
+    id: id(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    addedAt: integer('added_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex('workspace_projects_unique').on(t.workspaceId, t.projectId)],
+)
+
 export const sessions = sqliteTable(
   'sessions',
   {
@@ -315,14 +334,15 @@ export const epics = sqliteTable(
 // ทีละ 1 sprint ที่ไม่ completed ต่อโปรเจกต์เท่านั้น (เช็คที่ API — ต้องปิดตัวเก่าก่อนสร้างใหม่)
 export const SPRINT_STATUSES = ['planned', 'active', 'completed'] as const
 
-/** Sprint ต่อโปรเจกต์ (Pronista §Sprint & Board) — boardPresetId อ้าง id ใน company_config.boardPresets */
+/** Sprint ต่อโปรเจกต์ (Pronista §Sprint & Board) — boardPresetId อ้าง id ใน company_config.boardPresets
+ * Pronista §Workspace Sprint (ต่อยอด) — Sprint เป็นได้ 2 แบบ: ผูกโปรเจกต์เดียว (projectId ตั้ง, workspaceId ว่าง — งานในนั้นทุกตัวเป็นของโปรเจกต์นั้น)
+ * หรือผูกห้อง Workspace (workspaceId ตั้ง, projectId ว่าง — task ที่ลากเข้ามาแต่ละตัวยังพกโปรเจกต์ของตัวเองแยกกันได้) — เช็คว่าตั้งอย่างใดอย่างหนึ่งเท่านั้นที่ชั้น route */
 export const sprints = sqliteTable(
   'sprints',
   {
     id: id(),
-    projectId: text('project_id')
-      .notNull()
-      .references(() => projects.id),
+    projectId: text('project_id').references(() => projects.id),
+    workspaceId: text('workspace_id').references(() => workspaces.id),
     name: text('name'), // ว่าง = auto-label "Sprint N" ฝั่ง web ตามลำดับ
     startDate: text('start_date').notNull(), // YYYY-MM-DD — Pronista §Project Refactor: ตอนสร้างด่วน (กด "+ Sprint") ฝั่ง backend เติมค่าเริ่มต้นให้ (วันนี้..+7) ยังไม่ให้ user กรอก จนกว่าจะกด "เริ่ม Sprint" ค่อยเปลี่ยนเป็นค่าจริง
     endDate: text('end_date').notNull(),

@@ -1,16 +1,27 @@
 import { bkkDateOf, columnsOf, firstColumnId } from '@seedoffice/core'
-import { createDb, projects, sprintTaskSnapshots, sprints, tasks, users } from '@seedoffice/db'
+import { createDb, projects, sprintTaskSnapshots, sprints, tasks, users, workspaces } from '@seedoffice/db'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { canEditProject, getProjectRole } from '../lib/project-role'
 import { completeSprint } from '../lib/sprint'
-import { loadEpics, loadParents, loadPreset, loadProjectSprintBoards, loadSprintBoard } from '../lib/workspace-query'
+import { isWorkspaceMember, loadEpics, loadParents, loadPreset, loadProjectSprintBoards, loadSprintBoard, loadWorkspaceSprintBoards, workspaceProjectIds } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+/** Pronista §Workspace Sprint (ต่อยอด) — Sprint ผูกโปรเจกต์เดียว (canEditProject) หรือผูกห้อง Workspace (isWorkspaceMember) แยกกัน ไม่มีทางเป็นทั้งคู่หรือไม่มีเลย (บังคับตอนสร้าง) */
+async function canManageSprint(
+  db: ReturnType<typeof createDb>,
+  sprint: { projectId: string | null; workspaceId: string | null },
+  me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' },
+) {
+  if (sprint.projectId) return canEditProject(await getProjectRole(db, sprint.projectId, me.id, me.role))
+  if (sprint.workspaceId) return isWorkspaceMember(db, sprint.workspaceId, me)
+  return false
+}
 
 /** Sprint & Board (Pronista §Sprint & Board) — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation, เหมือน taskRoutes) */
 export const sprintRoutes = new Hono<AppEnv>()
@@ -81,6 +92,34 @@ export const sprintRoutes = new Hono<AppEnv>()
     return c.json(created, 201)
   })
 
+  // Pronista §Workspace Sprint (ต่อยอด) — กด "+ Sprint" ในห้อง Workspace สร้าง container ว่างทันทีเหมือนกัน แต่ผูกห้องแทนโปรเจกต์ (ไม่ต้องเลือกโปรเจกต์ — งานในนั้นจะพกโปรเจกต์ของตัวเองแยกกันได้)
+  .post('/workspaces/:id/sprints', teamOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const workspaceId = c.req.param('id')
+    const workspace = (await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
+    if (!workspace) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (!(await isWorkspaceMember(db, workspaceId, me))) return c.json({ error: 'forbidden' }, 403)
+
+    const now = Date.now()
+    const created = (
+      await db
+        .insert(sprints)
+        .values({ workspaceId, name: null, startDate: bkkDateOf(now), endDate: bkkDateOf(now + 7 * 86_400_000), boardPresetId: null, createdBy: me.id })
+        .returning()
+    )[0]
+    if (!created) return c.json({ error: 'insert_failed' }, 500)
+    await writeAudit(c.env, { actorId: me.id, action: 'sprint.create', entity: 'sprint', entityId: created.id, meta: { workspaceId } })
+    return c.json(created, 201)
+  })
+
+  // Pronista §Workspace Sprint (ต่อยอด) — Sprint ที่ผูกห้องนี้ทั้งหมด (ยังไม่ completed) พร้อม board data — เหมือน GET /projects/:id/sprints/current แต่ของห้อง
+  .get('/workspaces/:id/sprints/current', async (c) => {
+    const db = createDb(c.env.DB)
+    const items = await loadWorkspaceSprintBoards(db, c.req.param('id'))
+    return c.json({ sprints: items })
+  })
+
   // แก้ไข sprint — เฉพาะตอนยังไม่ Start (planned) กันคอลัมน์/กำหนดเวลาเปลี่ยนกลางคันหลัง task ขึ้นบอร์ดแล้ว
   .patch('/sprints/:id', teamOnly, async (c) => {
     const body = z
@@ -97,8 +136,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    const role = await getProjectRole(db, before.projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    if (!(await canManageSprint(db, before, me))) return c.json({ error: 'forbidden' }, 403)
     if (before.status !== 'planned') return c.json({ error: 'sprint_started', message: 'แก้ไขได้เฉพาะก่อน Start Sprint' }, 409)
 
     if (body.data.boardPresetId) {
@@ -134,8 +172,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    const role = await getProjectRole(db, before.projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    if (!(await canManageSprint(db, before, me))) return c.json({ error: 'forbidden' }, 403)
     if (before.status !== 'planned') return c.json({ error: 'invalid_state' }, 409)
     // Pronista §Back to Basic (ต่อยอด) — เดิมจำกัด active พร้อมกันได้แค่ 1 อันต่อโปรเจกต์ พี่แจ้งว่าอยากให้ Start พร้อมกันได้หลายอัน (แต่ละอันแยก Board ของตัวเอง — ดู GET /sprints/:id/board) จึงเอาเช็คนี้ออก
     const preset = await loadPreset(db, body.data.boardPresetId)
@@ -177,8 +214,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    const role = await getProjectRole(db, before.projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    if (!(await canManageSprint(db, before, me))) return c.json({ error: 'forbidden' }, 403)
     if (before.status === 'completed') return c.json({ error: 'already_completed' }, 409)
     await completeSprint(db, before.id)
     await writeAudit(c.env, { actorId: me.id, action: 'sprint.complete', entity: 'sprint', entityId: before.id, meta: { manual: true } })
@@ -197,12 +233,17 @@ export const sprintRoutes = new Hono<AppEnv>()
     if (!sprint) return c.json({ error: 'not_found' }, 404)
     if (sprint.status === 'completed') return c.json({ error: 'sprint_completed', message: 'Sprint นี้ปิดไปแล้ว เพิ่มงานเข้าไม่ได้' }, 409)
     const me = c.get('user')
-    const role = await getProjectRole(db, sprint.projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    if (!(await canManageSprint(db, sprint, me))) return c.json({ error: 'forbidden' }, 403)
 
     const task = (await db.select().from(tasks).where(eq(tasks.id, body.data.taskId)).limit(1))[0]
     if (!task) return c.json({ error: 'task_not_found' }, 404)
-    if (task.projectId !== sprint.projectId) return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานใน Backlog ของโปรเจกต์นี้เท่านั้น' }, 400)
+    // Pronista §Workspace Sprint (ต่อยอด) — Sprint ผูกโปรเจกต์: งานต้องเป็นของโปรเจกต์เดียวกันเป๊ะเหมือนเดิม · Sprint ผูกห้อง Workspace: งานต้องมาจากโปรเจกต์ที่ถูกดึงเข้าห้องนี้แล้ว (ข้ามโปรเจกต์ได้ภายในห้องเดียวกัน)
+    const taskAllowed = sprint.projectId
+      ? task.projectId === sprint.projectId
+      : sprint.workspaceId && task.projectId
+        ? (await workspaceProjectIds(db, sprint.workspaceId)).has(task.projectId)
+        : false
+    if (!taskAllowed) return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานในโปรเจกต์ที่อยู่ในห้อง/โปรเจกต์เดียวกับ Sprint นี้เท่านั้น' }, 400)
 
     const preset = sprint.status === 'active' ? await loadPreset(db, sprint.boardPresetId) : undefined
     const sprintStatus = preset ? firstColumnId(preset) : null
@@ -239,8 +280,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     const sprint = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
     if (!sprint) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    const role = await getProjectRole(db, sprint.projectId, me.id, me.role)
-    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    if (!(await canManageSprint(db, sprint, me))) return c.json({ error: 'forbidden' }, 403)
     const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('taskId'))).limit(1))[0]
     if (!task || task.sprintId !== sprint.id) return c.json({ error: 'not_found' }, 404)
     const updated = await db.update(tasks).set({ sprintId: null, sprintStatus: null }).where(eq(tasks.id, task.id)).returning()

@@ -3,8 +3,8 @@
  * ทุก mutation (สร้าง/เริ่ม/ปิด Sprint, ลากงานเข้า Sprint, สร้าง backlog task) ใช้ endpoint เดิมของ sprints.ts/tasks.ts ไม่ต้องมีของใหม่
  * เพราะแถวที่คืนจากที่นี่มี projectId/sprintId ติดมาครบอยู่แล้ว — ดูแผน "Workspace" ในไฟล์ plan
  */
-import { createDb, projects } from '@seedoffice/db'
-import { isNull } from 'drizzle-orm'
+import { createDb, projects, workspaceProjects } from '@seedoffice/db'
+import { eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { getProjectPermissions, getProjectRole } from '../lib/project-role'
 import { loadProjectAllBacklogItems, loadProjectBacklog, loadProjectSprintBoards } from '../lib/workspace-query'
@@ -24,18 +24,33 @@ function narrowByQuery(list: { id: string; code: string | null; name: string }[]
   return list.filter((p) => wanted.has(p.id))
 }
 
+/** Pronista §Workspace Rooms (ต่อยอด) — แคบรายการลงเหลือแค่โปรเจกต์ที่ถูกดึงเข้าห้องนี้แล้ว (ห้องใหม่ = ยังไม่ดึงอะไรเข้าเลย → ว่างเปล่า)
+ * ต่างจาก narrowByQuery (ตัวกรองที่ผู้ใช้เลือกเอง) — อันนี้เป็นขอบเขตจริงของห้อง บังคับเสมอเมื่อมี ?workspaceId= */
+async function narrowByWorkspace(
+  db: ReturnType<typeof createDb>,
+  list: { id: string; code: string | null; name: string }[],
+  workspaceId: string | undefined,
+) {
+  if (!workspaceId) return list
+  const links = await db.select({ projectId: workspaceProjects.projectId }).from(workspaceProjects).where(eq(workspaceProjects.workspaceId, workspaceId))
+  const linked = new Set(links.map((l) => l.projectId))
+  return list.filter((p) => linked.has(p.id))
+}
+
 export const workspaceRoutes = new Hono<AppEnv>()
 
   .get('/workspace/accessible-projects', async (c) => {
     const db = createDb(c.env.DB)
-    return c.json(await accessibleProjects(db, c.get('user')))
+    const list = await narrowByWorkspace(db, await accessibleProjects(db, c.get('user')), c.req.query('workspaceId'))
+    return c.json(list)
   })
 
   // Sprint/Backlog ที่ยังไม่ completed ของทุกโปรเจกต์ที่เข้าถึงได้ (หรือเฉพาะที่ระบุใน ?projectIds=) — ติด projectId/projectCode/projectName ทุกแถว
   .get('/workspace/board', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const list = narrowByQuery(await accessibleProjects(db, me), c.req.query('projectIds'))
+    const scoped = await narrowByWorkspace(db, await accessibleProjects(db, me), c.req.query('workspaceId'))
+    const list = narrowByQuery(scoped, c.req.query('projectIds'))
     const perProject = await Promise.all(
       list.map(async (p) => {
         const items = await loadProjectSprintBoards(db, p.id)
@@ -70,7 +85,8 @@ export const workspaceRoutes = new Hono<AppEnv>()
   .get('/workspace/backlog-items', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const list = narrowByQuery(await accessibleProjects(db, me), c.req.query('projectIds'))
+    const scoped = await narrowByWorkspace(db, await accessibleProjects(db, me), c.req.query('workspaceId'))
+    const list = narrowByQuery(scoped, c.req.query('projectIds'))
     const perProject = await Promise.all(
       list.map(async (p) => {
         const items = await loadProjectAllBacklogItems(db, p.id)

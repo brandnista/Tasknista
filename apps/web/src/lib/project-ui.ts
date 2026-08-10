@@ -120,8 +120,10 @@ export const PM_HEALTH_DOT: Record<PmHealth, string> = {
   delayed: 'bg-danger-500',
   completed: 'bg-info-500',
 }
-export function pmHealthOf(p: Pick<ProjectRow, 'statusKind' | 'dueDate'>): PmHealth {
+export function pmHealthOf(p: Pick<ProjectRow, 'status' | 'statusKind' | 'dueDate'>): PmHealth {
   if (p.statusKind === 'archived') return 'completed'
+  // Pronista §Health fix — โปรเจกต์สถานะ MA (ดูแลรายเดือน ไม่มี deadline กดดัน) ไม่ต้องดูวันกำหนดส่งเลย ถือว่า On Track เสมอ
+  if (p.status === 'ma') return 'on_track'
   if (!p.dueDate) return 'on_track'
   const today = todayISO()
   if (p.dueDate < today) return 'delayed'

@@ -5,10 +5,23 @@
  * pure extraction — พฤติกรรมของ endpoint เดิมต้องเหมือนเดิม 100%
  */
 import { presetById, resolvePresets } from '@seedoffice/core'
-import { companyConfig, createDb, epics, sprints, tasks, users } from '@seedoffice/db'
+import { companyConfig, createDb, epics, sprints, tasks, users, workspaceMembers, workspaceProjects } from '@seedoffice/db'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { canEditProject, type EffectiveProjectRole } from './project-role'
+
+/** Pronista §Workspace Sprint (ต่อยอด) — สมาชิกห้องนี้หรือ owner บริษัท (ใช้คุมสิทธิ์แก้ไข Sprint ที่ผูกห้อง แทน getProjectRole ที่ใช้กับ Sprint ผูกโปรเจกต์) */
+export async function isWorkspaceMember(db: ReturnType<typeof createDb>, workspaceId: string, me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' }) {
+  if (me.role === 'owner') return true
+  const row = (await db.select({ id: workspaceMembers.id }).from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, me.id))).limit(1))[0]
+  return !!row
+}
+
+/** โปรเจกต์ที่ถูกดึงเข้าห้องนี้แล้ว (ดู workspace_projects) — ใช้เช็คว่า task ที่จะลากเข้า Sprint ของห้องนี้มาจากโปรเจกต์ที่อยู่ในห้องจริงไหม */
+export async function workspaceProjectIds(db: ReturnType<typeof createDb>, workspaceId: string) {
+  const rows = await db.select({ projectId: workspaceProjects.projectId }).from(workspaceProjects).where(eq(workspaceProjects.workspaceId, workspaceId))
+  return new Set(rows.map((r) => r.projectId))
+}
 
 export interface WorkspaceBacklogItem {
   id: string
@@ -84,6 +97,18 @@ export async function loadProjectSprintBoards(db: ReturnType<typeof createDb>, p
     .select()
     .from(sprints)
     .where(and(eq(sprints.projectId, projectId), ne(sprints.status, 'completed')))
+    .orderBy(asc(sprints.createdAt))
+  const ordered = [...open.filter((s) => s.status === 'active'), ...open.filter((s) => s.status !== 'active')]
+  return Promise.all(ordered.map((sprint) => loadSprintBoard(db, sprint)))
+}
+
+// Pronista §Workspace Sprint (ต่อยอด) — เหมือน loadProjectSprintBoards แต่ของ Sprint ที่ผูกห้อง Workspace โดยตรง (projectId ว่าง, workspaceId ตั้ง)
+// task ในแต่ละ sprint ยังพกโปรเจกต์ของตัวเอง (tasks.projectId) แยกกันได้ตามปกติ — ไม่ต้องกรองอะไรเพิ่มตรงนี้
+export async function loadWorkspaceSprintBoards(db: ReturnType<typeof createDb>, workspaceId: string) {
+  const open = await db
+    .select()
+    .from(sprints)
+    .where(and(eq(sprints.workspaceId, workspaceId), ne(sprints.status, 'completed')))
     .orderBy(asc(sprints.createdAt))
   const ordered = [...open.filter((s) => s.status === 'active'), ...open.filter((s) => s.status !== 'active')]
   return Promise.all(ordered.map((sprint) => loadSprintBoard(db, sprint)))
