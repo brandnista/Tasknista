@@ -28,7 +28,13 @@ interface AdminUser {
   // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
   jobTitle: string | null
   costPerDaySatang: number | null
+  // Pronista §User Settings — ฟิลด์เฉพาะ role='guest' (ลูกค้า)
+  contactType: 'juristic' | 'individual' | null
+  businessName: string | null
+  phone: string | null
 }
+
+const CONTACT_TYPE_LABEL: Record<'juristic' | 'individual', string> = { juristic: 'นิติบุคคล', individual: 'บุคคลธรรมดา' }
 interface Config {
   cutoffDay: number
   workHourCapMinutes: number
@@ -141,6 +147,59 @@ function AddUserForm({ memberDomain, teamsList, onDone }: { memberDomain?: strin
   )
 }
 
+/** เพิ่มลูกค้าใหม่ (role='guest') — ฟิลด์ CRM ตามฟอร์มอ้างอิง แทนฟิลด์พนักงาน/ทีม/ตำแหน่งปกติ */
+function AddCustomerForm({ onDone }: { onDone: () => void }) {
+  const [form, setForm] = useState({
+    name: '', email: '', businessName: '', phone: '', contactType: 'juristic' as 'juristic' | 'individual',
+  })
+  const [error, setError] = useState('')
+  const submit = async () => {
+    try {
+      await api.post('/api/admin/users', {
+        email: form.email,
+        name: form.name,
+        role: 'guest',
+        businessName: form.businessName || null,
+        phone: form.phone || null,
+        contactType: form.contactType,
+      })
+      onDone()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'ผิดพลาด')
+    }
+  }
+  const input = 'text-sm bg-white shadow-xs rounded-lg px-3 py-2'
+  return (
+    <div className="p-4 bg-hover rounded-lg space-y-2">
+      <div className="flex items-center gap-4 text-sm">
+        <span className="text-muted">ประเภทผู้ติดต่อ</span>
+        {(['juristic', 'individual'] as const).map((t) => (
+          <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+            <input type="radio" name="contactType" checked={form.contactType === t} onChange={() => setForm({ ...form, contactType: t })} />
+            {CONTACT_TYPE_LABEL[t]}
+          </label>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input placeholder="ชื่อธุรกิจ" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} className={input} />
+        <input placeholder="ชื่อผู้ติดต่อ" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
+        <input placeholder="อีเมล" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
+        <input placeholder="เบอร์มือถือ" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={input} />
+      </div>
+      {error && <div className="text-xs text-danger-600">{error}</div>}
+      <div className="flex justify-end">
+        <button
+          onClick={() => void submit()}
+          disabled={!form.email || !form.name}
+          className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg"
+        >
+          เพิ่มลูกค้า
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** ลิงก์ subscribe ปฏิทินทีมเป็น ICS feed (SPEC §4.14 · E6) — owner สร้าง/รีเซ็ต/ปิด */
 function IcsLinkCard() {
   const { data, reload } = useLoad<{ url: string | null }>(() => api.get('/api/admin/ics-link'))
@@ -243,6 +302,8 @@ export function AdminPage() {
   const [adding, setAdding] = useState(false)
   const [addingTeam, setAddingTeam] = useState(false)
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({})
+  // Pronista §User Settings — แยกลิสต์ผู้ใช้งานเป็น 3 ประเภท: พนักงานในระบบ (owner+member) / พนักงาน Outsource (vendor) / ลูกค้า (guest)
+  const [userTab, setUserTab] = useState<'staff' | 'outsource' | 'customer'>('staff')
 
   const saveCfg = async (patch: Partial<Config>) => {
     await api.patch('/api/admin/config', patch)
@@ -283,6 +344,16 @@ export function AdminPage() {
     await api.patch(`/api/admin/users/${u.id}`, patch)
     await reload()
   }
+  // Pronista §User Settings — แก้ฟิลด์ CRM ของลูกค้า (ชื่อผู้ติดต่อ/ชื่อธุรกิจ/อีเมล/เบอร์มือถือ/ประเภท)
+  const saveCustomerField = async (u: AdminUser, patch: Partial<Pick<AdminUser, 'name' | 'businessName' | 'phone' | 'contactType'>>) => {
+    await api.patch(`/api/admin/users/${u.id}`, patch)
+    await reload()
+  }
+
+  const staffUsers = (usersList ?? []).filter((u) => u.role === 'owner' || u.role === 'member')
+  const outsourceUsers = (usersList ?? []).filter((u) => u.role === 'vendor')
+  const customerUsers = (usersList ?? []).filter((u) => u.role === 'guest')
+  const visibleUsers = userTab === 'staff' ? staffUsers : userTab === 'outsource' ? outsourceUsers : customerUsers
 
   return (
     <>
@@ -300,7 +371,7 @@ export function AdminPage() {
               onClick={() => setAdding((v) => !v)}
               className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3.5 py-2 rounded-lg"
             >
-              <UserPlus className="w-4 h-4" /> เพิ่มผู้ใช้งาน
+              <UserPlus className="w-4 h-4" /> {userTab === 'customer' ? 'เพิ่มลูกค้า' : 'เพิ่มผู้ใช้งาน'}
             </button>
           </div>
         }
@@ -315,7 +386,7 @@ export function AdminPage() {
           />
         )}
 
-        {adding && (
+        {adding && userTab !== 'customer' && (
           <AddUserForm
             memberDomain={cfg?.memberDomain}
             teamsList={teamsList ?? []}
@@ -325,15 +396,127 @@ export function AdminPage() {
             }}
           />
         )}
+        {adding && userTab === 'customer' && (
+          <AddCustomerForm
+            onDone={() => {
+              setAdding(false)
+              void reload()
+            }}
+          />
+        )}
 
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-          <div className="p-5 border-b border-border-subtle">
+          <div className="p-5 border-b border-border-subtle flex items-center gap-2 flex-wrap">
             <div className="font-semibold text-ink">
-              ผู้ใช้งาน <span className="text-xs font-normal text-muted">· {usersList?.length ?? 0} คน · ทีม {teamsList?.length ?? 0} ทีม</span>
+              ผู้ใช้งาน <span className="text-xs font-normal text-muted">· {visibleUsers.length} คน</span>
+            </div>
+            <div className="ml-auto flex bg-divider rounded-lg p-0.5 text-sm font-medium">
+              {([
+                ['staff', 'พนักงานในระบบ'],
+                ['outsource', 'พนักงาน Outsource'],
+                ['customer', 'ลูกค้า'],
+              ] as const).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setUserTab(tab)}
+                  className={`px-3 py-1.5 rounded-md whitespace-nowrap ${userTab === tab ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
           {loading ? (
             <div className="p-8 text-center text-sm text-muted">กำลังโหลด…</div>
+          ) : userTab === 'customer' ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
+                <thead className="bg-hover text-dim text-xs">
+                  <tr>
+                    <th className="text-left font-medium px-5 py-3">ชื่อผู้ติดต่อ</th>
+                    <th className="text-left font-medium px-3 py-3">ชื่อธุรกิจ</th>
+                    <th className="text-left font-medium px-3 py-3">ประเภท</th>
+                    <th className="text-left font-medium px-3 py-3">อีเมล</th>
+                    <th className="text-left font-medium px-3 py-3">เบอร์มือถือ</th>
+                    <th className="text-right font-medium px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-divider">
+                  {customerUsers.length === 0 && (
+                    <tr><td colSpan={6} className="text-center text-muted py-8">ยังไม่มีลูกค้า</td></tr>
+                  )}
+                  {customerUsers.map((u) => (
+                    <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
+                      <td className="px-5 py-3">
+                        <input
+                          type="text"
+                          defaultValue={u.name}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim()
+                            if (v && v !== u.name) void saveCustomerField(u, { name: v })
+                          }}
+                          className="w-36 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5"
+                        />
+                      </td>
+                      <td className="px-3">
+                        <input
+                          type="text"
+                          placeholder="—"
+                          defaultValue={u.businessName ?? ''}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim()
+                            if (v !== (u.businessName ?? '')) void saveCustomerField(u, { businessName: v || null })
+                          }}
+                          className="w-36 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5"
+                        />
+                      </td>
+                      <td className="px-3">
+                        <select
+                          value={u.contactType ?? 'juristic'}
+                          onChange={(e) => void saveCustomerField(u, { contactType: e.target.value as 'juristic' | 'individual' })}
+                          className="text-xs shadow-xs bg-white rounded-lg px-2 py-1.5"
+                        >
+                          <option value="juristic">{CONTACT_TYPE_LABEL.juristic}</option>
+                          <option value="individual">{CONTACT_TYPE_LABEL.individual}</option>
+                        </select>
+                      </td>
+                      <td className="px-3">
+                        <input
+                          type="email"
+                          defaultValue={u.email}
+                          onBlur={(e) => void saveEmail(u, e.target.value)}
+                          className="w-44 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-muted"
+                        />
+                        {emailErrors[u.id] && (
+                          <div className="text-[10px] text-danger-600 mt-0.5">{emailErrors[u.id]}</div>
+                        )}
+                      </td>
+                      <td className="px-3">
+                        <input
+                          type="text"
+                          placeholder="—"
+                          defaultValue={u.phone ?? ''}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim()
+                            if (v !== (u.phone ?? '')) void saveCustomerField(u, { phone: v || null })
+                          }}
+                          className="w-32 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5"
+                        />
+                      </td>
+                      <td className="text-right px-5">
+                        <button
+                          onClick={() => void toggleStatus(u)}
+                          className="text-[11px] text-muted hover:text-soft underline"
+                        >
+                          {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[560px]">
@@ -349,7 +532,10 @@ export function AdminPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-divider">
-                  {(usersList ?? []).map((u) => (
+                  {visibleUsers.length === 0 && (
+                    <tr><td colSpan={7} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
+                  )}
+                  {visibleUsers.map((u) => (
                     <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
                       <td className="px-5 py-3">{u.name}</td>
                       <td className="px-3">
@@ -418,7 +604,9 @@ export function AdminPage() {
             </div>
           )}
           <p className="text-xs text-muted px-5 py-3 border-t border-divider">
-            ปิดการใช้งาน = login ไม่ได้ทันที · ตำแหน่ง/ต้นทุน-วัน ใช้กับ Tab "Project Estimate" ในแต่ละโปรเจกต์เท่านั้น (เห็นเฉพาะ owner)
+            {userTab === 'customer'
+              ? 'ปิดการใช้งาน = login ไม่ได้ทันที'
+              : 'ปิดการใช้งาน = login ไม่ได้ทันที · ตำแหน่ง/ต้นทุน-วัน ใช้กับ Tab "Project Estimate" ในแต่ละโปรเจกต์เท่านั้น (เห็นเฉพาะ owner)'}
           </p>
         </div>
 

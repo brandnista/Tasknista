@@ -39,6 +39,11 @@ export const users = sqliteTable('users', {
   jobTitle: text('job_title'),
   // Pronista §Project Estimate — ต้นทุน/วันสำหรับใบเสนอราคา (satang) แยกจาก `rates` เดิมที่ปิด UI ไปแล้ว (ไม่มีประวัติ owner แก้ค่าปัจจุบันได้ตรงๆ)
   costPerDaySatang: integer('cost_per_day_satang'),
+  // Pronista §User Settings — ฟิลด์เฉพาะ role='guest' (ลูกค้า) ตามฟอร์ม CRM อ้างอิง (นิติบุคคล/บุคคลธรรมดา + ชื่อธุรกิจ + เบอร์มือถือ)
+  // "ชื่อผู้ติดต่อ"/"อีเมล" ใช้ name/email เดิมร่วมกับ role อื่นเลย ไม่แยกคอลัมน์ซ้ำ
+  contactType: text('contact_type', { enum: ['juristic', 'individual'] }),
+  businessName: text('business_name'),
+  phone: text('phone'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

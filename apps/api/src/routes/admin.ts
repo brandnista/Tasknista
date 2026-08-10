@@ -70,6 +70,10 @@ export const adminRoutes = new Hono<AppEnv>()
         // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
         jobTitle: z.string().max(80).nullable().optional(),
         costPerDaySatang: z.number().int().nonnegative().nullable().optional(),
+        // Pronista §User Settings — ฟิลด์เฉพาะ role='guest' (ลูกค้า)
+        contactType: z.enum(['juristic', 'individual']).nullable().optional(),
+        businessName: z.string().max(120).nullable().optional(),
+        phone: z.string().max(30).nullable().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
@@ -87,6 +91,9 @@ export const adminRoutes = new Hono<AppEnv>()
         teamId: body.data.teamId ?? null,
         jobTitle: body.data.jobTitle ?? null,
         costPerDaySatang: body.data.costPerDaySatang ?? null,
+        contactType: body.data.contactType ?? null,
+        businessName: body.data.businessName ?? null,
+        phone: body.data.phone ?? null,
       })
       .returning()
     const user = inserted[0]
@@ -116,6 +123,10 @@ export const adminRoutes = new Hono<AppEnv>()
         // Pronista §Project Estimate — ตำแหน่ง/ต้นทุนต่อวัน (ใหม่ แยกจาก rates เดิม)
         jobTitle: z.string().max(80).nullable().optional(),
         costPerDaySatang: z.number().int().nonnegative().nullable().optional(),
+        // Pronista §User Settings — ฟิลด์เฉพาะ role='guest' (ลูกค้า)
+        contactType: z.enum(['juristic', 'individual']).nullable().optional(),
+        businessName: z.string().max(120).nullable().optional(),
+        phone: z.string().max(30).nullable().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
