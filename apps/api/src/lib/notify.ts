@@ -1,6 +1,7 @@
-import { createDb, notifications, projectMembers, users } from '@seedoffice/db'
+import { createDb, companyConfig, notifications, projectMembers, projects, users } from '@seedoffice/db'
 import { eq } from 'drizzle-orm'
 import type { NOTIFICATION_TYPES } from '@seedoffice/db'
+import { resolvePositions } from '@seedoffice/core'
 
 /**
  * แจ้งเตือนชนเพดานชั่วโมง/วัน (SPEC §4.5: เตือนเว็บ + อีเมล — เจตนา: อยากให้ทีมพัก)
@@ -24,7 +25,7 @@ export async function notifyCapReached(env: Env, userId: string): Promise<void> 
   )
 }
 
-export interface NotifyProjectMembersInput {
+export interface NotifyProjectPmAndBaInput {
   projectId: string
   type: (typeof NOTIFICATION_TYPES)[number]
   message: string
@@ -32,11 +33,22 @@ export interface NotifyProjectMembersInput {
   excludeUserId?: string // ผู้ทำ action เอง ไม่ต้องแจ้งเตือนตัวเอง
 }
 
-/** แจ้งเตือนสมาชิกโปรเจกต์ทุกคน (ทุก role) — ใช้ตอนลูกค้าคีย์ Backlog/Defect เอง เป็นต้น */
-export async function notifyProjectMembers(env: Env, input: NotifyProjectMembersInput): Promise<void> {
+// Pronista §Feedback batch 2 — ไม่มี role ตายตัวชื่อ "PM"/"BA" ในระบบ (ตำแหน่งตั้งชื่อเองได้ต่อบริษัท)
+// PM = หัวหน้าโครงการของโปรเจกต์นั้น (projects.leadId) · BA = สมาชิกโปรเจกต์ที่ตำแหน่ง (position) มีคำว่า "BA" (คำเดี่ยว) หรือ "Business Analyst" ในชื่อ
+const BA_NAME_RE = /\bba\b|business analyst/i
+
+/** แจ้งเตือนเฉพาะหัวหน้าโครงการ + สมาชิกตำแหน่ง BA ของโปรเจกต์ — ใช้ตอนลูกค้าคีย์ Backlog/Defect เอง */
+export async function notifyProjectPmAndBa(env: Env, input: NotifyProjectPmAndBaInput): Promise<void> {
   const db = createDb(env.DB)
-  const members = await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, input.projectId))
-  const recipients = new Set(members.map((m) => m.userId))
+  const [project, members, cfg] = await Promise.all([
+    db.select({ leadId: projects.leadId }).from(projects).where(eq(projects.id, input.projectId)).limit(1),
+    db.select({ userId: projectMembers.userId, positionId: projectMembers.positionId }).from(projectMembers).where(eq(projectMembers.projectId, input.projectId)),
+    db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1),
+  ])
+  const positions = resolvePositions(cfg[0]?.positions)
+  const baPositionIds = new Set(positions.filter((p) => BA_NAME_RE.test(p.name)).map((p) => p.id))
+  const recipients = new Set(members.filter((m) => m.positionId && baPositionIds.has(m.positionId)).map((m) => m.userId))
+  if (project[0]?.leadId) recipients.add(project[0].leadId)
   if (input.excludeUserId) recipients.delete(input.excludeUserId)
   for (const userId of recipients) {
     await db.insert(notifications).values({

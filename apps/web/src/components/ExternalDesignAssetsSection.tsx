@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { DateInputTH } from './DateInputTH'
 
 interface SowTaskOpt {
   id: string
@@ -103,11 +104,11 @@ export function AddVersionModal({ projectId, sowTaskOptions, onClose, onCreated 
               </div>
               <div>
                 <label className={label}>วันที่เริ่มทำ</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={input} />
+                <DateInputTH value={startDate} onChange={setStartDate} className={input} />
               </div>
               <div>
                 <label className={label}>วันที่สิ้นสุด/ส่งมอบ</label>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={input} />
+                <DateInputTH value={endDate} onChange={setEndDate} className={input} />
               </div>
               <div>
                 <label className={label}>ผู้จัดทำ</label>

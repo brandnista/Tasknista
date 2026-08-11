@@ -1,6 +1,7 @@
 import { formatSatang } from '@seedoffice/core'
 import { Camera, Check, Download, FileText, X } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
@@ -90,7 +91,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
           </select>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className={input} aria-label="วันที่" />
+          <DateInputTH value={form.date} onChange={(v) => setForm({ ...form, date: v })} className={input} />
           <select value={form.paidBy} onChange={(e) => setForm({ ...form, paidBy: e.target.value as 'self' | 'company' })} className={input} aria-label="จ่ายโดย">
             <option value="self">ออกเอง (รอเบิกคืน)</option>
             <option value="company">บริษัทจ่าย</option>

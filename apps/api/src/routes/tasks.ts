@@ -25,7 +25,7 @@ import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { notifyProjectMembers } from '../lib/notify'
+import { notifyProjectPmAndBa } from '../lib/notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
 import { loadProjectBacklog } from '../lib/workspace-query'
@@ -354,10 +354,10 @@ export const taskRoutes = new Hono<AppEnv>()
     )[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
     await writeAudit(c.env, { actorId: me.id, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, projectBacklog: true } })
-    // Pronista §Guest Backlog — ลูกค้าคีย์ Backlog/Defect เอง แจ้งสมาชิกโปรเจกต์ทุกคน (ไม่แจ้งตัวเอง)
+    // Pronista §Feedback batch 2 — ลูกค้าคีย์ Backlog/Defect เอง แจ้งเฉพาะหัวหน้าโครงการ (PM) + ตำแหน่ง BA ของโปรเจกต์ (ไม่แจ้งตัวเอง)
     if (me.role === 'guest' && (kind === 'backlog' || kind === 'defect')) {
       const kindLabel = kind === 'defect' ? 'Defect' : 'Backlog'
-      await notifyProjectMembers(c.env, {
+      await notifyProjectPmAndBa(c.env, {
         projectId,
         type: 'guest_item_created',
         taskId: created.id,
@@ -491,7 +491,7 @@ export const taskRoutes = new Hono<AppEnv>()
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะเองไม่ได้ ต้องกด "ส่งงาน" เท่านั้น' }, 403)
     }
     // Pronista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
-    // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา on_processing ก่อนถึงจะแก้ต่อได้
+    // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา non_start (รับงานใหม่) ก่อนถึงจะแก้ต่อได้
     if ('assigneeNotes' in body.data) {
       if (before.assigneeId !== me.id) return c.json({ error: 'forbidden', message: 'แก้บันทึกของผู้รับงานคนอื่นไม่ได้' }, 403)
       if (before.status === 'waiting_for_test' || before.status === 'done') return c.json({ error: 'forbidden', message: 'แก้บันทึกไม่ได้แล้วหลังส่งงาน' }, 403)
@@ -594,7 +594,7 @@ export const taskRoutes = new Hono<AppEnv>()
         message: `งาน "${before.title}" ได้รับการอนุมัติแล้ว`,
       })
     }
-    if (body.data.status === 'on_processing' && before.status === 'waiting_for_test' && before.assigneeId) {
+    if (body.data.status === 'non_start' && before.status === 'waiting_for_test' && before.assigneeId) {
       await db.insert(notifications).values({
         userId: before.assigneeId,
         type: 'task_bounced',

@@ -9,6 +9,8 @@ import type { Label } from '@seedoffice/core'
 import { AlertTriangle, ArrowLeft, CheckCircle2, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertMenu'
+import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { useDialog } from '../components/Dialog'
 import { ImportDataModal } from '../components/ImportDataModal'
 import { LabelChips } from '../components/LabelChips'
@@ -428,6 +430,16 @@ export function WorkspacePage() {
     }
   }
 
+  // Pronista §Feedback batch 2 — เมนู "จัดการ": เปลี่ยนประเภทงานได้ตลอดตราบใดที่ยังไม่ถูกโยนเข้า Sprint (ของที่โผล่ใน Grid นี้คือ sprintId ว่างอยู่แล้วโดย query — ไม่ต้องเช็คซ้ำ) — Epic ไม่รองรับ (อยู่คนละตาราง เหมือนกับ 🔗)
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr'; projectId: string | null } | null>(null)
+  const rowManageProps = (item: WsBacklogItem) =>
+    item.kind === 'epic'
+      ? {}
+      : {
+          onConvertDirect: (to: 'epic' | 'story' | 'cr' | 'defect') => setConvertModal({ taskId: item.id, to, projectId: item.projectId }),
+          onConvertPick: (to: 'task' | 'subtask') => setConvertModal({ taskId: item.id, to, projectId: item.projectId }),
+        }
+
   const allItems = backlogData?.items ?? []
   const dispatcherOptions = [...new Set(allItems.map((i) => i.dispatcherName).filter((n): n is string => !!n))].sort()
   const assigneeOptions = [...new Set(allItems.map((i) => i.assigneeName).filter((n): n is string => !!n))].sort()
@@ -645,6 +657,7 @@ export function WorkspacePage() {
                             🔗
                           </button>
                         )}
+                        <BacklogConvertMenu {...rowManageProps(it)} />
                       </div>
                     ))}
                   </div>
@@ -661,7 +674,7 @@ export function WorkspacePage() {
                       {addTypeMenuOpen && (
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setAddTypeMenuOpen(false)} />
-                          <div className="absolute left-0 bottom-full mb-1 w-36 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                          <div className="absolute left-0 top-full mt-1 w-36 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
                             {CREATE_TYPE_ORDER.map((t) => (
                               <button
                                 key={t}
@@ -836,6 +849,17 @@ export function WorkspacePage() {
 
       {linkingItemId && (
         <TaskPickerModal title="เชื่อมโยงกับงานอื่น" tasks={linkCandidates} onPick={(item) => void addReference(item.id)} onClose={() => setLinkingItemId(null)} />
+      )}
+
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          currentProjectId={convertModal.projectId ?? undefined}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reloadBacklog() }}
+        />
       )}
     </>
   )

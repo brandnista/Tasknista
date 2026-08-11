@@ -2,6 +2,7 @@ import { formatSatang } from '@seedoffice/core'
 import { ArrowLeft, Check, Cpu, Globe, Mail, Package, Phone, Pin, Plus, Server, ShieldCheck, Trash2, User, Wrench, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { api } from '../lib/api'
@@ -231,7 +232,7 @@ export function ClientDetailPage() {
                   <option value="yearly">รายปี</option>
                 </select>
                 <input type="number" placeholder="฿" value={svcForm.amountBaht} onChange={(e) => setSvcForm({ ...svcForm, amountBaht: e.target.value })} className={`${inputCls} w-24`} />
-                <input type="date" value={svcForm.next} onChange={(e) => setSvcForm({ ...svcForm, next: e.target.value })} className={inputCls} title="วันต่ออายุถัดไป" />
+                <DateInputTH value={svcForm.next} onChange={(v) => setSvcForm({ ...svcForm, next: v })} className={inputCls} />
                 <button onClick={() => void addService()} disabled={!svcForm.label || !svcForm.amountBaht} className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
               </div>
             )}

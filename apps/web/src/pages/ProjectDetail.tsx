@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertMenu'
+import { DateInputTH } from '../components/DateInputTH'
 import { LabelChips } from '../components/LabelChips'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { ProjectIcon } from '../components/ProjectIcon'
@@ -633,7 +634,7 @@ export function SprintStartModal({ sprintId, defaultStartDate, defaultEndDate, o
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className={label}>วันเริ่ม</label>
-                <input type="date" value={startDate} onChange={(e) => changeStartDate(e.target.value)} className={input} />
+                <DateInputTH value={startDate} onChange={changeStartDate} className={input} />
               </div>
               <div className="flex-1">
                 <label className={label}>ระยะเวลา Sprint</label>
@@ -644,7 +645,7 @@ export function SprintStartModal({ sprintId, defaultStartDate, defaultEndDate, o
             </div>
             <div>
               <label className={label}>วันจบ</label>
-              <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setDuration('custom') }} className={input} />
+              <DateInputTH value={endDate} onChange={(v) => { setEndDate(v); setDuration('custom') }} className={input} />
             </div>
             <div>
               <label className={label}>เป้าหมาย Sprint (ไม่ใส่ก็ได้)</label>

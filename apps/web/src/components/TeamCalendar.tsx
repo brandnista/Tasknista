@@ -2,6 +2,7 @@ import { Calendar, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { DateInputTH } from './DateInputTH'
 import { useDialog } from './Dialog'
 
 interface CalEvent {
@@ -86,8 +87,8 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
               </select>
             )}
             <div className="grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-muted">เริ่ม<input type="date" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} className={input} /></label>
-              <label className="text-[11px] text-muted">ถึง (ถ้าหลายวัน)<input type="date" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} className={input} /></label>
+              <label className="text-[11px] text-muted">เริ่ม<DateInputTH value={form.start} onChange={(v) => setForm({ ...form, start: v })} className={input} /></label>
+              <label className="text-[11px] text-muted">ถึง (ถ้าหลายวัน)<DateInputTH value={form.end} onChange={(v) => setForm({ ...form, end: v })} className={input} /></label>
             </div>
             {form.type === 'meeting' && (
               <>

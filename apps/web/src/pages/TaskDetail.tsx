@@ -20,6 +20,7 @@ import {
 import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
+import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
 import { STATUS_SWATCH } from '../lib/project-ui'
@@ -133,7 +134,7 @@ function TimeSection({ taskId, hasProject, rows, reload }: { taskId: string; has
       {manualOpen && (
         <div className="mt-2 p-3 bg-hover rounded-xl space-y-2">
           <div className="flex gap-2">
-            <input type="date" value={mForm.date} onChange={(e) => setMForm({ ...mForm, date: e.target.value })} className="text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5" />
+            <DateInputTH value={mForm.date} onChange={(v) => setMForm({ ...mForm, date: v })} className="text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5" />
             <input type="number" step="0.25" min="0" placeholder="ชม." value={mForm.hours} onChange={(e) => setMForm({ ...mForm, hours: e.target.value })} className="w-20 text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5" />
             <input placeholder="โน้ต (ทำอะไร)" value={mForm.note} onChange={(e) => setMForm({ ...mForm, note: e.target.value })} className="flex-1 min-w-0 text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5" />
           </div>
@@ -945,7 +946,7 @@ export function TaskDetailPage() {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted">กำหนดส่ง</span>
                 {canEdit && !isAssignee ? (
-                  <input type="date" defaultValue={t.dueDate ?? ''} onBlur={(e) => e.target.value !== (t.dueDate ?? '') && void patch({ dueDate: e.target.value || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
+                  <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
                 ) : (
                   <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
                 )}
@@ -953,7 +954,7 @@ export function TaskDetailPage() {
               {canEdit && !isAssignee && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted">เริ่ม</span>
-                  <input type="date" defaultValue={t.startDate ?? ''} onBlur={(e) => e.target.value !== (t.startDate ?? '') && void patch({ startDate: e.target.value || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
+                  <DateInputTH value={t.startDate ?? ''} onChange={(v) => void patch({ startDate: v || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
                 </div>
               )}
               {!isAssignee && canEdit && (
@@ -1027,7 +1028,7 @@ export function TaskDetailPage() {
                       <CheckCircle2 className="w-4 h-4" /> อนุมัติ ปิดงาน
                     </button>
                     {t.status === 'waiting_for_test' && (
-                      <button onClick={() => void patch({ status: 'on_processing' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">
+                      <button onClick={() => void patch({ status: 'non_start' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">
                         <RotateCcw className="w-4 h-4" /> ตีกลับ ให้แก้ไข
                       </button>
                     )}

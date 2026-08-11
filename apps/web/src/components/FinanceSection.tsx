@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
+import { DateInputTH } from './DateInputTH'
 import { useDialog } from './Dialog'
 
 interface Milestone {
@@ -89,7 +90,7 @@ export function FinanceSection({ projectId }: { projectId: string }) {
           <div className="flex flex-wrap gap-2 px-4 py-2.5 bg-hover/70">
             <input autoFocus placeholder="ชื่องวด" value={msForm.name} onChange={(e) => setMsForm({ ...msForm, name: e.target.value })} className={`${input} flex-1 min-w-32`} />
             <input type="number" placeholder="งบ ฿" value={msForm.budgetBaht} onChange={(e) => setMsForm({ ...msForm, budgetBaht: e.target.value })} className={`${input} w-24`} />
-            <input type="date" value={msForm.due} onChange={(e) => setMsForm({ ...msForm, due: e.target.value })} className={input} />
+            <DateInputTH value={msForm.due} onChange={(v) => setMsForm({ ...msForm, due: v })} className={input} />
             <button onClick={() => void addMilestone()} disabled={!msForm.name} className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
           </div>
         )}
@@ -125,7 +126,7 @@ export function FinanceSection({ projectId }: { projectId: string }) {
           <div className="flex flex-wrap gap-2 px-4 py-2.5 bg-hover/70">
             <input autoFocus placeholder="ป้าย เช่น งวด 1 · มัดจำ 40%" value={payForm.label} onChange={(e) => setPayForm({ ...payForm, label: e.target.value })} className={`${input} flex-1 min-w-36`} />
             <input type="number" placeholder="ยอด ฿" value={payForm.amountBaht} onChange={(e) => setPayForm({ ...payForm, amountBaht: e.target.value })} className={`${input} w-28`} />
-            <input type="date" value={payForm.due} onChange={(e) => setPayForm({ ...payForm, due: e.target.value })} className={input} />
+            <DateInputTH value={payForm.due} onChange={(v) => setPayForm({ ...payForm, due: v })} className={input} />
             <button onClick={() => void addPayment()} disabled={!payForm.amountBaht} className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
           </div>
         )}
