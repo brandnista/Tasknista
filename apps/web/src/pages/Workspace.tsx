@@ -35,14 +35,14 @@ interface WsTask {
   assigneeName: string | null
   labelIds: string[] | null
   kind?: string
-  projectId: string
+  projectId: string | null
 }
-type WorkType = 'epic' | 'story' | 'task' | 'subtask'
+type WorkType = 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog'
 interface WsBacklogItem {
   id: string
   code: string | null
   title: string
-  kind: 'epic' | 'task' | 'backlog'
+  kind: 'epic' | 'task' | 'backlog' | 'defect'
   workType: WorkType
   status: TaskStatus | null
   dueDate: string | null
@@ -52,9 +52,10 @@ interface WsBacklogItem {
   assignedBy: string | null
   dispatcherName: string | null
   labelIds: string[] | null
-  projectId: string
+  // Pronista §System Requirements Update — งาน "Backlog" คีย์ตรงในห้อง ไม่ผูกโปรเจกต์จริง → เป็น null ทั้ง 3 ฟิลด์นี้
+  projectId: string | null
   projectCode: string | null
-  projectName: string
+  projectName: string | null
 }
 interface WsSprint {
   id: string
@@ -71,28 +72,33 @@ interface WsSprint {
 interface WsSprintItem { sprint: WsSprint; tasks: WsTask[] }
 interface RoomDetail { id: string; name: string; type: WorkspaceType; canManage: boolean; projects: AccessibleProject[] }
 
-const WORKTYPE_ORDER: Record<WorkType, number> = { epic: 0, story: 1, task: 2, subtask: 3 }
-const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask' }
+const WORKTYPE_ORDER: Record<WorkType, number> = { backlog: 0, epic: 1, story: 2, task: 3, subtask: 4, defect: 5 }
+const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect', backlog: 'Backlog' }
 const WORKTYPE_BADGE: Record<WorkType, string> = {
   epic: 'bg-teal-50 text-teal-700',
   story: 'bg-violet-50 text-violet-700',
   task: 'bg-info-50 text-info-700',
   subtask: 'bg-divider text-soft',
+  defect: 'bg-danger-50 text-danger-700',
+  backlog: 'bg-brand-50 text-brand-700',
 }
 const selectCls = 'text-sm bg-white border border-border rounded-lg px-2.5 py-1.5'
 const isOverdue = (dueDate: string | null, status: TaskStatus | null) => !!dueDate && dueDate < bkkToday() && status !== 'done'
 
-// Pronista §System Requirements Update — แถวคีย์งานใหม่ 1 จุดใน Backlog Grid เลือกประเภทได้ (Epic/Story/Task/Subtask/Defect) กรอบสีซ้ายเปลี่ยนตามประเภทที่เลือกทันที
-type CreateWorkType = 'epic' | 'story' | 'task' | 'subtask' | 'defect'
-const CREATE_TYPE_LABEL: Record<CreateWorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect' }
+// Pronista §System Requirements Update — แถวคีย์งานใหม่ 1 จุดใน Backlog Grid เลือกประเภทได้ (Backlog/Epic/Story/Task/Subtask/Defect) กรอบสีซ้ายเปลี่ยนตามประเภทที่เลือกทันที
+// "Backlog" = ค่าเริ่มต้น คีย์ลอยเป็นของห้องเองได้เลย ไม่ต้องเลือกโปรเจกต์จริง — ที่เหลือยังต้องผูกโปรเจกต์จริงในห้องเหมือนเดิม
+type CreateWorkType = WorkType
+const CREATE_TYPE_LABEL = WORKTYPE_LABEL
 const CREATE_TYPE_BORDER: Record<CreateWorkType, string> = {
-  epic: 'border-l-teal-500', story: 'border-l-violet-500', task: 'border-l-info-500', subtask: 'border-l-border', defect: 'border-l-danger-500',
+  backlog: 'border-l-brand-400', epic: 'border-l-teal-500', story: 'border-l-violet-500', task: 'border-l-info-500', subtask: 'border-l-border', defect: 'border-l-danger-500',
 }
 const CREATE_TYPE_DOT: Record<CreateWorkType, string> = {
-  epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500',
+  backlog: 'bg-brand-400', epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500',
 }
+const CREATE_TYPE_ORDER: CreateWorkType[] = ['backlog', 'epic', 'story', 'task', 'subtask', 'defect']
 
-function ProjectChip({ code, name }: { code: string | null; name: string }) {
+function ProjectChip({ code, name }: { code: string | null; name: string | null }) {
+  if (!code && !name) return null
   return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-brand-50 text-brand-700 shrink-0">{code || name}</span>
 }
 
@@ -235,7 +241,7 @@ export function WorkspacePage() {
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
-  const [addType, setAddType] = useState<CreateWorkType>('story')
+  const [addType, setAddType] = useState<CreateWorkType>('backlog')
   const [addTypeMenuOpen, setAddTypeMenuOpen] = useState(false)
   const [addParentId, setAddParentId] = useState('')
 
@@ -251,7 +257,7 @@ export function WorkspacePage() {
 
   const [starting, setStarting] = useState<{ id: string; startDate: string; endDate: string } | null>(null)
 
-  const projectName = (id: string) => projects?.find((p) => p.id === id)
+  const projectName = (id: string | null) => (id ? projects?.find((p) => p.id === id) : undefined)
   const effectiveAddProjectId = addProjectId || projects?.[0]?.id || ''
 
   const changeStatus = async (taskId: string, status: TaskStatus) => {
@@ -264,19 +270,25 @@ export function WorkspacePage() {
     }
   }
 
-  // Pronista §System Requirements Update — ประเภทที่ต้องเลือก parent ในโปรเจกต์เดียวกัน (Task ใต้ Story / Subtask ใต้ Task)
+  // Pronista §System Requirements Update — "Backlog" (ค่าเริ่มต้น) คีย์ลอยเป็นของห้องเองได้เลย ไม่ต้องเลือกโปรเจกต์ · ที่เหลือยังต้องเลือกโปรเจกต์จริงในห้องเหมือนเดิม
+  const needsAddProject = addType !== 'backlog'
   const needsAddParent = addType === 'task' || addType === 'subtask'
   const addParentOptions = (backlogData?.items ?? []).filter(
     (i) => i.projectId === effectiveAddProjectId && i.workType === (addType === 'task' ? 'story' : 'task'),
   )
   const effectiveAddParentId = addParentId || addParentOptions[0]?.id || ''
+  const noProjectsLinked = (projects ?? []).length === 0
 
   const addItem = async () => {
     const title = addTitle.trim()
-    if (!title || !effectiveAddProjectId || (needsAddParent && !effectiveAddParentId)) return
+    if (!title) return
+    if (needsAddProject && !effectiveAddProjectId) return
+    if (needsAddParent && !effectiveAddParentId) return
     setError('')
     try {
-      if (addType === 'epic') {
+      if (addType === 'backlog') {
+        await api.post(`/api/workspaces/${workspaceId}/backlog`, { title })
+      } else if (addType === 'epic') {
         await api.post(`/api/projects/${effectiveAddProjectId}/epics`, { title })
       } else if (addType === 'story') {
         await api.post(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
@@ -407,18 +419,17 @@ export function WorkspacePage() {
         <Link to="/workspace" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> ทุก Workspace</Link>
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
 
-        {room.projects.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">
-            ห้องนี้ยังว่างเปล่า — ยังไม่มีโปรเจกต์ถูกดึงเข้าห้อง
-            {room.canManage && (
-              <div className="mt-2">
-                <button onClick={() => setEditingRoom(true)} className="text-brand-700 hover:underline font-medium">กด "แก้ไขห้อง" เพื่อเพิ่มโปรเจกต์</button>
-              </div>
+        {noProjectsLinked && (
+          <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3.5 py-2.5">
+            ห้องนี้ยังไม่มีโปรเจกต์จริงถูกดึงเข้าห้อง — คีย์งาน "Backlog" ตรงในห้องได้เลยตอนนี้ ส่วน Epic/Story/Task/Subtask/Defect ต้อง
+            {room.canManage ? (
+              <button onClick={() => setEditingRoom(true)} className="text-info-800 hover:underline font-medium ml-1">กด "แก้ไขห้อง" เพื่อดึงโปรเจกต์เข้ามาก่อน</button>
+            ) : (
+              ' ดึงโปรเจกต์เข้าห้องก่อน'
             )}
           </div>
-        ) : (
-          <>
-            {/* ฟิลเตอร์ */}
+        )}
+        {/* ฟิลเตอร์ */}
             <div className="flex items-center gap-2 flex-wrap">
               <Layers className="w-4 h-4 text-muted shrink-0" />
               <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className={selectCls}>
@@ -439,7 +450,7 @@ export function WorkspacePage() {
               </select>
               <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value as 'all' | WorkType)} className={selectCls}>
                 <option value="all">ทุกประเภทงาน</option>
-                {(['epic', 'story', 'task', 'subtask'] as WorkType[]).map((w) => <option key={w} value={w}>{WORKTYPE_LABEL[w]}</option>)}
+                {CREATE_TYPE_ORDER.map((w) => <option key={w} value={w}>{WORKTYPE_LABEL[w]}</option>)}
               </select>
             </div>
 
@@ -563,7 +574,7 @@ export function WorkspacePage() {
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setAddTypeMenuOpen(false)} />
                           <div className="absolute left-0 bottom-full mb-1 w-36 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
-                            {(['epic', 'story', 'task', 'subtask', 'defect'] as CreateWorkType[]).map((t) => (
+                            {CREATE_TYPE_ORDER.map((t) => (
                               <button
                                 key={t}
                                 onClick={() => { setAddType(t); setAddParentId(''); setAddTypeMenuOpen(false) }}
@@ -577,9 +588,15 @@ export function WorkspacePage() {
                         </>
                       )}
                     </div>
-                    <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
-                      {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    {needsAddProject && (
+                      noProjectsLinked ? (
+                        <span className="text-xs text-muted shrink-0">ต้องดึงโปรเจกต์เข้าห้องก่อนถึงจะสร้าง {CREATE_TYPE_LABEL[addType]} ได้</span>
+                      ) : (
+                        <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
+                          {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                      )
+                    )}
                     {needsAddParent && (
                       addParentOptions.length === 0 ? (
                         <span className="text-xs text-muted shrink-0">
@@ -596,7 +613,8 @@ export function WorkspacePage() {
                       onChange={(e) => setAddTitle(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
                       placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter…`}
-                      className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
+                      disabled={needsAddProject && noProjectsLinked}
+                      className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400 disabled:bg-hover disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -691,8 +709,6 @@ export function WorkspacePage() {
               </div>
               )}
             </div>
-          </>
-        )}
       </div>
 
       {starting && (

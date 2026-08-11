@@ -23,6 +23,8 @@ import { ProfilePage } from './pages/Profile'
 import { ProjectsPage } from './pages/Projects'
 import { SprintSnapshotPage } from './pages/SprintSnapshot'
 import { TaskDetailPage } from './pages/TaskDetail'
+import { UserSettingsPage } from './pages/UserSettings'
+import { UserSettingsCustomerDetailPage } from './pages/UserSettingsCustomerDetail'
 import { WorkspacePage } from './pages/Workspace'
 import { WorkspaceBoardPage } from './pages/WorkspaceBoard'
 import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
@@ -139,6 +141,38 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <AdminPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'user-settings',
+        element: (
+          <Protected roles={['owner']}>
+            <UserSettingsPage tab="staff" />
+          </Protected>
+        ),
+      },
+      {
+        path: 'user-settings/outsource',
+        element: (
+          <Protected roles={['owner']}>
+            <UserSettingsPage tab="outsource" />
+          </Protected>
+        ),
+      },
+      {
+        path: 'user-settings/customers',
+        element: (
+          <Protected roles={['owner']}>
+            <UserSettingsPage tab="customer" />
+          </Protected>
+        ),
+      },
+      {
+        path: 'user-settings/customers/:id',
+        element: (
+          <Protected roles={['owner']}>
+            <UserSettingsCustomerDetailPage />
           </Protected>
         ),
       },

@@ -242,7 +242,10 @@ export const sprintRoutes = new Hono<AppEnv>()
       ? task.projectId === sprint.projectId
       : sprint.workspaceId && task.projectId
         ? (await workspaceProjectIds(db, sprint.workspaceId)).has(task.projectId)
-        : false
+        // Pronista §System Requirements Update — งาน Backlog ที่คีย์ตรงในห้อง (projectId ว่าง, workspaceId ผูกห้อง) ลากเข้า Sprint ของห้องเดียวกันได้
+        : sprint.workspaceId && !task.projectId
+          ? task.workspaceId === sprint.workspaceId
+          : false
     if (!taskAllowed) return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานในโปรเจกต์ที่อยู่ในห้อง/โปรเจกต์เดียวกับ Sprint นี้เท่านั้น' }, 400)
 
     const preset = sprint.status === 'active' ? await loadPreset(db, sprint.boardPresetId) : undefined

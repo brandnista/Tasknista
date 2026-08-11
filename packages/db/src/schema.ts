@@ -100,6 +100,24 @@ export const workspaceProjects = sqliteTable(
   (t) => [uniqueIndex('workspace_projects_unique').on(t.workspaceId, t.projectId)],
 )
 
+// Pronista §System Requirements Update — ผูกลูกค้า (users.role='guest') กับโปรเจกต์ที่เห็นได้ — ลูกค้า 1 คนผูกได้หลายโปรเจกต์
+export const customerProjects = sqliteTable(
+  'customer_projects',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    addedAt: integer('added_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex('customer_projects_unique').on(t.userId, t.projectId)],
+)
+
 export const sessions = sqliteTable(
   'sessions',
   {
@@ -207,6 +225,14 @@ export const companyConfig = sqliteTable('company_config', {
   // Pronista §Workspace — แคตตาล็อกแท็กสีของ Task (bug/urgent/blocked/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/labels)
   // tasks.labelIds อ้าง id ที่นี่ (array, ไม่มี DB-level FK — เหมือน positions/serviceTypes) · สีใช้ค่าเดียวกับ BOARD_COLOR_KEYS
   labels: text('labels', { mode: 'json' }).$type<{ id: string; name: string; color: string; sortOrder: number }[]>(),
+  // Pronista §System Requirements Update — เพดานสิทธิ์ต่อ "ประเภทผู้ใช้งาน" (staff/outsource/customer) ครอบสิทธิ์ตำแหน่งอีกชั้น (null = ใช้ DEFAULT — resolve ใน core/permissions)
+  // staff (owner/member) = คูณกับ position.permissions ของสมาชิกอีกที · outsource(vendor)/customer(guest) ไม่มี position ของตัวเอง เพดานนี้ = สิทธิ์จริงเลย
+  permissionCeilings: text('permission_ceilings', { mode: 'json' }).$type<
+    Record<'staff' | 'outsource' | 'customer', {
+      tabs: Record<string, boolean>
+      actions: Record<string, { create: boolean; edit: boolean; delete: boolean }>
+    }>
+  >(),
 })
 
 /** ลูกค้า (CRM §4.17 — entity จริงตั้งแต่ T08 เลี่ยง refactor) */
@@ -407,6 +433,8 @@ export const tasks = sqliteTable(
     // Pronista §F2 — Backlog: task ลอยได้ (ยังไม่ผูกโปรเจค/กลุ่ม) → projectId/groupId = null
     projectId: text('project_id').references(() => projects.id),
     groupId: text('group_id').references(() => taskGroups.id),
+    // Pronista §System Requirements Update — งาน "Backlog" ที่คีย์ตรงในห้อง Workspace โดยไม่ผูกโปรเจกต์จริงเลย (projectId เป็น null คู่กัน) — ต่างจาก Company Backlog เดิม (workspaceId=null) ตรงที่ผูกห้องเฉพาะ
+    workspaceId: text('workspace_id').references(() => workspaces.id),
     // Pronista §Epic Layer — Epic ที่ Task นี้สังกัด (null = ยังไม่ได้สังกัด Epic ใด เช่น task สร้างมือ)
     epicId: text('epic_id').references(() => epics.id),
     // Pronista §2.5 — Jira-style auto code: BL-N ใน backlog → <projectCode>-N เมื่อผูกโปรเจกต์ · sub-task → <parentCode>.N

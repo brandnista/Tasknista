@@ -1,16 +1,19 @@
 import {
   bkkDateOf,
   BOARD_COLOR_KEYS,
+  PERMISSION_CATEGORIES,
   PERMISSION_RESOURCE_KEYS,
   PERMISSION_TAB_KEYS,
   resolveLabels,
   resolvePresets,
+  resolvePermissionCeilings,
   resolvePositions,
   resolveProductTypes,
   resolveServiceTypes,
   resolveStatuses,
   STATUS_COLOR_KEYS,
   validateLabels,
+  validatePermissionCeilings,
   validatePositions,
   validatePresets,
   validateProductTypes,
@@ -18,12 +21,14 @@ import {
   validateStatuses,
   type BoardPreset,
   type Label,
+  type PermissionCategory,
   type Position,
+  type PositionPermissions,
   type ProductType,
   type ProjectStatus,
   type ServiceType,
 } from '@seedoffice/core'
-import { companyConfig, createDb, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
+import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
 import { asc, eq, isNotNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -36,13 +41,27 @@ const icsUrl = (appUrl: string, token: string) => `${appUrl}/api/calendar/feed/$
 /** owner เท่านั้น (ติด requireAuth + ownerOnly ตอน mount) — provision user / จัดการทีม / config */
 export const adminRoutes = new Hono<AppEnv>()
 
-  // ตารางผู้ใช้เต็ม (email/status/ทีม)
+  // ตารางผู้ใช้เต็ม (email/status/ทีม) — role='guest' (ลูกค้า) ติด projectIds ที่ผูกไว้มาด้วย
   .get('/users', async (c) => {
     const db = createDb(c.env.DB)
     const all = await db.select().from(users).orderBy(asc(users.role), asc(users.name))
     const allTeams = await db.select().from(teams)
     const teamName = new Map(allTeams.map((t) => [t.id, t.name]))
-    return c.json(all.map((u) => ({ ...u, teamName: u.teamId ? (teamName.get(u.teamId) ?? null) : null })))
+    const links = await db.select({ userId: customerProjects.userId, projectId: customerProjects.projectId }).from(customerProjects)
+    const projectIdsByUser = new Map<string, string[]>()
+    for (const l of links) projectIdsByUser.set(l.userId, [...(projectIdsByUser.get(l.userId) ?? []), l.projectId])
+    return c.json(
+      all.map((u) => ({ ...u, teamName: u.teamId ? (teamName.get(u.teamId) ?? null) : null, projectIds: projectIdsByUser.get(u.id) ?? [] })),
+    )
+  })
+
+  // Pronista §System Requirements Update — รายละเอียดผู้ใช้คนเดียว (ใช้กับหน้ารายละเอียดลูกค้า) ติด projectIds ที่ผูกไว้
+  .get('/users/:id', async (c) => {
+    const db = createDb(c.env.DB)
+    const user = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
+    if (!user) return c.json({ error: 'not_found' }, 404)
+    const links = await db.select({ projectId: customerProjects.projectId }).from(customerProjects).where(eq(customerProjects.userId, user.id))
+    return c.json({ ...user, projectIds: links.map((l) => l.projectId) })
   })
 
   // รายชื่อทีม/แผนก (จัดกลุ่มผู้ใช้เฉยๆ ไม่เกี่ยวกับสิทธิ์)
@@ -74,9 +93,13 @@ export const adminRoutes = new Hono<AppEnv>()
         contactType: z.enum(['juristic', 'individual']).nullable().optional(),
         businessName: z.string().max(120).nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
+        // Pronista §System Requirements Update — ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์ (บังคับเลือก) เลือกได้หลายโปรเจกต์
+        projectIds: z.array(z.string()).optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
+    if (body.data.role === 'guest' && (body.data.projectIds ?? []).length === 0)
+      return c.json({ error: 'project_required', message: 'ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์' }, 400)
 
     const db = createDb(c.env.DB)
     const dup = (await db.select().from(users).where(eq(users.email, body.data.email)).limit(1))[0]
@@ -99,6 +122,9 @@ export const adminRoutes = new Hono<AppEnv>()
     const user = inserted[0]
     if (!user) return c.json({ error: 'insert_failed' }, 500)
 
+    if (body.data.projectIds && body.data.projectIds.length > 0)
+      await db.insert(customerProjects).values(body.data.projectIds.map((projectId) => ({ userId: user.id, projectId })))
+
     // Pronista เป็น PM app ล้วนๆ ไม่มี UI ตั้ง rate แล้ว — ใส่ rate ตั้งต้น (ไม่แสดงที่ไหน) กัน time-entry บล็อกเพราะไม่มี rate
     await db.insert(rates).values({ userId: user.id, rateSatangPerHour: 0, effectiveFrom: bkkDateOf(Date.now()) })
     await writeAudit(c.env, {
@@ -108,7 +134,7 @@ export const adminRoutes = new Hono<AppEnv>()
       entityId: user.id,
       meta: { email: user.email, role: user.role },
     })
-    return c.json(user, 201)
+    return c.json({ ...user, projectIds: body.data.projectIds ?? [] }, 201)
   })
 
   // แก้ชื่อ/role/สถานะ (ปิดการใช้งาน = status disabled — session เดิมใช้ไม่ได้ทันที)
@@ -127,21 +153,30 @@ export const adminRoutes = new Hono<AppEnv>()
         contactType: z.enum(['juristic', 'individual']).nullable().optional(),
         businessName: z.string().max(120).nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
+        // Pronista §System Requirements Update — แก้รายการโปรเจกต์ที่ลูกค้าผูกอยู่ (ส่งมา = แทนที่ทั้งชุด)
+        projectIds: z.array(z.string()).optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const before = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
+    const nextRole = body.data.role ?? before.role
+    if (nextRole === 'guest' && body.data.projectIds && body.data.projectIds.length === 0)
+      return c.json({ error: 'project_required', message: 'ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์' }, 400)
     if (body.data.email && body.data.email !== before.email) {
       const dup = (await db.select().from(users).where(eq(users.email, body.data.email)).limit(1))[0]
       if (dup) return c.json({ error: 'email_exists' }, 409)
     }
-    const updated = await db
-      .update(users)
-      .set(body.data)
-      .where(eq(users.id, before.id))
-      .returning()
+    const { projectIds, ...userPatch } = body.data
+    // Pronista §System Requirements Update — Drizzle .set({}) พังถ้าไม่มีฟิลด์เลย (เช่น แก้แค่ projectIds ล้วนๆ) ข้าม update ผู้ใช้ถ้าไม่มีอะไรแก้
+    const updated = Object.keys(userPatch).length > 0
+      ? await db.update(users).set(userPatch).where(eq(users.id, before.id)).returning()
+      : [before]
+    if (projectIds) {
+      await db.delete(customerProjects).where(eq(customerProjects.userId, before.id))
+      if (projectIds.length > 0) await db.insert(customerProjects).values(projectIds.map((projectId) => ({ userId: before.id, projectId })))
+    }
     await writeAudit(c.env, {
       actorId: c.get('user').id,
       action: 'user.update',
@@ -149,7 +184,7 @@ export const adminRoutes = new Hono<AppEnv>()
       entityId: before.id,
       meta: { before: { role: before.role, status: before.status }, after: body.data },
     })
-    return c.json(updated[0])
+    return c.json({ ...updated[0], projectIds: projectIds ?? undefined })
   })
 
   // แก้ config บริษัท
@@ -344,6 +379,40 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.positions ?? null, after: positionsData },
     })
     return c.json({ positions: resolvePositions(positionsData) })
+  })
+
+  // Pronista §System Requirements Update — เพดานสิทธิ์ต่อประเภทผู้ใช้งาน (staff/outsource/customer) ครอบสิทธิ์ตำแหน่งอีกชั้น
+  .get('/permission-ceilings', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+    return c.json({ ceilings: resolvePermissionCeilings(cfg?.permissionCeilings) })
+  })
+
+  // owner บันทึกทั้ง 3 หมวดทีเดียว (checkbox ละเอียดเหมือนตำแหน่ง) — ไม่มี orphan check เพราะหมวดคงที่ 3 อัน ลบ/เพิ่มไม่ได้
+  .put('/permission-ceilings', async (c) => {
+    const permissionShape = z.object({
+      tabs: z.record(z.enum(PERMISSION_TAB_KEYS), z.boolean()),
+      actions: z.record(z.enum(PERMISSION_RESOURCE_KEYS), z.object({ create: z.boolean(), edit: z.boolean(), delete: z.boolean() })),
+    })
+    const body = z
+      .object({ ceilings: z.object(Object.fromEntries(PERMISSION_CATEGORIES.map((cat) => [cat, permissionShape])) as Record<PermissionCategory, typeof permissionShape>) })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const ceilingsData = body.data.ceilings as Record<PermissionCategory, PositionPermissions>
+    const check = validatePermissionCeilings(ceilingsData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const before = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ permissionCeilings: ceilingsData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.permission_ceilings',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.permissionCeilings ?? null, after: ceilingsData },
+    })
+    return c.json({ ceilings: resolvePermissionCeilings(ceilingsData) })
   })
 
   // Pronista §Subscription Notify — แคตตาล็อกประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ)

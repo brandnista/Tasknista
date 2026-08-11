@@ -27,8 +27,8 @@ export interface WorkspaceBacklogItem {
   id: string
   code: string | null
   title: string
-  kind: 'epic' | 'task' | 'backlog'
-  workType: 'epic' | 'story' | 'task' | 'subtask'
+  kind: 'epic' | 'task' | 'backlog' | 'defect'
+  workType: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog'
   status: string | null
   dueDate: string | null
   priority: 'low' | 'normal' | 'high' | null
@@ -208,12 +208,13 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
-    .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog'])))
+    .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog', 'defect'])))
     .orderBy(asc(tasks.createdAt))
 
-  // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที)
-  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' => {
-    if (t.kind === 'backlog') return 'task'
+  // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที) · Defect/Backlog = ตรงตัวจาก kind
+  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' => {
+    if (t.kind === 'defect') return 'defect'
+    if (t.kind === 'backlog') return 'backlog'
     if (t.parentId === null) return t.isStandaloneTask ? 'task' : 'story'
     return (parentIdById.get(t.parentId) ?? null) !== null ? 'subtask' : 'task'
   }
@@ -240,7 +241,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
-    kind: r.task.kind === 'backlog' ? 'backlog' : 'task',
+    kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : 'task',
     workType: classify(r.task),
     status: r.task.status,
     dueDate: r.task.dueDate,
@@ -255,4 +256,34 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
   }))
 
   return [...epicItems, ...taskItems]
+}
+
+// Pronista §System Requirements Update — งาน "Backlog" ที่คีย์ตรงในห้อง Workspace โดยไม่ผูกโปรเจกต์จริง (workspaceId ผูกห้อง, projectId ว่างเสมอ)
+// ต่างจาก loadProjectAllBacklogItems ตรงที่ไม่มีลำดับชั้น Epic/Story/Task/Subtask เลย — เป็นรายการแบนราบ workType='backlog' ล้วน
+export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof createDb>, workspaceId: string): Promise<WorkspaceBacklogItem[]> {
+  const dispatcher = alias(users, 'dispatcher')
+  const rows = await db
+    .select({ task: tasks, assigneeName: users.name, dispatcherName: dispatcher.name })
+    .from(tasks)
+    .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
+    .where(and(eq(tasks.workspaceId, workspaceId), isNull(tasks.projectId), isNull(tasks.sprintId), isNull(tasks.groupId)))
+    .orderBy(asc(tasks.createdAt))
+  return rows.map((r) => ({
+    id: r.task.id,
+    code: r.task.code,
+    title: r.task.title,
+    kind: 'backlog',
+    workType: 'backlog',
+    status: r.task.status,
+    dueDate: r.task.dueDate,
+    priority: r.task.priority,
+    assigneeId: r.task.assigneeId,
+    assigneeName: r.assigneeName,
+    assignedBy: r.task.assignedBy,
+    dispatcherName: r.dispatcherName,
+    epicId: null,
+    parentId: null,
+    labelIds: r.task.labelIds,
+  }))
 }

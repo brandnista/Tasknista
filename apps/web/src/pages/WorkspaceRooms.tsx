@@ -2,7 +2,7 @@
  * Pronista §Workspace Rooms — เมนู Workspace เจอหน้านี้ก่อน: รายชื่อ "ห้อง" ทำงาน (Workspace DEV/HR/Brandnista ฯลฯ)
  * กด "+ สร้าง Workspace" ตั้งชื่อ+เพิ่มสมาชิก → กดเข้าห้อง ไปที่ /workspace/:id (หน้า Backlog/Sprint เดิม)
  */
-import { Briefcase, Code2, Layers, Plus, Users, X } from 'lucide-react'
+import { Briefcase, Code2, Grid2x2, Layers, List, Plus, Users, X } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
@@ -23,7 +23,7 @@ export const WORKSPACE_TYPE_DESC: Record<WorkspaceType, string> = {
 
 const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
-function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const [name, setName] = useState('')
   const [type, setType] = useState<WorkspaceType>('developer')
@@ -36,8 +36,8 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
     setBusy(true)
     setError('')
     try {
-      await api.post('/api/workspaces', { name: name.trim(), type, memberIds })
-      onCreated()
+      const created = await api.post<{ id: string }>('/api/workspaces', { name: name.trim(), type, memberIds })
+      onCreated(created.id)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'สร้าง Workspace ไม่สำเร็จ')
     } finally {
@@ -112,6 +112,9 @@ export function WorkspaceRoomsPage() {
   const navigate = useNavigate()
   const { data, reload } = useLoad<WorkspaceRoom[]>(() => api.get('/api/workspaces'))
   const [creating, setCreating] = useState(false)
+  // Pronista §System Requirements Update — สลับมุมมอง List/Grid เหมือนเมนูเอกสาร จำค่าไว้ที่เครื่อง
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => (localStorage.getItem('workspace-rooms-view-mode') === 'list' ? 'list' : 'grid'))
+  const setView = (v: 'list' | 'grid') => { setViewMode(v); localStorage.setItem('workspace-rooms-view-mode', v) }
   const rooms = data ?? []
 
   return (
@@ -119,12 +122,32 @@ export function WorkspaceRoomsPage() {
       <PageHeader
         title="Workspace"
         action={
-          <button
-            onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium"
-          >
-            <Plus className="w-4 h-4" /> สร้าง Workspace
-          </button>
+          <div className="flex items-center gap-2">
+            {rooms.length > 0 && (
+              <div className="flex items-center gap-0.5 bg-hover rounded-lg p-0.5">
+                <button
+                  onClick={() => setView('list')}
+                  title="มุมมองรายการ"
+                  className={`w-7 h-7 grid place-items-center rounded-md ${viewMode === 'list' ? 'bg-white shadow-xs text-brand-700' : 'text-muted hover:text-soft'}`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setView('grid')}
+                  title="มุมมองตาราง"
+                  className={`w-7 h-7 grid place-items-center rounded-md ${viewMode === 'grid' ? 'bg-white shadow-xs text-brand-700' : 'text-muted hover:text-soft'}`}
+                >
+                  <Grid2x2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <button
+              onClick={() => setCreating(true)}
+              className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium"
+            >
+              <Plus className="w-4 h-4" /> สร้าง Workspace
+            </button>
+          </div>
         }
       />
       <div className="p-3 sm:p-6">
@@ -136,7 +159,7 @@ export function WorkspaceRoomsPage() {
               <Plus className="w-4 h-4" /> สร้าง Workspace
             </button>
           </div>
-        ) : (
+        ) : viewMode === 'grid' ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {rooms.map((r) => (
               <button
@@ -157,13 +180,32 @@ export function WorkspaceRoomsPage() {
               </button>
             ))}
           </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
+            {rooms.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => navigate(`/workspace/${r.id}`)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-hover"
+              >
+                <div className="w-8 h-8 rounded-lg bg-brand-50 text-brand-700 grid place-items-center shrink-0">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div className="font-medium text-ink text-sm truncate">{r.name}</div>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${r.type === 'developer' ? 'bg-info-50 text-info-700' : 'bg-teal-50 text-teal-700'}`}>{WORKSPACE_TYPE_LABEL[r.type]}</span>
+                <div className="flex items-center gap-1 text-[11px] text-muted ml-auto shrink-0">
+                  <Users className="w-3 h-3" /> {r.memberCount} คน
+                </div>
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
       {creating && (
         <CreateWorkspaceModal
           onClose={() => setCreating(false)}
-          onCreated={() => { setCreating(false); void reload() }}
+          onCreated={(id) => { setCreating(false); void reload(); window.open(`/workspace/${id}`, '_blank') }}
         />
       )}
     </>

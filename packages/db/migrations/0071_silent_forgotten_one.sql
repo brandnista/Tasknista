@@ -1,0 +1,1 @@
+ALTER TABLE `company_config` ADD `permission_ceilings` text;

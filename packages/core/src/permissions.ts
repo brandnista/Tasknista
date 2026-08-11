@@ -92,6 +92,81 @@ export function hasAnyEditRight(perm: PositionPermissions): boolean {
   })
 }
 
+/**
+ * Pronista §System Requirements Update — ระบบสิทธิ์ 2 ชั้น: "เพดาน" ต่อประเภทผู้ใช้งาน (staff/outsource/customer) ครอบสิทธิ์ตำแหน่งอีกชั้น
+ * staff (owner/member) = intersect(ตำแหน่งที่ assign, เพดาน staff) · outsource(vendor)/customer(guest) ไม่มีตำแหน่งของตัวเอง เพดาน = สิทธิ์จริงเลย
+ * owner ไม่ผ่านเพดานนี้เลย (bypass ที่ getProjectPermissions อยู่แล้ว)
+ */
+export const PERMISSION_CATEGORIES = ['staff', 'outsource', 'customer'] as const
+export type PermissionCategory = (typeof PERMISSION_CATEGORIES)[number]
+
+export const PERMISSION_CATEGORY_LABEL: Record<PermissionCategory, string> = {
+  staff: 'พนักงานในระบบ',
+  outsource: 'พนักงาน Outsource',
+  customer: 'ลูกค้า',
+}
+
+/** map global role → หมวดเพดาน — owner ไม่มีหมวด (bypass เพดานเสมอ) */
+export function permissionCategoryOfRole(role: 'owner' | 'member' | 'vendor' | 'guest'): PermissionCategory | null {
+  if (role === 'owner') return null
+  if (role === 'member') return 'staff'
+  if (role === 'vendor') return 'outsource'
+  return 'customer'
+}
+
+/** default lossless เทียบเท่าพฤติกรรมเดิมก่อนมีเพดาน — staff เข้าถึงเต็ม (คุมด้วยตำแหน่งอยู่แล้ว) · outsource/customer ดูอย่างเดียว (ตรงกับค่าคงที่เดิม) */
+export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, PositionPermissions> = {
+  staff: FULL_ACCESS_PERMISSIONS,
+  outsource: VIEW_ONLY_PERMISSIONS,
+  customer: VIEW_ONLY_PERMISSIONS,
+}
+
+function normalizeCeiling(p: PositionPermissions): PositionPermissions {
+  return {
+    tabs: { ...allTabs(false), ...p.tabs },
+    actions: { ...allActions(ALL_ACTIONS_FALSE), ...p.actions },
+  }
+}
+
+export function resolvePermissionCeilings(
+  raw: Partial<Record<PermissionCategory, PositionPermissions>> | null | undefined,
+): Record<PermissionCategory, PositionPermissions> {
+  return Object.fromEntries(
+    PERMISSION_CATEGORIES.map((cat) => [cat, normalizeCeiling(raw?.[cat] ?? DEFAULT_PERMISSION_CEILINGS[cat])]),
+  ) as Record<PermissionCategory, PositionPermissions>
+}
+
+/** ชั้นที่ 2 คูณกับชั้นที่ 1 — AND ทีละฟิลด์ (จำกัดได้อย่างเดียว ไม่มีทางขยายสิทธิ์เกินตำแหน่งเดิม) */
+export function intersectPermissions(a: PositionPermissions, b: PositionPermissions): PositionPermissions {
+  return {
+    tabs: Object.fromEntries(PERMISSION_TAB_KEYS.map((k) => [k, a.tabs[k] && b.tabs[k]])) as Record<PermissionTabKey, boolean>,
+    actions: Object.fromEntries(
+      PERMISSION_RESOURCE_KEYS.map((k) => [
+        k,
+        { create: a.actions[k].create && b.actions[k].create, edit: a.actions[k].edit && b.actions[k].edit, delete: a.actions[k].delete && b.actions[k].delete },
+      ]),
+    ) as Record<PermissionResourceKey, ResourceActions>,
+  }
+}
+
+export function validatePermissionCeilings(
+  ceilings: Record<string, PositionPermissions>,
+): { ok: true } | { ok: false; error: string } {
+  for (const cat of PERMISSION_CATEGORIES) {
+    const p = ceilings[cat]
+    if (!p || typeof p !== 'object') return { ok: false, error: `เพดานสิทธิ์ของ "${PERMISSION_CATEGORY_LABEL[cat]}" ไม่ถูกต้อง` }
+    for (const k of PERMISSION_TAB_KEYS) {
+      if (typeof p.tabs?.[k] !== 'boolean') return { ok: false, error: `tabs.${k} ของเพดาน "${PERMISSION_CATEGORY_LABEL[cat]}" ต้องเป็น boolean` }
+    }
+    for (const k of PERMISSION_RESOURCE_KEYS) {
+      const a = p.actions?.[k]
+      if (!a || typeof a.create !== 'boolean' || typeof a.edit !== 'boolean' || typeof a.delete !== 'boolean')
+        return { ok: false, error: `actions.${k} ของเพดาน "${PERMISSION_CATEGORY_LABEL[cat]}" ไม่ถูกต้อง` }
+    }
+  }
+  return { ok: true }
+}
+
 /** ตรวจ config ที่จะบันทึก (CRUD ผ่าน API) — คืน error ภาษาไทยถ้าไม่ผ่าน */
 export function validatePositions(list: Position[]): { ok: true } | { ok: false; error: string } {
   if (!Array.isArray(list) || list.length === 0) return { ok: false, error: 'ต้องมีอย่างน้อย 1 ตำแหน่ง' }

@@ -1,11 +1,13 @@
 import { createDb, companyConfig, projectMembers } from '@seedoffice/db'
 import {
   FULL_ACCESS_PERMISSIONS,
-  VENDOR_PROJECT_PERMISSIONS,
+  intersectPermissions,
+  permissionCategoryOfRole,
+  resolvePermissionCeilings,
+  resolvePositions,
+  positionById,
   VIEW_ONLY_PERMISSIONS,
   hasAnyEditRight,
-  positionById,
-  resolvePositions,
   type PositionPermissions,
 } from '@seedoffice/core'
 import { and, eq } from 'drizzle-orm'
@@ -13,9 +15,11 @@ import { and, eq } from 'drizzle-orm'
 export type EffectiveProjectRole = 'owner' | 'editor' | 'viewer'
 
 /**
- * Pronista §Position-based permission — permission bundle เต็มของฉันในโปรเจกต์นี้
- * owner = FULL_ACCESS เสมอ (bypass แคตตาล็อก) · vendor = ค่า hardcode คงที่ (ไม่ผูกกับแคตตาล็อกที่แก้ได้ — กันไม่ให้แก้ตำแหน่งกระทบ vendor)
- * member ที่ไม่มี positionId (ยังไม่ตั้ง/แถวหาย/ตำแหน่งถูกลบไปแล้ว) = fallback VIEW_ONLY (ปลอดภัยกว่าสำหรับสมาชิกใหม่)
+ * Pronista §Position-based permission + §System Requirements Update (เพดานสิทธิ์) — permission bundle เต็มของฉันในโปรเจกต์นี้
+ * owner = FULL_ACCESS เสมอ (bypass ทั้งตำแหน่งและเพดาน)
+ * member (staff) = intersect(ตำแหน่งที่ assign, เพดาน staff) — ตำแหน่งเป็นชั้นที่ 1, เพดานเป็นชั้นที่ 2 (จำกัดได้อย่างเดียว)
+ * vendor(outsource)/guest(customer) ไม่มีตำแหน่งของตัวเอง — เพดานของหมวดนั้นคือสิทธิ์จริงเลย
+ * member ที่ไม่มี positionId (ยังไม่ตั้ง/แถวหาย/ตำแหน่งถูกลบไปแล้ว) = fallback VIEW_ONLY ก่อนเข้าเพดาน (ปลอดภัยกว่าสำหรับสมาชิกใหม่)
  */
 export async function getProjectPermissions(
   db: ReturnType<typeof createDb>,
@@ -24,8 +28,11 @@ export async function getProjectPermissions(
   globalRole: 'owner' | 'member' | 'vendor' | 'guest',
 ): Promise<PositionPermissions> {
   if (globalRole === 'owner') return FULL_ACCESS_PERMISSIONS
-  // Pronista §User Role — guest ได้สิทธิ์เหมือน vendor ทุกอย่าง (ค่าคงที่ ไม่ผูกกับแคตตาล็อกตำแหน่ง)
-  if (globalRole === 'vendor' || globalRole === 'guest') return VENDOR_PROJECT_PERMISSIONS
+  const category = permissionCategoryOfRole(globalRole)
+  const cfg = (await db.select({ positions: companyConfig.positions, permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+  const ceiling = resolvePermissionCeilings(cfg?.permissionCeilings)[category!]
+  // Pronista §User Role — guest ได้เพดานหมวด 'customer' ตรงๆ เหมือน vendor ได้หมวด 'outsource' (ไม่มีตำแหน่งของตัวเอง)
+  if (globalRole === 'vendor' || globalRole === 'guest') return ceiling
   const row = (
     await db
       .select({ positionId: projectMembers.positionId })
@@ -33,9 +40,10 @@ export async function getProjectPermissions(
       .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
       .limit(1)
   )[0]
-  if (!row?.positionId) return VIEW_ONLY_PERMISSIONS
-  const cfg = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
-  return positionById(resolvePositions(cfg?.positions), row.positionId)?.permissions ?? VIEW_ONLY_PERMISSIONS
+  const positionPermissions = row?.positionId
+    ? (positionById(resolvePositions(cfg?.positions), row.positionId)?.permissions ?? VIEW_ONLY_PERMISSIONS)
+    : VIEW_ONLY_PERMISSIONS
+  return intersectPermissions(positionPermissions, ceiling)
 }
 
 /**

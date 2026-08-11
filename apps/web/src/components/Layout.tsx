@@ -9,6 +9,7 @@ import {
   Menu,
   NotebookText,
   Settings,
+  Users,
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -45,6 +46,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'] },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member'] },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member'] },
+  // Pronista §System Requirements Update — แยกออกจาก "ตั้งค่า" เป็นเมนูหลักของตัวเอง (มีเมนูย่อย 3 อัน: พนักงานในระบบ/Outsource/ลูกค้า)
+  { to: '/user-settings', label: 'ตั้งค่าผู้ใช้งาน', icon: Users, roles: ['owner'] },
   { to: '/admin', label: 'ตั้งค่า', icon: Settings, roles: ['owner'] },
 ]
 
