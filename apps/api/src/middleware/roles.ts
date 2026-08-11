@@ -1,3 +1,5 @@
+import { createDb, companyConfig } from '@seedoffice/db'
+import { permissionCategoryOfRole, resolvePermissionCeilings, type PermissionMenuKey } from '@seedoffice/core'
 import { createMiddleware } from 'hono/factory'
 import type { User } from '@seedoffice/db'
 import type { AppEnv } from '../types'
@@ -19,7 +21,26 @@ export function requireRole(...roles: Role[]) {
 
 /** ทางลัดที่ใช้บ่อย */
 export const ownerOnly = requireRole('owner')
-export const teamOnly = requireRole('owner', 'member') // vendor ❌ (การเงิน/ลูกค้า/เอกสาร)
+export const teamOnly = requireRole('owner', 'member') // vendor/guest ❌ เสมอ (การเงิน/payroll ฯลฯ)
+
+/**
+ * Pronista §System Requirements Update — เหมือน teamOnly แต่ outsource(vendor)/customer(guest) เข้าได้ถ้าเพดานเมนูของหมวดตัวเองเปิดเมนูนี้ไว้
+ * (ตั้งค่าสิทธิ์ผู้ใช้งาน → เพดานสิทธิ์ต่อประเภทผู้ใช้งาน → มองเห็นเมนูหลัก) ใช้แทน teamOnly กับ endpoint ที่ตอนนี้เปิดให้ configure การเห็นเมนูได้ (เช่น /api/docs)
+ */
+export function teamOrMenu(menuKey: PermissionMenuKey) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const user = c.get('user')
+    if (!user) return c.json({ error: 'unauthorized' }, 401)
+    if (user.role === 'owner' || user.role === 'member') return next()
+    const category = permissionCategoryOfRole(user.role)
+    if (category) {
+      const db = createDb(c.env.DB)
+      const cfg = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+      if (resolvePermissionCeilings(cfg?.permissionCeilings)[category].menus[menuKey]) return next()
+    }
+    return c.json({ error: 'forbidden' }, 403)
+  })
+}
 
 /**
  * จำกัด PAT ตาม scope (SPEC §4.18) — ใช้ต่อจาก requireAuthOrToken

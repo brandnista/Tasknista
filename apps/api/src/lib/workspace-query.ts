@@ -258,10 +258,30 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
   return [...epicItems, ...taskItems]
 }
 
-// Pronista §System Requirements Update — งาน "Backlog" ที่คีย์ตรงในห้อง Workspace โดยไม่ผูกโปรเจกต์จริง (workspaceId ผูกห้อง, projectId ว่างเสมอ)
-// ต่างจาก loadProjectAllBacklogItems ตรงที่ไม่มีลำดับชั้น Epic/Story/Task/Subtask เลย — เป็นรายการแบนราบ workType='backlog' ล้วน
+// Pronista §System Requirements Update — งาน "Backlog"/"Epic"/"Story" ที่คีย์ตรงในห้อง Workspace โดยไม่ผูกโปรเจกต์จริง (workspaceId ผูกห้อง, projectId ว่างเสมอ)
+// ต่างจาก loadProjectAllBacklogItems ตรงที่ไม่มีลำดับชั้นลึกแบบ Task/Subtask (ยังไม่รองรับ workspace-native ที่มีลูก) — Epic/Story/Backlog เท่านั้น
 export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof createDb>, workspaceId: string): Promise<WorkspaceBacklogItem[]> {
   const dispatcher = alias(users, 'dispatcher')
+
+  const epicRows = await db.select().from(epics).where(eq(epics.workspaceId, workspaceId)).orderBy(asc(epics.createdAt))
+  const epicItems: WorkspaceBacklogItem[] = epicRows.map((e) => ({
+    id: e.id,
+    code: e.code,
+    title: e.title,
+    kind: 'epic',
+    workType: 'epic',
+    status: null,
+    dueDate: null,
+    priority: null,
+    assigneeId: null,
+    assigneeName: null,
+    assignedBy: null,
+    dispatcherName: null,
+    epicId: null,
+    parentId: null,
+    labelIds: null,
+  }))
+
   const rows = await db
     .select({ task: tasks, assigneeName: users.name, dispatcherName: dispatcher.name })
     .from(tasks)
@@ -269,12 +289,12 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
     .where(and(eq(tasks.workspaceId, workspaceId), isNull(tasks.projectId), isNull(tasks.sprintId), isNull(tasks.groupId)))
     .orderBy(asc(tasks.createdAt))
-  return rows.map((r) => ({
+  const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
-    kind: 'backlog',
-    workType: 'backlog',
+    kind: r.task.kind === 'backlog' ? 'backlog' : 'task',
+    workType: r.task.kind === 'backlog' ? 'backlog' : 'story',
     status: r.task.status,
     dueDate: r.task.dueDate,
     priority: r.task.priority,
@@ -282,8 +302,10 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     assigneeName: r.assigneeName,
     assignedBy: r.task.assignedBy,
     dispatcherName: r.dispatcherName,
-    epicId: null,
+    epicId: r.task.epicId,
     parentId: null,
     labelIds: r.task.labelIds,
   }))
+
+  return [...epicItems, ...taskItems]
 }

@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { ClientCombobox } from '../components/ClientCombobox'
+import { DateInputTH } from '../components/DateInputTH'
 import { IconPicker } from '../components/IconPicker'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -57,7 +58,7 @@ function MembersSection({
               onChange={(e) => onChange(u.id, e.target.value)}
               className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
             >
-              <option value="" disabled>— ยังไม่ใช่สมาชิก —</option>
+              <option value="">— ยังไม่ใช่สมาชิก — (เอาออก)</option>
               {positions.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -189,8 +190,13 @@ export function ProjectEditPage() {
       // Pronista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
       if (isOwner) {
         const before = Object.fromEntries((project.members ?? []).map((m) => [m.id, m.positionId ?? '']))
-        const changed = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== before[userId])
-        await Promise.all(changed.map(([userId, positionId]) => api.post(`/api/projects/${id}/members`, { userId, positionId })))
+        const toUpsert = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== before[userId])
+        // Pronista §System Requirements Update — เลือก "— ยังไม่ใช่สมาชิก —" กลับ = เอาออกจากโปรเจกต์ (เดิมกด remove ไม่ได้เลยเพราะ option ถูก disable + save() กรองทิ้ง)
+        const toRemove = Object.entries(memberAssignments).filter(([userId, positionId]) => !positionId && before[userId])
+        await Promise.all([
+          ...toUpsert.map(([userId, positionId]) => api.post(`/api/projects/${id}/members`, { userId, positionId })),
+          ...toRemove.map(([userId]) => api.delete(`/api/projects/${id}/members/${userId}`)),
+        ])
       }
       navigate(`/projects/${id}`)
     } catch (e) {
@@ -270,11 +276,11 @@ export function ProjectEditPage() {
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">เริ่ม</div>
-                <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={input} />
+                <DateInputTH value={form.startDate} onChange={(s) => setForm({ ...form, startDate: s })} className={input} />
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">กำหนดส่ง</div>
-                <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} className={input} />
+                <DateInputTH value={form.dueDate} onChange={(s) => setForm({ ...form, dueDate: s })} className={input} />
               </label>
             </>
           ) : (
@@ -324,11 +330,11 @@ export function ProjectEditPage() {
               <div className="grid sm:grid-cols-2 gap-4">
                 <label className="block">
                   <div className="text-xs font-medium text-muted mb-1.5">วันเริ่มบริการ</div>
-                  <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
+                  <DateInputTH value={form.serviceStartDate} onChange={(s) => setForm({ ...form, serviceStartDate: s })} className={input} />
                 </label>
                 <label className="block">
                   <div className="text-xs font-medium text-muted mb-1.5">วันหมดอายุบริการ</div>
-                  <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
+                  <DateInputTH value={form.serviceEndDate} onChange={(s) => setForm({ ...form, serviceEndDate: s })} className={input} />
                 </label>
                 <label className="block sm:col-span-2">
                   <div className="text-xs font-medium text-muted mb-1.5">แจ้งเตือนล่วงหน้าก่อนหมดอายุ</div>

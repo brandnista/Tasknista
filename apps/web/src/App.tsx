@@ -2,8 +2,9 @@ import type { ReactNode } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 import { DialogProvider } from './components/Dialog'
 import { Layout } from './components/Layout'
-import { AuthProvider, useAuth, type Me } from './lib/auth'
+import { AuthProvider, useAuth, type Me, type MenuKey } from './lib/auth'
 import { AdminPage } from './pages/Admin'
+import { AdminPermissionsPage } from './pages/AdminPermissions'
 import { BoardPage } from './pages/Board'
 import { ClientDetailPage } from './pages/ClientDetail'
 import { ClientsPage } from './pages/Clients'
@@ -29,7 +30,8 @@ import { WorkspacePage } from './pages/Workspace'
 import { WorkspaceBoardPage } from './pages/WorkspaceBoard'
 import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
 
-function Protected({ children, roles }: { children: ReactNode; roles?: Me['role'][] }) {
+// Pronista §System Requirements Update — menuKey = เช็คเพดานเมนูของหมวดผู้ใช้งาน (owner bypass เสมอ) เพิ่มจาก roles เดิม (สิทธิ์ระบบ)
+function Protected({ children, roles, menuKey }: { children: ReactNode; roles?: Me['role'][]; menuKey?: MenuKey }) {
   const { user, loading } = useAuth()
   if (loading)
     return (
@@ -37,7 +39,24 @@ function Protected({ children, roles }: { children: ReactNode; roles?: Me['role'
     )
   if (!user) return <Navigate to="/login" replace />
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />
+  if (menuKey && user.role !== 'owner' && !user.menuVisibility[menuKey]) return <Navigate to="/" replace />
   return children
+}
+
+// Pronista §System Requirements Update — ถ้าเพดานหมวดผู้ใช้งานปิด "ภาพรวม" ไว้ (เช่น ลูกค้า) พา redirect ไปเมนูแรกที่มองเห็นได้แทน กัน loop กับ '/' เอง
+const FALLBACK_ORDER: { menuKey: MenuKey; to: string }[] = [
+  { menuKey: 'projects', to: '/projects' },
+  { menuKey: 'docs', to: '/docs' },
+  { menuKey: 'myTasks', to: '/my-tasks' },
+  { menuKey: 'workspace', to: '/workspace' },
+]
+function DashboardGate() {
+  const { user } = useAuth()
+  if (user && user.role !== 'owner' && !user.menuVisibility.dashboard) {
+    const fallback = FALLBACK_ORDER.find((f) => user.menuVisibility[f.menuKey])
+    if (fallback) return <Navigate to={fallback.to} replace />
+  }
+  return <DashboardPage />
 }
 
 const router = createBrowserRouter([
@@ -50,12 +69,12 @@ const router = createBrowserRouter([
       </Protected>
     ),
     children: [
-      { index: true, element: <DashboardPage /> },
-      { path: 'my-tasks', element: <MyTasksPage /> },
-      { path: 'workspace', element: <WorkspaceRoomsPage /> },
-      { path: 'workspace/:workspaceId', element: <WorkspacePage /> },
-      { path: 'workspace/:workspaceId/sprints/:sprintId/board', element: <WorkspaceBoardPage /> },
-      { path: 'projects', element: <ProjectsPage /> },
+      { index: true, element: <DashboardGate /> },
+      { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
+      { path: 'workspace', element: <Protected menuKey="workspace"><WorkspaceRoomsPage /></Protected> },
+      { path: 'workspace/:workspaceId', element: <Protected menuKey="workspace"><WorkspacePage /></Protected> },
+      { path: 'workspace/:workspaceId/sprints/:sprintId/board', element: <Protected menuKey="workspace"><WorkspaceBoardPage /></Protected> },
+      { path: 'projects', element: <Protected menuKey="projects"><ProjectsPage /></Protected> },
       {
         path: 'projects/:id/edit',
         element: (
@@ -66,10 +85,10 @@ const router = createBrowserRouter([
           </Protected>
         ),
       },
-      { path: 'projects/:id', element: <ProjectDetailPage /> },
+      { path: 'projects/:id', element: <Protected menuKey="projects"><ProjectDetailPage /></Protected> },
       { path: 'tasks/:id', element: <TaskDetailPage /> },
-      { path: 'projects/:id/sprints/:sprintId/board', element: <BoardPage /> },
-      { path: 'projects/:id/sprints/:sprintId/snapshot', element: <SprintSnapshotPage /> },
+      { path: 'projects/:id/sprints/:sprintId/board', element: <Protected menuKey="projects"><BoardPage /></Protected> },
+      { path: 'projects/:id/sprints/:sprintId/snapshot', element: <Protected menuKey="projects"><SprintSnapshotPage /></Protected> },
       {
         path: 'clients',
         element: (
@@ -87,9 +106,10 @@ const router = createBrowserRouter([
         ),
       },
       {
+        // Pronista §System Requirements Update — เอกสาร คุมด้วยเพดานเมนู "docs" แทน role hardcode เดิม (ลูกค้า/outsource เห็นได้ถ้าเพดานเปิด)
         path: 'docs',
         element: (
-          <Protected roles={['owner', 'member']}>
+          <Protected menuKey="docs">
             <DocsPage />
           </Protected>
         ),
@@ -97,7 +117,7 @@ const router = createBrowserRouter([
       {
         path: 'docs/history',
         element: (
-          <Protected roles={['owner', 'member']}>
+          <Protected menuKey="docsHistory">
             <DocumentHistoryPage />
           </Protected>
         ),
@@ -105,7 +125,7 @@ const router = createBrowserRouter([
       {
         path: 'docs/compare',
         element: (
-          <Protected roles={['owner', 'member']}>
+          <Protected menuKey="docs">
             <DocumentComparePage />
           </Protected>
         ),
@@ -113,7 +133,7 @@ const router = createBrowserRouter([
       {
         path: 'docs/:id',
         element: (
-          <Protected roles={['owner', 'member']}>
+          <Protected menuKey="docs">
             <DocViewerPage />
           </Protected>
         ),
@@ -145,7 +165,7 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'user-settings',
+        path: 'admin/users',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="staff" />
@@ -153,7 +173,7 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'user-settings/outsource',
+        path: 'admin/users/outsource',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="outsource" />
@@ -161,7 +181,7 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'user-settings/customers',
+        path: 'admin/users/customers',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="customer" />
@@ -169,10 +189,18 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'user-settings/customers/:id',
+        path: 'admin/users/customers/:id',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsCustomerDetailPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'admin/permissions',
+        element: (
+          <Protected roles={['owner']}>
+            <AdminPermissionsPage />
           </Protected>
         ),
       },

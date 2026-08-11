@@ -1,13 +1,12 @@
 /**
- * Pronista §System Requirements Update — แยกเมนู "ตั้งค่าผู้ใช้งาน" ออกจาก "ตั้งค่า" เป็นเมนูหลักของตัวเอง
- * แบ่งเป็น 3 เมนูย่อยจริง (คนละ route): พนักงานในระบบ / พนักงาน Outsource / ลูกค้า (ลูกค้า = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า UserSettingsCustomerDetail)
+ * Pronista §System Requirements Update — "ตั้งค่าผู้ใช้งาน" เมนูย่อยของ ตั้งค่า
+ * แบ่งเป็น 3 เมนูย่อยจริง (คนละ route ใต้ /admin/users): พนักงานในระบบ / พนักงาน Outsource / ลูกค้า (ลูกค้า = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า UserSettingsCustomerDetail)
  */
 import { Plus, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
-import { PermissionCeilingSettings } from '../components/PermissionCeilingSettings'
-import { PositionSettings } from '../components/PositionSettings'
+import { SettingsSubNav } from '../components/SettingsSubNav'
 import { api, ApiError } from '../lib/api'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
@@ -254,10 +253,11 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
         }
       />
       <div className="p-3 sm:p-6 space-y-4">
+        <SettingsSubNav />
         <div className="flex bg-divider rounded-lg p-0.5 w-fit">
-          {tabLink('staff', '/user-settings', 'พนักงานในระบบ', staffUsers.length)}
-          {tabLink('outsource', '/user-settings/outsource', 'พนักงาน Outsource', outsourceUsers.length)}
-          {tabLink('customer', '/user-settings/customers', 'ลูกค้า', customerUsers.length)}
+          {tabLink('staff', '/admin/users', 'พนักงานในระบบ', staffUsers.length)}
+          {tabLink('outsource', '/admin/users/outsource', 'พนักงาน Outsource', outsourceUsers.length)}
+          {tabLink('customer', '/admin/users/customers', 'ลูกค้า', customerUsers.length)}
         </div>
 
         {addingTeam && tab !== 'customer' && (
@@ -270,7 +270,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
           <AddCustomerForm
             projects={projects ?? []}
             onClose={() => setAdding(false)}
-            onCreated={(id) => { setAdding(false); void reload(); navigate(`/user-settings/customers/${id}`) }}
+            onCreated={(id) => { setAdding(false); void reload(); navigate(`/admin/users/customers/${id}`) }}
           />
         )}
 
@@ -287,7 +287,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
               customerUsers.map((u) => (
                 <button
                   key={u.id}
-                  onClick={() => navigate(`/user-settings/customers/${u.id}`)}
+                  onClick={() => navigate(`/admin/users/customers/${u.id}`)}
                   className={`w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-hover ${u.status === 'disabled' ? 'opacity-40' : ''}`}
                 >
                   <div className="min-w-0 flex-1">
@@ -386,10 +386,6 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
             </p>
           </div>
         )}
-
-        {/* Pronista §System Requirements Update — ย้ายมาจากหน้า "ตั้งค่า" เดิม เพราะเป็นการกำหนดสิทธิ์ของผู้ใช้งานโดยตรง */}
-        <PermissionCeilingSettings />
-        <PositionSettings />
       </div>
     </>
   )

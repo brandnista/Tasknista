@@ -270,8 +270,8 @@ export function WorkspacePage() {
     }
   }
 
-  // Pronista §System Requirements Update — "Backlog" (ค่าเริ่มต้น) คีย์ลอยเป็นของห้องเองได้เลย ไม่ต้องเลือกโปรเจกต์ · ที่เหลือยังต้องเลือกโปรเจกต์จริงในห้องเหมือนเดิม
-  const needsAddProject = addType !== 'backlog'
+  // Pronista §System Requirements Update — "Backlog"/"Epic"/"Story" คีย์ลอยเป็นของห้องเองได้เลย ไม่ต้องเลือกโปรเจกต์ · Task/Subtask/Defect ยังต้องเลือกโปรเจกต์จริงในห้องเหมือนเดิม (มี hierarchy ผูกกับโปรเจกต์)
+  const needsAddProject = addType === 'task' || addType === 'subtask' || addType === 'defect'
   const needsAddParent = addType === 'task' || addType === 'subtask'
   const addParentOptions = (backlogData?.items ?? []).filter(
     (i) => i.projectId === effectiveAddProjectId && i.workType === (addType === 'task' ? 'story' : 'task'),
@@ -289,9 +289,9 @@ export function WorkspacePage() {
       if (addType === 'backlog') {
         await api.post(`/api/workspaces/${workspaceId}/backlog`, { title })
       } else if (addType === 'epic') {
-        await api.post(`/api/projects/${effectiveAddProjectId}/epics`, { title })
+        await api.post(`/api/workspaces/${workspaceId}/epics`, { title })
       } else if (addType === 'story') {
-        await api.post(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
+        await api.post(`/api/workspaces/${workspaceId}/backlog`, { title, kind: 'story' })
       } else if (addType === 'defect') {
         const created = await api.post<{ id: string }>(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
         await api.post(`/api/tasks/${created.id}/convert`, { to: 'defect' })
@@ -421,7 +421,7 @@ export function WorkspacePage() {
 
         {noProjectsLinked && (
           <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3.5 py-2.5">
-            ห้องนี้ยังไม่มีโปรเจกต์จริงถูกดึงเข้าห้อง — คีย์งาน "Backlog" ตรงในห้องได้เลยตอนนี้ ส่วน Epic/Story/Task/Subtask/Defect ต้อง
+            ห้องนี้ยังไม่มีโปรเจกต์จริงถูกดึงเข้าห้อง — คีย์งาน "Backlog"/"Epic"/"Story" ตรงในห้องได้เลยตอนนี้ ส่วน Task/Subtask/Defect ต้อง
             {room.canManage ? (
               <button onClick={() => setEditingRoom(true)} className="text-info-800 hover:underline font-medium ml-1">กด "แก้ไขห้อง" เพื่อดึงโปรเจกต์เข้ามาก่อน</button>
             ) : (

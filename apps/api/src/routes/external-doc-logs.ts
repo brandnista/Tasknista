@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { canEditProject, getProjectRole } from '../lib/project-role'
-import { teamOnly } from '../middleware/roles'
+import { teamOnly, teamOrMenu } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
 /**
@@ -17,7 +17,7 @@ export const externalDocLogRoutes = new Hono<AppEnv>()
 
   // Pronista §Document Version History — หน้า "ประวัติเอกสาร": เอกสารภายในทุกประเภท (MOM/BRD/SOW/SRS/PEP/UIR) ทุกโปรเจกต์
   // คืน doc ที่ผูกโปรเจกต์ (ไม่รวมโฟลเดอร์) พร้อมเลขที่เอกสาร(เล่ม)+เวอร์ชัน → frontend จัดกลุ่ม โปรเจกต์→ประเภท→เล่ม→เวอร์ชัน
-  .get('/document-history', teamOnly, async (c) => {
+  .get('/document-history', teamOrMenu('docsHistory'), async (c) => {
     const db = createDb(c.env.DB)
     const rows = await db
       .select({

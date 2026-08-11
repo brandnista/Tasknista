@@ -3,12 +3,12 @@
  * กด "+ Create Workspace" ตั้งชื่อ+เพิ่มสมาชิก → ห้องใหม่เริ่มว่างเปล่า (ไม่มีโปรเจกต์ผูกไว้) จนกว่าจะเพิ่มโปรเจกต์เข้าห้องเอง (ดู workspace_projects)
  * เข้าห้องได้เฉพาะสมาชิก (หรือ owner บริษัทเห็นได้ทุกห้องเพื่อดูแลระบบ) · แก้ชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้อง = ผู้สร้างห้องหรือ owner บริษัทเท่านั้น
  */
-import { createDb, projects, sprints, tasks, users, workspaceMembers, workspaceProjects, workspaces } from '@seedoffice/db'
+import { createDb, epics, projects, sprints, tasks, users, workspaceMembers, workspaceProjects, workspaces } from '@seedoffice/db'
 import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { nextTaskCode } from '../lib/task-code'
+import { nextTaskCode, nextTypedEpicCode, nextTypedTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -137,9 +137,31 @@ export const workspaceRoomRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
-  // Pronista §System Requirements Update — คีย์งาน "Backlog" ตรงในห้องได้เลย ไม่ต้องผูกโปรเจกต์จริง (projectId ว่าง, workspaceId ผูกห้องนี้แทน)
-  // สมาชิกห้องนี้ (หรือ owner บริษัท) คีย์ได้ — ต่างจากงาน Epic/Story/Task/Subtask/Defect ที่ยังต้องเลือกโปรเจกต์จริงในห้องเหมือนเดิม
+  // Pronista §System Requirements Update — คีย์งาน "Backlog"/"Story" ตรงในห้องได้เลย ไม่ต้องผูกโปรเจกต์จริง (projectId ว่าง, workspaceId ผูกห้องนี้แทน)
+  // สมาชิกห้องนี้ (หรือ owner บริษัท) คีย์ได้ — ต่างจากงาน Task/Subtask/Defect ที่ยังต้องเลือกโปรเจกต์จริงในห้องเหมือนเดิม (มี hierarchy ที่ผูกกับโปรเจกต์)
   .post('/workspaces/:id/backlog', teamOnly, async (c) => {
+    const body = z.object({ title: z.string().min(1), kind: z.enum(['backlog', 'story']).default('backlog') }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const workspaceId = c.req.param('id')
+    const workspace = (await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
+    if (!workspace) return c.json({ error: 'not_found' }, 404)
+    if (me.role !== 'owner' && !(await isMember(db, workspaceId, me.id))) return c.json({ error: 'forbidden' }, 403)
+    const code = body.data.kind === 'story' ? await nextTypedTaskCode(db, 'WS', 'Story') : await nextTaskCode(db, 'WS')
+    const created = (
+      await db
+        .insert(tasks)
+        .values({ projectId: null, groupId: null, workspaceId, sortOrder: 0, createdBy: me.id, code, title: body.data.title, kind: body.data.kind === 'story' ? 'task' : 'backlog' })
+        .returning()
+    )[0]
+    if (!created) return c.json({ error: 'insert_failed' }, 500)
+    await writeAudit(c.env, { actorId: me.id, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, workspaceBacklog: true } })
+    return c.json(created, 201)
+  })
+
+  // Pronista §System Requirements Update — คีย์งาน "Epic" ตรงในห้องได้เลย ไม่ต้องผูกโปรเจกต์จริง (projectId ว่าง, workspaceId ผูกห้องนี้แทน) — เหมือน Backlog/Story ข้างบน
+  .post('/workspaces/:id/epics', teamOnly, async (c) => {
     const body = z.object({ title: z.string().min(1) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
@@ -148,15 +170,12 @@ export const workspaceRoomRoutes = new Hono<AppEnv>()
     const workspace = (await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1))[0]
     if (!workspace) return c.json({ error: 'not_found' }, 404)
     if (me.role !== 'owner' && !(await isMember(db, workspaceId, me.id))) return c.json({ error: 'forbidden' }, 403)
-    const code = await nextTaskCode(db, 'WS')
+    const code = await nextTypedEpicCode(db, 'WS')
     const created = (
-      await db
-        .insert(tasks)
-        .values({ projectId: null, groupId: null, workspaceId, sortOrder: 0, createdBy: me.id, code, title: body.data.title, kind: 'backlog' })
-        .returning()
+      await db.insert(epics).values({ projectId: null, workspaceId, sortOrder: 0, title: body.data.title, code }).returning()
     )[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
-    await writeAudit(c.env, { actorId: me.id, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, workspaceBacklog: true } })
+    await writeAudit(c.env, { actorId: me.id, action: 'epic.create', entity: 'epic', entityId: created.id, meta: { title: created.title, workspaceBacklog: true } })
     return c.json(created, 201)
   })
 

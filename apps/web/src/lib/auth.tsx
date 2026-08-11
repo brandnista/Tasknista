@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api, ApiError } from './api'
 
+export type MenuKey = 'dashboard' | 'myTasks' | 'workspace' | 'projects' | 'docs' | 'docsHistory'
+
 export interface Me {
   id: string
   name: string
@@ -10,6 +12,8 @@ export interface Me {
   firstName: string | null
   lastName: string | null
   nickname: string | null
+  // Pronista §System Requirements Update — เมนู sidebar ที่มองเห็นได้ ผูกกับหมวดผู้ใช้งาน (owner = ทุกเมนู true เสมอ)
+  menuVisibility: Record<MenuKey, boolean>
 }
 
 interface AuthState {

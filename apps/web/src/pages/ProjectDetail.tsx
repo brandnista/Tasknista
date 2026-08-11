@@ -12,6 +12,7 @@ import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
 import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
+import { ProjectChangeLogTab } from '../components/ProjectChangeLogTab'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -1285,8 +1286,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
   const [title, setTitle] = useState('')
   const createDefect = async () => {
     if (!title.trim()) return
-    const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
-    await api.post(`/api/tasks/${created.id}/convert`, { to: 'defect' })
+    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
     setTitle('')
     void reload()
   }
@@ -1894,7 +1894,7 @@ export function ProjectDetailPage() {
   // Pronista §Project Estimate — Tab เห็นเฉพาะ owner (ต้นทุนทีมทั้งหมด ไม่ใช่แค่งบรวม)
   // Pronista §External Document Version Logging — เพิ่มแท็บ External Design Assets (log เวอร์ชันเอกสารภายนอก เช่น Canva)
   // Pronista §Document Management MVP — เชื่อมสองทางกับหน้า "ประวัติเอกสาร": ลิงก์มาพร้อม ?tab=assets ให้เด้งไปแท็บนี้ตรงๆ
-  const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'releases' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
+  const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'releases' | 'changeLog' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
     searchParams.get('tab') === 'assets' ? 'assets' : 'sprint',
   )
   // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร/Version Release — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
@@ -1905,6 +1905,7 @@ export function ProjectDetailPage() {
       ['docs', 'เอกสาร'],
       ['assets', 'ประวัติเอกสาร'],
       ['releases', 'Version Release'],
+      ['changeLog', 'Change Log'],
     ] as [typeof view, string][]
   ).filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
   // Pronista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
@@ -1924,6 +1925,8 @@ export function ProjectDetailPage() {
   const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
   // Pronista §Sprint & Board fix — สัญญาณให้ ProjectBacklogSection สลับไปแท็บที่งานที่เพิ่งเอาออกจาก Sprint กลับมาอยู่ (ไม่งั้นดูเหมือนงานหายเพราะแท็บที่เปิดค้างไม่ตรง)
   const [revealSignal, setRevealSignal] = useState<{ tab: BacklogTab; nonce: number } | null>(null)
+  // Pronista §System Requirements Update — ลูกค้า (guest) เข้าเมนู Workspace ไม่ได้เลย ต้องคีย์ Backlog/Defect ตรงจากแท็บนี้ได้แทน — คุมด้วยเพดานสิทธิ์จริง (ไม่ใช่ role เฉยๆ เผื่อ owner ปิดสิทธิ์นี้ไว้)
+  const guestCanKeyBacklog = user?.role === 'guest' && !!(project?.myPermissions?.actions.task.create || project?.myPermissions?.actions.defect.create)
 
   if (!project) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
@@ -2029,20 +2032,23 @@ export function ProjectDetailPage() {
 
       {view === 'sprint' && id && (
         <>
-          {/* Pronista §Workspace — จัดการ Sprint/Backlog เต็มรูปแบบย้ายไปที่เมนู Workspace แล้ว แท็บนี้เหลือแค่ดูของโปรเจกต์นี้ */}
-          <div className="bg-info-50 text-info-700 text-sm rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2 flex-wrap">
-            <span>จัดการ Sprint และ Backlog แบบเต็มรูปแบบได้ที่</span>
-            <Link to="/workspace" className="font-medium underline hover:no-underline">Workspace</Link>
-          </div>
+          {/* Pronista §Workspace — จัดการ Sprint/Backlog เต็มรูปแบบย้ายไปที่เมนู Workspace แล้ว แท็บนี้เหลือแค่ดูของโปรเจกต์นี้
+              Pronista §System Requirements Update — ยกเว้นลูกค้า (role guest): เข้าเมนู Workspace ไม่ได้เลย ต้องคีย์ Backlog/Defect ตรงจากแท็บนี้ได้ */}
+          {user?.role !== 'guest' && (
+            <div className="bg-info-50 text-info-700 text-sm rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2 flex-wrap">
+              <span>จัดการ Sprint และ Backlog แบบเต็มรูปแบบได้ที่</span>
+              <Link to="/workspace" className="font-medium underline hover:no-underline">Workspace</Link>
+            </div>
+          )}
           <div className="grid lg:grid-cols-2 gap-4 items-start">
             <ProjectBacklogSection
               projectId={id}
-              canEdit={canEdit}
+              canEdit={canEdit || guestCanKeyBacklog}
               permissions={project.myPermissions}
               onOpenTask={openTask}
               refreshKey={backlogRefreshKey}
               revealTab={revealSignal}
-              readOnly
+              readOnly={!guestCanKeyBacklog}
             />
             <SprintSection
               projectId={id}
@@ -2068,6 +2074,8 @@ export function ProjectDetailPage() {
           canDelete={project.myPermissions?.actions.release.delete ?? false}
         />
       )}
+
+      {view === 'changeLog' && id && <ProjectChangeLogTab projectId={id} />}
 
       {/* Pronista §Back to Basic — API Document/Project Estimate ถอดออกจาก Tab บนสุด (ยังไม่อยู่ใน Phase นี้) เก็บ component+route ไว้เผื่อกลับมาใช้ ไม่มีปุ่มเข้าถึงแล้วเท่านั้น */}
       {view === 'apidoc' && id && <ApiDocumentSection key={project.id} projectId={id} canEdit={canEdit} />}

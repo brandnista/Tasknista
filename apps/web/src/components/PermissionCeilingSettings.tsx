@@ -6,12 +6,15 @@
 import {
   PERMISSION_CATEGORIES,
   PERMISSION_CATEGORY_LABEL,
+  PERMISSION_MENU_KEYS,
+  PERMISSION_MENU_LABEL,
   PERMISSION_RESOURCE_KEYS,
   PERMISSION_TAB_KEYS,
+  type CeilingPermissions,
   type PermissionCategory,
+  type PermissionMenuKey,
   type PermissionResourceKey,
   type PermissionTabKey,
-  type PositionPermissions,
 } from '@seedoffice/core'
 import { Check, ShieldAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -23,6 +26,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   docs: 'เอกสาร',
   assets: 'ประวัติเอกสาร',
   releases: 'Version Release',
+  changeLog: 'Change Log',
   backlogEpic: 'Backlog: Epic',
   backlogStory: 'Backlog: Story',
   backlogTask: 'Backlog: Task',
@@ -39,7 +43,8 @@ const CATEGORY_DESC: Record<PermissionCategory, string> = {
   customer: 'ไม่มีตำแหน่งของตัวเอง — เพดานนี้คือสิทธิ์จริงที่ใช้ (คุมเมนู/แท็บที่มองเห็นเป็นหลัก)',
 }
 
-function CeilingCard({ category, permissions, onChange }: { category: PermissionCategory; permissions: PositionPermissions; onChange: (p: PositionPermissions) => void }) {
+function CeilingCard({ category, permissions, onChange }: { category: PermissionCategory; permissions: CeilingPermissions; onChange: (p: CeilingPermissions) => void }) {
+  const toggleMenu = (k: PermissionMenuKey) => onChange({ ...permissions, menus: { ...permissions.menus, [k]: !permissions.menus[k] } })
   const toggleTab = (k: PermissionTabKey) => onChange({ ...permissions, tabs: { ...permissions.tabs, [k]: !permissions.tabs[k] } })
   const toggleAction = (k: PermissionResourceKey, action: 'create' | 'edit' | 'delete') =>
     onChange({ ...permissions, actions: { ...permissions.actions, [k]: { ...permissions.actions[k], [action]: !permissions.actions[k][action] } } })
@@ -48,9 +53,20 @@ function CeilingCard({ category, permissions, onChange }: { category: Permission
     <div className="border border-border-subtle rounded-lg p-4">
       <div className="font-semibold text-sm text-ink mb-0.5">{PERMISSION_CATEGORY_LABEL[category]}</div>
       <div className="text-[11px] text-muted mb-3">{CATEGORY_DESC[category]}</div>
+      <div className="mb-4">
+        <div className="text-xs font-medium text-dim mb-1.5">มองเห็นเมนูหลัก (sidebar)</div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {PERMISSION_MENU_KEYS.map((k) => (
+            <label key={k} className="flex items-center gap-2 text-sm text-body cursor-pointer">
+              <input type="checkbox" checked={permissions.menus[k]} onChange={() => toggleMenu(k)} className="rounded" />
+              {PERMISSION_MENU_LABEL[k]}
+            </label>
+          ))}
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-1">
         <div>
-          <div className="text-xs font-medium text-dim mb-1.5">มองเห็นแท็บ</div>
+          <div className="text-xs font-medium text-dim mb-1.5">มองเห็นแท็บ (ในหน้าโปรเจกต์)</div>
           <div className="space-y-1">
             {PERMISSION_TAB_KEYS.map((k) => (
               <label key={k} className="flex items-center gap-2 text-sm text-body cursor-pointer">
@@ -91,8 +107,8 @@ function CeilingCard({ category, permissions, onChange }: { category: Permission
 }
 
 export function PermissionCeilingSettings() {
-  const { data, reload } = useLoad<{ ceilings: Record<PermissionCategory, PositionPermissions> }>(() => api.get('/api/admin/permission-ceilings'))
-  const [ceilings, setCeilings] = useState<Record<PermissionCategory, PositionPermissions> | null>(null)
+  const { data, reload } = useLoad<{ ceilings: Record<PermissionCategory, CeilingPermissions> }>(() => api.get('/api/admin/permission-ceilings'))
+  const [ceilings, setCeilings] = useState<Record<PermissionCategory, CeilingPermissions> | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)

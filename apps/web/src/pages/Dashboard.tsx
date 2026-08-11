@@ -56,7 +56,8 @@ export function DashboardPage() {
   return (
     <div className="p-3 sm:p-6">
       {user?.role === 'owner' && <CompanyOverview />}
-      {user?.role === 'member' && <PersonalOverview />}
+      {/* Pronista §System Requirements Update — พนักงาน Outsource (vendor) เห็นเมนูภาพรวมได้ (เพดาน default) แต่เดิมเจอหน้าเปล่าเพราะ gate ไว้แค่ member — ควรเห็นสรุปงานของตัวเองเหมือน staff */}
+      {(user?.role === 'member' || user?.role === 'vendor') && <PersonalOverview />}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
         {/* งานวันนี้ */}
         <div className="lg:col-span-3 bg-white rounded-lg shadow-xs p-5">

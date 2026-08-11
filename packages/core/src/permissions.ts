@@ -7,7 +7,7 @@
 
 /** ตรงกับแท็บจริงใน ProjectDetail.tsx วันนี้ — top-level (sprint/docs/assets/releases) + sub-tab ใน Backlog (backlog*) */
 export const PERMISSION_TAB_KEYS = [
-  'sprint', 'docs', 'assets', 'releases',
+  'sprint', 'docs', 'assets', 'releases', 'changeLog',
   'backlogEpic', 'backlogStory', 'backlogTask', 'backlogDefect', 'backlogCr', 'backlogSummary',
 ] as const
 export type PermissionTabKey = (typeof PERMISSION_TAB_KEYS)[number]
@@ -114,29 +114,60 @@ export function permissionCategoryOfRole(role: 'owner' | 'member' | 'vendor' | '
   return 'customer'
 }
 
-/** default lossless เทียบเท่าพฤติกรรมเดิมก่อนมีเพดาน — staff เข้าถึงเต็ม (คุมด้วยตำแหน่งอยู่แล้ว) · outsource/customer ดูอย่างเดียว (ตรงกับค่าคงที่เดิม) */
-export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, PositionPermissions> = {
-  staff: FULL_ACCESS_PERMISSIONS,
-  outsource: VIEW_ONLY_PERMISSIONS,
-  customer: VIEW_ONLY_PERMISSIONS,
+/** เมนูหลักฝั่ง sidebar ที่คุมได้ต่อประเภทผู้ใช้งาน — ตรงกับ NAV ใน Layout.tsx (ไม่รวม "ตั้งค่า"/"ตั้งค่าผู้ใช้งาน" ซึ่ง owner-only เสมอ ไม่ผ่านเพดานนี้) */
+export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'workspace', 'projects', 'docs', 'docsHistory'] as const
+export type PermissionMenuKey = (typeof PERMISSION_MENU_KEYS)[number]
+export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
+  dashboard: 'ภาพรวม',
+  myTasks: 'งานของฉัน',
+  workspace: 'Workspace',
+  projects: 'โปรเจกต์',
+  docs: 'เอกสาร',
+  docsHistory: 'ประวัติเอกสาร',
 }
 
-function normalizeCeiling(p: PositionPermissions): PositionPermissions {
+/** เพดานสิทธิ์ต่อหมวด = สิทธิ์ตำแหน่ง (tabs/actions ระดับโปรเจกต์) + เมนูหลักที่มองเห็นได้ (ระดับ sidebar) */
+export interface CeilingPermissions extends PositionPermissions {
+  menus: Record<PermissionMenuKey, boolean>
+}
+
+function allMenus(value: boolean): Record<PermissionMenuKey, boolean> {
+  return Object.fromEntries(PERMISSION_MENU_KEYS.map((k) => [k, value])) as Record<PermissionMenuKey, boolean>
+}
+
+/** เพดานเริ่มต้น (ออกแบบใหม่ตาม §System Requirements Update):
+ * staff = เข้าถึงเต็ม ทุกเมนู (คุมสิทธิ์จริงด้วยตำแหน่งต่อโปรเจกต์อยู่แล้ว)
+ * outsource = เห็นภาพรวม/งานของฉัน/Workspace/โปรเจกต์ ไม่เห็นเอกสาร/ประวัติเอกสาร (เอกสารภายในไม่ใช่ของผู้รับจ้างภายนอก)
+ * customer = เห็นเฉพาะโปรเจกต์ + เอกสาร (ตามตัวอย่างที่ขอ) — ไม่เห็น Workspace/ภาพรวม/งานของฉัน/ประวัติเอกสาร
+ *            เข้า Workspace ไม่ได้ แต่ต้องคีย์ Backlog/Defect ให้โปรเจกต์ของตัวเองได้ตรงจากแท็บ Sprint ในหน้าโปรเจกต์ (ที่เหลือยังดูอย่างเดียว) */
+export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, CeilingPermissions> = {
+  staff: { ...FULL_ACCESS_PERMISSIONS, menus: allMenus(true) },
+  outsource: { ...VIEW_ONLY_PERMISSIONS, menus: { ...allMenus(true), docs: false, docsHistory: false } },
+  customer: {
+    ...VIEW_ONLY_PERMISSIONS,
+    actions: { ...VIEW_ONLY_PERMISSIONS.actions, task: { ...VIEW_ONLY_PERMISSIONS.actions.task, create: true }, defect: { ...VIEW_ONLY_PERMISSIONS.actions.defect, create: true } },
+    menus: { ...allMenus(false), projects: true, docs: true },
+  },
+}
+
+// เพดานที่บันทึกไว้ตั้งแต่ก่อนเพิ่ม field ใหม่ (เช่น 'menus') จะไม่มี key นั้นใน JSON เดิม — เติมด้วยค่า default ของหมวดนั้น (ไม่ใช่ false เปล่าๆ กัน staff เข้าถึงเต็มโดน fallback เป็นปิดหมดโดยไม่ตั้งใจ)
+function normalizeCeiling(p: Partial<CeilingPermissions>, fallback: CeilingPermissions): CeilingPermissions {
   return {
-    tabs: { ...allTabs(false), ...p.tabs },
-    actions: { ...allActions(ALL_ACTIONS_FALSE), ...p.actions },
+    tabs: { ...fallback.tabs, ...p.tabs },
+    actions: { ...fallback.actions, ...p.actions },
+    menus: { ...fallback.menus, ...p.menus },
   }
 }
 
 export function resolvePermissionCeilings(
-  raw: Partial<Record<PermissionCategory, PositionPermissions>> | null | undefined,
-): Record<PermissionCategory, PositionPermissions> {
+  raw: Partial<Record<PermissionCategory, Partial<CeilingPermissions>>> | null | undefined,
+): Record<PermissionCategory, CeilingPermissions> {
   return Object.fromEntries(
-    PERMISSION_CATEGORIES.map((cat) => [cat, normalizeCeiling(raw?.[cat] ?? DEFAULT_PERMISSION_CEILINGS[cat])]),
-  ) as Record<PermissionCategory, PositionPermissions>
+    PERMISSION_CATEGORIES.map((cat) => [cat, normalizeCeiling(raw?.[cat] ?? {}, DEFAULT_PERMISSION_CEILINGS[cat])]),
+  ) as Record<PermissionCategory, CeilingPermissions>
 }
 
-/** ชั้นที่ 2 คูณกับชั้นที่ 1 — AND ทีละฟิลด์ (จำกัดได้อย่างเดียว ไม่มีทางขยายสิทธิ์เกินตำแหน่งเดิม) */
+/** ชั้นที่ 2 คูณกับชั้นที่ 1 — AND ทีละฟิลด์ (จำกัดได้อย่างเดียว ไม่มีทางขยายสิทธิ์เกินตำแหน่งเดิม) — ใช้กับ tabs/actions ระดับโปรเจกต์เท่านั้น (menus ไม่มีชั้นที่ 1 ให้คูณ) */
 export function intersectPermissions(a: PositionPermissions, b: PositionPermissions): PositionPermissions {
   return {
     tabs: Object.fromEntries(PERMISSION_TAB_KEYS.map((k) => [k, a.tabs[k] && b.tabs[k]])) as Record<PermissionTabKey, boolean>,
@@ -150,7 +181,7 @@ export function intersectPermissions(a: PositionPermissions, b: PositionPermissi
 }
 
 export function validatePermissionCeilings(
-  ceilings: Record<string, PositionPermissions>,
+  ceilings: Record<string, CeilingPermissions>,
 ): { ok: true } | { ok: false; error: string } {
   for (const cat of PERMISSION_CATEGORIES) {
     const p = ceilings[cat]
@@ -162,6 +193,9 @@ export function validatePermissionCeilings(
       const a = p.actions?.[k]
       if (!a || typeof a.create !== 'boolean' || typeof a.edit !== 'boolean' || typeof a.delete !== 'boolean')
         return { ok: false, error: `actions.${k} ของเพดาน "${PERMISSION_CATEGORY_LABEL[cat]}" ไม่ถูกต้อง` }
+    }
+    for (const k of PERMISSION_MENU_KEYS) {
+      if (typeof p.menus?.[k] !== 'boolean') return { ok: false, error: `menus.${k} ของเพดาน "${PERMISSION_CATEGORY_LABEL[cat]}" ต้องเป็น boolean` }
     }
   }
   return { ok: true }

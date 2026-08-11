@@ -603,11 +603,11 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className={label}>วันเริ่มบริการ</label>
-                          <input type="date" value={form.serviceStartDate} onChange={(e) => setForm({ ...form, serviceStartDate: e.target.value })} className={input} />
+                          <DateInputTH value={form.serviceStartDate} onChange={(s) => setForm({ ...form, serviceStartDate: s })} className={input} />
                         </div>
                         <div>
                           <label className={label}>วันหมดอายุบริการ</label>
-                          <input type="date" value={form.serviceEndDate} onChange={(e) => setForm({ ...form, serviceEndDate: e.target.value })} className={input} />
+                          <DateInputTH value={form.serviceEndDate} onChange={(s) => setForm({ ...form, serviceEndDate: s })} className={input} />
                         </div>
                       </div>
                       <div>

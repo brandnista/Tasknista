@@ -344,9 +344,9 @@ export const epics = sqliteTable(
   'epics',
   {
     id: id(),
-    projectId: text('project_id')
-      .notNull()
-      .references(() => projects.id),
+    // Pronista §System Requirements Update — คีย์ Epic ตรงในห้อง Workspace ได้เลยเหมือน Backlog (projectId ว่าง, workspaceId ผูกห้องนี้แทน)
+    projectId: text('project_id').references(() => projects.id),
+    workspaceId: text('workspace_id').references(() => workspaces.id),
     title: text('title').notNull(),
     code: text('code'), // รหัสเอกสารต้นทาง เช่น "BNT-SOW-14072026-001" — null ถ้าไม่ได้มาจากเอกสาร
     sourceDocId: text('source_doc_id').references((): AnySQLiteColumn => docs.id),

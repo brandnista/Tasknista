@@ -1,8 +1,11 @@
-import { createDb, users, type User } from '@seedoffice/db'
+import { PERMISSION_MENU_KEYS, permissionCategoryOfRole, resolvePermissionCeilings } from '@seedoffice/core'
+import { companyConfig, createDb, users, type User } from '@seedoffice/db'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../types'
+
+const ALL_MENUS_VISIBLE = Object.fromEntries(PERMISSION_MENU_KEYS.map((k) => [k, true])) as Record<(typeof PERMISSION_MENU_KEYS)[number], boolean>
 
 /**
  * โปรไฟล์ตัวเอง (ทุก role) — ดู/แก้ ชื่อจริง/นามสกุล/ชื่อเล่น ของตัวเอง
@@ -41,7 +44,18 @@ const meShape = (u: User) => ({
 })
 
 export const profileRoutes = new Hono<AppEnv>()
-  .get('/me', (c) => c.json(meShape(c.get('user'))))
+  // Pronista §System Requirements Update — เมนู sidebar ที่มองเห็นได้ ผูกกับหมวดผู้ใช้งาน (owner เห็นทุกเมนูเสมอ ไม่ผ่านเพดาน)
+  .get('/me', async (c) => {
+    const me = c.get('user')
+    const category = permissionCategoryOfRole(me.role)
+    let menuVisibility = ALL_MENUS_VISIBLE
+    if (category) {
+      const db = createDb(c.env.DB)
+      const cfg = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+      menuVisibility = resolvePermissionCeilings(cfg?.permissionCeilings)[category].menus
+    }
+    return c.json({ ...meShape(me), menuVisibility })
+  })
 
   .patch('/me', async (c) => {
     const body = profilePatch.safeParse(await c.req.json().catch(() => null))

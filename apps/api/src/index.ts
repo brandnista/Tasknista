@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth, requireAuthOrToken } from './middleware/auth'
-import { ownerOnly, requireScope, teamOnly, tokenScope } from './middleware/roles'
+import { ownerOnly, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
 import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
@@ -122,9 +122,9 @@ app.route('/api', timeRoutes)
 app.route('/api', financeRoutes)
 app.use('/api/payroll/*', requireAuth)
 app.route('/api', payrollRoutes)
-// เอกสาร: owner+member เท่านั้น (vendor 403 — SPEC §4.16)
-app.use('/api/docs', requireAuth, teamOnly)
-app.use('/api/docs/*', requireAuth, teamOnly)
+// เอกสาร: owner+member เข้าได้เสมอ · outsource/customer เข้าได้ถ้าเพดานเมนู "เอกสาร" ของหมวดตัวเองเปิดไว้ (ตั้งค่าสิทธิ์ผู้ใช้งาน) — endpoint เขียน/แก้ยังกัน teamOnly แยกต่อจุดอยู่แล้ว
+app.use('/api/docs', requireAuth, teamOrMenu('docs'))
+app.use('/api/docs/*', requireAuth, teamOrMenu('docs'))
 app.route('/api/docs', docRoutes)
 app.route('/api', docsSrsRoutes)
 app.route('/api', docsUploadBreakoutRoutes)

@@ -23,7 +23,7 @@ import {
   statusById,
   uploadLogo,
 } from '@seedoffice/core'
-import { auditLogs, clients, companyConfig, createDb, docLinks, docs, milestones, payments, projectMembers, projects, tasks, timeEntries, users, type Project } from '@seedoffice/db'
+import { auditLogs, clients, companyConfig, createDb, docLinks, docs, epics, milestones, payments, projectMembers, projects, sprints, tasks, timeEntries, users, type Project } from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
@@ -508,6 +508,52 @@ export const projectRoutes = new Hono<AppEnv>()
     )
   })
 
+  // Pronista §System Requirements Update — แท็บ "Change Log" ต่อโปรเจกต์ — รวม audit_logs ของทุกสิ่งที่ผูกกับโปรเจกต์นี้ (task/epic/sprint/doc/project เอง) เรียงล่าสุดก่อน
+  // การมองเห็นแท็บคุมด้วย tabs.changeLog (client-side เหมือนแท็บอื่น) — endpoint นี้ไม่จำกัด role เพิ่มเติม (ตาม pattern /:id/docs)
+  .get('/:id/changelog', async (c) => {
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const [taskRows, epicRows, sprintRows] = await Promise.all([
+      db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, projectId)),
+      db.select({ id: epics.id }).from(epics).where(eq(epics.projectId, projectId)),
+      db.select({ id: sprints.id }).from(sprints).where(eq(sprints.projectId, projectId)),
+    ])
+    const taskIds = taskRows.map((t) => t.id)
+    const epicIds = epicRows.map((e) => e.id)
+    const sprintIds = sprintRows.map((s) => s.id)
+    const docRows = await db
+      .select({ id: docs.id })
+      .from(docLinks)
+      .innerJoin(docs, eq(docLinks.docId, docs.id))
+      .where(taskIds.length > 0 ? or(eq(docLinks.projectId, projectId), inArray(docLinks.taskId, taskIds)) : eq(docLinks.projectId, projectId))
+    const docIds = [...new Set(docRows.map((d) => d.id))]
+
+    const conditions = [and(eq(auditLogs.entity, 'project'), eq(auditLogs.entityId, projectId))]
+    if (taskIds.length > 0) conditions.push(and(eq(auditLogs.entity, 'task'), inArray(auditLogs.entityId, taskIds)))
+    if (epicIds.length > 0) conditions.push(and(eq(auditLogs.entity, 'epic'), inArray(auditLogs.entityId, epicIds)))
+    if (sprintIds.length > 0) conditions.push(and(eq(auditLogs.entity, 'sprint'), inArray(auditLogs.entityId, sprintIds)))
+    if (docIds.length > 0) conditions.push(and(eq(auditLogs.entity, 'doc'), inArray(auditLogs.entityId, docIds)))
+
+    const rows = await db
+      .select({ log: auditLogs, actorName: users.name, actorAvatarUrl: users.avatarUrl })
+      .from(auditLogs)
+      .innerJoin(users, eq(auditLogs.actorId, users.id))
+      .where(or(...conditions))
+      .orderBy(desc(auditLogs.at))
+      .limit(300)
+    return c.json({
+      entries: rows.map((r) => ({
+        id: r.log.id,
+        at: r.log.at,
+        actorName: r.actorName,
+        actorAvatarUrl: r.actorAvatarUrl,
+        action: r.log.action,
+        entity: r.log.entity,
+        meta: r.log.meta,
+      })),
+    })
+  })
+
   // Pronista §Project Estimate — ต้นทุนต่อ Task (เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์)
   .get('/:id/estimate', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
@@ -625,6 +671,22 @@ export const projectRoutes = new Hono<AppEnv>()
       meta: { userId: targetUser.id, positionId: body.data.positionId },
     })
     return c.json(upserted[0])
+  })
+
+  // Pronista §System Requirements Update — เอาสมาชิกออกจากโปรเจกต์ (owner เท่านั้น เหมือนตั้งตำแหน่ง) — เดิมมีแค่ insert/upsert ไม่มีทางเอาออกเลย
+  .delete('/:id/members/:userId', ownerOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const userId = c.req.param('userId')
+    await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'project.member_remove',
+      entity: 'project',
+      entityId: projectId,
+      meta: { userId },
+    })
+    return c.json({ ok: true })
   })
 
   // Pronista §Project Refactor — ลบโปรเจกต์ (Admin เท่านั้น = owner) · soft-delete เท่านั้น (กฎเหล็ก) ไม่ลบข้อมูลจริง

@@ -7,7 +7,8 @@ export const TEST_MEMBER_DOMAIN = '@example-co.test'
 /** user มาตรฐาน 3 role สำหรับเทสต์ (id คงที่) + config บริษัท (รีเซ็ตทุกครั้ง — storage แชร์ข้ามไฟล์) */
 export async function seedUsers() {
   const db = createDb(env.DB)
-  const cfg = { cutoffDay: 25, workHourCapMinutes: 480, memberDomain: TEST_MEMBER_DOMAIN }
+  // permissionCeilings: null — เทสต์บางไฟล์ (permission-ceilings.test.ts) เขียนเพดานจำกัดไว้ทดสอบ ต้องรีเซ็ตทุกไฟล์กันหลุดข้าม test file (storage เดียวกันทั้ง suite)
+  const cfg = { cutoffDay: 25, workHourCapMinutes: 480, memberDomain: TEST_MEMBER_DOMAIN, permissionCeilings: null }
   await db
     .insert(companyConfig)
     .values({ id: 1, ...cfg })

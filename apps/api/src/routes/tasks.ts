@@ -312,7 +312,9 @@ export const taskRoutes = new Hono<AppEnv>()
   })
 
   // สร้าง task ตรงใน Backlog ของโปรเจกต์นี้ (ไม่ผูกกลุ่มงาน) — เฉพาะ owner/editor ของโปรเจกต์ (Pronista §5: "คนที่ถูก Assign เข้าร่วมโปรเจคนั้นเท่านั้น")
-  .post('/projects/:id/backlog', teamOnly, async (c) => {
+  // Pronista §System Requirements Update — ไม่ใช้ teamOnly แล้ว (เดิมกัน vendor/guest ออกทั้งหมดแม้เพดานสิทธิ์จะอนุญาต) เช็คสิทธิ์จริงด้วย getProjectPermissions ข้างล่างแทน (ครอบคลุมทุก role รวม owner/vendor/guest แล้วในตัว)
+  // ลูกค้า (guest) ต้องคีย์ Backlog/Defect ให้โปรเจกต์ของตัวเองได้ (ดูเพดาน customer default ใน packages/core/permissions.ts) — เพิ่ม kind:'defect' ให้ endpoint นี้จบในตัวเดียว ไม่ต้องผ่าน /tasks/:id/convert (endpoint นั้นยังกันด้วย teamOnly เพราะ canEditTask ยังไม่ ceiling-aware สำหรับ vendor/guest)
+  .post('/projects/:id/backlog', async (c) => {
     // Pronista §Sprint & Board fix — ตั้งรหัสงานเองได้ตอนสร้าง (ไม่บังคับ) — เว้นว่างยังออกเลขอัตโนมัติเหมือนเดิม
     // Pronista §Back to Basic (ต่อยอด) — สร้าง Task ตรงในแท็บ SOW/MOM/ฯลฯ ได้ ระบุ originDocType เองได้ (เดิมมาจาก breakout เอกสารเท่านั้น)
     // Pronista §Back to Basic (ต่อยอด) — เพิ่ม kind: 'backlog' สำหรับแท็บ "ทั่วไป" โดยเฉพาะ (ไม่ระบุ = 'task' เดิม ไม่กระทบ Story/CR tab ที่เรียก endpoint นี้เหมือนกัน)
@@ -321,7 +323,7 @@ export const taskRoutes = new Hono<AppEnv>()
         title: z.string().min(1),
         code: z.string().trim().max(40).optional(),
         originDocType: z.enum(['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR']).optional(),
-        kind: z.enum(['backlog', 'task']).optional(),
+        kind: z.enum(['backlog', 'task', 'defect']).optional(),
         // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยจากแท็บ Task ตรงๆ ได้โดยไม่ต้องมี Story แม่ก่อน
         standalone: z.boolean().optional(),
       })
@@ -332,18 +334,20 @@ export const taskRoutes = new Hono<AppEnv>()
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    // Pronista §Position-based permission — เช็ค actions.task.create ของตำแหน่งที่ assign
-    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
-    if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
     const kind = body.data.kind ?? 'task'
-    const code = body.data.code || (await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), kind === 'backlog' ? 'Backlog' : 'Task'))
+    // Pronista §Position-based permission — เช็ค actions.task.create หรือ actions.defect.create ของตำแหน่งที่ assign แล้วแต่ประเภทที่คีย์
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (kind === 'defect' ? !permissions.actions.defect.create : !permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
+    const code =
+      body.data.code || (await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), kind === 'backlog' ? 'Backlog' : kind === 'defect' ? 'Defect' : 'Task'))
     const created = (
       await db
         .insert(tasks)
         .values({
           projectId, groupId: null, sortOrder: 0, createdBy: me.id, code, title: body.data.title,
-          originDocType: body.data.originDocType ?? null, kind,
+          originDocType: body.data.originDocType ?? null, kind: kind === 'defect' ? 'defect' : kind,
           isStandaloneTask: kind === 'task' && (body.data.standalone ?? false),
+          defectStatus: kind === 'defect' ? 'reported' : null,
         })
         .returning()
     )[0]

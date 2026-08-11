@@ -9,13 +9,12 @@ import {
   Menu,
   NotebookText,
   Settings,
-  Users,
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
-import { useAuth, type Me } from '../lib/auth'
+import { useAuth, type Me, type MenuKey } from '../lib/auth'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TimerProvider, useTimer } from '../lib/timer'
 import { Avatar } from './Avatar'
@@ -38,16 +37,15 @@ function CapBanner() {
 
 type Role = Me['role']
 
-const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[] }[] = [
-  { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'] },
-  { to: '/my-tasks', label: 'งานของฉัน', icon: ClipboardList, roles: ['owner', 'member', 'vendor', 'guest'] },
+// Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
+const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[]; menuKey?: MenuKey }[] = [
+  { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'dashboard' },
+  { to: '/my-tasks', label: 'งานของฉัน', icon: ClipboardList, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'myTasks' },
   // Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ (สิทธิ์เห็นเนื้อหาจริงคุมด้วย tabs.sprint ต่อโปรเจกต์อยู่แล้ว เหมือนแท็บ Sprint เดิม)
-  { to: '/workspace', label: 'Workspace', icon: Layers, roles: ['owner', 'member', 'vendor', 'guest'] },
-  { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'] },
-  { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member'] },
-  { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member'] },
-  // Pronista §System Requirements Update — แยกออกจาก "ตั้งค่า" เป็นเมนูหลักของตัวเอง (มีเมนูย่อย 3 อัน: พนักงานในระบบ/Outsource/ลูกค้า)
-  { to: '/user-settings', label: 'ตั้งค่าผู้ใช้งาน', icon: Users, roles: ['owner'] },
+  { to: '/workspace', label: 'Workspace', icon: Layers, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'workspace' },
+  { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'projects' },
+  { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docs' },
+  { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docsHistory' },
   { to: '/admin', label: 'ตั้งค่า', icon: Settings, roles: ['owner'] },
 ]
 
@@ -108,7 +106,14 @@ export function Layout() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const items = useMemo(() => (user ? NAV.filter((n) => n.roles.includes(user.role)) : []), [user])
+  // Pronista §System Requirements Update — ซ่อนเมนูตามเพดานสิทธิ์เมนูของหมวดผู้ใช้งาน (owner bypass เสมอ ไม่ผ่านเพดาน)
+  const items = useMemo(
+    () =>
+      user
+        ? NAV.filter((n) => n.roles.includes(user.role) && (!n.menuKey || user.role === 'owner' || user.menuVisibility[n.menuKey]))
+        : [],
+    [user],
+  )
   // Pronista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
   const activeTo = useMemo(() => {
     const path = location.pathname

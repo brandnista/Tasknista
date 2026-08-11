@@ -2,6 +2,7 @@ import {
   bkkDateOf,
   BOARD_COLOR_KEYS,
   PERMISSION_CATEGORIES,
+  PERMISSION_MENU_KEYS,
   PERMISSION_RESOURCE_KEYS,
   PERMISSION_TAB_KEYS,
   resolveLabels,
@@ -20,10 +21,10 @@ import {
   validateServiceTypes,
   validateStatuses,
   type BoardPreset,
+  type CeilingPermissions,
   type Label,
   type PermissionCategory,
   type Position,
-  type PositionPermissions,
   type ProductType,
   type ProjectStatus,
   type ServiceType,
@@ -393,12 +394,13 @@ export const adminRoutes = new Hono<AppEnv>()
     const permissionShape = z.object({
       tabs: z.record(z.enum(PERMISSION_TAB_KEYS), z.boolean()),
       actions: z.record(z.enum(PERMISSION_RESOURCE_KEYS), z.object({ create: z.boolean(), edit: z.boolean(), delete: z.boolean() })),
+      menus: z.record(z.enum(PERMISSION_MENU_KEYS), z.boolean()),
     })
     const body = z
       .object({ ceilings: z.object(Object.fromEntries(PERMISSION_CATEGORIES.map((cat) => [cat, permissionShape])) as Record<PermissionCategory, typeof permissionShape>) })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
-    const ceilingsData = body.data.ceilings as Record<PermissionCategory, PositionPermissions>
+    const ceilingsData = body.data.ceilings as Record<PermissionCategory, CeilingPermissions>
     const check = validatePermissionCeilings(ceilingsData)
     if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
 

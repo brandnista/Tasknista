@@ -505,6 +505,13 @@
       "when": 1786416680078,
       "tag": "0071_silent_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1786421371097,
+      "tag": "0072_hot_doctor_faustus",
+      "breakpoints": true
     }
   ]
 }
