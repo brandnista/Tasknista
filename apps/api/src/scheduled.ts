@@ -1,5 +1,5 @@
 import { bkkDateOf, isNearExpiry } from '@seedoffice/core'
-import { createDb, notifications, projects, sprints, tasks, timerSessions } from '@seedoffice/db'
+import { createDb, notifications, projectMembers, projects, sprints, tasks, timerSessions } from '@seedoffice/db'
 import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm'
 import { runBackup } from './lib/backup'
 import { syncAllCalendars } from './lib/gcal-sync'
@@ -48,7 +48,7 @@ export async function runScheduled(env: Env, cron: string): Promise<void> {
 }
 
 /**
- * Pronista §Subscription Notify — เตือน Project Lead ล่วงหน้าก่อนโปรเจกต์หมดอายุบริการ (รันวันละครั้งพร้อม backup)
+ * Pronista §Subscription Notify — เตือนทุกคนที่เป็นสมาชิกโปรเจกต์ล่วงหน้าก่อนโปรเจกต์หมดอายุบริการ (รันวันละครั้งพร้อม backup)
  * กันเตือนซ้ำทุกวันด้วย expiryNotifiedAt (reset เป็น null เฉพาะตอนแก้ serviceEndDate — ดู routes/projects.ts PATCH)
  */
 async function notifyExpiringProjects(db: ReturnType<typeof createDb>, today: string): Promise<void> {
@@ -66,18 +66,18 @@ async function notifyExpiringProjects(db: ReturnType<typeof createDb>, today: st
         isNull(projects.deletedAt),
         isNotNull(projects.serviceEndDate),
         isNotNull(projects.notifyBeforeDays),
-        isNotNull(projects.leadId),
         isNull(projects.expiryNotifiedAt),
       ),
     )
   for (const p of candidates) {
-    if (!p.leadId || !isNearExpiry(p.serviceEndDate, p.notifyBeforeDays, today)) continue
-    await db.insert(notifications).values({
-      userId: p.leadId,
-      type: 'expiry_reminder',
-      projectId: p.id,
-      message: `โปรเจกต์ "${p.name}" ใกล้หมดอายุบริการ (${p.serviceEndDate})`,
-    })
+    if (!isNearExpiry(p.serviceEndDate, p.notifyBeforeDays, today)) continue
+    const members = await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, p.id))
+    const recipients = new Set(members.map((m) => m.userId))
+    if (p.leadId) recipients.add(p.leadId)
+    const message = `โปรเจกต์ "${p.name}" ใกล้หมดอายุบริการ (${p.serviceEndDate})`
+    for (const userId of recipients) {
+      await db.insert(notifications).values({ userId, type: 'expiry_reminder', projectId: p.id, message })
+    }
     await db.update(projects).set({ expiryNotifiedAt: new Date() }).where(eq(projects.id, p.id))
   }
 }

@@ -1,5 +1,6 @@
-import { createDb, users } from '@seedoffice/db'
+import { createDb, notifications, projectMembers, users } from '@seedoffice/db'
 import { eq } from 'drizzle-orm'
+import type { NOTIFICATION_TYPES } from '@seedoffice/db'
 
 /**
  * แจ้งเตือนชนเพดานชั่วโมง/วัน (SPEC §4.5: เตือนเว็บ + อีเมล — เจตนา: อยากให้ทีมพัก)
@@ -21,4 +22,29 @@ export async function notifyCapReached(env: Env, userId: string): Promise<void> 
       message: `ครบเพดานชั่วโมงทำงานของวันแล้ว — พักได้แล้ว 🌱 (ทำเกินจริงค่อยลง manual ย้อนหลัง)`,
     }),
   )
+}
+
+export interface NotifyProjectMembersInput {
+  projectId: string
+  type: (typeof NOTIFICATION_TYPES)[number]
+  message: string
+  taskId?: string
+  excludeUserId?: string // ผู้ทำ action เอง ไม่ต้องแจ้งเตือนตัวเอง
+}
+
+/** แจ้งเตือนสมาชิกโปรเจกต์ทุกคน (ทุก role) — ใช้ตอนลูกค้าคีย์ Backlog/Defect เอง เป็นต้น */
+export async function notifyProjectMembers(env: Env, input: NotifyProjectMembersInput): Promise<void> {
+  const db = createDb(env.DB)
+  const members = await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, input.projectId))
+  const recipients = new Set(members.map((m) => m.userId))
+  if (input.excludeUserId) recipients.delete(input.excludeUserId)
+  for (const userId of recipients) {
+    await db.insert(notifications).values({
+      userId,
+      type: input.type,
+      projectId: input.projectId,
+      taskId: input.taskId ?? null,
+      message: input.message,
+    })
+  }
 }

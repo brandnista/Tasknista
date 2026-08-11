@@ -25,6 +25,7 @@ import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { notifyProjectMembers } from '../lib/notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
 import { loadProjectBacklog } from '../lib/workspace-query'
@@ -353,6 +354,17 @@ export const taskRoutes = new Hono<AppEnv>()
     )[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
     await writeAudit(c.env, { actorId: me.id, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, projectBacklog: true } })
+    // Pronista §Guest Backlog — ลูกค้าคีย์ Backlog/Defect เอง แจ้งสมาชิกโปรเจกต์ทุกคน (ไม่แจ้งตัวเอง)
+    if (me.role === 'guest' && (kind === 'backlog' || kind === 'defect')) {
+      const kindLabel = kind === 'defect' ? 'Defect' : 'Backlog'
+      await notifyProjectMembers(c.env, {
+        projectId,
+        type: 'guest_item_created',
+        taskId: created.id,
+        excludeUserId: me.id,
+        message: `ลูกค้าคีย์ ${kindLabel} ใหม่ในโปรเจกต์ "${project.name}": ${created.title}`,
+      })
+    }
     return c.json(created, 201)
   })
 

@@ -115,7 +115,12 @@ export function WorkspaceRoomsPage() {
   // Pronista §System Requirements Update — สลับมุมมอง List/Grid เหมือนเมนูเอกสาร จำค่าไว้ที่เครื่อง
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => (localStorage.getItem('workspace-rooms-view-mode') === 'list' ? 'list' : 'grid'))
   const setView = (v: 'list' | 'grid') => { setViewMode(v); localStorage.setItem('workspace-rooms-view-mode', v) }
-  const rooms = data ?? []
+  // Pronista §Feedback batch — ค้นหา/กรองรายชื่อห้องด้วยชื่อ + ประเภท
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | WorkspaceType>('all')
+  const allRooms = data ?? []
+  const q = search.trim().toLowerCase()
+  const rooms = allRooms.filter((r) => (typeFilter === 'all' || r.type === typeFilter) && (!q || r.name.toLowerCase().includes(q)))
 
   return (
     <>
@@ -151,7 +156,7 @@ export function WorkspaceRoomsPage() {
         }
       />
       <div className="p-3 sm:p-6">
-        {rooms.length === 0 ? (
+        {allRooms.length === 0 ? (
           <div className="bg-white rounded-lg shadow-xs p-10 text-center">
             <Layers className="w-8 h-8 text-muted mx-auto mb-2" />
             <div className="text-sm text-muted mb-3">ยังไม่มี Workspace — สร้างห้องแรกของทีมได้เลย</div>
@@ -159,6 +164,23 @@ export function WorkspaceRoomsPage() {
               <Plus className="w-4 h-4" /> สร้าง Workspace
             </button>
           </div>
+        ) : (
+        <>
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหาชื่อ Workspace…"
+            className="text-sm bg-white border border-border rounded-lg px-3 py-1.5 w-56"
+          />
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'all' | WorkspaceType)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
+            <option value="all">ทุกประเภท</option>
+            {(['developer', 'business'] as WorkspaceType[]).map((t) => <option key={t} value={t}>{WORKSPACE_TYPE_LABEL[t]}</option>)}
+          </select>
+        </div>
+        {rooms.length === 0 ? (
+          <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">ไม่พบ Workspace ตามตัวกรองนี้</div>
         ) : viewMode === 'grid' ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {rooms.map((r) => (
@@ -199,6 +221,8 @@ export function WorkspaceRoomsPage() {
               </button>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 

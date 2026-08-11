@@ -8,7 +8,7 @@ export interface ProjectRow {
   description?: string | null
   url?: string | null
   tags?: string[] | null
-  members?: { id: string; name: string; avatarUrl: string | null; positionId?: string | null; positionName?: string | null }[]
+  members?: { id: string; name: string; avatarUrl: string | null; role?: 'owner' | 'member' | 'vendor' | 'guest'; positionId?: string | null; positionName?: string | null }[]
   logo: string | null
   clientId: string | null
   clientName: string | null

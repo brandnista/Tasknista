@@ -1,4 +1,4 @@
-import { createDb, companyConfig, projectMembers } from '@seedoffice/db'
+import { createDb, companyConfig, customerProjects, projectMembers } from '@seedoffice/db'
 import {
   FULL_ACCESS_PERMISSIONS,
   intersectPermissions,
@@ -13,6 +13,33 @@ import {
 import { and, eq } from 'drizzle-orm'
 
 export type EffectiveProjectRole = 'owner' | 'editor' | 'viewer'
+
+/**
+ * Pronista §Customer Project Scope — ลูกค้า (guest) มองเห็นเฉพาะโปรเจกต์ที่ถูกเลือกไว้ตอนตั้งค่าผู้ใช้งาน (customer_projects)
+ * หรือถูกเพิ่มเป็นสมาชิกโปรเจกต์ตรงๆ (project_members — เผื่อ owner เพิ่ม guest เข้าโปรเจกต์ทีหลัง)
+ * role อื่นไม่ถูกจำกัดด้วยตารางนี้ (คืน true เสมอ) — เรียกใช้ที่ GET /projects (list) + GET /projects/:id (detail)
+ */
+export async function isProjectVisibleToUser(
+  db: ReturnType<typeof createDb>,
+  projectId: string,
+  userId: string,
+  globalRole: 'owner' | 'member' | 'vendor' | 'guest',
+): Promise<boolean> {
+  if (globalRole !== 'guest') return true
+  const [link, member] = await Promise.all([
+    db
+      .select({ id: customerProjects.id })
+      .from(customerProjects)
+      .where(and(eq(customerProjects.projectId, projectId), eq(customerProjects.userId, userId)))
+      .limit(1),
+    db
+      .select({ id: projectMembers.id })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+      .limit(1),
+  ])
+  return link.length > 0 || member.length > 0
+}
 
 /**
  * Pronista §Position-based permission + §System Requirements Update (เพดานสิทธิ์) — permission bundle เต็มของฉันในโปรเจกต์นี้

@@ -25,37 +25,41 @@ const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2
 /**
  * Pronista §Position-based permission — owner assign ตำแหน่ง (BA/PM/ฯลฯ) ให้ member เป็นรายโปรเจกต์ (สิทธิ์มาจากตำแหน่งที่เลือกล้วนๆ)
  * Pronista §7 (2026-07-03) — controlled component: แค่เก็บ positionId ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
+ * Pronista §Member Management — เพิ่ม/ลบ vendor(outsource)/guest(ลูกค้า) เป็นสมาชิกโปรเจกต์ได้ด้วย (ไม่มีตำแหน่ง สิทธิ์มาจากเพดานหมวดตรงๆ) แยก state จาก member เพราะไม่มี positionId
  */
 function MembersSection({
+  users,
   assignments,
+  extraMembers,
   positions,
-  existingMemberIds,
-  onChange,
+  onChangePosition,
+  onToggleExtra,
 }: {
+  users: TeamUser[]
   assignments: Record<string, string>
+  extraMembers: Record<string, boolean>
   positions: PositionOpt[]
-  existingMemberIds: Set<string>
-  onChange: (userId: string, positionId: string) => void
+  onChangePosition: (userId: string, positionId: string) => void
+  onToggleExtra: (userId: string, checked: boolean) => void
 }) {
-  const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
-  // ตำแหน่ง (catalog) มีผลเฉพาะ role=member — owner/vendor/guest สิทธิ์คงที่ตาม role อยู่แล้ว ตั้งตำแหน่งไม่ได้ (backend ปฏิเสธ)
-  const team = (users ?? []).filter((u) => u.role === 'member')
-  // owner/vendor/guest ที่ถูกเลือกไว้ตอนสร้างโปรเจกต์ (เห็นในนี้ได้ แต่แก้ตำแหน่งไม่ได้ — สิทธิ์มาจาก role โดยตรง)
-  const fixedAccessMembers = (users ?? []).filter((u) => u.role !== 'member' && existingMemberIds.has(u.id))
-  const fixedAccessLabel = (role: TeamUser['role']) => (role === 'owner' ? 'เข้าถึงเต็มรูปแบบ' : 'ดูอย่างเดียว')
+  // ตำแหน่ง (catalog) มีผลเฉพาะ role=member — vendor/guest ไม่มีตำแหน่งของตัวเอง (สิทธิ์มาจากเพดานหมวดโดยตรง)
+  const team = users.filter((u) => u.role === 'member')
+  const outsource = users.filter((u) => u.role === 'vendor')
+  const customers = users.filter((u) => u.role === 'guest')
   return (
     <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
       <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
       <p className="text-xs text-muted mb-4">
         สิทธิ์แก้ไข/มองเห็นเมนูมาจากตำแหน่งที่เลือก (ตั้งค่าตำแหน่งได้ที่ ตั้งค่า → ตำแหน่งและสิทธิ์) · ยังไม่ตั้งค่า = ยังไม่ใช่สมาชิก · กด "บันทึก" ด้านล่างเพื่อยืนยัน
       </p>
-      <div className="divide-y divide-divider">
+      <div className="text-[11px] font-medium text-muted mb-1.5">ทีมงาน (member)</div>
+      <div className="divide-y divide-divider mb-4">
         {team.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-2.5">
             <span className="flex-1 text-sm text-body">{u.name}</span>
             <select
               value={assignments[u.id] ?? ''}
-              onChange={(e) => onChange(u.id, e.target.value)}
+              onChange={(e) => onChangePosition(u.id, e.target.value)}
               className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
             >
               <option value="">— ยังไม่ใช่สมาชิก — (เอาออก)</option>
@@ -67,19 +71,30 @@ function MembersSection({
         ))}
         {team.length === 0 && <div className="text-sm text-muted py-3">ไม่มีพนักงาน (member) ในระบบ</div>}
       </div>
-      {fixedAccessMembers.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-border-subtle">
-          <p className="text-[11px] text-muted mb-2">สมาชิกอื่นในโปรเจกต์นี้ — สิทธิ์มาจาก "สิทธิ์ระบบ" โดยตรง (ไม่ผ่านตำแหน่ง แก้ที่นี่ไม่ได้)</p>
-          <div className="divide-y divide-divider">
-            {fixedAccessMembers.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 py-2">
-                <span className="flex-1 text-sm text-body">{u.name}</span>
-                <span className="text-xs text-muted">{ROLE_LABEL[u.role]} · {fixedAccessLabel(u.role)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+
+      <div className="text-[11px] font-medium text-muted mb-1.5 pt-3 border-t border-border-subtle">Outsource (vendor)</div>
+      <div className="divide-y divide-divider mb-4">
+        {outsource.map((u) => (
+          <label key={u.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
+            <span className="flex-1 text-sm text-body">{u.name}</span>
+            <span className="text-xs text-muted">{ROLE_LABEL[u.role]} · สิทธิ์ตามเพดาน outsource</span>
+            <input type="checkbox" checked={extraMembers[u.id] ?? false} onChange={(e) => onToggleExtra(u.id, e.target.checked)} />
+          </label>
+        ))}
+        {outsource.length === 0 && <div className="text-sm text-muted py-3">ไม่มี outsource ในระบบ</div>}
+      </div>
+
+      <div className="text-[11px] font-medium text-muted mb-1.5 pt-3 border-t border-border-subtle">ลูกค้า (guest)</div>
+      <div className="divide-y divide-divider">
+        {customers.map((u) => (
+          <label key={u.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
+            <span className="flex-1 text-sm text-body">{u.name}</span>
+            <span className="text-xs text-muted">{ROLE_LABEL[u.role]} · สิทธิ์ตามเพดานลูกค้า</span>
+            <input type="checkbox" checked={extraMembers[u.id] ?? false} onChange={(e) => onToggleExtra(u.id, e.target.checked)} />
+          </label>
+        ))}
+        {customers.length === 0 && <div className="text-sm text-muted py-3">ไม่มีลูกค้าในระบบ</div>}
+      </div>
     </div>
   )
 }
@@ -94,6 +109,8 @@ export function ProjectEditPage() {
   const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[] }>(() => api.get('/api/config'))
   const statusOptions = cfg?.projectStatuses ?? []
   const { data: positionsData } = useLoad<{ positions: PositionOpt[] }>(() => api.get('/api/admin/positions'))
+  const { data: allUsersData } = useLoad<TeamUser[]>(() => api.get('/api/users'))
+  const allUsers = allUsersData ?? []
   const { data: serviceTypeData } = useLoad<{ serviceTypes: ServiceTypeOpt[] }>(() => api.get('/api/admin/service-types'))
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
@@ -111,8 +128,10 @@ export function ProjectEditPage() {
   const [logoDirty, setLogoDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  // Pronista §Position-based permission — ตำแหน่งต่อสมาชิกที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
+  // Pronista §Position-based permission — ตำแหน่งต่อสมาชิก (role=member) ที่ "กำลังแก้ไข" อยู่ในหน้านี้ (ยังไม่บันทึก) แยกจาก project.members ที่โหลดมา
   const [memberAssignments, setMemberAssignments] = useState<Record<string, string>>({})
+  // Pronista §Member Management — สมาชิก vendor/guest (ไม่มีตำแหน่ง) เก็บแยกเป็น toggle เพิ่ม/เอาออก
+  const [extraMembers, setExtraMembers] = useState<Record<string, boolean>>({})
 
   // เติมค่าจากโปรเจกต์ที่โหลดมา (ครั้งเดียวตอนได้ data)
   useEffect(() => {
@@ -138,7 +157,8 @@ export function ProjectEditPage() {
     })
     setLogo(project.logo)
     setLogoDirty(false)
-    setMemberAssignments(Object.fromEntries((project.members ?? []).map((m) => [m.id, m.positionId ?? ''])))
+    setMemberAssignments(Object.fromEntries((project.members ?? []).filter((m) => m.role === 'member').map((m) => [m.id, m.positionId ?? ''])))
+    setExtraMembers(Object.fromEntries((project.members ?? []).filter((m) => m.role !== 'member').map((m) => [m.id, true])))
   }, [project])
 
   if (loading) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
@@ -189,13 +209,21 @@ export function ProjectEditPage() {
       await api.patch(`/api/projects/${id}`, body)
       // Pronista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
       if (isOwner) {
-        const before = Object.fromEntries((project.members ?? []).map((m) => [m.id, m.positionId ?? '']))
-        const toUpsert = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== before[userId])
+        const membersBefore = project.members ?? []
+        const beforePos = Object.fromEntries(membersBefore.filter((m) => m.role === 'member').map((m) => [m.id, m.positionId ?? '']))
+        const toUpsertPos = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== beforePos[userId])
         // Pronista §System Requirements Update — เลือก "— ยังไม่ใช่สมาชิก —" กลับ = เอาออกจากโปรเจกต์ (เดิมกด remove ไม่ได้เลยเพราะ option ถูก disable + save() กรองทิ้ง)
-        const toRemove = Object.entries(memberAssignments).filter(([userId, positionId]) => !positionId && before[userId])
+        const toRemovePos = Object.entries(memberAssignments).filter(([userId, positionId]) => !positionId && beforePos[userId])
+        // Pronista §Member Management — vendor/guest ไม่มีตำแหน่ง diff กันด้วย on/off ตรงๆ
+        const beforeExtraIds = new Set(membersBefore.filter((m) => m.role !== 'member').map((m) => m.id))
+        const nowExtraIds = new Set(Object.entries(extraMembers).filter(([, checked]) => checked).map(([userId]) => userId))
+        const toAddExtra = [...nowExtraIds].filter((userId) => !beforeExtraIds.has(userId))
+        const toRemoveExtra = [...beforeExtraIds].filter((userId) => !nowExtraIds.has(userId))
         await Promise.all([
-          ...toUpsert.map(([userId, positionId]) => api.post(`/api/projects/${id}/members`, { userId, positionId })),
-          ...toRemove.map(([userId]) => api.delete(`/api/projects/${id}/members/${userId}`)),
+          ...toUpsertPos.map(([userId, positionId]) => api.post(`/api/projects/${id}/members`, { userId, positionId })),
+          ...toRemovePos.map(([userId]) => api.delete(`/api/projects/${id}/members/${userId}`)),
+          ...toAddExtra.map((userId) => api.post(`/api/projects/${id}/members`, { userId })),
+          ...toRemoveExtra.map((userId) => api.delete(`/api/projects/${id}/members/${userId}`)),
         ])
       }
       navigate(`/projects/${id}`)
@@ -354,10 +382,12 @@ export function ProjectEditPage() {
 
       {isOwner && (
         <MembersSection
+          users={allUsers}
           assignments={memberAssignments}
+          extraMembers={extraMembers}
           positions={positionsData?.positions ?? []}
-          existingMemberIds={new Set((project.members ?? []).map((m) => m.id))}
-          onChange={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
+          onChangePosition={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
+          onToggleExtra={(userId, checked) => setExtraMembers((a) => ({ ...a, [userId]: checked }))}
         />
       )}
 

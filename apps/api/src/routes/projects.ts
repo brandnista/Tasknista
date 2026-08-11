@@ -23,13 +23,13 @@ import {
   statusById,
   uploadLogo,
 } from '@seedoffice/core'
-import { auditLogs, clients, companyConfig, createDb, docLinks, docs, epics, milestones, payments, projectMembers, projects, sprints, tasks, timeEntries, users, type Project } from '@seedoffice/db'
+import { auditLogs, clients, companyConfig, createDb, customerProjects, docLinks, docs, epics, milestones, payments, projectMembers, projects, sprints, tasks, timeEntries, users, type Project } from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { canEditProject, getProjectPermissions, getProjectRole } from '../lib/project-role'
+import { canEditProject, getProjectPermissions, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { ownerOnly, teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -146,10 +146,21 @@ export const projectRoutes = new Hono<AppEnv>()
       const cur = lastActivityOf.get(a.projectId)
       if (!cur || at > cur) lastActivityOf.set(a.projectId, at)
     }
-    const role = c.get('user').role
+    const me = c.get('user')
+    const role = me.role
     const today = bkkDateOf(Date.now())
+    // Pronista §Customer Project Scope — ลูกค้า (guest) เห็นเฉพาะโปรเจกต์ที่ถูกเลือกไว้ตอนตั้งค่าผู้ใช้งาน
+    let visibleRows = rows
+    if (role === 'guest') {
+      const [links, memberships] = await Promise.all([
+        db.select({ projectId: customerProjects.projectId }).from(customerProjects).where(eq(customerProjects.userId, me.id)),
+        db.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, me.id)),
+      ])
+      const allowed = new Set([...links.map((l) => l.projectId), ...memberships.map((m) => m.projectId)])
+      visibleRows = rows.filter((r) => allowed.has(r.project.id))
+    }
     return c.json(
-      rows.map((r) => {
+      visibleRows.map((r) => {
         const cost = costSatang(allEntries.filter((e) => e.projectId === r.project.id))
         const h = healthOf(
           cost,
@@ -191,6 +202,8 @@ export const projectRoutes = new Hono<AppEnv>()
         .limit(1)
     )[0]
     if (!row || row.project.deletedAt) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (!(await isProjectVisibleToUser(db, row.project.id, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
     const cfgRow = (
       await db
         .select({
@@ -210,12 +223,11 @@ export const projectRoutes = new Hono<AppEnv>()
     // Pronista §Position-based permission — สมาชิกในโปรเจกต์ (พร้อมชื่อ/avatar/ตำแหน่ง) สำหรับการ์ดหัวโปรเจกต์ + หน้าแก้ไขสมาชิก
     const members = (
       await db
-        .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, positionId: projectMembers.positionId })
+        .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, role: users.role, positionId: projectMembers.positionId })
         .from(projectMembers)
         .innerJoin(users, eq(projectMembers.userId, users.id))
         .where(eq(projectMembers.projectId, row.project.id))
     ).map((m) => ({ ...m, positionName: positionById(positionsList, m.positionId)?.name ?? null }))
-    const me = c.get('user')
     // Pronista §Position-based permission — permission bundle เต็ม (tabs/actions) สำหรับคุมการมองเห็นเมนู/แท็บ + สิทธิ์เพิ่ม/แก้ไข/ลบละเอียด
     // (Performance review 2026-08-03) คำนวณครั้งเดียว แล้ว derive myRole จากผลลัพธ์นี้เลย แทนการเรียก getProjectRole() แยกซึ่งข้างในคำนวณ permission ซ้ำอีกรอบ
     const myPermissions = await getProjectPermissions(db, row.project.id, me.id, me.role)
@@ -642,33 +654,36 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Pronista §Position-based permission — ตั้ง/เปลี่ยนตำแหน่งของสมาชิกในโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
+  // Pronista §Position-based permission — เพิ่ม/แก้สมาชิกโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
   // upsert บน (projectId, userId) — เรียกซ้ำ = เปลี่ยนตำแหน่งเดิม ไม่สร้างแถวซ้ำ (unique index กันไว้)
+  // Pronista §Member Management — role member ต้องมีตำแหน่ง (สิทธิ์มาจากตำแหน่ง) · vendor/guest ไม่มีตำแหน่งของตัวเอง (สิทธิ์มาจากเพดานหมวดตรงๆ ผ่าน getProjectPermissions) — positionId เป็น null ได้
   .post('/:id/members', ownerOnly, async (c) => {
-    const body = z.object({ userId: z.string(), positionId: z.string() }).safeParse(await c.req.json())
+    const body = z.object({ userId: z.string(), positionId: z.string().optional() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const project = (await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const targetUser = (await db.select().from(users).where(eq(users.id, body.data.userId)).limit(1))[0]
     if (!targetUser) return c.json({ error: 'user_not_found' }, 404)
-    // ตำแหน่งต่อโปรเจกต์มีผลเฉพาะ member (owner แก้ได้ทุกอย่างอยู่แล้ว · vendor ถูก teamOnly กันไว้ชั้นนอก) — กันตั้งตำแหน่งให้คนที่ไม่ใช้งานจริง
-    if (targetUser.role !== 'member')
-      return c.json({ error: 'not_a_member', message: 'ตั้งตำแหน่งต่อโปรเจกต์ได้เฉพาะผู้ใช้ role member เท่านั้น' }, 400)
-    const cfg = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
-    if (!positionById(resolvePositions(cfg?.positions), body.data.positionId))
-      return c.json({ error: 'position_not_found' }, 404)
+    if (targetUser.role === 'owner') return c.json({ error: 'owner_has_full_access', message: 'owner เข้าถึงได้ทุกโปรเจกต์อยู่แล้ว ไม่ต้องเพิ่มเป็นสมาชิก' }, 400)
+    let positionId: string | null = null
+    if (targetUser.role === 'member') {
+      if (!body.data.positionId) return c.json({ error: 'position_required', message: 'พนักงาน (member) ต้องเลือกตำแหน่ง' }, 400)
+      const cfg = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
+      if (!positionById(resolvePositions(cfg?.positions), body.data.positionId)) return c.json({ error: 'position_not_found' }, 404)
+      positionId = body.data.positionId
+    }
     const upserted = await db
       .insert(projectMembers)
-      .values({ projectId: project.id, userId: targetUser.id, positionId: body.data.positionId })
-      .onConflictDoUpdate({ target: [projectMembers.projectId, projectMembers.userId], set: { positionId: body.data.positionId } })
+      .values({ projectId: project.id, userId: targetUser.id, positionId })
+      .onConflictDoUpdate({ target: [projectMembers.projectId, projectMembers.userId], set: { positionId } })
       .returning()
     await writeAudit(c.env, {
       actorId: c.get('user').id,
       action: 'project.member_position',
       entity: 'project',
       entityId: project.id,
-      meta: { userId: targetUser.id, positionId: body.data.positionId },
+      meta: { userId: targetUser.id, positionId },
     })
     return c.json(upserted[0])
   })

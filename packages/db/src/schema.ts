@@ -1360,6 +1360,8 @@ export const NOTIFICATION_TYPES = [
   'task_bounced',
   // Pronista §Subscription Notify — เตือน Project Lead ก่อนโปรเจกต์ใกล้หมดอายุบริการ (คอลัมน์ TEXT ธรรมดา ไม่ต้อง migration)
   'expiry_reminder',
+  // Pronista §Guest Backlog — แจ้งสมาชิกโปรเจกต์ทุกคนเมื่อลูกค้า (guest) คีย์ Backlog/Defect เอง
+  'guest_item_created',
 ] as const
 
 export const notifications = sqliteTable(

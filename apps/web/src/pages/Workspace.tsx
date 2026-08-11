@@ -13,8 +13,10 @@ import { useDialog } from '../components/Dialog'
 import { ImportDataModal } from '../components/ImportDataModal'
 import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
+import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { api, ApiError } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
+import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor, SprintStartModal } from './ProjectDetail'
@@ -70,7 +72,8 @@ interface WsSprint {
   notDoneCount: number | null
 }
 interface WsSprintItem { sprint: WsSprint; tasks: WsTask[] }
-interface RoomDetail { id: string; name: string; type: WorkspaceType; canManage: boolean; projects: AccessibleProject[] }
+interface WorkspaceMember { userId: string; name: string; avatarUrl: string | null; role: 'owner' | 'member' | 'vendor' | 'guest' }
+interface RoomDetail { id: string; name: string; type: WorkspaceType; canManage: boolean; projects: AccessibleProject[]; members: WorkspaceMember[] }
 
 const WORKTYPE_ORDER: Record<WorkType, number> = { backlog: 0, epic: 1, story: 2, task: 3, subtask: 4, defect: 5 }
 const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect', backlog: 'Backlog' }
@@ -112,21 +115,46 @@ function DueDateChip({ dueDate, status }: { dueDate: string | null; status: Task
   )
 }
 
-/** Pronista §Workspace Rooms (ต่อยอด) — แก้ชื่อห้อง + ดึง/เอาโปรเจกต์เข้า-ออกห้อง + ลบห้อง (เฉพาะผู้สร้างห้องหรือ owner บริษัท — เช็คซ้ำที่ server เสมอ) */
-function RoomEditModal({ workspaceId, currentName, linkedProjects, onClose, onChanged, onDeleted }: {
+/** Pronista §Workspace Rooms (ต่อยอด) — แก้ชื่อห้อง + ดึง/เอาโปรเจกต์เข้า-ออกห้อง + จัดการสมาชิกห้อง + ลบห้อง (เฉพาะผู้สร้างห้องหรือ owner บริษัท — เช็คซ้ำที่ server เสมอ) */
+function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onClose, onChanged, onDeleted }: {
   workspaceId: string
   currentName: string
   linkedProjects: AccessibleProject[]
+  members: WorkspaceMember[]
   onClose: () => void
   onChanged: () => void
   onDeleted: () => void
 }) {
   const { confirmDialog } = useDialog()
   const { data: allProjects } = useLoad<{ id: string; code: string | null; name: string }[]>(() => api.get('/api/projects'))
+  const { data: allUsers } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
   const [name, setName] = useState(currentName)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [memberError, setMemberError] = useState('')
   const linkedIds = new Set(linkedProjects.map((p) => p.id))
+  const memberIds = new Set(members.map((m) => m.userId))
+  const candidateUsers = (allUsers ?? []).filter((u) => u.role !== 'owner' && !memberIds.has(u.id))
+
+  const addMember = async (userId: string) => {
+    setMemberError('')
+    try {
+      await api.post(`/api/workspaces/${workspaceId}/members`, { userId })
+      onChanged()
+    } catch (e) {
+      setMemberError(e instanceof ApiError ? e.message : 'เพิ่มสมาชิกไม่สำเร็จ')
+    }
+  }
+
+  const removeMember = async (userId: string) => {
+    setMemberError('')
+    try {
+      await api.delete(`/api/workspaces/${workspaceId}/members/${userId}`)
+      onChanged()
+    } catch (e) {
+      setMemberError(e instanceof ApiError ? e.message : 'เอาสมาชิกออกไม่สำเร็จ')
+    }
+  }
 
   const saveName = async () => {
     if (!name.trim() || name.trim() === currentName) return
@@ -195,6 +223,34 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, onClose, onCh
               </div>
               <div className="text-[11px] text-muted mt-1">ห้องใหม่เริ่มว่างเปล่า — ติ๊กโปรเจกต์ที่อยากให้ Backlog/Sprint ของห้องนี้ดึงงานเข้ามา</div>
             </div>
+            <div>
+              <label className="text-xs font-medium text-muted mb-1 block">สมาชิกห้อง ({members.length})</label>
+              <div className="border border-border-subtle rounded-lg max-h-40 overflow-y-auto divide-y divide-divider">
+                {members.length === 0 && <div className="text-xs text-muted px-3 py-4 text-center">ยังไม่มีสมาชิกในห้องนี้</div>}
+                {members.map((m) => (
+                  <div key={m.userId} className="flex items-center gap-2.5 px-3 py-2 text-sm">
+                    <span className="text-body truncate flex-1">{m.name}</span>
+                    <span className="text-[10px] text-muted shrink-0">{ROLE_LABEL[m.role]}</span>
+                    <button onClick={() => void removeMember(m.userId)} className="text-muted hover:text-danger-600 shrink-0" title="เอาออกจากห้อง">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {candidateUsers.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) void addMember(e.target.value) }}
+                  className="w-full mt-2 text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
+                >
+                  <option value="">+ เพิ่มสมาชิก…</option>
+                  {candidateUsers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} · {ROLE_LABEL[u.role]}</option>
+                  ))}
+                </select>
+              )}
+              {memberError && <div className="text-xs text-danger-600 mt-1">{memberError}</div>}
+            </div>
             {error && <div className="text-xs text-danger-600">{error}</div>}
             <div className="pt-2 border-t border-divider">
               <button onClick={() => void deleteRoom()} className="flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700">
@@ -238,6 +294,8 @@ export function WorkspacePage() {
   const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all')
   const [workTypeFilter, setWorkTypeFilter] = useState<'all' | WorkType>('all')
+  // Pronista §Feedback batch — ค้นหาด้วยชื่อ/รหัสงาน กรองซ้อนกับ dropdown อื่นๆ ได้
+  const [searchQuery, setSearchQuery] = useState('')
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
@@ -354,14 +412,32 @@ export function WorkspacePage() {
     }
   }
 
+  // Pronista §Feedback batch — เชื่อมโยง (🔗) งานแต่ละประเภทกันได้อย่างอิสระ ใช้ pattern เดียวกับ 🔗 ใน ProjectDetail (task_references) — Epic ไม่รองรับ (อยู่คนละตาราง เชื่อมผ่านการเลือก Epic ตอนสร้าง Story แทน)
+  const [linkingItemId, setLinkingItemId] = useState<string | null>(null)
+  const linkCandidates = (backlogData?.items ?? [])
+    .filter((i) => i.kind !== 'epic' && i.id !== linkingItemId)
+    .map((i): PickableTask => ({ id: i.id, code: i.code, title: i.title, parentId: null }))
+  const addReference = async (referencesTaskId: string) => {
+    if (!linkingItemId) return
+    setError('')
+    try {
+      await api.post(`/api/tasks/${linkingItemId}/references`, { referencesTaskId })
+      setLinkingItemId(null)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'เชื่อมโยงไม่สำเร็จ')
+    }
+  }
+
   const allItems = backlogData?.items ?? []
   const dispatcherOptions = [...new Set(allItems.map((i) => i.dispatcherName).filter((n): n is string => !!n))].sort()
   const assigneeOptions = [...new Set(allItems.map((i) => i.assigneeName).filter((n): n is string => !!n))].sort()
+  const trimmedSearch = searchQuery.trim().toLowerCase()
   const filteredItems = allItems
     .filter((i) => dispatcherFilter === 'all' || i.dispatcherName === dispatcherFilter)
     .filter((i) => assigneeFilter === 'all' || i.assigneeName === assigneeFilter)
     .filter((i) => statusFilter === 'all' || i.status === statusFilter)
     .filter((i) => workTypeFilter === 'all' || i.workType === workTypeFilter)
+    .filter((i) => !trimmedSearch || i.title.toLowerCase().includes(trimmedSearch) || (i.code ?? '').toLowerCase().includes(trimmedSearch))
     .sort((a, b) => WORKTYPE_ORDER[a.workType] - WORKTYPE_ORDER[b.workType] || a.title.localeCompare(b.title))
 
   const sprintItems = boardData?.sprints ?? []
@@ -431,6 +507,13 @@ export function WorkspacePage() {
         )}
         {/* ฟิลเตอร์ */}
             <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ค้นหาชื่อ/รหัสงาน…"
+                className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 w-48"
+              />
               <Layers className="w-4 h-4 text-muted shrink-0" />
               <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className={selectCls}>
                 <option value="all">ทุกโปรเจกต์</option>
@@ -557,6 +640,11 @@ export function WorkspacePage() {
                         )}
                         <DueDateChip dueDate={it.dueDate} status={it.status} />
                         {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
+                        {it.kind !== 'epic' && (
+                          <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
+                            🔗
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -731,6 +819,7 @@ export function WorkspacePage() {
           workspaceId={room.id}
           currentName={room.name}
           linkedProjects={room.projects}
+          members={room.members}
           onClose={() => setEditingRoom(false)}
           onChanged={() => { void reloadRoom(); reloadAll() }}
           onDeleted={() => navigate('/workspace')}
@@ -743,6 +832,10 @@ export function WorkspacePage() {
           onClose={() => setImportOpen(false)}
           onImported={() => { setImportOpen(false); void reloadBacklog() }}
         />
+      )}
+
+      {linkingItemId && (
+        <TaskPickerModal title="เชื่อมโยงกับงานอื่น" tasks={linkCandidates} onPick={(item) => void addReference(item.id)} onClose={() => setLinkingItemId(null)} />
       )}
     </>
   )

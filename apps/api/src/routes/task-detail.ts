@@ -104,7 +104,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
 
     // Pronista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์ของ task นี้ ให้ FE คุม UI โดยไม่ต้อง fetch แยก
     const me = c.get('user')
-    const myRole = row.task.projectId ? await getProjectRole(db, row.task.projectId, me.id, me.role) : 'viewer'
+    // Pronista §permission — งาน workspace-native (projectId=null) แก้ไขได้ทุกคนอยู่แล้วตาม canEditTask ฝั่ง backend เลยให้ FE เห็นเป็น editor ตรงๆ
+    const myRole = row.task.projectId ? await getProjectRole(db, row.task.projectId, me.id, me.role) : 'editor'
 
     // Pronista §time-tracking — จับเวลาได้เฉพาะ task ที่อยู่ใน sprint ที่ "เริ่ม" แล้วจริงๆ (status active) — Backlog/sprint ที่ยังไม่เริ่มยังไม่ถูก assign งานจริง
     const sprintActive = row.task.sprintId

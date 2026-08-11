@@ -1339,8 +1339,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
   )
 }
 
-/** Pronista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag
- * Pronista §System Requirements Update — คีย์งานใหม่แบบเลือกประเภทได้ (Epic/Story/Task/Subtask/Defect) อยู่ที่ Workspace แล้ว ไม่ใช่ที่นี่ (แท็บนี้เป็น read-only เสมอ — ProjectBacklogSection ถูกเรียกด้วย readOnly เสมอ) */
+/** Pronista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag เสมอ (สรุปภาพรวม ไม่ใช่ที่คีย์งาน) */
 function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpenTask: (id: string) => void }) {
   const { data: epicsList } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const { data } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
@@ -2032,11 +2031,11 @@ export function ProjectDetailPage() {
 
       {view === 'sprint' && id && (
         <>
-          {/* Pronista §Workspace — จัดการ Sprint/Backlog เต็มรูปแบบย้ายไปที่เมนู Workspace แล้ว แท็บนี้เหลือแค่ดูของโปรเจกต์นี้
-              Pronista §System Requirements Update — ยกเว้นลูกค้า (role guest): เข้าเมนู Workspace ไม่ได้เลย ต้องคีย์ Backlog/Defect ตรงจากแท็บนี้ได้ */}
+          {/* Pronista §Feedback batch — โยนงานเข้า Sprint (ลาก/วาง) ยังทำที่ Workspace เท่านั้น ส่วน Backlog (Epic/Story/Task/Defect/CR) คีย์/แก้ไขได้ตรงจากแท็บนี้เหมือนเดิม
+              Pronista §System Requirements Update — ลูกค้า (role guest): เข้าเมนู Workspace ไม่ได้เลย คีย์ Backlog/Defect ตรงจากแท็บนี้ได้เช่นกัน (ตามสิทธิ์ที่เปิดไว้) */}
           {user?.role !== 'guest' && (
             <div className="bg-info-50 text-info-700 text-sm rounded-lg px-4 py-2.5 mb-4 flex items-center gap-2 flex-wrap">
-              <span>จัดการ Sprint และ Backlog แบบเต็มรูปแบบได้ที่</span>
+              <span>โยนงานเข้า Sprint แบบเต็มรูปแบบได้ที่</span>
               <Link to="/workspace" className="font-medium underline hover:no-underline">Workspace</Link>
             </div>
           )}
@@ -2048,7 +2047,7 @@ export function ProjectDetailPage() {
               onOpenTask={openTask}
               refreshKey={backlogRefreshKey}
               revealTab={revealSignal}
-              readOnly={!guestCanKeyBacklog}
+              readOnly={!(canEdit || guestCanKeyBacklog)}
             />
             <SprintSection
               projectId={id}
