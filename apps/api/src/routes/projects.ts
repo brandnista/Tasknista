@@ -654,15 +654,17 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Pronista §Position-based permission — เพิ่ม/แก้สมาชิกโปรเจกต์ (owner เท่านั้น — กันการยกระดับสิทธิ์เอง)
+  // Pronista §Feedback batch 3 — เดิม owner เท่านั้น เปิดให้ editor ของโปรเจกต์นั้นๆ จัดการสมาชิกโปรเจกต์ตัวเองได้ด้วย (แก้ปัญหาสร้างโปรเจกต์แล้วมาเพิ่มสมาชิกทีหลังไม่ได้ถ้าไม่ใช่ owner)
   // upsert บน (projectId, userId) — เรียกซ้ำ = เปลี่ยนตำแหน่งเดิม ไม่สร้างแถวซ้ำ (unique index กันไว้)
   // Pronista §Member Management — role member ต้องมีตำแหน่ง (สิทธิ์มาจากตำแหน่ง) · vendor/guest ไม่มีตำแหน่งของตัวเอง (สิทธิ์มาจากเพดานหมวดตรงๆ ผ่าน getProjectPermissions) — positionId เป็น null ได้
-  .post('/:id/members', ownerOnly, async (c) => {
+  .post('/:id/members', teamOnly, async (c) => {
     const body = z.object({ userId: z.string(), positionId: z.string().optional() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const project = (await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (!canEditProject(await getProjectRole(db, project.id, me.id, me.role))) return c.json({ error: 'forbidden' }, 403)
     const targetUser = (await db.select().from(users).where(eq(users.id, body.data.userId)).limit(1))[0]
     if (!targetUser) return c.json({ error: 'user_not_found' }, 404)
     if (targetUser.role === 'owner') return c.json({ error: 'owner_has_full_access', message: 'owner เข้าถึงได้ทุกโปรเจกต์อยู่แล้ว ไม่ต้องเพิ่มเป็นสมาชิก' }, 400)
@@ -679,7 +681,7 @@ export const projectRoutes = new Hono<AppEnv>()
       .onConflictDoUpdate({ target: [projectMembers.projectId, projectMembers.userId], set: { positionId } })
       .returning()
     await writeAudit(c.env, {
-      actorId: c.get('user').id,
+      actorId: me.id,
       action: 'project.member_position',
       entity: 'project',
       entityId: project.id,
@@ -688,14 +690,18 @@ export const projectRoutes = new Hono<AppEnv>()
     return c.json(upserted[0])
   })
 
-  // Pronista §System Requirements Update — เอาสมาชิกออกจากโปรเจกต์ (owner เท่านั้น เหมือนตั้งตำแหน่ง) — เดิมมีแค่ insert/upsert ไม่มีทางเอาออกเลย
-  .delete('/:id/members/:userId', ownerOnly, async (c) => {
+  // Pronista §Feedback batch 3 — เอาสมาชิกออกจากโปรเจกต์ (owner หรือ editor ของโปรเจกต์นั้นๆ เหมือนตั้งตำแหน่ง) — เดิมมีแค่ insert/upsert ไม่มีทางเอาออกเลย
+  .delete('/:id/members/:userId', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
     const userId = c.req.param('userId')
+    const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
+    if (!project) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (!canEditProject(await getProjectRole(db, project.id, me.id, me.role))) return c.json({ error: 'forbidden' }, 403)
     await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
     await writeAudit(c.env, {
-      actorId: c.get('user').id,
+      actorId: me.id,
       action: 'project.member_remove',
       entity: 'project',
       entityId: projectId,

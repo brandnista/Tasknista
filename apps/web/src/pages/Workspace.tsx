@@ -9,7 +9,7 @@ import type { Label } from '@seedoffice/core'
 import { AlertTriangle, ArrowLeft, CheckCircle2, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertMenu'
+import { CONVERT_LABEL, type ConvertTo } from '../components/BacklogConvertMenu'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { useDialog } from '../components/Dialog'
 import { ImportDataModal } from '../components/ImportDataModal'
@@ -101,6 +101,11 @@ const CREATE_TYPE_DOT: Record<CreateWorkType, string> = {
   backlog: 'bg-brand-400', epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500',
 }
 const CREATE_TYPE_ORDER: CreateWorkType[] = ['backlog', 'epic', 'story', 'task', 'subtask', 'defect']
+
+// Pronista §Feedback batch 3 — คลิกที่ badge ประเภทงานหน้ารหัสงานได้ตรงๆ เปลี่ยนประเภทได้ทันที (รูปแบบเดียวกับตอนคีย์งานใหม่) แทนเมนูจุด 3 จุดเดิม
+const CONVERT_TYPE_ORDER: ConvertTo[] = ['epic', 'story', 'task', 'subtask', 'defect', 'cr']
+const CONVERT_TYPE_LABEL: Record<ConvertTo, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect', cr: 'CR' }
+const CONVERT_TYPE_DOT: Record<ConvertTo, string> = { epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500', cr: 'bg-warning-500' }
 
 function ProjectChip({ code, name }: { code: string | null; name: string | null }) {
   if (!code && !name) return null
@@ -440,6 +445,15 @@ export function WorkspacePage() {
           onConvertPick: (to: 'task' | 'subtask') => setConvertModal({ taskId: item.id, to, projectId: item.projectId }),
         }
 
+  // Pronista §Feedback batch 3 — คลิก badge ประเภทงานหน้ารหัสงานตรงๆ เปิด dropdown เปลี่ยนประเภททันที แทนต้องผ่านเมนูจุด 3 จุด
+  const [typeMenuForId, setTypeMenuForId] = useState<string | null>(null)
+  const pickConvertType = (item: WsBacklogItem, to: ConvertTo) => {
+    setTypeMenuForId(null)
+    const props = rowManageProps(item)
+    if (to === 'task' || to === 'subtask') props.onConvertPick?.(to)
+    else props.onConvertDirect?.(to)
+  }
+
   const allItems = backlogData?.items ?? []
   const dispatcherOptions = [...new Set(allItems.map((i) => i.dispatcherName).filter((n): n is string => !!n))].sort()
   const assigneeOptions = [...new Set(allItems.map((i) => i.assigneeName).filter((n): n is string => !!n))].sort()
@@ -620,7 +634,7 @@ export function WorkspacePage() {
                     </div>
                   </div>
                 ) : (
-                <div className="bg-white rounded-lg shadow-xs overflow-hidden">
+                <div className="bg-white rounded-lg shadow-xs">
                   {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
                   <div className="divide-y divide-divider">
                     {filteredItems.map((it) => (
@@ -631,7 +645,36 @@ export function WorkspacePage() {
                         onDragEnd={() => setDragTaskId(null)}
                         className={`flex items-center gap-2 px-3 py-2 flex-wrap ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                       >
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
+                        {it.kind === 'epic' ? (
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
+                        ) : (
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setTypeMenuForId((v) => (v === it.id ? null : it.id))}
+                              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded hover:opacity-80 ${WORKTYPE_BADGE[it.workType]}`}
+                            >
+                              {WORKTYPE_LABEL[it.workType]}
+                            </button>
+                            {typeMenuForId === it.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setTypeMenuForId(null)} />
+                                <div className="absolute left-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                                  {CONVERT_TYPE_ORDER.filter((t) => t !== it.workType).map((t) => (
+                                    <button
+                                      key={t}
+                                      onClick={() => pickConvertType(it, t)}
+                                      className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
+                                    >
+                                      <span className={`w-2 h-2 rounded-full ${CONVERT_TYPE_DOT[t]}`} />
+                                      {CONVERT_TYPE_LABEL[t]}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                         <ProjectChip code={it.projectCode} name={it.projectName} />
                         {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
                         {it.kind === 'epic' ? (
@@ -657,11 +700,10 @@ export function WorkspacePage() {
                             🔗
                           </button>
                         )}
-                        <BacklogConvertMenu {...rowManageProps(it)} />
                       </div>
                     ))}
                   </div>
-                  <div className={`flex flex-wrap items-center gap-2 p-3 border-t-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
+                  <div className={`flex flex-wrap items-center gap-2 p-3 rounded-b-lg border-t-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
                     <div className="relative shrink-0">
                       <button
                         type="button"

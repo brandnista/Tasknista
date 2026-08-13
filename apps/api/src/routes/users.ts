@@ -1,4 +1,4 @@
-import { resolveLabels, resolvePresets, resolveStatuses } from '@seedoffice/core'
+import { resolveLabels, resolvePositions, resolvePresets, resolveStatuses } from '@seedoffice/core'
 import { companyConfig, createDb, users } from '@seedoffice/db'
 import { asc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -33,6 +33,7 @@ export const userRoutes = new Hono<AppEnv>()
           productStatuses: companyConfig.productStatuses,
           boardPresets: companyConfig.boardPresets,
           labels: companyConfig.labels,
+          positions: companyConfig.positions,
         })
         .from(companyConfig)
         .limit(1)
@@ -45,5 +46,7 @@ export const userRoutes = new Hono<AppEnv>()
       productStatuses: resolveStatuses(cfg.productStatuses),
       boardPresets: resolvePresets(cfg.boardPresets), // Pronista §Sprint & Board
       labels: resolveLabels(cfg.labels), // Pronista §Workspace
+      // Pronista §Feedback batch 3 — ต้องใช้ชื่อ/สิทธิ์ตำแหน่งตอน editor ที่ไม่ใช่ owner จัดการสมาชิกโปรเจกต์ตัวเอง (แก้ผ่าน /api/admin/positions ยังคง owner เท่านั้น — ตรงนี้แค่อ่านให้เลือกตอน assign)
+      positions: resolvePositions(cfg.positions),
     })
   })

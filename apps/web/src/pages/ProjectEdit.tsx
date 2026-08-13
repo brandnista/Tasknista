@@ -6,7 +6,6 @@ import { ClientCombobox } from '../components/ClientCombobox'
 import { DateInputTH } from '../components/DateInputTH'
 import { IconPicker } from '../components/IconPicker'
 import { api } from '../lib/api'
-import { useAuth } from '../lib/auth'
 import { type ProjectRow } from '../lib/project-ui'
 import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
@@ -102,20 +101,18 @@ function MembersSection({
 export function ProjectEditPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
   const { data: project, loading } = useLoad<EditableProject>(() => api.get(`/api/projects/${id}`), [id])
   const { data: clientsRes } = useLoad<{ rows: { id: string; name: string }[] }>(() => api.get('/api/clients'))
   const clientList = clientsRes?.rows ?? []
-  const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[] }>(() => api.get('/api/config'))
+  // Pronista §Feedback batch 3 — ใช้ /api/config (ทุก role อ่านได้) แทน /api/admin/positions (owner เท่านั้น) ให้ editor ที่ไม่ใช่ owner เลือกตำแหน่งตอน assign สมาชิกได้ด้วย
+  const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[]; positions: PositionOpt[] }>(() => api.get('/api/config'))
   const statusOptions = cfg?.projectStatuses ?? []
-  const { data: positionsData } = useLoad<{ positions: PositionOpt[] }>(() => api.get('/api/admin/positions'))
   const { data: allUsersData } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const allUsers = allUsersData ?? []
   const { data: serviceTypeData } = useLoad<{ serviceTypes: ServiceTypeOpt[] }>(() => api.get('/api/admin/service-types'))
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
   const productTypes = productTypeData?.productTypes ?? []
-  const isOwner = user?.role === 'owner'
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
 
   const [form, setForm] = useState({
@@ -208,7 +205,7 @@ export function ProjectEditPage() {
       if (logoDirty) body.logo = logo
       await api.patch(`/api/projects/${id}`, body)
       // Pronista §7 — ปุ่ม "บันทึก" เดียวจัดการทั้ง Grid แก้ไขโปรเจกต์ + Grid สมาชิกโปรเจกต์: บันทึกเฉพาะ role ที่เปลี่ยนจริง (เทียบกับตอนโหลดมา)
-      if (isOwner) {
+      if (canEditProject) {
         const membersBefore = project.members ?? []
         const beforePos = Object.fromEntries(membersBefore.filter((m) => m.role === 'member').map((m) => [m.id, m.positionId ?? '']))
         const toUpsertPos = Object.entries(memberAssignments).filter(([userId, positionId]) => positionId && positionId !== beforePos[userId])
@@ -380,12 +377,12 @@ export function ProjectEditPage() {
         )}
       </div>
 
-      {isOwner && (
+      {canEditProject && (
         <MembersSection
           users={allUsers}
           assignments={memberAssignments}
           extraMembers={extraMembers}
-          positions={positionsData?.positions ?? []}
+          positions={cfg?.positions ?? []}
           onChangePosition={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
           onToggleExtra={(userId, checked) => setExtraMembers((a) => ({ ...a, [userId]: checked }))}
         />
