@@ -259,7 +259,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
 }
 
 // Pronista §System Requirements Update — งาน "Backlog"/"Epic"/"Story" ที่คีย์ตรงในห้อง Workspace โดยไม่ผูกโปรเจกต์จริง (workspaceId ผูกห้อง, projectId ว่างเสมอ)
-// ต่างจาก loadProjectAllBacklogItems ตรงที่ไม่มีลำดับชั้นลึกแบบ Task/Subtask (ยังไม่รองรับ workspace-native ที่มีลูก) — Epic/Story/Backlog เท่านั้น
+// Pronista §Feedback batch 4 — ตอนนี้ Task/Subtask/Defect ก็คีย์/แปลงประเภทแบบไม่ผูกโปรเจกต์ได้แล้ว (ผูกทีหลังได้) จึงต้อง classify ด้วยตรรกะเดียวกับ loadProjectAllBacklogItems แทนการ hardcode workType เป็น 'story' เหมือนเดิม (เดิมพลาดเพราะตอนเขียนฟังก์ชันนี้ยังไม่มี task ลอยที่ไม่ผูกโปรเจกต์เลย)
 export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof createDb>, workspaceId: string): Promise<WorkspaceBacklogItem[]> {
   const dispatcher = alias(users, 'dispatcher')
 
@@ -282,19 +282,40 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     labelIds: null,
   }))
 
+  // หา parent ของทุก task ที่ผูกห้องนี้ (ไม่กรอง sprint/project) แค่พอรู้ depth ของ chain (Story→Task→Subtask) เผื่อ parent เองก็เป็น workspace-native เหมือนกัน
+  const parentLookup = await db
+    .select({ id: tasks.id, parentId: tasks.parentId })
+    .from(tasks)
+    .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.kind, 'task')))
+  const parentIdById = new Map(parentLookup.map((t) => [t.id, t.parentId]))
+  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' => {
+    if (t.kind === 'defect') return 'defect'
+    if (t.kind === 'backlog') return 'backlog'
+    if (t.parentId === null) return t.isStandaloneTask ? 'task' : 'story'
+    return (parentIdById.get(t.parentId) ?? null) !== null ? 'subtask' : 'task'
+  }
+
   const rows = await db
     .select({ task: tasks, assigneeName: users.name, dispatcherName: dispatcher.name })
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
-    .where(and(eq(tasks.workspaceId, workspaceId), isNull(tasks.projectId), isNull(tasks.sprintId), isNull(tasks.groupId)))
+    .where(
+      and(
+        eq(tasks.workspaceId, workspaceId),
+        isNull(tasks.projectId),
+        isNull(tasks.sprintId),
+        isNull(tasks.groupId),
+        inArray(tasks.kind, ['task', 'backlog', 'defect']),
+      ),
+    )
     .orderBy(asc(tasks.createdAt))
   const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
-    kind: r.task.kind === 'backlog' ? 'backlog' : 'task',
-    workType: r.task.kind === 'backlog' ? 'backlog' : 'story',
+    kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : 'task',
+    workType: classify(r.task),
     status: r.task.status,
     dueDate: r.task.dueDate,
     priority: r.task.priority,
@@ -303,7 +324,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     assignedBy: r.task.assignedBy,
     dispatcherName: r.dispatcherName,
     epicId: r.task.epicId,
-    parentId: null,
+    parentId: r.task.parentId,
     labelIds: r.task.labelIds,
   }))
 

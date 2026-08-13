@@ -323,7 +323,6 @@ export function WorkspacePage() {
   const [starting, setStarting] = useState<{ id: string; startDate: string; endDate: string } | null>(null)
 
   const projectName = (id: string | null) => (id ? projects?.find((p) => p.id === id) : undefined)
-  const effectiveAddProjectId = addProjectId || projects?.[0]?.id || ''
 
   const changeStatus = async (taskId: string, status: TaskStatus) => {
     setError('')
@@ -335,20 +334,22 @@ export function WorkspacePage() {
     }
   }
 
-  // Pronista §System Requirements Update — "Backlog"/"Epic"/"Story" คีย์ลอยเป็นของห้องเองได้เลย ไม่ต้องเลือกโปรเจกต์ · Task/Subtask/Defect ยังต้องเลือกโปรเจกต์จริงในห้องเหมือนเดิม (มี hierarchy ผูกกับโปรเจกต์)
-  const needsAddProject = addType === 'task' || addType === 'subtask' || addType === 'defect'
-  const needsAddParent = addType === 'task' || addType === 'subtask'
+  // Pronista §Feedback batch 4 — อิสระเลือกประเภทงานได้เสมอ ไม่บังคับเลือกโปรเจกต์/parent ก่อนคีย์อีกต่อไป (ผูกทีหลังได้) ยกเว้น Subtask ที่ยังต้องเลือก parent (Task) ทันที เพราะโครงสร้างข้อมูลกำหนด subtask ด้วยความลึกของ parent chain ไม่มี kind แยกต่างหาก จึงไม่มีทาง "ลอย" เป็น subtask ได้จริง
+  const showAddProjectPicker = addType === 'task' || addType === 'subtask' || addType === 'defect'
+  const showAddParentPicker = addType === 'task' || addType === 'subtask'
+  const parentRequired = addType === 'subtask'
+  const effectiveAddProjectId = addProjectId
   const addParentOptions = (backlogData?.items ?? []).filter(
-    (i) => i.projectId === effectiveAddProjectId && i.workType === (addType === 'task' ? 'story' : 'task'),
+    (i) => i.workType === (addType === 'task' ? 'story' : 'task') && (!effectiveAddProjectId || i.projectId === effectiveAddProjectId),
   )
-  const effectiveAddParentId = addParentId || addParentOptions[0]?.id || ''
-  const noProjectsLinked = (projects ?? []).length === 0
+  // Subtask ยังบังคับเลือก parent ทันที — auto-default ไปที่ตัวเลือกแรกเหมือนพฤติกรรมเดิม (ไม่งั้น select ที่ไม่มี option ว่างจะโชว์ตัวแรกให้เห็นเฉยๆ แต่ state ไม่อัปเดตจนกว่าจะแตะ)
+  const effectiveAddParentId = addParentId || (parentRequired ? (addParentOptions[0]?.id ?? '') : '')
+  const canAddSubtask = !parentRequired || addParentOptions.length > 0
 
   const addItem = async () => {
     const title = addTitle.trim()
     if (!title) return
-    if (needsAddProject && !effectiveAddProjectId) return
-    if (needsAddParent && !effectiveAddParentId) return
+    if (parentRequired && !effectiveAddParentId) return
     setError('')
     try {
       if (addType === 'backlog') {
@@ -357,12 +358,13 @@ export function WorkspacePage() {
         await api.post(`/api/workspaces/${workspaceId}/epics`, { title })
       } else if (addType === 'story') {
         await api.post(`/api/workspaces/${workspaceId}/backlog`, { title, kind: 'story' })
-      } else if (addType === 'defect') {
-        const created = await api.post<{ id: string }>(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
-        await api.post(`/api/tasks/${created.id}/convert`, { to: 'defect' })
       } else {
-        const created = await api.post<{ id: string }>(`/api/projects/${effectiveAddProjectId}/backlog`, { title })
-        await api.post(`/api/tasks/${created.id}/convert`, { to: addType, targetParentId: effectiveAddParentId })
+        // task/subtask/defect — สร้างเป็นรายการลอยของห้องก่อน แล้วแปลงประเภท (ผูกโปรเจกต์/parent ถ้าเลือกไว้ ไม่เลือกก็สร้างลอยได้ ไปผูกทีหลังได้)
+        const created = await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title })
+        const convertBody: { to: CreateWorkType; targetParentId?: string; targetProjectId?: string } = { to: addType }
+        if (effectiveAddParentId) convertBody.targetParentId = effectiveAddParentId
+        if (effectiveAddProjectId) convertBody.targetProjectId = effectiveAddProjectId
+        await api.post(`/api/tasks/${created.id}/convert`, convertBody)
       }
       setAddTitle('')
       setAddParentId('')
@@ -454,6 +456,32 @@ export function WorkspacePage() {
     else props.onConvertDirect?.(to)
   }
 
+  // Pronista §Feedback batch 4 — งานที่คีย์/แปลงประเภทแบบไม่ผูกโปรเจกต์ (projectId ว่าง) ผูกย้อนหลังได้ทีหลังจากตรงนี้ (Epic ไม่รองรับ อยู่คนละตาราง เหมือนกับ 🔗/เปลี่ยนประเภท)
+  const [attachMenuForId, setAttachMenuForId] = useState<string | null>(null)
+  const [attachProjectId, setAttachProjectId] = useState('')
+  const [attachParentId, setAttachParentId] = useState('')
+  const attachParentOptions = (backlogData?.items ?? []).filter(
+    (i) => i.workType === 'story' && (!attachProjectId || i.projectId === attachProjectId),
+  )
+  const openAttachMenu = (item: WsBacklogItem) => {
+    setAttachMenuForId((v) => (v === item.id ? null : item.id))
+    setAttachProjectId('')
+    setAttachParentId('')
+  }
+  const attachItem = async (item: WsBacklogItem) => {
+    setError('')
+    try {
+      const patch: { projectId?: string; parentId?: string } = {}
+      if (attachProjectId) patch.projectId = attachProjectId
+      if (attachParentId) patch.parentId = attachParentId
+      await api.patch(`/api/tasks/${item.id}`, patch)
+      setAttachMenuForId(null)
+      void reloadBacklog()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'ผูกโปรเจกต์ไม่สำเร็จ')
+    }
+  }
+
   const allItems = backlogData?.items ?? []
   const dispatcherOptions = [...new Set(allItems.map((i) => i.dispatcherName).filter((n): n is string => !!n))].sort()
   const assigneeOptions = [...new Set(allItems.map((i) => i.assigneeName).filter((n): n is string => !!n))].sort()
@@ -521,16 +549,6 @@ export function WorkspacePage() {
         <Link to="/workspace" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> ทุก Workspace</Link>
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
 
-        {noProjectsLinked && (
-          <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3.5 py-2.5">
-            ห้องนี้ยังไม่มีโปรเจกต์จริงถูกดึงเข้าห้อง — คีย์งาน "Backlog"/"Epic"/"Story" ตรงในห้องได้เลยตอนนี้ ส่วน Task/Subtask/Defect ต้อง
-            {room.canManage ? (
-              <button onClick={() => setEditingRoom(true)} className="text-info-800 hover:underline font-medium ml-1">กด "แก้ไขห้อง" เพื่อดึงโปรเจกต์เข้ามาก่อน</button>
-            ) : (
-              ' ดึงโปรเจกต์เข้าห้องก่อน'
-            )}
-          </div>
-        )}
         {/* ฟิลเตอร์ */}
             <div className="flex items-center gap-2 flex-wrap">
               <input
@@ -675,7 +693,50 @@ export function WorkspacePage() {
                             )}
                           </div>
                         )}
-                        <ProjectChip code={it.projectCode} name={it.projectName} />
+                        {it.projectId || it.kind === 'epic' ? (
+                          <ProjectChip code={it.projectCode} name={it.projectName} />
+                        ) : (
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openAttachMenu(it) }}
+                              className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-50 text-warning-700 hover:bg-warning-100 shrink-0"
+                            >
+                              ยังไม่ผูกโปรเจกต์
+                            </button>
+                            {attachMenuForId === it.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setAttachMenuForId(null)} />
+                                <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle p-3 z-20 text-sm space-y-2">
+                                  <div className="text-xs font-medium text-muted">ผูกโปรเจกต์ (ไม่บังคับ)</div>
+                                  <select value={attachProjectId} onChange={(e) => { setAttachProjectId(e.target.value); setAttachParentId('') }} className={`${selectCls} w-full`}>
+                                    <option value="">— ไม่ผูก —</option>
+                                    {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                  </select>
+                                  {it.workType === 'task' && (
+                                    <>
+                                      <div className="text-xs font-medium text-muted">ผูก Story แม่ (ไม่บังคับ)</div>
+                                      <select value={attachParentId} onChange={(e) => setAttachParentId(e.target.value)} className={`${selectCls} w-full`}>
+                                        <option value="">— ไม่ผูก —</option>
+                                        {attachParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
+                                      </select>
+                                    </>
+                                  )}
+                                  <div className="flex justify-end gap-2 pt-1">
+                                    <button onClick={() => setAttachMenuForId(null)} className="text-xs px-2 py-1 rounded hover:bg-hover">ยกเลิก</button>
+                                    <button
+                                      onClick={() => void attachItem(it)}
+                                      disabled={!attachProjectId && !attachParentId}
+                                      className="text-xs bg-brand-600 text-white px-2.5 py-1 rounded hover:bg-brand-700 disabled:opacity-40"
+                                    >
+                                      บันทึก
+                                    </button>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                         {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
                         {it.kind === 'epic' ? (
                           <span className="flex-1 text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
@@ -731,22 +792,20 @@ export function WorkspacePage() {
                         </>
                       )}
                     </div>
-                    {needsAddProject && (
-                      noProjectsLinked ? (
-                        <span className="text-xs text-muted shrink-0">ต้องดึงโปรเจกต์เข้าห้องก่อนถึงจะสร้าง {CREATE_TYPE_LABEL[addType]} ได้</span>
-                      ) : (
-                        <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
-                          {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
-                      )
+                    {showAddProjectPicker && (projects ?? []).length > 0 && (
+                      <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
+                        <option value="">— ไม่ผูกโปรเจกต์ (ผูกทีหลังได้) —</option>
+                        {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
                     )}
-                    {needsAddParent && (
+                    {showAddParentPicker && (
                       addParentOptions.length === 0 ? (
-                        <span className="text-xs text-muted shrink-0">
-                          {addType === 'task' ? 'ต้องมี Story ในโปรเจกต์นี้ก่อน' : 'ต้องมี Task ในโปรเจกต์นี้ก่อน'}
-                        </span>
+                        parentRequired && (
+                          <span className="text-xs text-muted shrink-0">ต้องมี Task ในห้องนี้ก่อนถึงจะสร้าง Subtask ได้</span>
+                        )
                       ) : (
                         <select value={effectiveAddParentId} onChange={(e) => setAddParentId(e.target.value)} className={`${selectCls} max-w-48`}>
+                          {!parentRequired && <option value="">— ไม่ผูก {addType === 'task' ? 'Story' : 'Task'} (ผูกทีหลังได้) —</option>}
                           {addParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
                         </select>
                       )
@@ -756,7 +815,7 @@ export function WorkspacePage() {
                       onChange={(e) => setAddTitle(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
                       placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter…`}
-                      disabled={needsAddProject && noProjectsLinked}
+                      disabled={!canAddSubtask}
                       className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400 disabled:bg-hover disabled:cursor-not-allowed"
                     />
                   </div>

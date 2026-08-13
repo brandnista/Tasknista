@@ -14,7 +14,8 @@ interface AllProjectTask extends PickableTask {
   kind: 'task' | 'defect' | 'cr' | 'backlog'
 }
 
-const NEEDS_PARENT = new Set(['task', 'subtask'])
+// Pronista §Feedback batch 4 — Task ไม่บังคับเลือก parent (Story) ทันทีอีกต่อไป ผูกทีหลังได้ · Subtask ยังบังคับเพราะโครงสร้างข้อมูลกำหนดด้วย parent chain
+const NEEDS_PARENT = new Set(['subtask'])
 
 /**
  * Pronista §Backlog cross-project convert — เมนู "จัดการ" ใน Backlog ของโปรเจกต์:
@@ -53,7 +54,11 @@ export function ConvertBacklogModal({
     setBusy(true)
     setError('')
     try {
-      await api.post(`/api/tasks/${taskId}/convert`, { to, targetProjectId, targetParentId })
+      // Pronista §Feedback batch 4 — ไม่ส่ง targetProjectId ว่างเปล่า (backend ใช้ ?? แยก "ไม่ระบุ" กับ "" ไม่ได้ จะเข้าใจผิดว่าตั้งใจ unset โปรเจกต์เดิม)
+      const body: { to: typeof to; targetProjectId?: string; targetParentId?: string } = { to }
+      if (targetProjectId) body.targetProjectId = targetProjectId
+      if (targetParentId) body.targetParentId = targetParentId
+      await api.post(`/api/tasks/${taskId}/convert`, body)
       onConverted()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ผิดพลาด')
@@ -103,7 +108,7 @@ export function ConvertBacklogModal({
           {error && <div className="text-xs text-danger-600 mb-3">{error}</div>}
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
-            <button onClick={goNext} disabled={busy || !targetProjectId} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">
+            <button onClick={goNext} disabled={busy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">
               {NEEDS_PARENT.has(to) ? 'ถัดไป' : busy ? 'กำลังบันทึก…' : 'ยืนยัน'}
             </button>
           </div>

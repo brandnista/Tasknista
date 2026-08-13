@@ -695,8 +695,8 @@ export const taskRoutes = new Hono<AppEnv>()
       const prefix = sanitizeCodePrefix(project?.code, 'TASK')
       if (body.data.to === 'defect' && before.kind !== 'defect') patch.defectStatus = 'reported'
       patch.code = await nextTypedTaskCode(db, prefix, body.data.to === 'cr' ? 'CR' : body.data.to === 'defect' ? 'Defect' : 'Story')
-    } else {
-      // task | subtask — ต้องเลือก parent จาก picker (โปรเจกต์ปลายทางตามที่ parent สังกัดอยู่จริง)
+    } else if (body.data.to === 'subtask') {
+      // subtask — ต้องเลือก parent (Task) จาก picker เสมอ (โครงสร้างข้อมูลกำหนด subtask ด้วยความลึกของ parent chain ไม่มี kind แยกต่างหาก จึงไม่มีทาง "ลอย" เป็น subtask ได้จริง)
       if (!body.data.targetParentId) return c.json({ error: 'target_parent_required' }, 400)
       const parent = (await db.select().from(tasks).where(eq(tasks.id, body.data.targetParentId)).limit(1))[0]
       if (!parent) return c.json({ error: 'parent_not_found' }, 404)
@@ -708,7 +708,32 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.projectId = parent.projectId
       patch.groupId = parent.groupId
       patch.epicId = parent.epicId
+      patch.isStandaloneTask = false
       patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
+    } else {
+      // task — Pronista §Feedback batch 4: ไม่บังคับเลือก parent (Story) ทันทีอีกต่อไป ผูกทีหลังได้ผ่าน PATCH /tasks/:id
+      if (body.data.targetParentId) {
+        const parent = (await db.select().from(tasks).where(eq(tasks.id, body.data.targetParentId)).limit(1))[0]
+        if (!parent) return c.json({ error: 'parent_not_found' }, 404)
+        if (parent.projectId && parent.projectId !== before.projectId) {
+          const parentRole = await getProjectRole(db, parent.projectId, me.id, me.role)
+          if (!canEditProject(parentRole)) return c.json({ error: 'forbidden', message: 'ไม่มีสิทธิ์แก้ไขโปรเจกต์ปลายทาง' }, 403)
+        }
+        patch.parentId = parent.id
+        patch.projectId = parent.projectId
+        patch.groupId = parent.groupId
+        patch.epicId = parent.epicId
+        patch.isStandaloneTask = false
+        patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
+      } else {
+        patch.parentId = null
+        patch.projectId = effectiveProjectId
+        patch.groupId = null
+        patch.epicId = null
+        patch.isStandaloneTask = true
+        const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
+        patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
+      }
     }
 
     const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()

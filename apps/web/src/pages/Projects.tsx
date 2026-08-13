@@ -1,10 +1,8 @@
-import { AlertTriangle, ChevronDown, Plus, Search, X } from 'lucide-react'
+import { AlertTriangle, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
-import { BacklogConvertMenu, CONVERT_LABEL, type ConvertTo } from '../components/BacklogConvertMenu'
 import { ClientCombobox } from '../components/ClientCombobox'
-import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { ProjectIcon } from '../components/ProjectIcon'
@@ -269,21 +267,6 @@ function ExecutiveWidgets({ rows }: { rows: ProjectRow[] }) {
   )
 }
 
-/** Pronista §PM View — Backlog พับเก็บได้ ไม่ให้แย่งพื้นที่ Dashboard */
-function CollapsibleBacklog({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="mb-5">
-      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 bg-white rounded-lg shadow-xs px-4 py-3 text-sm font-medium text-ink hover:bg-hover">
-        <ChevronDown className={`w-4 h-4 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
-        Backlog
-        <span className="text-xs font-normal text-muted">— งานลอยๆ ยังไม่ผูกโปรเจกต์</span>
-      </button>
-      {open && <div className="mt-2">{children}</div>}
-    </div>
-  )
-}
-
 /** Pronista §Subscription Notify — Dashboard รวมโปรเจกต์ที่ใกล้/เลยวันหมดอายุบริการ (nearExpiry จาก server)
  * คอลัมน์ตามที่กำหนด: ชื่อโปรเจกต์ / Service Type / ชื่อลูกค้า / วันที่หมดอายุ — เรียงตามวันหมดอายุใกล้สุดก่อน */
 function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
@@ -479,7 +462,7 @@ interface ProductTypeOpt { id: string; name: string }
 /** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
 const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
 
-function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => void; onCreated: () => void; initialName?: string }) {
+function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const { data: clientData } = useLoad<{ rows: ClientOpt[] }>(() => api.get('/api/clients'))
   const { data: serviceTypeData } = useLoad<{ serviceTypes: ServiceTypeOpt[] }>(() => api.get('/api/admin/service-types'))
@@ -494,8 +477,8 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
   const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
-    name: initialName ?? '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
-    startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: initialName ? autoProjectKey(initialName) : '',
+    name: '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
+    startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: '',
     // Pronista §Subscription Notify — ประเภทโปรเจกต์ (project) / ประเภทสินค้า (product) + ช่วงเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
     serviceType: '', productType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
   })
@@ -716,79 +699,14 @@ function NewProjectModal({ onClose, onCreated, initialName }: { onClose: () => v
   )
 }
 
-interface BacklogTask { id: string; title: string; priority: string; assigneeName: string | null; code: string | null; locked: boolean }
-
-/** Pronista §F2 — Backlog: งานลอยๆ ที่ยังไม่ผูกโปรเจค · +TASK สร้างไว้ก่อน แล้วจัดเข้าโปรเจกต์ย้อนหลัง
- * Pronista §Backlog cross-project convert — เมนู "จัดการ" ใช้ตัวเดียวกับ Backlog ของโปรเจกต์ (ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR + เลือกโปรเจกต์ปลายทางเอง เพราะงานพวกนี้ยังไม่มีโปรเจกต์เลย) */
-function BacklogSection({ isOwner, onConvertToProject }: { isOwner: boolean; onConvertToProject: (task: BacklogTask) => void }) {
-  const { data, reload } = useLoad<BacklogTask[]>(() => api.get('/api/tasks/backlog'))
-  const [title, setTitle] = useState('')
-  const [convertModal, setConvertModal] = useState<{ taskId: string; to: ConvertTo } | null>(null)
-  const list = data ?? []
-
-  const add = async () => {
-    if (!title.trim()) return
-    await api.post('/api/tasks/backlog', { title: title.trim() })
-    setTitle('')
-    void reload()
-  }
-
-  return (
-    <div className="bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-5">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="font-semibold text-ink text-sm">📥 Backlog</span>
-        <span className="text-[11px] text-muted">งานลอยๆ ยังไม่ผูกโปรเจค · จัดเข้าโปรเจกต์ย้อนหลังได้</span>
-        <span className="ml-auto text-[11px] bg-info-100 text-info-700 px-2 py-0.5 rounded-full">{list.length} งาน</span>
-      </div>
-      <div className="flex gap-2 mb-3">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
-        <button onClick={() => void add()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
-      </div>
-      {list.length === 0 ? (
-        <div className="text-center text-xs text-muted py-3">ยังไม่มีงานใน Backlog — พิมพ์ด้านบนเพื่อเพิ่ม</div>
-      ) : (
-        <div className="divide-y divide-divider">
-          {list.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 py-2.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
-              {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-              <span className="flex-1 text-sm text-body truncate">{t.title}</span>
-              {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
-              {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
-              <BacklogConvertMenu
-                onConvertDirect={(to) => setConvertModal({ taskId: t.id, to })}
-                onConvertPick={(to) => setConvertModal({ taskId: t.id, to })}
-                extraItems={isOwner ? [{ label: '🏗️ ตั้งเป็นโปรเจกต์', onClick: () => onConvertToProject(t) }] : undefined}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-      {convertModal && (
-        <ConvertBacklogModal
-          taskId={convertModal.taskId}
-          to={convertModal.to}
-          title={CONVERT_LABEL[convertModal.to]}
-          onClose={() => setConvertModal(null)}
-          onConverted={() => { setConvertModal(null); void reload() }}
-        />
-      )}
-    </div>
-  )
-}
-
 export function ProjectsPage() {
   const { user } = useAuth()
-  const canEdit = user?.role !== 'vendor'
   // Pronista §permission: สร้างโปรเจกต์ใหม่ = จัดการข้อมูลโปรเจกต์ → หัวหน้า (owner) เท่านั้น
   const isOwner = user?.role === 'owner'
   const showMoney = false // Pronista (PM app) — ซ่อนข้อมูลเงินทั้งหมด (เก็บใน DB แต่ไม่แสดง)
   const { data, loading, reload } = useLoad<ProjectRow[]>(() => api.get('/api/projects'))
   const [searchOpen, setSearchOpen] = useState(false)
   const [newOpen, setNewOpen] = useState(false)
-  // Pronista §2.6 — "ตั้งเป็นโปรเจกต์" จาก Backlog: เก็บ task ที่กำลังแปลง + bump key ให้ BacklogSection รีเฟรชหลังลบ task เดิม
-  const [convertingTask, setConvertingTask] = useState<{ id: string; title: string } | null>(null)
-  const [backlogKey, setBacklogKey] = useState(0)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -905,12 +823,6 @@ export function ProjectsPage() {
               </div>
             )}
 
-            {canEdit && (
-              <CollapsibleBacklog>
-                <BacklogSection key={backlogKey} isOwner={isOwner} onConvertToProject={(t) => { setConvertingTask(t); setNewOpen(true) }} />
-              </CollapsibleBacklog>
-            )}
-
             {view === 'summary' && (
               <>
                 <div className="font-semibold text-ink mb-3">
@@ -926,18 +838,8 @@ export function ProjectsPage() {
       {searchOpen && <SearchModal rows={rows} onClose={() => setSearchOpen(false)} />}
       {newOpen && (
         <NewProjectModal
-          initialName={convertingTask?.title}
-          onClose={() => { setNewOpen(false); setConvertingTask(null) }}
-          onCreated={() => {
-            void (async () => {
-              // Pronista §2.6 — "ตั้งเป็นโปรเจกต์": task เดิมกลายร่างเป็นโปรเจกต์ทั้งก้อน → ลบ task ใน Backlog ทิ้ง
-              if (convertingTask) await api.delete(`/api/tasks/${convertingTask.id}`)
-              setNewOpen(false)
-              setConvertingTask(null)
-              setBacklogKey((k) => k + 1)
-              void reload()
-            })()
-          }}
+          onClose={() => setNewOpen(false)}
+          onCreated={() => { setNewOpen(false); void reload() }}
         />
       )}
     </>
