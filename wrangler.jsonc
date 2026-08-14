@@ -39,7 +39,9 @@
     // (2026-08-03) Security review — DEV_AUTH ต้องเป็น "0" เสมอในไฟล์นี้ (ค่าที่ deploy ขึ้น production จริง)
     // dev-login = login เป็นใครก็ได้โดยไม่ต้องมีรหัสผ่าน ถ้าเปิดบน production = ใครก็ตามที่รู้ URL เข้าเป็น owner ได้ทันที
     // การสลับ user ทดสอบยังทำได้ตามเดิมตอนรัน local ผ่าน .dev.vars (DEV_AUTH=1 อยู่แล้ว, override ค่านี้เฉพาะตอน `wrangler dev`, ไม่ถูก deploy)
-    "DEV_AUTH": "0"
+    "DEV_AUTH": "0",
+    // (2026-08-14) ซ่อนปุ่ม Import Data เฉพาะ production ตามคำขอเจ้าของ — ยังเปิดอยู่บน staging ให้ทดสอบต่อ
+    "IMPORT_DATA_ENABLED": "0"
   },
 
   // DO: PRESENCE = timer realtime (SPEC §4.15) · INBOX_HUB = collision อีเมลกลางราย thread (SPEC §4.12)
@@ -84,7 +86,8 @@
       },
       "vars": {
         "APP_URL": "https://staging.pronista.com",
-        "DEV_AUTH": "0"
+        "DEV_AUTH": "0",
+        "IMPORT_DATA_ENABLED": "1"
       },
       "durable_objects": {
         "bindings": [

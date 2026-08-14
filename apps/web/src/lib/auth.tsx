@@ -14,6 +14,8 @@ export interface Me {
   nickname: string | null
   // Pronista §System Requirements Update — เมนู sidebar ที่มองเห็นได้ ผูกกับหมวดผู้ใช้งาน (owner = ทุกเมนู true เสมอ)
   menuVisibility: Record<MenuKey, boolean>
+  // Pronista §Import Data — ซ่อนปุ่ม Import Data เฉพาะ production ผ่าน env var (ยังเปิดบน staging/local)
+  importDataEnabled: boolean
 }
 
 interface AuthState {

@@ -1944,13 +1944,15 @@ export function ProjectDetailPage() {
           <span className={`text-xs px-2 py-0.5 rounded-full ${statusChip(project.statusColor)}`}>{project.statusName}</span>
           {canEditProject && (
             <div className="ml-auto flex items-center gap-3">
-              <button
-                onClick={() => setImportOpen(true)}
-                title="อัปงานเข้าระบบทีเดียวจาก Excel + เอกสารแนบ"
-                className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
-              >
-                <Upload className="w-3.5 h-3.5" /> Import Data
-              </button>
+              {user?.importDataEnabled && (
+                <button
+                  onClick={() => setImportOpen(true)}
+                  title="อัปงานเข้าระบบทีเดียวจาก Excel + เอกสารแนบ"
+                  className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
+                >
+                  <Upload className="w-3.5 h-3.5" /> Import Data
+                </button>
+              )}
               <button
                 onClick={() => setUploadOpen(true)}
                 title="อัปโหลดเอกสาร SOW มาแตกเป็น Task/Subtask"

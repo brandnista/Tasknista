@@ -17,6 +17,7 @@ import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { fmtThaiDate } from '../lib/project-ui'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
@@ -274,6 +275,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
 export function WorkspacePage() {
   const navigate = useNavigate()
   const { confirmDialog } = useDialog()
+  const { user } = useAuth()
   const { workspaceId } = useParams<{ workspaceId: string }>()
 
   // Pronista §Workspace Rooms — เข้าห้องได้เฉพาะสมาชิก (เช็คซ้ำที่ server เสมอ) — โหลดชื่อห้อง/โปรเจกต์ในห้องมาโชว์เป็น breadcrumb
@@ -527,7 +529,7 @@ export function WorkspacePage() {
                 <Pencil className="w-3.5 h-3.5" /> แก้ไขห้อง
               </button>
             )}
-            {room.type === 'business' && room.projects.length > 0 && (
+            {room.type === 'business' && room.projects.length > 0 && user?.importDataEnabled && (
               <>
                 {room.projects.length > 1 && (
                   <select value={importProjectId || room.projects[0]!.id} onChange={(e) => setImportProjectId(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
