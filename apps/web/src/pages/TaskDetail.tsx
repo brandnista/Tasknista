@@ -629,9 +629,9 @@ export function TaskDetailPage() {
                 ))}
               </div>
               {canEdit && !isAssignee && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <input value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="+ เพิ่มงานย่อย…" className={`${input} flex-1`} />
-                  <input value={newSubtaskCode} onChange={(e) => setNewSubtaskCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="รหัส (ไม่บังคับ)" title="ตั้งรหัสงานย่อยเอง — เว้นว่างให้ระบบออกเลขอัตโนมัติ" className={`${input} w-32 font-mono`} />
+                  <input value={newSubtaskCode} onChange={(e) => setNewSubtaskCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="รหัส (ไม่บังคับ)" title="ตั้งรหัสงานย่อยเอง — เว้นว่างให้ระบบออกเลขอัตโนมัติ" className={`${input} w-full sm:w-32 font-mono`} />
                   <button onClick={() => void addSubtask()} disabled={!newSubtask.trim()} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
                 </div>
               )}

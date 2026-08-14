@@ -141,7 +141,7 @@ export function Layout() {
         <button
           onClick={() => setNavOpen(false)}
           aria-label="ปิดเมนู"
-          className="ml-auto lg:hidden p-1 rounded-lg text-muted hover:bg-divider"
+          className="ml-auto lg:hidden p-2 rounded-lg text-muted hover:bg-divider"
         >
           <X className="w-5 h-5" />
         </button>
@@ -211,7 +211,7 @@ export function Layout() {
             <button
               onClick={() => setNavOpen(true)}
               aria-label="เมนู"
-              className="ml-auto -mr-1 p-1.5 rounded-lg text-dim hover:bg-divider"
+              className="ml-auto -mr-1 p-2 rounded-lg text-dim hover:bg-divider"
             >
               <Menu className="w-5 h-5" />
             </button>

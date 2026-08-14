@@ -407,18 +407,23 @@ export function WorkspacePage() {
     }
   }
 
-  const dropOnSprint = async (sprintId: string) => {
-    setDropHoverSprintId(null)
-    const taskId = dragTaskId
-    setDragTaskId(null)
-    if (!taskId) return
+  // Pronista §Mobile responsive — แยก helper รับ taskId ตรงๆ ให้ปุ่ม "..." (ไม่ต้องลาก) เรียกร่วมกับ path ลากเดิมได้
+  const assignToSprint = async (sprintId: string, taskId: string) => {
     setError('')
     try {
       await api.post(`/api/sprints/${sprintId}/tasks`, { taskId })
       reloadAll()
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'ลากเข้า Sprint ไม่สำเร็จ')
+      setError(e instanceof ApiError ? e.message : 'เพิ่มเข้า Sprint ไม่สำเร็จ')
     }
+  }
+
+  const dropOnSprint = async (sprintId: string) => {
+    setDropHoverSprintId(null)
+    const taskId = dragTaskId
+    setDragTaskId(null)
+    if (!taskId) return
+    void assignToSprint(sprintId, taskId)
   }
 
   // Pronista §Feedback batch — เชื่อมโยง (🔗) งานแต่ละประเภทกันได้อย่างอิสระ ใช้ pattern เดียวกับ 🔗 ใน ProjectDetail (task_references) — Epic ไม่รองรับ (อยู่คนละตาราง เชื่อมผ่านการเลือก Epic ตอนสร้าง Story แทน)
@@ -455,6 +460,9 @@ export function WorkspacePage() {
     if (to === 'task' || to === 'subtask') props.onConvertPick?.(to)
     else props.onConvertDirect?.(to)
   }
+
+  // Pronista §Mobile responsive — ปุ่ม "..." ย้ายงานเข้า Sprint แทนการลาก (ห้อง developer เท่านั้น, ลากยังใช้ได้ปกติบนเดสก์ท็อป)
+  const [sprintMenuForId, setSprintMenuForId] = useState<string | null>(null)
 
   // Pronista §Feedback batch 4 — งานที่คีย์/แปลงประเภทแบบไม่ผูกโปรเจกต์ (projectId ว่าง) ผูกย้อนหลังได้ทีหลังจากตรงนี้ (Epic ไม่รองรับ อยู่คนละตาราง เหมือนกับ 🔗/เปลี่ยนประเภท)
   const [attachMenuForId, setAttachMenuForId] = useState<string | null>(null)
@@ -495,6 +503,7 @@ export function WorkspacePage() {
     .sort((a, b) => WORKTYPE_ORDER[a.workType] - WORKTYPE_ORDER[b.workType] || a.title.localeCompare(b.title))
 
   const sprintItems = boardData?.sprints ?? []
+  const openSprints = sprintItems.filter((s) => s.sprint.status !== 'completed')
 
   // Pronista §Workspace Rooms — ต้องอยู่หลัง hook ตัวสุดท้ายเสมอ กัน "Rendered more hooks" (โหลด/error สลับกันข้าม render ได้)
   if (roomLoading) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
@@ -550,32 +559,32 @@ export function WorkspacePage() {
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
 
         {/* ฟิลเตอร์ */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:flex-wrap">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="ค้นหาชื่อ/รหัสงาน…"
-                className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 w-48"
+                className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 col-span-2 sm:w-48"
               />
-              <Layers className="w-4 h-4 text-muted shrink-0" />
-              <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className={selectCls}>
+              <Layers className="hidden sm:block w-4 h-4 text-muted shrink-0" />
+              <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ทุกโปรเจกต์</option>
                 {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className={selectCls}>
+              <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ผู้จ่ายงานทั้งหมด</option>
                 {dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={selectCls}>
+              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ผู้รับงานทั้งหมด</option>
                 {assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | TaskStatus)} className={selectCls}>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | TaskStatus)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ทุกสถานะ</option>
                 {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
               </select>
-              <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value as 'all' | WorkType)} className={selectCls}>
+              <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value as 'all' | WorkType)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ทุกประเภทงาน</option>
                 {CREATE_TYPE_ORDER.map((w) => <option key={w} value={w}>{WORKTYPE_LABEL[w]}</option>)}
               </select>
@@ -586,8 +595,9 @@ export function WorkspacePage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                  {/* Pronista §Mobile responsive — Kanban ลากเปลี่ยนสถานะใช้กับสัมผัสไม่ได้ ซ่อนปุ่มสลับบนมือถือ (backlogView เริ่มต้นเป็น 'list' อยู่แล้วซึ่งมี select เปลี่ยนสถานะ) */}
                   {room.type === 'business' && (
-                    <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
+                    <div className="hidden sm:flex bg-divider rounded-lg p-0.5 text-xs font-medium">
                       <button onClick={() => setBacklogView('list')} className={`px-2.5 py-1 rounded-md inline-flex items-center gap-1 ${backlogView === 'list' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
                         <ListIcon className="w-3.5 h-3.5" /> List
                       </button>
@@ -739,9 +749,9 @@ export function WorkspacePage() {
                         )}
                         {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
                         {it.kind === 'epic' ? (
-                          <span className="flex-1 text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
+                          <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
                         ) : (
-                          <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
+                          <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
                         )}
                         {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
                         <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
@@ -760,6 +770,39 @@ export function WorkspacePage() {
                           <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
                             🔗
                           </button>
+                        )}
+                        {/* Pronista §Mobile responsive — ปุ่มย้ายเข้า Sprint แทนการลาก (ลากใช้ไม่ได้บนสัมผัส) ห้อง developer เท่านั้น */}
+                        {room.type === 'developer' && it.kind !== 'epic' && (
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setSprintMenuForId((v) => (v === it.id ? null : it.id))}
+                              title="ย้ายเข้า Sprint"
+                              className="text-muted hover:text-brand-600 shrink-0 text-xs px-1"
+                            >
+                              ⋯
+                            </button>
+                            {sprintMenuForId === it.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setSprintMenuForId(null)} />
+                                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                                  {openSprints.length === 0 ? (
+                                    <div className="px-3 py-2 text-xs text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
+                                  ) : (
+                                    openSprints.map(({ sprint }) => (
+                                      <button
+                                        key={sprint.id}
+                                        onClick={() => { setSprintMenuForId(null); void assignToSprint(sprint.id, it.id) }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-hover truncate"
+                                      >
+                                        เพิ่มเข้า Sprint: {sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     ))}

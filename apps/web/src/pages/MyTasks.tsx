@@ -176,7 +176,8 @@ function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id:
   if (tasks.length === 0) return <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-10">ไม่พบงานตามตัวกรองนี้</div>
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-      <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+      {/* Pronista §Mobile responsive — ตารางคงเดิมบน sm+ ขึ้นไป, มือถือใช้การ์ดแทน (ตารางคอลัมน์ตายตัวบีบอ่านยากบนจอแคบ) */}
+      <table className="hidden sm:table w-full text-sm" style={{ tableLayout: 'fixed' }}>
         <colgroup>
           <col style={{ width: '16%' }} />
           <col style={{ width: '38%' }} />
@@ -210,6 +211,25 @@ function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id:
           ))}
         </tbody>
       </table>
+      <div className="sm:hidden divide-y divide-divider">
+        {tasks.map((t) => (
+          <button key={t.id} onClick={() => onOpenTask(t.id)} className="w-full text-left px-4 py-3 hover:bg-hover">
+            <div className="flex items-center gap-2">
+              {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+              <span className="text-sm text-body truncate">{t.title}</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-muted">
+              <span className="truncate">{t.projectName}</span>
+              <span>·</span>
+              <span className="truncate">{taskTypeLabel(t)}</span>
+              <span className="inline-flex items-center gap-1 ml-auto shrink-0">
+                <span className={`w-1.5 h-1.5 rounded-full ${TASK_STATUS_DOT[t.status]}`} />
+                {TASK_STATUS_LABEL[t.status]}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -399,8 +419,8 @@ export function MyTasksPage() {
         <>
           <StatStrip stats={stats} />
 
-          <div className="sticky top-0 z-10 -mx-3 sm:-mx-6 px-3 sm:px-6 py-2.5 mb-3 border-b border-divider flex flex-wrap items-center gap-2" style={{ background: 'var(--page)' }}>
-            <div className="flex items-center gap-1.5 bg-white border border-border rounded-lg px-2.5 h-9 flex-1 min-w-[180px]">
+          <div className="sticky top-0 z-10 -mx-3 sm:-mx-6 px-3 sm:px-6 py-2.5 mb-3 border-b border-divider grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center" style={{ background: 'var(--page)' }}>
+            <div className="flex items-center gap-1.5 bg-white border border-border rounded-lg px-2.5 h-9 col-span-2 sm:flex-1 sm:min-w-[180px]">
               <Search className="w-3.5 h-3.5 text-dim shrink-0" />
               <input
                 value={search}
@@ -409,17 +429,17 @@ export function MyTasksPage() {
                 className="text-sm w-full outline-hidden bg-transparent placeholder:text-muted"
               />
             </div>
-            <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white">
+            <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto">
               <option value="all">โปรเจกต์: ทั้งหมด</option>
               {projectOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
             </select>
-            <select value={spFilter} onChange={(e) => setSpFilter(e.target.value as typeof spFilter)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white">
+            <select value={spFilter} onChange={(e) => setSpFilter(e.target.value as typeof spFilter)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto">
               <option value="all">Sprint/Priority: ทั้งหมด</option>
               <option value="sprint">อยู่ใน Sprint</option>
               <option value="backlog">Backlog</option>
               <option value="high">Priority สูง</option>
             </select>
-            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white">
+            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto">
               <option value="all">ช่วงเวลา: ทั้งหมด</option>
               <option value="today">วันนี้</option>
               <option value="week">สัปดาห์นี้</option>
@@ -427,11 +447,11 @@ export function MyTasksPage() {
             </select>
             <button
               onClick={() => setTodayOnly((v) => !v)}
-              className={`h-9 flex items-center gap-1.5 text-xs font-medium px-3 rounded-lg border ${todayOnly ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white border-border text-dim'}`}
+              className={`h-9 flex items-center justify-center gap-1.5 text-xs font-medium px-3 rounded-lg border w-full sm:w-auto ${todayOnly ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white border-border text-dim'}`}
             >
               <Zap className="w-3.5 h-3.5" /> เสร็จ/ส่งตรวจวันนี้
             </button>
-            <div className="ml-auto flex border border-border rounded-lg overflow-hidden h-9">
+            <div className="hidden sm:flex ml-auto border border-border rounded-lg overflow-hidden h-9">
               <button onClick={() => setView('board')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full ${view === 'board' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
                 <LayoutGrid className="w-3.5 h-3.5" /> Board
               </button>
@@ -447,17 +467,23 @@ export function MyTasksPage() {
 
           <MyWorkSummary tasks={tasks} onOpenTask={(t) => openTask(t.id)} hideStats />
 
-          {view === 'board' ? (
-            <StatusKanban
-              tasks={filteredTasks}
-              canEdit={(t) => (t as MyTask).myRole === 'owner' || (t as MyTask).myRole === 'editor'}
-              onOpenTask={openTask}
-              onStatusChange={changeStatus}
-              bouncedTaskIds={bouncedTaskIds}
-            />
-          ) : (
+          {/* Pronista §Mobile responsive — ลาก drag-and-drop ใช้กับสัมผัสไม่ได้ บนมือถือบังคับเห็น List เสมอไม่ว่า view state จะเป็นอะไร */}
+          <div className="sm:hidden">
             <TaskListView tasks={filteredTasks} onOpenTask={openTask} />
-          )}
+          </div>
+          <div className="hidden sm:block">
+            {view === 'board' ? (
+              <StatusKanban
+                tasks={filteredTasks}
+                canEdit={(t) => (t as MyTask).myRole === 'owner' || (t as MyTask).myRole === 'editor'}
+                onOpenTask={openTask}
+                onStatusChange={changeStatus}
+                bouncedTaskIds={bouncedTaskIds}
+              />
+            ) : (
+              <TaskListView tasks={filteredTasks} onOpenTask={openTask} />
+            )}
+          </div>
         </>
       ) : tab === 'dispatched' ? (
         <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} />
