@@ -104,6 +104,9 @@ export const workspaceRoomRoutes = new Hono<AppEnv>()
     if (openSprint) return c.json({ error: 'has_open_sprints', message: 'ห้องนี้ยังมี Sprint ที่ยังไม่ปิด ปิด Sprint ให้หมดก่อนถึงจะลบห้องได้' }, 409)
     // Sprint ที่ปิดแล้ว (completed) ยังมี FK ชี้มาที่ห้องนี้อยู่ — ปลดออก (เก็บประวัติ/snapshot ไว้เหมือนเดิม แค่ไม่มีห้องแล้ว) ก่อนลบห้องจริง
     await db.update(sprints).set({ workspaceId: null }).where(eq(sprints.workspaceId, workspaceId))
+    // Pronista §bugfix — Backlog/Epic ที่คีย์ลอยในห้อง (workspace-native, ไม่ผูกโปรเจกต์) ก็มี FK ชี้มาที่ห้องนี้เหมือนกัน ลืมปลดจุดนี้ทำให้ลบห้องไม่ได้ (FOREIGN KEY constraint) ถ้ามีงานลอยค้างอยู่
+    await db.update(tasks).set({ workspaceId: null }).where(eq(tasks.workspaceId, workspaceId))
+    await db.update(epics).set({ workspaceId: null }).where(eq(epics.workspaceId, workspaceId))
     await db.delete(workspaceProjects).where(eq(workspaceProjects.workspaceId, workspaceId))
     await db.delete(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId))
     await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
