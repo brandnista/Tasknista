@@ -361,10 +361,13 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
               // Pronista §Position-based permission — ตัวอย่าง granular action แรก: ปุ่มสร้าง Task เช็ค actions.task.create ของตำแหน่งโดยเฉพาะ (ละเอียดกว่า canEdit เดิม)
               canCreate={canEdit && (permissions?.actions.task.create ?? true)}
               onOpenTask={onOpenTask}
+              // Pronista §System Requirements Update (ต่อยอด) — เปิด checkbox+filter+โยนเข้า Sprint แบบ batch ในแท็บ Task ด้วย (เหมือนแท็บ "ทั่วไป")
+              selectable
+              onSprintChanged={onSprintChanged}
             />
           )}
-          {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} />}
-          {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} />}
+          {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} selectable onSprintChanged={onSprintChanged} />}
+          {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} onSprintChanged={onSprintChanged} />}
           {tab === 'summary' && <ProjectSummaryTab projectId={projectId} onOpenTask={onOpenTask} />}
         </>
       ) : (
@@ -1325,15 +1328,81 @@ interface ProjectAllTask {
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   assigneeName: string | null
   estimateMinutes: number | null
+  // Pronista §System Requirements Update (ต่อยอด) — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint ในแท็บ Task/Defect/CR (เหมือนแท็บ "ทั่วไป")
+  taskType: string | null
+  subTaskType: string | null
 }
 const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
 const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
 
+/** Pronista §System Requirements Update (ต่อยอด) — hook ใช้ร่วมกันของแท็บ Task/CR (ProjectHierarchyTab) + Defect (ProjectDefectSection)
+ * ทำ filter Task Type/Sub-task Type + checkbox เลือกหลายงาน + ยอดรวมชั่วโมง real-time + โยนเข้า Sprint ทีเดียว — ตรรกะเดียวกับแท็บ "ทั่วไป" ใน ProjectBacklogSection เป๊ะ กันเพี้ยนกันระหว่างแท็บ */
+function useBacklogSprintSelect<T extends { id: string; taskType: string | null; subTaskType: string | null; estimateMinutes: number | null }>(
+  projectId: string,
+  items: T[],
+  reload: () => void,
+  onSprintChanged?: () => void,
+) {
+  const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  const { data: sprintData } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
+  const [taskTypeFilter, setTaskTypeFilter] = useState('all')
+  const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const filtered = items
+    .filter((t) => taskTypeFilter === 'all' || t.taskType === taskTypeFilter)
+    .filter((t) => subTaskTypeFilter === 'all' || t.subTaskType === subTaskTypeFilter)
+  const toggleSelect = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const toggleSelectAll = () =>
+    setSelected((s) => {
+      const allIds = filtered.map((t) => t.id)
+      const allSelected = allIds.length > 0 && allIds.every((id) => s.has(id))
+      return allSelected ? new Set() : new Set(allIds)
+    })
+  const selectedTotalMinutes = filtered.filter((t) => selected.has(t.id)).reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
+  const sprintPickerOptions = (sprintData?.sprints ?? [])
+    .filter((s) => s.sprint.status !== 'completed')
+    .map((s) => ({ id: s.sprint.id, label: `${s.sprint.name ?? 'Sprint'} (${s.sprint.status === 'active' ? 'กำลังทำ' : 'วางแผน'})` }))
+  const bulkAddToSprint = async (sprintId: string) => {
+    await addTasksToSprintBatch(sprintId, [...selected])
+    setSelected(new Set())
+    reload()
+    onSprintChanged?.()
+  }
+  return {
+    taskTypeCatalog: resolveTaskTypes(cfg?.taskTypes),
+    taskTypeFilter,
+    setTaskTypeFilter,
+    subTaskTypeFilter,
+    setSubTaskTypeFilter,
+    selected,
+    toggleSelect,
+    toggleSelectAll,
+    clearSelected: () => setSelected(new Set()),
+    filtered,
+    selectedTotalMinutes,
+    sprintPickerOptions,
+    bulkAddToSprint,
+  }
+}
+
 /** Pronista §Project Refactor — แท็บ "Defect" รวม Defect ทั้งหมดของโปรเจกต์ (รวมที่แปลงมาจาก Backlog ผ่านเมนู "จัดการ")
  * Pronista §Back to Basic — ปุ่ม "🔗 เชื่อมโยง" ต่อแถว: ผูก Defect กับ Epic/Story/Task ใดก็ได้แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ */
-function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: string; canEdit: boolean; onOpenTask: (id: string) => void }) {
+function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged }: {
+  projectId: string
+  canEdit: boolean
+  onOpenTask: (id: string) => void
+  // Pronista §System Requirements Update (ต่อยอด) — บอก SprintSection (sibling) ให้รีโหลดหลังโยนงานเข้า Sprint จาก checkbox bulk-add ตรงนี้
+  onSprintChanged?: () => void
+}) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const defects = (data ?? []).filter((t) => t.kind === 'defect')
+  const sel = useBacklogSprintSelect(projectId, defects, () => void reload(), onSprintChanged)
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const linkCandidates: PickableTask[] = useMemo(
     () => (data ?? []).filter((t) => t.id !== linkingId).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
@@ -1372,12 +1441,43 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
           </button>
         </div>
       )}
-      {defects.length === 0 ? (
-        <div className="text-center text-xs text-muted py-6">ยังไม่มี Defect ในโปรเจกต์นี้</div>
+      {defects.length > 0 && (
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <select
+            value={sel.taskTypeFilter}
+            onChange={(e) => { sel.setTaskTypeFilter(e.target.value); sel.setSubTaskTypeFilter('all') }}
+            className="text-xs bg-white border border-border rounded-lg px-2 py-1"
+          >
+            <option value="all">ทุก Task Type</option>
+            {sel.taskTypeCatalog.map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+          </select>
+          {sel.taskTypeFilter !== 'all' && (
+            <select value={sel.subTaskTypeFilter} onChange={(e) => sel.setSubTaskTypeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+              <option value="all">ทุก Sub-task Type</option>
+              {(sel.taskTypeCatalog.find((tt) => tt.id === sel.taskTypeFilter)?.subTypes ?? []).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+      {canEdit && sel.filtered.length > 0 && (
+        <div className="flex items-center gap-3 mb-2 text-xs">
+          <label className="flex items-center gap-1.5 text-dim cursor-pointer">
+            <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
+            เลือกทั้งหมด
+          </label>
+        </div>
+      )}
+      {sel.filtered.length === 0 ? (
+        <div className="text-center text-xs text-muted py-6">{defects.length === 0 ? 'ยังไม่มี Defect ในโปรเจกต์นี้' : 'ไม่มี Defect ตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider">
-          {defects.map((t) => (
+          {sel.filtered.map((t) => (
             <div key={t.id} className="flex items-center gap-3 py-2.5">
+              {canEdit && (
+                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
+              )}
               {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
               {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
@@ -1394,6 +1494,15 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
             </div>
           ))}
         </div>
+      )}
+      {canEdit && (
+        <SprintBulkAddBar
+          selectedCount={sel.selected.size}
+          totalMinutes={sel.selectedTotalMinutes}
+          sprintOptions={sel.sprintPickerOptions}
+          onConfirm={sel.bulkAddToSprint}
+          onClear={sel.clearSelected}
+        />
       )}
       {linkingId && (
         <TaskPickerModal title="เชื่อมโยงกับ Story/Task/Defect/CR อื่น" tasks={linkCandidates} onPick={(item) => void addReference(item.id)} onClose={() => setLinkingId(null)} />
@@ -1626,13 +1735,16 @@ const HIERARCHY_TAB_META = {
 } as const
 
 /** Pronista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
-function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask }: {
+function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask, selectable, onSprintChanged }: {
   projectId: string
   level: 'story' | 'task' | 'cr'
   canEdit: boolean
   // Pronista §Position-based permission — สิทธิ์สร้างละเอียดกว่า canEdit (ใช้เฉพาะ level='task' ตอนนี้ — story/cr ยังใช้ canEdit เดิม)
   canCreate?: boolean
   onOpenTask: (id: string) => void
+  // Pronista §System Requirements Update (ต่อยอด) — เปิด checkbox+filter+โยนเข้า Sprint แบบ batch เฉพาะแท็บ Task/CR (ไม่ใช้กับ Story)
+  selectable?: boolean
+  onSprintChanged?: () => void
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const all = data ?? []
@@ -1644,6 +1756,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
         ? all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask)
         // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
         : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
+  const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
   const storyOptions: PickableTask[] = useMemo(
     () => all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
     [all],
@@ -1760,11 +1873,39 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
           {level === 'task' && <div className="text-[11px] text-muted mt-1">คีย์แล้วเชื่อมกับ Epic/Story ได้ทีหลังผ่านเมนู "จัดการ" ต่อแถว</div>}
         </div>
       )}
-      {items.length === 0 ? (
-        <div className="text-center text-xs text-muted py-6">{meta.empty}</div>
+      {selectable && items.length > 0 && (
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <select
+            value={sel.taskTypeFilter}
+            onChange={(e) => { sel.setTaskTypeFilter(e.target.value); sel.setSubTaskTypeFilter('all') }}
+            className="text-xs bg-white border border-border rounded-lg px-2 py-1"
+          >
+            <option value="all">ทุก Task Type</option>
+            {sel.taskTypeCatalog.map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+          </select>
+          {sel.taskTypeFilter !== 'all' && (
+            <select value={sel.subTaskTypeFilter} onChange={(e) => sel.setSubTaskTypeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+              <option value="all">ทุก Sub-task Type</option>
+              {(sel.taskTypeCatalog.find((tt) => tt.id === sel.taskTypeFilter)?.subTypes ?? []).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+      {selectable && canEdit && sel.filtered.length > 0 && (
+        <div className="flex items-center gap-3 mb-2 text-xs">
+          <label className="flex items-center gap-1.5 text-dim cursor-pointer">
+            <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
+            เลือกทั้งหมด
+          </label>
+        </div>
+      )}
+      {sel.filtered.length === 0 ? (
+        <div className="text-center text-xs text-muted py-6">{items.length === 0 ? meta.empty : 'ไม่มีงานตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider">
-          {items.map((t) => (
+          {sel.filtered.map((t) => (
             <div
               key={t.id}
               // Pronista §Sprint drag-and-drop fix — แท็บ Task (ProjectHierarchyTab) เดิมลากเข้า Sprint ไม่ได้เลย เพราะแถวไม่มี draggable/onDragStart แบบที่ BacklogTaskRow มี
@@ -1773,6 +1914,9 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
               onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
               className={`flex items-center gap-3 py-2.5 ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
             >
+              {selectable && canEdit && (
+                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
+              )}
               {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
               {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
@@ -1828,6 +1972,15 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
             </div>
           ))}
         </div>
+      )}
+      {selectable && canEdit && (
+        <SprintBulkAddBar
+          selectedCount={sel.selected.size}
+          totalMinutes={sel.selectedTotalMinutes}
+          sprintOptions={sel.sprintPickerOptions}
+          onConfirm={sel.bulkAddToSprint}
+          onClear={sel.clearSelected}
+        />
       )}
       {linkingRefId && (
         <TaskPickerModal title="เชื่อมโยงกับ Story/Task/Defect/CR อื่น" tasks={refCandidates} onPick={(item) => void addRef(item.id)} onClose={() => setLinkingRefId(null)} />
