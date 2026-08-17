@@ -2073,6 +2073,7 @@ export function ProjectDetailPage() {
         <ProjectReleasesTab
           projectId={id}
           canCreate={project.myPermissions?.actions.release.create ?? false}
+          canEdit={project.myPermissions?.actions.release.edit ?? false}
           canDelete={project.myPermissions?.actions.release.delete ?? false}
         />
       )}

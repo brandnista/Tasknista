@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowDown, ArrowUp, Link2, Plus, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Link2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api, ApiError } from '../lib/api'
@@ -48,11 +48,35 @@ interface TaskAllRow {
 
 const emptyDraft = (): DraftItem => ({ key: crypto.randomUUID(), section: '', text: '', linkedTasks: [] })
 
-/** Pronista §Version Release (ต่อยอด) — แต่ละบรรทัดเชื่อมโยง Task/Defect ได้ (แทน markdown blob เดิม)
+const LINKABLE_KINDS = new Set(['task', 'defect', 'cr'])
+
+/** ป้ายกำกับต่อท้ายชื่อ/รหัสในชิป — ตามคอนเวนชันเดิมที่ TaskDetail.tsx ใช้กับรายการที่เชื่อมโยง */
+function KindBadge({ kind }: { kind: string }) {
+  if (kind === 'defect') return <span className="text-[9px] text-danger-600">🐛</span>
+  if (kind === 'cr') return <span className="text-[9px] font-semibold text-info-700">CR</span>
+  return null
+}
+
+/** Pronista §Version Release (ต่อยอด) — แต่ละบรรทัดเชื่อมโยง Task/Defect/CR ได้ (แทน markdown blob เดิม), ใช้ฟอร์มเดียวกันทั้งสร้างใหม่และแก้ไข
  * section = หัวข้อกลุ่ม กรอกเฉพาะแถวที่ขึ้นกลุ่มใหม่ เว้นว่างถ้าอยู่กลุ่มเดิมกับแถวก่อนหน้า */
-function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: () => void }) {
-  const [version, setVersion] = useState('')
-  const [items, setItems] = useState<DraftItem[]>([emptyDraft()])
+function ReleaseForm({
+  projectId,
+  release,
+  onClose,
+  onSaved,
+}: {
+  projectId: string
+  release?: ReleaseRow
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const isEdit = !!release
+  const [version, setVersion] = useState(release?.version ?? '')
+  const [items, setItems] = useState<DraftItem[]>(
+    release && release.items.length > 0
+      ? release.items.map((it) => ({ key: crypto.randomUUID(), section: it.section ?? '', text: it.text, linkedTasks: it.linkedTasks }))
+      : [emptyDraft()],
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [linkingKey, setLinkingKey] = useState<string | null>(null)
@@ -61,7 +85,7 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
     [linkingKey],
   )
   const pickable: PickableTask[] = (taskCandidates ?? [])
-    .filter((t) => t.kind === 'task' || t.kind === 'defect')
+    .filter((t) => LINKABLE_KINDS.has(t.kind))
     .map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId }))
 
   const updateItem = (key: string, patch: Partial<DraftItem>) => setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)))
@@ -97,18 +121,20 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
       return
     }
     const cleanItems = items.filter((it) => it.text.trim())
+    const payload = {
+      version: version.trim(),
+      items: cleanItems.map((it) => ({
+        section: it.section.trim() || undefined,
+        text: it.text.trim(),
+        linkedTaskIds: it.linkedTasks.map((lt) => lt.id),
+      })),
+    }
     setSaving(true)
     setError('')
     try {
-      await api.post(`/api/projects/${projectId}/releases`, {
-        version: version.trim(),
-        items: cleanItems.map((it) => ({
-          section: it.section.trim() || undefined,
-          text: it.text.trim(),
-          linkedTaskIds: it.linkedTasks.map((lt) => lt.id),
-        })),
-      })
-      onCreated()
+      if (isEdit) await api.patch(`/api/releases/${release.id}`, payload)
+      else await api.post(`/api/projects/${projectId}/releases`, payload)
+      onSaved()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')
     } finally {
@@ -125,7 +151,7 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
       <div className="absolute inset-x-0 top-6 mx-auto w-full max-w-xl px-4">
         <div className="bg-white rounded-lg shadow-2xl p-5 max-h-[88vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
-            <div className="font-semibold text-ink text-sm">เพิ่มเวอร์ชัน (Version Release)</div>
+            <div className="font-semibold text-ink text-sm">{isEdit ? 'แก้ไขเวอร์ชัน' : 'เพิ่มเวอร์ชัน'} (Version Release)</div>
             <button onClick={onClose} className="text-muted hover:text-soft shrink-0"><X className="w-5 h-5" /></button>
           </div>
           <div className="space-y-3">
@@ -159,7 +185,7 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
                         <button onClick={() => moveItem(i, 1)} disabled={i === items.length - 1} title="เลื่อนลง" className="text-muted hover:text-ink disabled:opacity-25 disabled:hover:text-muted">
                           <ArrowDown className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => setLinkingKey(it.key)} title="เชื่อมโยง Task/Defect" className="text-muted hover:text-brand-600">
+                        <button onClick={() => setLinkingKey(it.key)} title="เชื่อมโยง Task/Defect/CR" className="text-muted hover:text-brand-600">
                           <Link2 className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => removeItem(it.key)} title="ลบข้อนี้" className="text-muted hover:text-danger-600">
@@ -171,7 +197,7 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
                       <div className="flex flex-wrap gap-1 pl-1">
                         {it.linkedTasks.map((lt) => (
                           <span key={lt.id} className="flex items-center gap-1 text-[11px] bg-hover rounded-lg px-1.5 py-0.5">
-                            {lt.kind === 'defect' && <AlertCircle className="w-3 h-3 text-danger-600" />}
+                            <KindBadge kind={lt.kind} />
                             {lt.code ?? lt.title}
                             <button onClick={() => unlinkTask(it.key, lt.id)} title="เลิกเชื่อมโยง" className="text-muted hover:text-danger-600">
                               <X className="w-3 h-3" />
@@ -202,7 +228,7 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
       </div>
       {linkingKey && (
         <TaskPickerModal
-          title="เชื่อมโยง Task/Defect"
+          title="เชื่อมโยง Task/Defect/CR"
           tasks={pickable}
           excludeIds={(items.find((it) => it.key === linkingKey)?.linkedTasks ?? []).map((lt) => lt.id)}
           onPick={pickTask}
@@ -246,7 +272,7 @@ function ReleaseNotesView({ items }: { items: ReleaseItem[] }) {
                           title={lt.title}
                           className="inline-flex items-center gap-1 text-[11px] bg-hover hover:bg-divider rounded-lg px-1.5 py-0.5 align-middle"
                         >
-                          {lt.kind === 'defect' && <AlertCircle className="w-3 h-3 text-danger-600" />}
+                          <KindBadge kind={lt.kind} />
                           {lt.code ?? lt.title}
                         </button>
                       ))}
@@ -265,15 +291,18 @@ function ReleaseNotesView({ items }: { items: ReleaseItem[] }) {
 export function ProjectReleasesTab({
   projectId,
   canCreate,
+  canEdit,
   canDelete,
 }: {
   projectId: string
   canCreate: boolean
+  canEdit: boolean
   canDelete: boolean
 }) {
   const { data, reload } = useLoad<{ releases: ReleaseRow[] }>(() => api.get(`/api/projects/${projectId}/releases`))
   const { confirmDialog } = useDialog()
   const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<ReleaseRow | null>(null)
   const releases = data?.releases ?? []
   const total = releases.length
 
@@ -304,7 +333,7 @@ export function ProjectReleasesTab({
               <th className="text-left font-medium px-4 py-2 w-14">ลำดับ</th>
               <th className="text-left font-medium px-4 py-2 w-40">เวอร์ชั่น</th>
               <th className="text-left font-medium px-4 py-2">รายละเอียด</th>
-              {canDelete && <th className="w-10" />}
+              {(canEdit || canDelete) && <th className="w-16" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-divider">
@@ -320,11 +349,20 @@ export function ProjectReleasesTab({
                 <td className="px-4 py-3">
                   <ReleaseNotesView items={r.items} />
                 </td>
-                {canDelete && (
+                {(canEdit || canDelete) && (
                   <td className="px-2 py-3">
-                    <button onClick={() => void remove(r.id, r.version)} title="ลบเวอร์ชัน" className="text-muted hover:text-danger-600">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {canEdit && (
+                        <button onClick={() => setEditing(r)} title="แก้ไขเวอร์ชัน" className="text-muted hover:text-brand-600">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button onClick={() => void remove(r.id, r.version)} title="ลบเวอร์ชัน" className="text-muted hover:text-danger-600">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 )}
               </tr>
@@ -333,7 +371,10 @@ export function ProjectReleasesTab({
         </table>
       )}
 
-      {formOpen && <AddReleaseForm projectId={projectId} onClose={() => setFormOpen(false)} onCreated={() => { setFormOpen(false); void reload() }} />}
+      {formOpen && <ReleaseForm projectId={projectId} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); void reload() }} />}
+      {editing && (
+        <ReleaseForm projectId={projectId} release={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void reload() }} />
+      )}
     </div>
   )
 }

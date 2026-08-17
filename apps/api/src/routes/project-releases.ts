@@ -20,13 +20,13 @@ const itemInput = z.object({
   linkedTaskIds: z.array(z.string()).max(20).default([]),
 })
 
-/** เก็บเฉพาะ task/defect ที่มีจริงในโปรเจกต์นี้ — กันลิงก์ข้ามโปรเจกต์หรือลิงก์ผิด kind (epic/story/cr/backlog) */
+/** เก็บเฉพาะ task/defect/cr ที่มีจริงในโปรเจกต์นี้ — กันลิงก์ข้ามโปรเจกต์หรือลิงก์ผิด kind (epic/story/backlog) */
 async function filterValidLinkTargets(db: ReturnType<typeof createDb>, projectId: string, ids: string[]) {
   if (ids.length === 0) return new Set<string>()
   const rows = await db
     .select({ id: tasks.id })
     .from(tasks)
-    .where(and(inArray(tasks.id, ids), eq(tasks.projectId, projectId), inArray(tasks.kind, ['task', 'defect'])))
+    .where(and(inArray(tasks.id, ids), eq(tasks.projectId, projectId), inArray(tasks.kind, ['task', 'defect', 'cr'])))
   return new Set(rows.map((r) => r.id))
 }
 
