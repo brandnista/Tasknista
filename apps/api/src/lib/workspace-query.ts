@@ -27,8 +27,8 @@ export interface WorkspaceBacklogItem {
   id: string
   code: string | null
   title: string
-  kind: 'epic' | 'task' | 'backlog' | 'defect'
-  workType: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog'
+  kind: 'epic' | 'task' | 'backlog' | 'defect' | 'cr'
+  workType: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr'
   status: string | null
   dueDate: string | null
   priority: 'low' | 'normal' | 'high' | null
@@ -208,13 +208,14 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
-    .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog', 'defect'])))
+    .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog', 'defect', 'cr'])))
     .orderBy(asc(tasks.createdAt))
 
-  // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที) · Defect/Backlog = ตรงตัวจาก kind
-  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' => {
+  // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที) · Defect/Backlog/CR = ตรงตัวจาก kind
+  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr' => {
     if (t.kind === 'defect') return 'defect'
     if (t.kind === 'backlog') return 'backlog'
+    if (t.kind === 'cr') return 'cr'
     if (t.parentId === null) return t.isStandaloneTask ? 'task' : 'story'
     return (parentIdById.get(t.parentId) ?? null) !== null ? 'subtask' : 'task'
   }
@@ -241,7 +242,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
-    kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : 'task',
+    kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : r.task.kind === 'cr' ? 'cr' : 'task',
     workType: classify(r.task),
     status: r.task.status,
     dueDate: r.task.dueDate,
@@ -288,9 +289,10 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     .from(tasks)
     .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.kind, 'task')))
   const parentIdById = new Map(parentLookup.map((t) => [t.id, t.parentId]))
-  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' => {
+  const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr' => {
     if (t.kind === 'defect') return 'defect'
     if (t.kind === 'backlog') return 'backlog'
+    if (t.kind === 'cr') return 'cr'
     if (t.parentId === null) return t.isStandaloneTask ? 'task' : 'story'
     return (parentIdById.get(t.parentId) ?? null) !== null ? 'subtask' : 'task'
   }
@@ -306,7 +308,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
         isNull(tasks.projectId),
         isNull(tasks.sprintId),
         isNull(tasks.groupId),
-        inArray(tasks.kind, ['task', 'backlog', 'defect']),
+        inArray(tasks.kind, ['task', 'backlog', 'defect', 'cr']),
       ),
     )
     .orderBy(asc(tasks.createdAt))
@@ -314,7 +316,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
-    kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : 'task',
+    kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : r.task.kind === 'cr' ? 'cr' : 'task',
     workType: classify(r.task),
     status: r.task.status,
     dueDate: r.task.dueDate,

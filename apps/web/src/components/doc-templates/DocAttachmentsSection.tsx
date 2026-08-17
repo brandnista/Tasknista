@@ -49,17 +49,18 @@ export function DocAttachmentsSection({ docId, canEdit }: { docId: string; canEd
     }
   }
 
-  const uploadFile = async (file: File) => {
+  const uploadFiles = async (files: FileList) => {
     setBusy(true)
     setError('')
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res = await fetch(`/api/docs/${docId}/attachments/file`, { method: 'POST', body: fd })
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { message?: string }
-        setError(j.message ?? 'อัปโหลดไม่สำเร็จ')
-        return
+      for (const file of Array.from(files)) {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await fetch(`/api/docs/${docId}/attachments/file`, { method: 'POST', body: fd })
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { message?: string }
+          setError(j.message ?? `อัปโหลด "${file.name}" ไม่สำเร็จ`)
+        }
       }
       void reload()
     } finally {
@@ -137,8 +138,9 @@ export function DocAttachmentsSection({ docId, canEdit }: { docId: string; canEd
               <input
                 ref={fileRef}
                 type="file"
+                multiple
                 className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadFile(f) }}
+                onChange={(e) => { const files = e.target.files; if (files && files.length) void uploadFiles(files); e.target.value = '' }}
               />
               <button onClick={() => fileRef.current?.click()} disabled={busy} className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800 disabled:opacity-40">
                 <Upload className="w-4 h-4" /> {busy ? 'กำลังอัปโหลด…' : 'แนบไฟล์/รูปภาพ'}

@@ -385,8 +385,20 @@ export function DocsPage() {
     return map
   }, [nodes])
 
-  // Pronista §Document Management MVP — โฟลเดอร์ระดับบนสุด โชว์เป็นการ์ดลัดด้านบน (Google Docs style)
-  const rootFolders = useMemo(() => (children.get(null) ?? []).filter((n) => n.kind === 'folder'), [children])
+  // Pronista §bugfix — เดิม pill โชว์แค่โฟลเดอร์ระดับบนสุด (children ของ null) เท่านั้น กด "+" สร้างโฟลเดอร์ลูกได้ 1 ชั้น แต่โฟลเดอร์ลูกนั้นไม่มี pill/แถวของตัวเอง
+  // เลยไม่มีทางเข้าถึงปุ่ม "+" อีกทีเพื่อสร้างโฟลเดอร์ซ้อนอีกชั้น — เปลี่ยนเป็นเบราว์เซอร์โฟลเดอร์จริง: pill โชว์เฉพาะลูกของ activeFolder (เดินลึกได้ไม่จำกัดชั้น) + breadcrumb ด้านบนไว้ย้อนกลับ
+  const folderPills = useMemo(() => (children.get(activeFolder) ?? []).filter((n) => n.kind === 'folder'), [children, activeFolder])
+  const activeFolderNode = useMemo(() => (activeFolder ? (nodes ?? []).find((n) => n.id === activeFolder) ?? null : null), [activeFolder, nodes])
+  const folderBreadcrumb = useMemo(() => {
+    const byId = new Map((nodes ?? []).map((n) => [n.id, n]))
+    const trail: DocNode[] = []
+    let cur = activeFolderNode
+    while (cur) {
+      trail.unshift(cur)
+      cur = cur.parentId ? (byId.get(cur.parentId) ?? null) : null
+    }
+    return trail
+  }, [activeFolderNode, nodes])
 
   // เอกสารทั้งหมด (ไม่รวมโฟลเดอร์เอง) ภายใต้โฟลเดอร์ที่เลือกไว้ — ไล่ลงไปทุกชั้นของโฟลเดอร์ย่อย
   const folderDescendantIds = useMemo(() => {
@@ -611,20 +623,31 @@ export function DocsPage() {
           )}
         </div>
 
-        {/* Pronista §Document Management MVP — โฟลเดอร์แนะนำ (Google Docs style) ด้านบนสุด — คลิกเพื่อกรองรายการเอกสารด้านล่าง ซ่อนตอนกำลังค้นหา/ฟิลเตอร์ */}
-        {!filtersActive && rootFolders.length > 0 && (
+        {/* Pronista §bugfix — โฟลเดอร์แนะนำ (Google Docs style) ตอนนี้เป็นเบราว์เซอร์โฟลเดอร์จริง คลิกชื่อโฟลเดอร์ = เข้าไปดูโฟลเดอร์ย่อยข้างใน (breadcrumb ย้อนกลับได้) แก้ปัญหาสร้างโฟลเดอร์ซ้อนโฟลเดอร์ไม่ได้ (เดิมมีแค่ชั้นบนสุดที่กด "+" ได้)
+            เอกสารด้านล่างยังกรองตาม activeFolder เหมือนเดิม (ไล่ลงทุกชั้นลูกหลาน) ซ่อนตอนกำลังค้นหา/ฟิลเตอร์ */}
+        {!filtersActive && (folderPills.length > 0 || activeFolder) && (
           <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-medium text-muted">โฟลเดอร์แนะนำ</div>
-              {activeFolder && (
-                <button onClick={() => setActiveFolder(null)} className="flex items-center gap-1 text-xs text-muted hover:text-danger-600">
-                  <X className="w-3.5 h-3.5" /> ล้างตัวกรองโฟลเดอร์
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <div className="flex items-center gap-1 text-xs font-medium flex-wrap">
+                <button onClick={() => setActiveFolder(null)} className={!activeFolder ? 'text-brand-700' : 'text-muted hover:text-ink hover:underline'}>โฟลเดอร์แนะนำ</button>
+                {folderBreadcrumb.map((n) => (
+                  <span key={n.id} className="flex items-center gap-1">
+                    <span className="text-border">/</span>
+                    <button onClick={() => setActiveFolder(n.id)} className={n.id === activeFolder ? 'text-brand-700' : 'text-muted hover:text-ink hover:underline'}>{n.title}</button>
+                  </span>
+                ))}
+              </div>
+              {(!activeFolder || canEditAccess(activeFolderNode?.myAccess ?? 'viewer')) && (
+                <button onClick={() => void addFolder(activeFolder)} className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-800">
+                  <FolderPlus className="w-3.5 h-3.5" /> โฟลเดอร์ใหม่ที่นี่
                 </button>
               )}
             </div>
+            {folderPills.length === 0 ? (
+              <div className="text-xs text-muted py-1">ยังไม่มีโฟลเดอร์ย่อยในนี้</div>
+            ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {rootFolders.map((f) => {
-                const active = activeFolder === f.id
+              {folderPills.map((f) => {
                 const isDropTarget = dragOverFolderId === f.id
                 return (
                   <div
@@ -637,24 +660,17 @@ export function DocsPage() {
                       const docId = e.dataTransfer.getData('text/plain')
                       if (docId) void moveDocTo(docId, f.id)
                     }}
-                    className={`group relative shrink-0 flex items-center gap-1 shadow-xs rounded-lg pl-3.5 pr-2 py-2.5 text-sm border ${isDropTarget ? 'bg-brand-100 border-brand-400 ring-2 ring-brand-300' : active ? 'bg-brand-50 border-brand-300 text-brand-700' : 'bg-white text-soft hover:bg-hover border-border-subtle'}`}
+                    className={`group relative shrink-0 flex items-center gap-1 shadow-xs rounded-lg pl-3.5 pr-2 py-2.5 text-sm border ${isDropTarget ? 'bg-brand-100 border-brand-400 ring-2 ring-brand-300' : 'bg-white text-soft hover:bg-hover border-border-subtle'}`}
                   >
                     <button
-                      onClick={() => setActiveFolder((cur) => (cur === f.id ? null : f.id))}
+                      onClick={() => setActiveFolder(f.id)}
                       className="flex items-center gap-2 min-w-0"
                     >
-                      <Folder className={`w-4 h-4 shrink-0 ${active ? 'text-brand-600' : 'text-brand-500'}`} />
+                      <Folder className="w-4 h-4 shrink-0 text-brand-500" />
                       <span className="whitespace-nowrap">{f.title}</span>
                     </button>
                     {canEditAccess(f.myAccess) && (
                       <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100">
-                        <button
-                          onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAddMenu({ parentId: f.id, x: r.left, y: r.bottom + 4 }) }}
-                          title="เพิ่มในโฟลเดอร์นี้"
-                          className="w-5 h-5 grid place-items-center rounded text-dim hover:bg-border"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
                         <button
                           onClick={() => void renameFolder(f)}
                           title="เปลี่ยนชื่อโฟลเดอร์"
@@ -663,7 +679,7 @@ export function DocsPage() {
                           <Pencil className="w-3 h-3" />
                         </button>
                         <button
-                          onClick={() => { if (active) setActiveFolder(null); void deleteFolder(f) }}
+                          onClick={() => { if (activeFolder === f.id) setActiveFolder(null); void deleteFolder(f) }}
                           title="ลบโฟลเดอร์"
                           className="w-5 h-5 grid place-items-center rounded text-dim hover:bg-danger-100 hover:text-danger-600"
                         >
@@ -675,6 +691,7 @@ export function DocsPage() {
                 )
               })}
             </div>
+            )}
           </div>
         )}
 

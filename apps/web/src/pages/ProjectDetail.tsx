@@ -1814,16 +1814,19 @@ function ApiDocumentSection({ projectId, canEdit }: { projectId: string; canEdit
   const [uploading, setUploading] = useState(false)
 
   const upload = async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('title', file.name)
+    form.append('docType', 'API')
+    const res = await fetch('/api/docs/upload', { method: 'POST', body: form })
+    if (!res.ok) throw new Error('upload_failed')
+    const doc = (await res.json()) as { id: string }
+    await api.post(`/api/docs/${doc.id}/links`, { projectId })
+  }
+  const uploadMany = async (files: FileList) => {
     setUploading(true)
     try {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('title', file.name)
-      form.append('docType', 'API')
-      const res = await fetch('/api/docs/upload', { method: 'POST', body: form })
-      if (!res.ok) throw new Error('upload_failed')
-      const doc = (await res.json()) as { id: string }
-      await api.post(`/api/docs/${doc.id}/links`, { projectId })
+      for (const f of Array.from(files)) await upload(f)
       void reload()
     } catch {
       alert('อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF')
@@ -1849,9 +1852,10 @@ function ApiDocumentSection({ projectId, canEdit }: { projectId: string; canEdit
         <input
           ref={fileRef}
           type="file"
+          multiple
           accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }}
+          onChange={(e) => { const files = e.target.files; if (files && files.length) void uploadMany(files); e.target.value = '' }}
         />
       </div>
       {apiDocs.length === 0 ? (

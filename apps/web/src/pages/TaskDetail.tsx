@@ -373,8 +373,11 @@ export function TaskDetailPage() {
   const upload = async (file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    const res = await fetch(`/api/tasks/${t.id}/attachments`, { method: 'POST', body: fd })
-    if (res.ok) await reload()
+    await fetch(`/api/tasks/${t.id}/attachments`, { method: 'POST', body: fd })
+  }
+  const uploadMany = async (files: FileList | File[]) => {
+    for (const f of Array.from(files)) await upload(f)
+    await reload()
   }
   const removeAttachment = async (id: string) => { await api.delete(`/api/attachments/${id}`); await reload() }
   const renameAttachment = async (id: string, filename: string) => {
@@ -699,7 +702,7 @@ export function TaskDetailPage() {
                   </div>
                 )}
               </div>
-              <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+              <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { const files = e.target.files; if (files && files.length) void uploadMany(files); e.target.value = '' }} />
               <input ref={docUploadRef} type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocUploadPending(f); e.target.value = '' }} />
               {t.linkedDocuments.length > 0 && (
                 <div className="space-y-1.5 mt-2">

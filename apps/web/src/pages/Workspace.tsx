@@ -42,12 +42,12 @@ interface WsTask {
   kind?: string
   projectId: string | null
 }
-type WorkType = 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog'
+type WorkType = 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr'
 interface WsBacklogItem {
   id: string
   code: string | null
   title: string
-  kind: 'epic' | 'task' | 'backlog' | 'defect'
+  kind: 'epic' | 'task' | 'backlog' | 'defect' | 'cr'
   workType: WorkType
   status: TaskStatus | null
   dueDate: string | null
@@ -78,8 +78,8 @@ interface WsSprintItem { sprint: WsSprint; tasks: WsTask[] }
 interface WorkspaceMember { userId: string; name: string; avatarUrl: string | null; role: 'owner' | 'member' | 'vendor' | 'guest' }
 interface RoomDetail { id: string; name: string; type: WorkspaceType; canManage: boolean; projects: AccessibleProject[]; members: WorkspaceMember[] }
 
-const WORKTYPE_ORDER: Record<WorkType, number> = { backlog: 0, epic: 1, story: 2, task: 3, subtask: 4, defect: 5 }
-const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect', backlog: 'Backlog' }
+const WORKTYPE_ORDER: Record<WorkType, number> = { backlog: 0, epic: 1, story: 2, task: 3, subtask: 4, defect: 5, cr: 6 }
+const WORKTYPE_LABEL: Record<WorkType, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect', backlog: 'Backlog', cr: 'CR' }
 const WORKTYPE_BADGE: Record<WorkType, string> = {
   epic: 'bg-teal-50 text-teal-700',
   story: 'bg-violet-50 text-violet-700',
@@ -87,6 +87,7 @@ const WORKTYPE_BADGE: Record<WorkType, string> = {
   subtask: 'bg-divider text-soft',
   defect: 'bg-danger-50 text-danger-700',
   backlog: 'bg-brand-50 text-brand-700',
+  cr: 'bg-warning-50 text-warning-700',
 }
 const selectCls = 'text-sm bg-white border border-border rounded-lg px-2.5 py-1.5'
 const isOverdue = (dueDate: string | null, status: TaskStatus | null) => !!dueDate && dueDate < bkkToday() && status !== 'done'
@@ -96,12 +97,12 @@ const isOverdue = (dueDate: string | null, status: TaskStatus | null) => !!dueDa
 type CreateWorkType = WorkType
 const CREATE_TYPE_LABEL = WORKTYPE_LABEL
 const CREATE_TYPE_BORDER: Record<CreateWorkType, string> = {
-  backlog: 'border-l-brand-400', epic: 'border-l-teal-500', story: 'border-l-violet-500', task: 'border-l-info-500', subtask: 'border-l-border', defect: 'border-l-danger-500',
+  backlog: 'border-l-brand-400', epic: 'border-l-teal-500', story: 'border-l-violet-500', task: 'border-l-info-500', subtask: 'border-l-border', defect: 'border-l-danger-500', cr: 'border-l-warning-500',
 }
 const CREATE_TYPE_DOT: Record<CreateWorkType, string> = {
-  backlog: 'bg-brand-400', epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500',
+  backlog: 'bg-brand-400', epic: 'bg-teal-500', story: 'bg-violet-500', task: 'bg-info-500', subtask: 'bg-dim', defect: 'bg-danger-500', cr: 'bg-warning-500',
 }
-const CREATE_TYPE_ORDER: CreateWorkType[] = ['backlog', 'epic', 'story', 'task', 'subtask', 'defect']
+const CREATE_TYPE_ORDER: CreateWorkType[] = ['backlog', 'epic', 'story', 'task', 'subtask', 'defect', 'cr']
 
 // Pronista §Feedback batch 3 — คลิกที่ badge ประเภทงานหน้ารหัสงานได้ตรงๆ เปลี่ยนประเภทได้ทันที (รูปแบบเดียวกับตอนคีย์งานใหม่) แทนเมนูจุด 3 จุดเดิม
 const CONVERT_TYPE_ORDER: ConvertTo[] = ['epic', 'story', 'task', 'subtask', 'defect', 'cr']
@@ -337,7 +338,7 @@ export function WorkspacePage() {
   }
 
   // Pronista §Feedback batch 4 — อิสระเลือกประเภทงานได้เสมอ ไม่บังคับเลือกโปรเจกต์/parent ก่อนคีย์อีกต่อไป (ผูกทีหลังได้) ยกเว้น Subtask ที่ยังต้องเลือก parent (Task) ทันที เพราะโครงสร้างข้อมูลกำหนด subtask ด้วยความลึกของ parent chain ไม่มี kind แยกต่างหาก จึงไม่มีทาง "ลอย" เป็น subtask ได้จริง
-  const showAddProjectPicker = addType === 'task' || addType === 'subtask' || addType === 'defect'
+  const showAddProjectPicker = addType === 'task' || addType === 'subtask' || addType === 'defect' || addType === 'cr'
   const showAddParentPicker = addType === 'task' || addType === 'subtask'
   const parentRequired = addType === 'subtask'
   const effectiveAddProjectId = addProjectId
