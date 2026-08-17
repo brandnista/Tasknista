@@ -1,5 +1,5 @@
 import {
-  FilePlus, FileText, Filter, Folder, FolderInput, FolderPlus, Grid2x2, Image as ImageIcon, List, ListTree, Link2, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X,
+  FilePlus, FileText, Filter, Folder, FolderInput, FolderPlus, FolderUp, Grid2x2, Image as ImageIcon, List, ListTree, Link2, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
@@ -8,9 +8,17 @@ import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
 import { DEFAULT_PAGE_SIZE, Pager } from '../components/Pager'
 import { PageHeader } from '../components/PageHeader'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
+
+// เท่ากับฝั่ง backend (apps/api/src/routes/docs.ts) — ใช้กรองไฟล์ก่อนอัปโหลดตอน "อัปโหลดโฟลเดอร์" กันยิง request ที่รู้อยู่แล้วว่าจะโดนปฏิเสธ
+const UPLOAD_ACCEPTED_MIME = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+])
+const UPLOAD_MAX_BYTES = 15 * 1024 * 1024
 
 interface DocNode {
   id: string
@@ -45,13 +53,14 @@ const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
 type DocType = (typeof DOC_TYPES)[number]
 
 /** เมนู "+ เพิ่ม" เดียว (หน้าใหม่/ลิงก์ Google Docs/อัปโหลดไฟล์/เอกสาร Template/อัปโหลดแตกเป็น Task/โฟลเดอร์ใหม่) แทนปุ่มกระจัดกระจาย — ลอยตรงตำแหน่งที่กด */
-function AddMenu({ x, y, onClose, onPage, onLink, onUpload, onTemplate, onUploadBreakout, onFolder }: {
+function AddMenu({ x, y, onClose, onPage, onLink, onUpload, onUploadFolder, onTemplate, onUploadBreakout, onFolder }: {
   x: number
   y: number
   onClose: () => void
   onPage: () => void
   onLink: () => void
   onUpload: () => void
+  onUploadFolder: () => void
   onTemplate: () => void
   onUploadBreakout: () => void
   onFolder: () => void
@@ -68,6 +77,7 @@ function AddMenu({ x, y, onClose, onPage, onLink, onUpload, onTemplate, onUpload
         <button className={item} onClick={() => { onFolder(); onClose() }}><FolderPlus className="w-4 h-4 text-muted" /> โฟลเดอร์ใหม่</button>
         <button className={item} onClick={() => { onLink(); onClose() }}><Link2 className="w-4 h-4 text-muted" /> ลิงก์ Google Docs</button>
         <button className={item} onClick={() => { onUpload(); onClose() }}><Upload className="w-4 h-4 text-muted" /> อัปโหลดไฟล์ (Word/PDF)</button>
+        <button className={item} onClick={() => { onUploadFolder(); onClose() }}><FolderUp className="w-4 h-4 text-muted" /> อัปโหลดโฟลเดอร์</button>
         <button className={item} onClick={() => { onTemplate(); onClose() }}><FileText className="w-4 h-4 text-muted" /> เอกสาร Template</button>
         <div className="my-1 border-t border-divider" />
         <button className={item} onClick={() => { onUploadBreakout(); onClose() }}><ListTree className="w-4 h-4 text-muted" /> อัปโหลดเอกสาร (แตกเป็น Task)</button>
@@ -541,13 +551,75 @@ export function DocsPage() {
     window.open(`/docs/${created.id}`, '_blank', 'noopener')
   }
 
+  // "อัปโหลดโฟลเดอร์" — เลือกทั้งโฟลเดอร์จากเครื่อง (input[webkitdirectory]) แล้วสร้างโครงสร้างโฟลเดอร์ย่อยตาม path จริง + อัปโหลดไฟล์ Word/PDF เข้าตำแหน่งที่ถูกต้อง
+  // ตั้ง webkitdirectory ผ่าน ref แทน JSX attribute เพราะ React's InputHTMLAttributes ไม่มี prop นี้ (เป็น non-standard DOM property)
+  const folderUploadRef = useRef<HTMLInputElement>(null)
+  const triggerUploadFolder = (parentId: string | null) => {
+    uploadParent.current = parentId
+    folderUploadRef.current?.click()
+  }
+  const [folderUploadProgress, setFolderUploadProgress] = useState<{ done: number; total: number } | null>(null)
+  const handleFolderUpload = async (fileList: FileList) => {
+    const rootParentId = uploadParent.current
+    const files = Array.from(fileList)
+    if (files.length === 0) return
+    setFolderUploadProgress({ done: 0, total: files.length })
+    try {
+      // เก็บทุก path โฟลเดอร์ที่ต้องมี (ทุกระดับ) จาก webkitRelativePath เช่น "งาน CR/รอบ1/ใบเสนอราคา.pdf" → "งาน CR", "งาน CR/รอบ1"
+      const dirPaths = new Set<string>()
+      for (const f of files) {
+        const segments = f.webkitRelativePath.split('/').slice(0, -1)
+        for (let i = 1; i <= segments.length; i++) dirPaths.add(segments.slice(0, i).join('/'))
+      }
+      // สร้างจากตื้นไปลึก ให้โฟลเดอร์แม่มี id ก่อนสร้างลูก
+      const sortedDirs = Array.from(dirPaths).sort((a, b) => a.split('/').length - b.split('/').length)
+      const dirIdOf = new Map<string, string>()
+      for (const dir of sortedDirs) {
+        const segments = dir.split('/')
+        const parentPath = segments.slice(0, -1).join('/')
+        const parentId = parentPath ? (dirIdOf.get(parentPath) ?? rootParentId) : rootParentId
+        const created = await api.post<{ id: string }>('/api/docs/folder', { title: segments[segments.length - 1], parentId })
+        dirIdOf.set(dir, created.id)
+      }
+      let uploaded = 0
+      let skipped = 0
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]!
+        setFolderUploadProgress({ done: i, total: files.length })
+        if (file.size === 0 || file.size > UPLOAD_MAX_BYTES || !UPLOAD_ACCEPTED_MIME.has(file.type)) {
+          skipped++
+          continue
+        }
+        const dirPath = file.webkitRelativePath.split('/').slice(0, -1).join('/')
+        const parentId = dirPath ? (dirIdOf.get(dirPath) ?? rootParentId) : rootParentId
+        const form = new FormData()
+        form.append('file', file)
+        form.append('title', file.name)
+        if (parentId) form.append('parentId', parentId)
+        const res = await fetch('/api/docs/upload', { method: 'POST', body: form })
+        if (res.ok) uploaded++
+        else skipped++
+      }
+      await reloadTree()
+      void confirmDialog({
+        title: 'อัปโหลดโฟลเดอร์เสร็จแล้ว',
+        message: `สำเร็จ ${uploaded} ไฟล์${skipped ? `, ข้าม ${skipped} ไฟล์ (รับเฉพาะ Word/PDF ไม่เกิน 15MB)` : ''}`,
+        confirmLabel: 'ตกลง',
+      })
+    } catch (e) {
+      void confirmDialog({ title: 'อัปโหลดโฟลเดอร์ไม่สำเร็จ', message: e instanceof ApiError ? e.message : undefined, confirmLabel: 'ตกลง' })
+    } finally {
+      setFolderUploadProgress(null)
+    }
+  }
+
   return (
     <>
       <PageHeader
         title="เอกสาร"
         action={
           <button
-            onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAddMenu({ parentId: null, x: r.right - 208, y: r.bottom + 4 }) }}
+            onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAddMenu({ parentId: activeFolder, x: r.right - 208, y: r.bottom + 4 }) }}
             className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3.5 py-2 rounded-lg"
           >
             <Plus className="w-4 h-4" /> เพิ่ม
@@ -743,6 +815,7 @@ export function DocsPage() {
           onPage={() => void addPage(addMenu.parentId)}
           onLink={() => void addLink(addMenu.parentId)}
           onUpload={() => triggerUpload(addMenu.parentId)}
+          onUploadFolder={() => triggerUploadFolder(addMenu.parentId)}
           onTemplate={() => setTemplatePicker({ parentId: addMenu.parentId })}
           onUploadBreakout={() => setUploadBreakoutOpen(true)}
           onFolder={() => void addFolder(addMenu.parentId)}
@@ -750,8 +823,20 @@ export function DocsPage() {
       )}
       <input ref={uploadRef} type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) setPendingUpload(f); e.target.value = '' }} />
+      <input
+        ref={(el) => { folderUploadRef.current = el; if (el) el.webkitdirectory = true }}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => { const files = e.target.files; if (files && files.length) void handleFolderUpload(files); e.target.value = '' }}
+      />
       {pendingUpload && (
         <UploadDocTypeModal filename={pendingUpload.name} onClose={() => setPendingUpload(null)} onConfirm={(docType, projectId) => void confirmUpload(docType, projectId)} />
+      )}
+      {folderUploadProgress && (
+        <div className="fixed bottom-4 right-4 z-[60] bg-white shadow-2xl border border-border-subtle rounded-lg px-4 py-3 text-sm text-body">
+          กำลังอัปโหลดโฟลเดอร์… {folderUploadProgress.done}/{folderUploadProgress.total} ไฟล์
+        </div>
       )}
       {templatePicker && (
         <TemplatePickerModal
