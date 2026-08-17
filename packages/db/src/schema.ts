@@ -963,7 +963,6 @@ export const projectReleases = sqliteTable(
       .notNull()
       .references(() => projects.id),
     version: text('version').notNull(), // เช่น "v2.1.0 (230)"
-    notes: text('notes').notNull(), // markdown — เขียนผ่าน RichTextField เดียวกับ field richtext ของ doc-templates
     sortOrder: integer('sort_order').notNull(),
     createdBy: text('created_by')
       .notNull()
@@ -973,6 +972,47 @@ export const projectReleases = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [index('project_releases_project_idx').on(t.projectId)],
+)
+
+// Pronista §Version Release (ต่อยอด) — รายละเอียดแตกเป็นรายบรรทัด (แทน markdown blob เดิม) ให้แต่ละบรรทัดเชื่อมโยง Task/Defect ได้
+// section = หัวข้อกลุ่ม (ว่างได้ — แถวที่ตามมาไม่กรอกซ้ำถือว่าอยู่กลุ่มเดิม, ฝั่ง frontend เป็นคนจัดกลุ่มตอนแสดงผล)
+export const releaseNoteItems = sqliteTable(
+  'release_note_items',
+  {
+    id: id(),
+    releaseId: text('release_id')
+      .notNull()
+      .references(() => projectReleases.id),
+    section: text('section'),
+    text: text('text').notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('release_note_items_release_idx').on(t.releaseId)],
+)
+
+// บรรทัด release note 1 บรรทัด ผูกกับ Task/Defect ได้หลายอัน (tasks.kind ='task'|'defect' เท่านั้น — คุมที่ API)
+export const releaseNoteItemLinks = sqliteTable(
+  'release_note_item_links',
+  {
+    id: id(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => releaseNoteItems.id),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index('release_note_item_links_item_idx').on(t.itemId),
+    index('release_note_item_links_task_idx').on(t.taskId),
+    uniqueIndex('release_note_item_links_uq_idx').on(t.itemId, t.taskId),
+  ],
 )
 
 export const ADJUSTMENT_KINDS = [

@@ -1,36 +1,113 @@
-import { Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowDown, ArrowUp, Link2, Plus, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { api, ApiError } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
 import { useDialog } from './Dialog'
-import { RichTextField } from './doc-templates/RichTextField'
+import { type PickableTask, TaskPickerModal } from './TaskPickerModal'
+
+interface LinkedTask {
+  id: string
+  code: string | null
+  title: string
+  kind: string
+}
+
+interface ReleaseItem {
+  id: string
+  section: string | null
+  text: string
+  sortOrder: number
+  linkedTasks: LinkedTask[]
+}
 
 interface ReleaseRow {
   id: string
   version: string
-  notes: string
   sortOrder: number
   createdByName: string | null
   createdAt: string
+  items: ReleaseItem[]
 }
 
-/** Pronista §Version Release — แท็บ "Version Release" ต่อโปรเจกต์ (อยู่ต่อจาก "ประวัติเอกสาร") คอลัมน์ ลำดับ/เวอร์ชั่น/รายละเอียด */
+interface DraftItem {
+  key: string
+  section: string
+  text: string
+  linkedTasks: LinkedTask[]
+}
+
+interface TaskAllRow {
+  id: string
+  code: string | null
+  title: string
+  kind: string
+  parentId: string | null
+}
+
+const emptyDraft = (): DraftItem => ({ key: crypto.randomUUID(), section: '', text: '', linkedTasks: [] })
+
+/** Pronista §Version Release (ต่อยอด) — แต่ละบรรทัดเชื่อมโยง Task/Defect ได้ (แทน markdown blob เดิม)
+ * section = หัวข้อกลุ่ม กรอกเฉพาะแถวที่ขึ้นกลุ่มใหม่ เว้นว่างถ้าอยู่กลุ่มเดิมกับแถวก่อนหน้า */
 function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: () => void }) {
   const [version, setVersion] = useState('')
-  const [notes, setNotes] = useState('')
+  const [items, setItems] = useState<DraftItem[]>([emptyDraft()])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [linkingKey, setLinkingKey] = useState<string | null>(null)
+  const { data: taskCandidates } = useLoad<TaskAllRow[]>(
+    () => (linkingKey ? api.get(`/api/projects/${projectId}/tasks/all`) : Promise.resolve([])),
+    [linkingKey],
+  )
+  const pickable: PickableTask[] = (taskCandidates ?? [])
+    .filter((t) => t.kind === 'task' || t.kind === 'defect')
+    .map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId }))
+
+  const updateItem = (key: string, patch: Partial<DraftItem>) => setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)))
+  const removeItem = (key: string) => setItems((prev) => (prev.length === 1 ? prev : prev.filter((it) => it.key !== key)))
+  const moveItem = (index: number, dir: -1 | 1) =>
+    setItems((prev) => {
+      const next = [...prev]
+      const swapWith = index + dir
+      if (swapWith < 0 || swapWith >= next.length) return prev
+      ;[next[index], next[swapWith]] = [next[swapWith]!, next[index]!]
+      return next
+    })
+  const pickTask = (pt: PickableTask) => {
+    const full = (taskCandidates ?? []).find((t) => t.id === pt.id)
+    if (!full || !linkingKey) return
+    updateItem(linkingKey, {
+      linkedTasks: [
+        ...(items.find((it) => it.key === linkingKey)?.linkedTasks ?? []).filter((lt) => lt.id !== full.id),
+        { id: full.id, code: full.code, title: full.title, kind: full.kind },
+      ],
+    })
+    setLinkingKey(null)
+  }
+  const unlinkTask = (key: string, taskId: string) => {
+    const it = items.find((i) => i.key === key)
+    if (!it) return
+    updateItem(key, { linkedTasks: it.linkedTasks.filter((lt) => lt.id !== taskId) })
+  }
 
   const save = async () => {
     if (!version.trim()) {
       setError('กรอกเวอร์ชันก่อน')
       return
     }
+    const cleanItems = items.filter((it) => it.text.trim())
     setSaving(true)
     setError('')
     try {
-      await api.post(`/api/projects/${projectId}/releases`, { version: version.trim(), notes })
+      await api.post(`/api/projects/${projectId}/releases`, {
+        version: version.trim(),
+        items: cleanItems.map((it) => ({
+          section: it.section.trim() || undefined,
+          text: it.text.trim(),
+          linkedTaskIds: it.linkedTasks.map((lt) => lt.id),
+        })),
+      })
       onCreated()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')
@@ -45,8 +122,8 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
   return (
     <div className="fixed inset-0 z-50">
       <div onClick={onClose} className="absolute inset-0 bg-ink/30" />
-      <div className="absolute inset-x-0 top-10 mx-auto w-full max-w-lg px-4">
-        <div className="bg-white rounded-lg shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+      <div className="absolute inset-x-0 top-6 mx-auto w-full max-w-xl px-4">
+        <div className="bg-white rounded-lg shadow-2xl p-5 max-h-[88vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
             <div className="font-semibold text-ink text-sm">เพิ่มเวอร์ชัน (Version Release)</div>
             <button onClick={onClose} className="text-muted hover:text-soft shrink-0"><X className="w-5 h-5" /></button>
@@ -58,7 +135,60 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
             </div>
             <div>
               <label className={label}>รายละเอียด</label>
-              <RichTextField value={notes} onChange={setNotes} readOnly={false} />
+              <div className="space-y-2">
+                {items.map((it, i) => (
+                  <div key={it.key} className="border border-border-subtle rounded-lg p-2.5 space-y-1.5">
+                    <input
+                      value={it.section}
+                      onChange={(e) => updateItem(it.key, { section: e.target.value })}
+                      placeholder="หัวข้อกลุ่ม (กรอกเฉพาะแถวที่ขึ้นกลุ่มใหม่ — เว้นว่างถ้าอยู่กลุ่มเดิม)"
+                      className="w-full text-xs font-semibold text-ink placeholder:font-normal placeholder:text-muted focus:outline-hidden"
+                    />
+                    <div className="flex items-start gap-2">
+                      <textarea
+                        value={it.text}
+                        onChange={(e) => updateItem(it.key, { text: e.target.value })}
+                        placeholder="รายละเอียดของข้อนี้..."
+                        rows={2}
+                        className="flex-1 text-sm bg-hover rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:bg-white focus:border focus:border-brand-400 resize-none"
+                      />
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <button onClick={() => moveItem(i, -1)} disabled={i === 0} title="เลื่อนขึ้น" className="text-muted hover:text-ink disabled:opacity-25 disabled:hover:text-muted">
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => moveItem(i, 1)} disabled={i === items.length - 1} title="เลื่อนลง" className="text-muted hover:text-ink disabled:opacity-25 disabled:hover:text-muted">
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setLinkingKey(it.key)} title="เชื่อมโยง Task/Defect" className="text-muted hover:text-brand-600">
+                          <Link2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => removeItem(it.key)} title="ลบข้อนี้" className="text-muted hover:text-danger-600">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    {it.linkedTasks.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pl-1">
+                        {it.linkedTasks.map((lt) => (
+                          <span key={lt.id} className="flex items-center gap-1 text-[11px] bg-hover rounded-lg px-1.5 py-0.5">
+                            {lt.kind === 'defect' && <AlertCircle className="w-3 h-3 text-danger-600" />}
+                            {lt.code ?? lt.title}
+                            <button onClick={() => unlinkTask(it.key, lt.id)} title="เลิกเชื่อมโยง" className="text-muted hover:text-danger-600">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => setItems((prev) => [...prev, emptyDraft()])}
+                className="mt-2 flex items-center gap-1.5 text-xs text-brand-700 hover:text-brand-800"
+              >
+                <Plus className="w-3.5 h-3.5" /> เพิ่มบรรทัด
+              </button>
             </div>
             {error && <div className="text-xs text-danger-600">{error}</div>}
             <div className="flex items-center gap-2 pt-1">
@@ -70,6 +200,64 @@ function AddReleaseForm({ projectId, onClose, onCreated }: { projectId: string; 
           </div>
         </div>
       </div>
+      {linkingKey && (
+        <TaskPickerModal
+          title="เชื่อมโยง Task/Defect"
+          tasks={pickable}
+          excludeIds={(items.find((it) => it.key === linkingKey)?.linkedTasks ?? []).map((lt) => lt.id)}
+          onPick={pickTask}
+          onClose={() => setLinkingKey(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/** จัดกลุ่ม items ตาม section ต่อเนื่องกัน — item ที่ section ว่างถือว่าอยู่กลุ่มเดียวกับ item ก่อนหน้า */
+function groupItems(items: ReleaseItem[]) {
+  const groups: { section: string | null; items: ReleaseItem[] }[] = []
+  for (const it of items) {
+    if (it.section || groups.length === 0) groups.push({ section: it.section, items: [it] })
+    else groups[groups.length - 1]!.items.push(it)
+  }
+  return groups
+}
+
+function ReleaseNotesView({ items }: { items: ReleaseItem[] }) {
+  const navigate = useNavigate()
+  if (items.length === 0) return <span className="text-muted text-xs">—</span>
+  return (
+    <div className="space-y-3">
+      {groupItems(items).map((g, gi) => (
+        <div key={gi}>
+          {g.section && <div className="font-semibold text-ink text-sm mb-1">{g.section}</div>}
+          <ul className="space-y-1">
+            {g.items.map((it) => (
+              <li key={it.id} className="text-sm text-body flex items-start gap-1.5">
+                <span className="text-muted shrink-0">•</span>
+                <span>
+                  {it.text}
+                  {it.linkedTasks.length > 0 && (
+                    <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">
+                      {it.linkedTasks.map((lt) => (
+                        <button
+                          key={lt.id}
+                          onClick={() => navigate(`/tasks/${lt.id}`)}
+                          title={lt.title}
+                          className="inline-flex items-center gap-1 text-[11px] bg-hover hover:bg-divider rounded-lg px-1.5 py-0.5 align-middle"
+                        >
+                          {lt.kind === 'defect' && <AlertCircle className="w-3 h-3 text-danger-600" />}
+                          {lt.code ?? lt.title}
+                        </button>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   )
 }
@@ -130,7 +318,7 @@ export function ProjectReleasesTab({
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  {r.notes.trim() ? <RichTextField value={r.notes} onChange={() => {}} readOnly /> : <span className="text-muted text-xs">—</span>}
+                  <ReleaseNotesView items={r.items} />
                 </td>
                 {canDelete && (
                   <td className="px-2 py-3">
