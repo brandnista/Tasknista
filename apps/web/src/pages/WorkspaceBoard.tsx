@@ -28,6 +28,8 @@ interface BoardTask {
   assigneeAvatarUrl: string | null
   projectId: string
   labelIds: string[] | null
+  // Pronista §System Requirements Update — สิทธิ์แก้ไขจริงต่อการ์ด (เช็คจาก backend canEditTask — แม่นกว่าเช็คแค่ role กว้างๆ)
+  canEdit: boolean
 }
 interface BoardData { sprint: BoardSprint | null; preset?: BoardPreset | null; tasks?: BoardTask[] }
 interface RoomProject { id: string; code: string | null; name: string }
@@ -57,7 +59,8 @@ export function WorkspaceBoardPage() {
   const preset = data?.preset
   const tasks = data?.tasks ?? []
   const columns = preset ? [...preset.columns].sort((a, b) => a.sortOrder - b.sortOrder) : []
-  const canEdit = user?.role !== 'vendor' && user?.role !== 'guest'
+  // Pronista §System Requirements Update — "ปิด Sprint" เป็นแอ็กชันระดับ Sprint (ไม่ใช่ต่อการ์ด) ยังเช็คแค่ role กว้างๆ ได้ · การ์ดแต่ละใบใช้ t.canEdit จาก backend แทน (ตรงกับ canEditTask จริง)
+  const canEditSprint = user?.role !== 'vendor' && user?.role !== 'guest'
   const projectOf = (id: string) => room?.projects.find((p) => p.id === id)
 
   const changeStatus = async (taskId: string, sprintStatus: string) => {
@@ -101,7 +104,7 @@ export function WorkspaceBoardPage() {
     return (
       <div
         key={t.id}
-        draggable={canEdit}
+        draggable={t.canEdit}
         onDragStart={() => setDragId(t.id)}
         onClick={() => openTask(t.id)}
         className="group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm"
@@ -110,7 +113,7 @@ export function WorkspaceBoardPage() {
           {proj && <ProjectChip code={proj.code} name={proj.name} />}
           {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
           <span className="text-sm text-body flex-1">{t.title}</span>
-          {canEdit && (
+          {t.canEdit && (
             <button
               onClick={(e) => { e.stopPropagation(); void removeFromSprint(t.id, t.code) }}
               title="เอาออกจาก Sprint กลับ Backlog"
@@ -147,7 +150,7 @@ export function WorkspaceBoardPage() {
       <div className="bg-white rounded-lg shadow-xs p-4 mb-4 flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-bold text-ink">{sprint.name || 'Sprint'}</h2>
         <span className="text-xs px-2 py-0.5 rounded-full bg-info-50 text-info-700 ml-2">{preset.name}</span>
-        {canEdit && (
+        {canEditSprint && (
           <button
             onClick={() => void completeSprint()}
             disabled={busy}

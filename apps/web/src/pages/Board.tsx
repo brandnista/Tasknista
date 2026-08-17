@@ -40,6 +40,8 @@ interface BoardTask {
   epicId: string | null
   // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels)
   labelIds: string[] | null
+  // Pronista §System Requirements Update — สิทธิ์แก้ไขจริงต่อการ์ด (เช็คจาก backend canEditTask — แม่นกว่าเช็คแค่ role กว้างๆ)
+  canEdit: boolean
 }
 interface BoardParent { id: string; code: string | null; title: string }
 interface BoardEpic { id: string; title: string; code: string | null }
@@ -233,7 +235,8 @@ export function BoardPage() {
   const { id: projectId, sprintId } = useParams<{ id: string; sprintId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { data, reload } = useLoad<BoardData>(() => api.get(`/api/sprints/${sprintId}/board`), [sprintId])
+  // Pronista §System Requirements Update — ส่ง projectId เสมอ กัน Sprint ห้อง Workspace ที่มีงานข้ามโปรเจกต์โผล่มาปนบอร์ดของโปรเจกต์นี้ (ต่างจาก WorkspaceBoard.tsx ที่ไม่ส่ง เห็นทุกโปรเจกต์)
+  const { data, reload } = useLoad<BoardData>(() => api.get(`/api/sprints/${sprintId}/board?projectId=${projectId}`), [sprintId, projectId])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนการ์ด
   const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
   const [dragId, setDragId] = useState<string | null>(null)
@@ -247,7 +250,8 @@ export function BoardPage() {
   const tasks = data?.tasks ?? []
   const parentsMap = new Map((data?.parents ?? []).map((p) => [p.id, p]))
   const columns = preset ? [...preset.columns].sort((a, b) => a.sortOrder - b.sortOrder) : []
-  const canEdit = user?.role !== 'vendor' && user?.role !== 'guest'
+  // Pronista §System Requirements Update — "ปิด Sprint" เป็นแอ็กชันระดับ Sprint (ไม่ใช่ต่อการ์ด) ยังเช็คแค่ role กว้างๆ ได้ · การ์ดแต่ละใบใช้ t.canEdit จาก backend แทน (ตรงกับ canEditTask จริง)
+  const canEditSprint = user?.role !== 'vendor' && user?.role !== 'guest'
 
   const changeStatus = async (taskId: string, sprintStatus: string) => {
     await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
@@ -291,7 +295,7 @@ export function BoardPage() {
   const renderCard = (t: BoardTask) => (
     <div
       key={t.id}
-      draggable={canEdit}
+      draggable={t.canEdit}
       onDragStart={() => setDragId(t.id)}
       onClick={() => openTask(t.id)}
       className="group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm"
@@ -299,7 +303,7 @@ export function BoardPage() {
       <div className="flex items-start gap-1.5">
         {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
         <span className="text-sm text-body flex-1">{t.title}</span>
-        {canEdit && (
+        {t.canEdit && (
           <button
             onClick={(e) => { e.stopPropagation(); void removeFromSprint(t.id, t.code) }}
             title="เอาออกจาก Sprint กลับ Backlog"
@@ -341,7 +345,7 @@ export function BoardPage() {
         <h2 className="text-lg font-bold text-ink">{sprint.name || 'Sprint'}</h2>
         <span className="text-xs text-muted">{fmtThaiDate(sprint.startDate)} – {fmtThaiDate(sprint.endDate, true)}</span>
         <span className="text-xs px-2 py-0.5 rounded-full bg-info-50 text-info-700 ml-2">{preset.name}</span>
-        {canEdit && (
+        {canEditSprint && (
           <button
             onClick={() => void completeSprint()}
             disabled={busy}

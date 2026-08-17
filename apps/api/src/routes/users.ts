@@ -1,4 +1,4 @@
-import { resolveLabels, resolvePositions, resolvePresets, resolveStatuses } from '@seedoffice/core'
+import { resolveLabels, resolvePositions, resolvePresets, resolveStatuses, resolveTaskTypes } from '@seedoffice/core'
 import { companyConfig, createDb, users } from '@seedoffice/db'
 import { asc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -34,6 +34,7 @@ export const userRoutes = new Hono<AppEnv>()
           boardPresets: companyConfig.boardPresets,
           labels: companyConfig.labels,
           positions: companyConfig.positions,
+          taskTypes: companyConfig.taskTypes,
         })
         .from(companyConfig)
         .limit(1)
@@ -48,5 +49,7 @@ export const userRoutes = new Hono<AppEnv>()
       labels: resolveLabels(cfg.labels), // Pronista §Workspace
       // Pronista §Feedback batch 3 — ต้องใช้ชื่อ/สิทธิ์ตำแหน่งตอน editor ที่ไม่ใช่ owner จัดการสมาชิกโปรเจกต์ตัวเอง (แก้ผ่าน /api/admin/positions ยังคง owner เท่านั้น — ตรงนี้แค่อ่านให้เลือกตอน assign)
       positions: resolvePositions(cfg.positions),
+      // Pronista §System Requirements Update — Task Type/Sub-task Type แคตตาล็อก ใช้ทั้ง TaskDetail dropdown และ filter ใน Batch E
+      taskTypes: resolveTaskTypes(cfg.taskTypes),
     })
   })

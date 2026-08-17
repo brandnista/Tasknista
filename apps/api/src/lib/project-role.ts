@@ -113,6 +113,23 @@ export async function canEditTask(
   return canEditProject(await getProjectRole(db, task.projectId, me.id, me.role, precomputedPermissions))
 }
 
+/** Pronista §System Requirements Update — เวอร์ชัน batch ของ canEditTask ใช้กับ GET /sprints/:id/board (Board.tsx/WorkspaceBoard.tsx)
+ * ให้ frontend เช็คสิทธิ์ต่อการ์ดตรงกับ backend จริง (เดิม frontend เช็คแค่ role กว้างๆ ทำให้เห็นว่าลากได้แต่ลากจริงโดน 403)
+ * vendor/guest = false เสมอ (ถูกกัน teamOnly ที่ endpoint แก้ไขจริงอยู่แล้ว) · owner/member คำนวณ permissions ต่อโปรเจกต์ครั้งเดียวแล้ว reuse กับทุก task ของโปรเจกต์นั้น กัน query ซ้ำ */
+export async function canEditTasksBatch(
+  db: ReturnType<typeof createDb>,
+  tasksList: { projectId: string | null; assigneeId: string | null }[],
+  me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' },
+): Promise<boolean[]> {
+  if (me.role === 'vendor' || me.role === 'guest') return tasksList.map(() => false)
+  const permissionsByProject = new Map<string, PositionPermissions>()
+  if (me.role === 'member') {
+    const projectIds = [...new Set(tasksList.map((t) => t.projectId).filter((id): id is string => id !== null))]
+    for (const pid of projectIds) permissionsByProject.set(pid, await getProjectPermissions(db, pid, me.id, me.role))
+  }
+  return Promise.all(tasksList.map((t) => canEditTask(db, t, me, t.projectId ? permissionsByProject.get(t.projectId) : undefined)))
+}
+
 /** Pronista §Back to Basic (ต่อยอด) — true เฉพาะเมื่อ canEditTask ผ่านได้เพราะเป็น "assignee เท่านั้น" (ไม่ใช่ owner/editor ของโปรเจกต์)
  * ใช้จำกัดสิทธิ์ผู้รับงานให้แก้ได้แค่ assigneeNotes/checklist(toggle)/attachments/comments ตาม §4 ของ Back to Basic — ไม่ใช่ทุกฟิลด์เหมือน canEditTask */
 export async function isAssigneeOnlyEditor(

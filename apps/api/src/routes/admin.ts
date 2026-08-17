@@ -12,6 +12,7 @@ import {
   resolveProductTypes,
   resolveServiceTypes,
   resolveStatuses,
+  resolveTaskTypes,
   STATUS_COLOR_KEYS,
   validateLabels,
   validatePermissionCeilings,
@@ -20,6 +21,7 @@ import {
   validateProductTypes,
   validateServiceTypes,
   validateStatuses,
+  validateTaskTypes,
   type BoardPreset,
   type CeilingPermissions,
   type Label,
@@ -28,6 +30,7 @@ import {
   type ProductType,
   type ProjectStatus,
   type ServiceType,
+  type TaskType,
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
 import { asc, eq, isNotNull } from 'drizzle-orm'
@@ -501,6 +504,62 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.productTypes ?? null, after: productTypesData },
     })
     return c.json({ productTypes: resolveProductTypes(productTypesData) })
+  })
+
+  // Pronista §System Requirements Update — แคตตาล็อก Task Type/Sub-task Type (BRD/Design/Development/Internal Testing/Debug + ตัวเลือกย่อยของแต่ละอัน)
+  .get('/task-types', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ taskTypes: companyConfig.taskTypes }).from(companyConfig).limit(1))[0]
+    return c.json({ taskTypes: resolveTaskTypes(cfg?.taskTypes) })
+  })
+
+  // owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/แก้ชื่อ ทั้งระดับ type และ subType) — กันลบประเภทที่ยังมี task ใช้อยู่
+  .put('/task-types', async (c) => {
+    const body = z
+      .object({
+        taskTypes: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              sortOrder: z.number().int(),
+              subTypes: z.array(z.object({ id: z.string(), name: z.string(), sortOrder: z.number().int() })),
+            }),
+          )
+          .min(1),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const taskTypesData = body.data.taskTypes as TaskType[]
+    const check = validateTaskTypes(taskTypesData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const usedTypes = await db.selectDistinct({ taskType: tasks.taskType }).from(tasks)
+    const usedSubTypes = await db.selectDistinct({ subTaskType: tasks.subTaskType }).from(tasks)
+    const newTypeIds = new Set(taskTypesData.map((t) => t.id))
+    const newSubTypeIds = new Set(taskTypesData.flatMap((t) => t.subTypes.map((s) => s.id)))
+    const orphanTypes = usedTypes.map((u) => u.taskType).filter((id): id is string => id !== null && !newTypeIds.has(id))
+    const orphanSubTypes = usedSubTypes.map((u) => u.subTaskType).filter((id): id is string => id !== null && !newSubTypeIds.has(id))
+    if (orphanTypes.length > 0 || orphanSubTypes.length > 0)
+      return c.json(
+        {
+          error: 'task_type_in_use',
+          message: `ยังมีงานใช้ประเภท/ตัวเลือกย่อยนี้อยู่: ${[...orphanTypes, ...orphanSubTypes].join(', ')} — เปลี่ยนประเภทของงานนั้นก่อนจึงลบได้`,
+        },
+        409,
+      )
+
+    const before = (await db.select({ taskTypes: companyConfig.taskTypes }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ taskTypes: taskTypesData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.task_types',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.taskTypes ?? null, after: taskTypesData },
+    })
+    return c.json({ taskTypes: resolveTaskTypes(taskTypesData) })
   })
 
   // Pronista §Workspace — แคตตาล็อกแท็กสีของ Task (Bug/Urgent/Blocked/ฯลฯ)

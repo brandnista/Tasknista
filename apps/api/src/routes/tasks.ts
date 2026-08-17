@@ -1,4 +1,4 @@
-import { bkkDateOf, hasAnyEditRight, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
+import { bkkDateOf, hasAnyEditRight, isValidTaskTypePair, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
 import {
   companyConfig,
   createDb,
@@ -62,6 +62,9 @@ const taskPatchSchema = z.object({
   defectStatus: z.enum(DEFECT_STATUSES).optional(), // Pronista §5 — สถานะเฉพาะ Defect
   sprintStatus: z.string().nullable().optional(), // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด (อ้าง id คอลัมน์ใน preset ของ sprint ที่ผูกอยู่)
   labelIds: z.array(z.string()).optional(), // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels) เลือกได้หลายอัน
+  // Pronista §System Requirements Update — ประเภทงาน/ตัวเลือกย่อย (อ้าง id ใน company_config.taskTypes) ใช้กับงานทุก kind
+  taskType: z.string().nullable().optional(),
+  subTaskType: z.string().nullable().optional(),
 })
 
 /** board ของโปรเจกต์ + CRUD group/task — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation) */
@@ -261,6 +264,11 @@ export const taskRoutes = new Hono<AppEnv>()
         status: tasks.status,
         defectStatus: tasks.defectStatus,
         assigneeName: users.name,
+        // Pronista §System Requirements Update — โชว์เวลาประเมินในตาราง Grid (คอลัมน์นี้มีอยู่แล้ว แค่ไม่เคยถูก select ออกมาให้ frontend ใช้)
+        estimateMinutes: tasks.estimateMinutes,
+        // Pronista §System Requirements Update — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint (ProjectDetail Sprint tab)
+        taskType: tasks.taskType,
+        subTaskType: tasks.subTaskType,
       })
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
@@ -543,6 +551,14 @@ export const taskRoutes = new Hono<AppEnv>()
       const cfg = (await db.select({ labels: companyConfig.labels }).from(companyConfig).limit(1))[0]
       const validIds = new Set(resolveLabels(cfg?.labels).map((l) => l.id))
       if (body.data.labelIds.some((id) => !validIds.has(id))) return c.json({ error: 'invalid_label' }, 400)
+    }
+    // Pronista §System Requirements Update — subTaskType ต้องอยู่ใต้ taskType ที่เลือกจริง
+    if (body.data.taskType !== undefined || body.data.subTaskType !== undefined) {
+      const cfg = (await db.select({ taskTypes: companyConfig.taskTypes }).from(companyConfig).limit(1))[0]
+      const nextTaskType = body.data.taskType !== undefined ? body.data.taskType : before.taskType
+      const nextSubTaskType = body.data.subTaskType !== undefined ? body.data.subTaskType : before.subTaskType
+      if (!isValidTaskTypePair(cfg?.taskTypes, nextTaskType, nextSubTaskType))
+        return c.json({ error: 'invalid_task_type' }, 400)
     }
 
     const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()

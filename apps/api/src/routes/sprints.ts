@@ -1,12 +1,12 @@
 import { bkkDateOf, columnsOf, firstColumnId } from '@seedoffice/core'
-import { createDb, projects, sprintTaskSnapshots, sprints, tasks, users, workspaces } from '@seedoffice/db'
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { createDb, projects, sprintTaskSnapshots, sprints, tasks, workspaces } from '@seedoffice/db'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { canEditProject, getProjectRole } from '../lib/project-role'
+import { canEditProject, canEditTasksBatch, getProjectRole } from '../lib/project-role'
 import { completeSprint } from '../lib/sprint'
-import { isWorkspaceMember, loadEpics, loadParents, loadPreset, loadProjectSprintBoards, loadSprintBoard, loadWorkspaceSprintBoards, workspaceProjectIds } from '../lib/workspace-query'
+import { isWorkspaceMember, loadPreset, loadProjectSprintBoards, loadSprintBoard, loadWorkspaceSprintBoards, projectSprintIds, workspaceProjectIds } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -23,6 +23,42 @@ async function canManageSprint(
   return false
 }
 
+/** Pronista §System Requirements Update — logic เดียวกับ POST /sprints/:id/tasks (เดี่ยว) ใช้ร่วมกับ endpoint แบบ batch กันตรรกะเพี้ยนกันระหว่าง 2 endpoint */
+async function addTaskToSprint(
+  db: ReturnType<typeof createDb>,
+  sprint: typeof sprints.$inferSelect,
+  task: typeof tasks.$inferSelect,
+): Promise<{ ok: true; addedIds: string[] } | { ok: false }> {
+  const taskAllowed = sprint.projectId
+    ? task.projectId === sprint.projectId
+    : sprint.workspaceId && task.projectId
+      ? (await workspaceProjectIds(db, sprint.workspaceId)).has(task.projectId)
+      : sprint.workspaceId && !task.projectId
+        ? task.workspaceId === sprint.workspaceId
+        : false
+  if (!taskAllowed) return { ok: false }
+
+  const preset = sprint.status === 'active' ? await loadPreset(db, sprint.boardPresetId) : undefined
+  const sprintStatus = preset ? firstColumnId(preset) : null
+
+  const isSowParent = task.originDocType === 'SOW' && task.parentId === null
+  if (isSowParent) {
+    const children = await db
+      .update(tasks)
+      .set({ sprintId: sprint.id, sprintStatus })
+      .where(and(eq(tasks.parentId, task.id), isNull(tasks.groupId), isNull(tasks.sprintId)))
+      .returning()
+    if (children.length === 0) return { ok: false }
+    return { ok: true, addedIds: children.map((c) => c.id) }
+  }
+
+  const genericSubtaskBlocked = task.originDocType !== 'SOW' && task.parentId !== null
+  if (task.groupId !== null || task.sprintId !== null || genericSubtaskBlocked) return { ok: false }
+
+  const updated = await db.update(tasks).set({ sprintId: sprint.id, sprintStatus }).where(eq(tasks.id, task.id)).returning()
+  return { ok: true, addedIds: updated.map((u) => u.id) }
+}
+
 /** Sprint & Board (Pronista §Sprint & Board) — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation, เหมือน taskRoutes) */
 export const sprintRoutes = new Hono<AppEnv>()
 
@@ -30,7 +66,10 @@ export const sprintRoutes = new Hono<AppEnv>()
   .get('/projects/:id/sprints', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
-    const rows = await db.select().from(sprints).where(eq(sprints.projectId, projectId)).orderBy(desc(sprints.createdAt))
+    // Pronista §System Requirements Update — รวม Sprint ห้อง Workspace ที่มีงานโปรเจกต์นี้อยู่ข้างในด้วย ไม่ใช่แค่ที่ผูก projectId ตรงๆ (ดู projectSprintIds)
+    const ids = await projectSprintIds(db, projectId)
+    if (ids.length === 0) return c.json([])
+    const rows = await db.select().from(sprints).where(inArray(sprints.id, ids)).orderBy(desc(sprints.createdAt))
     // sprint ที่ยังไม่ completed นับ live จาก tasks ปัจจุบัน · completed แล้วใช้ snapshot ที่ปิดไว้ (นับใหม่จาก tasks ไม่ได้ต่อ)
     const liveCounts = await db.select({ id: tasks.id, sprintId: tasks.sprintId, sprintStatus: tasks.sprintStatus }).from(tasks).where(eq(tasks.projectId, projectId))
     return c.json(
@@ -201,11 +240,17 @@ export const sprintRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §Back to Basic (ต่อยอด) — หน้า Board แยกต่อ sprint (หลาย sprint active พร้อมกันได้ ต้องระบุว่าดู sprint ไหน)
+  // Pronista §System Requirements Update — ?projectId= (ไม่บังคับ) กรองงานให้เหลือแค่โปรเจกต์นี้ — ใช้จากหน้าโปรเจกต์ (Sprint ห้อง Workspace มีงานข้ามโปรเจกต์ได้) หน้า Workspace ไม่ส่ง param นี้ เห็นทุกโปรเจกต์เหมือนเดิม
   .get('/sprints/:id/board', async (c) => {
     const db = createDb(c.env.DB)
     const sprint = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
     if (!sprint) return c.json({ error: 'not_found' }, 404)
-    return c.json(await loadSprintBoard(db, sprint))
+    const scopeProjectId = c.req.query('projectId') || undefined
+    const board = await loadSprintBoard(db, sprint, scopeProjectId)
+    // Pronista §System Requirements Update — ติด canEdit ต่อการ์ดให้ frontend เช็คสิทธิ์ตรงกับ backend จริง (ดู canEditTasksBatch)
+    const me = c.get('user')
+    const canEditFlags = await canEditTasksBatch(db, board.tasks, me)
+    return c.json({ ...board, tasks: board.tasks.map((t, i) => ({ ...t, canEdit: canEditFlags[i] })) })
   })
 
   // ปิด sprint เอง (ก่อนครบกำหนด) — งานไม่ Done เด้งกลับ backlog · ปกติจะปิดอัตโนมัติตอนครบกำหนด (scheduled.ts)
@@ -237,44 +282,44 @@ export const sprintRoutes = new Hono<AppEnv>()
 
     const task = (await db.select().from(tasks).where(eq(tasks.id, body.data.taskId)).limit(1))[0]
     if (!task) return c.json({ error: 'task_not_found' }, 404)
-    // Pronista §Workspace Sprint (ต่อยอด) — Sprint ผูกโปรเจกต์: งานต้องเป็นของโปรเจกต์เดียวกันเป๊ะเหมือนเดิม · Sprint ผูกห้อง Workspace: งานต้องมาจากโปรเจกต์ที่ถูกดึงเข้าห้องนี้แล้ว (ข้ามโปรเจกต์ได้ภายในห้องเดียวกัน)
-    const taskAllowed = sprint.projectId
-      ? task.projectId === sprint.projectId
-      : sprint.workspaceId && task.projectId
-        ? (await workspaceProjectIds(db, sprint.workspaceId)).has(task.projectId)
-        // Pronista §System Requirements Update — งาน Backlog ที่คีย์ตรงในห้อง (projectId ว่าง, workspaceId ผูกห้อง) ลากเข้า Sprint ของห้องเดียวกันได้
-        : sprint.workspaceId && !task.projectId
-          ? task.workspaceId === sprint.workspaceId
-          : false
-    if (!taskAllowed) return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานในโปรเจกต์ที่อยู่ในห้อง/โปรเจกต์เดียวกับ Sprint นี้เท่านั้น' }, 400)
 
-    const preset = sprint.status === 'active' ? await loadPreset(db, sprint.boardPresetId) : undefined
-    const sprintStatus = preset ? firstColumnId(preset) : null
-
-    // Pronista §Sprint & Board fix — ลาก Task พ่อของ SOW เข้า Sprint = ดึง subtask ทั้งหมดที่ยังอยู่ Backlog เข้าไปแทน (Task พ่อเองไม่เข้า sprint — ยังคงกฎเดิมที่ Task พ่อ SOW ลาก sprint โดยตรงไม่ได้)
-    const isSowParent = task.originDocType === 'SOW' && task.parentId === null
-    if (isSowParent) {
-      const children = await db
-        .update(tasks)
-        .set({ sprintId: sprint.id, sprintStatus })
-        .where(and(eq(tasks.parentId, task.id), isNull(tasks.groupId), isNull(tasks.sprintId)))
-        .returning()
-      if (children.length === 0)
-        return c.json({ error: 'no_subtasks_available', message: 'Task นี้ไม่มี Subtask เหลือใน Backlog ให้ลากเข้า Sprint แล้ว' }, 400)
-      return c.json({ added: children })
+    const result = await addTaskToSprint(db, sprint, task)
+    if (!result.ok) {
+      const isSowParent = task.originDocType === 'SOW' && task.parentId === null
+      if (isSowParent) return c.json({ error: 'no_subtasks_available', message: 'Task นี้ไม่มี Subtask เหลือใน Backlog ให้ลากเข้า Sprint แล้ว' }, 400)
+      return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานในโปรเจกต์ที่อยู่ในห้อง/โปรเจกต์เดียวกับ Sprint นี้เท่านั้น' }, 400)
     }
+    const added = await db.select().from(tasks).where(inArray(tasks.id, result.addedIds))
+    return c.json({ added })
+  })
 
-    // Task อื่นทั้งหมด (ไม่มีต้นทาง/ต้นทางอื่น) ทำงานเหมือนเดิมทุกประการ — subtask ทั่วไป (ไม่ใช่ SOW) ยังลาก sprint ไม่ได้เหมือนเดิม (ของเดิม)
-    const genericSubtaskBlocked = task.originDocType !== 'SOW' && task.parentId !== null
-    if (task.groupId !== null || task.sprintId !== null || genericSubtaskBlocked)
-      return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานใน Backlog ของโปรเจกต์นี้เท่านั้น' }, 400)
+  // Pronista §System Requirements Update — โยนหลายงานเข้า Sprint ทีเดียวจากแถบ checkbox (Workspace + Sprint tab ของโปรเจกต์) — งานที่ไม่เข้าเงื่อนไข (ข้ามเงื่อนไข/อยู่ sprint อื่นแล้ว/ฯลฯ) ถูกข้ามเงียบๆ นับรวมใน skipped
+  .post('/sprints/:id/tasks/batch', teamOnly, async (c) => {
+    const body = z.object({ taskIds: z.array(z.string()).min(1).max(200) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const sprint = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
+    if (!sprint) return c.json({ error: 'not_found' }, 404)
+    if (sprint.status === 'completed') return c.json({ error: 'sprint_completed', message: 'Sprint นี้ปิดไปแล้ว เพิ่มงานเข้าไม่ได้' }, 409)
+    const me = c.get('user')
+    if (!(await canManageSprint(db, sprint, me))) return c.json({ error: 'forbidden' }, 403)
 
-    const updated = await db
-      .update(tasks)
-      .set({ sprintId: sprint.id, sprintStatus })
-      .where(eq(tasks.id, task.id))
-      .returning()
-    return c.json({ added: updated })
+    const candidateTasks = await db.select().from(tasks).where(inArray(tasks.id, body.data.taskIds))
+    const taskById = new Map(candidateTasks.map((t) => [t.id, t]))
+    let added = 0
+    let skipped = 0
+    for (const taskId of body.data.taskIds) {
+      const task = taskById.get(taskId)
+      if (!task) {
+        skipped++
+        continue
+      }
+      const result = await addTaskToSprint(db, sprint, task)
+      if (result.ok) added += result.addedIds.length
+      else skipped++
+    }
+    await writeAudit(c.env, { actorId: me.id, action: 'sprint.tasks_batch_add', entity: 'sprint', entityId: sprint.id, meta: { requested: body.data.taskIds.length, added, skipped } })
+    return c.json({ added, skipped })
   })
 
   // เอา task ออกจาก sprint กลับไป Backlog ของโปรเจกต์
@@ -288,27 +333,6 @@ export const sprintRoutes = new Hono<AppEnv>()
     if (!task || task.sprintId !== sprint.id) return c.json({ error: 'not_found' }, 404)
     const updated = await db.update(tasks).set({ sprintId: null, sprintStatus: null }).where(eq(tasks.id, task.id)).returning()
     return c.json(updated[0])
-  })
-
-  // task ของ sprint นี้สำหรับหน้า Board (เฉพาะกระดานของ sprint นี้ — คนละอันกับ sprint อื่น/โปรเจกต์อื่น)
-  .get('/sprints/:id/board', async (c) => {
-    const db = createDb(c.env.DB)
-    const sprint = (await db.select().from(sprints).where(eq(sprints.id, c.req.param('id'))).limit(1))[0]
-    if (!sprint) return c.json({ error: 'not_found' }, 404)
-    const preset = await loadPreset(db, sprint.boardPresetId)
-    const rows = await db
-      .select({ task: tasks, assigneeName: users.name, assigneeAvatarUrl: users.avatarUrl })
-      .from(tasks)
-      .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(eq(tasks.sprintId, sprint.id))
-      .orderBy(asc(tasks.sortOrder))
-    return c.json({
-      sprint,
-      preset: preset ?? null,
-      tasks: rows.map((r) => ({ ...r.task, assigneeName: r.assigneeName, assigneeAvatarUrl: r.assigneeAvatarUrl })),
-      parents: await loadParents(db, rows.map((r) => r.task)),
-      epics: await loadEpics(db, rows.map((r) => r.task)),
-    })
   })
 
   // report — completed ใช้ snapshot ที่ปิดไว้ · planned/active นับสดจาก tasks ปัจจุบัน

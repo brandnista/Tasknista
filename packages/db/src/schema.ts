@@ -222,6 +222,10 @@ export const companyConfig = sqliteTable('company_config', {
   // Pronista §Subscription Notify (Product Type) — แคตตาล็อกชื่อผลิตภัณฑ์ (Sellnista/Paynista/ฯลฯ) ใช้เมื่อ category='product' (null = ใช้ DEFAULT — resolve ใน core/subscription)
   // projects.productType อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน serviceTypes)
   productTypes: text('product_types', { mode: 'json' }).$type<{ id: string; name: string; sortOrder: number }[]>(),
+  // Pronista §System Requirements Update — แคตตาล็อกประเภทงานวิศวกรรม (BRD/Design/Development/ฯลฯ) + ตัวเลือกย่อยของแต่ละประเภท — tasks.taskType/subTaskType อ้าง id ที่นี่ (ไม่มี DB-level FK)
+  taskTypes: text('task_types', { mode: 'json' }).$type<
+    { id: string; name: string; sortOrder: number; subTypes: { id: string; name: string; sortOrder: number }[] }[]
+  >(),
   // Pronista §Workspace — แคตตาล็อกแท็กสีของ Task (bug/urgent/blocked/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/labels)
   // tasks.labelIds อ้าง id ที่นี่ (array, ไม่มี DB-level FK — เหมือน positions/serviceTypes) · สีใช้ค่าเดียวกับ BOARD_COLOR_KEYS
   labels: text('labels', { mode: 'json' }).$type<{ id: string; name: string; color: string; sortOrder: number }[]>(),
@@ -481,6 +485,9 @@ export const tasks = sqliteTable(
     priority: text('priority', { enum: ['low', 'normal', 'high'] }).notNull().default('normal'),
     // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels, ไม่มี DB-level FK) เลือกได้หลายอัน
     labelIds: text('label_ids', { mode: 'json' }).$type<string[]>(),
+    // Pronista §System Requirements Update — ประเภทงานวิศวกรรม + ตัวเลือกย่อย (อ้าง id ใน company_config.taskTypes, ไม่มี DB-level FK) ใช้กับงานทุก kind
+    taskType: text('task_type'),
+    subTaskType: text('sub_task_type'),
     estimateMinutes: integer('estimate_minutes'),
     // Pronista §Project Estimate — กี่นาที/วันที่ assignee แบ่งเวลามาทำ task นี้ (null = ใช้ company_config.workHourCapMinutes) → หา Estimate Day
     costWorkMinutesPerDay: integer('cost_work_minutes_per_day'),

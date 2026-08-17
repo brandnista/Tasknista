@@ -39,6 +39,11 @@ export interface WorkspaceBacklogItem {
   epicId: string | null
   parentId: string | null
   labelIds: string[] | null
+  // Pronista §System Requirements Update — โชว์เวลาประเมินใน Backlog Grid ของ Workspace
+  estimateMinutes: number | null
+  // Pronista §System Requirements Update — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint
+  taskType: string | null
+  subTaskType: string | null
 }
 
 export async function loadPreset(db: ReturnType<typeof createDb>, boardPresetId: string | null) {
@@ -62,13 +67,14 @@ export async function loadEpics(db: ReturnType<typeof createDb>, rowTasks: (type
 }
 
 // Pronista §Back to Basic (ต่อยอด) — ข้อมูล Board ของ sprint เดียว (ใช้ทั้งใน /sprints/current ที่คืนทุก sprint พร้อมกัน และ /sprints/:id/board ของหน้า Board แยกต่อ sprint)
-export async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: typeof sprints.$inferSelect) {
+// Pronista §System Requirements Update — scopeProjectId (ไม่บังคับ) กรอง tasks ให้เหลือเฉพาะโปรเจกต์นี้ — ใช้ตอนดู Board จากหน้าโปรเจกต์ (Sprint ห้อง Workspace มีงานข้ามโปรเจกต์ได้ ต้องกรองไม่งั้นเห็นงานโปรเจกต์อื่นปน) ไม่ระบุ = คืนทุกงานในสปรินท์เหมือนเดิม (ใช้ตอนดูจากหน้า Workspace)
+export async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: typeof sprints.$inferSelect, scopeProjectId?: string) {
   const preset = await loadPreset(db, sprint.boardPresetId)
   const rows = await db
     .select({ task: tasks, assigneeName: users.name, assigneeAvatarUrl: users.avatarUrl })
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
-    .where(eq(tasks.sprintId, sprint.id))
+    .where(scopeProjectId ? and(eq(tasks.sprintId, sprint.id), eq(tasks.projectId, scopeProjectId)) : eq(tasks.sprintId, sprint.id))
     .orderBy(asc(tasks.sortOrder))
   // Pronista §Sprint queueing — งานย่อยขั้นที่ 3 (ลูกของ Task ที่อยู่ใน Sprint นี้) ไม่ได้เข้า Sprint เอง แต่โชว์ให้เห็นบริบทได้ (กดขยายดู)
   const taskIds = rows.map((r) => r.task.id)
@@ -90,16 +96,31 @@ export async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: t
   }
 }
 
+// Pronista §System Requirements Update — sprint ทั้งหมดที่ "เกี่ยวข้อง" กับโปรเจกต์นี้: ทั้งที่ผูกตรง (sprints.projectId = projectId)
+// และที่โผล่มาจาก Sprint ห้อง Workspace (sprints.projectId ว่าง) ที่มีงานของโปรเจกต์นี้ลากเข้าไปอยู่ข้างใน — เดิมกรองแค่แบบแรก ทำให้ Sprint ห้อง Workspace ที่มีงานโปรเจกต์นี้อยู่มองไม่เห็นจากหน้าโปรเจกต์เลย
+export async function projectSprintIds(db: ReturnType<typeof createDb>, projectId: string): Promise<string[]> {
+  const own = await db.select({ id: sprints.id }).from(sprints).where(eq(sprints.projectId, projectId))
+  const viaTasks = await db
+    .selectDistinct({ sprintId: tasks.sprintId })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), isNotNull(tasks.sprintId)))
+  const ids = new Set<string>([...own.map((r) => r.id), ...viaTasks.map((r) => r.sprintId).filter((id): id is string => id !== null)])
+  return [...ids]
+}
+
 // Pronista §Workspace — sprint ที่ยังไม่ completed ทั้งหมดของโปรเจกต์เดียว (active มาก่อนเสมอ ที่เหลือเรียงตาม createdAt) พร้อม board data ของแต่ละอัน
 // logic เดียวกับ GET /projects/:id/sprints/current (sprints.ts) — ดึงมาไว้ที่นี่ให้ workspace.ts เรียกซ้ำต่อโปรเจกต์ได้
+// ส่ง projectId เข้า loadSprintBoard เสมอ — กรอง tasks ให้เหลือแค่ของโปรเจกต์นี้ (จำเป็นเฉพาะ Sprint ห้อง Workspace ที่มีงานข้ามโปรเจกต์ · Sprint ที่ผูกตรงอยู่แล้วเป็น no-op เพราะงานข้างในเป็นโปรเจกต์นี้ล้วนอยู่แล้ว)
 export async function loadProjectSprintBoards(db: ReturnType<typeof createDb>, projectId: string) {
+  const ids = await projectSprintIds(db, projectId)
+  if (ids.length === 0) return []
   const open = await db
     .select()
     .from(sprints)
-    .where(and(eq(sprints.projectId, projectId), ne(sprints.status, 'completed')))
+    .where(and(inArray(sprints.id, ids), ne(sprints.status, 'completed')))
     .orderBy(asc(sprints.createdAt))
   const ordered = [...open.filter((s) => s.status === 'active'), ...open.filter((s) => s.status !== 'active')]
-  return Promise.all(ordered.map((sprint) => loadSprintBoard(db, sprint)))
+  return Promise.all(ordered.map((sprint) => loadSprintBoard(db, sprint, projectId)))
 }
 
 // Pronista §Workspace Sprint (ต่อยอด) — เหมือน loadProjectSprintBoards แต่ของ Sprint ที่ผูกห้อง Workspace โดยตรง (projectId ว่าง, workspaceId ตั้ง)
@@ -236,6 +257,9 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     epicId: null,
     parentId: null,
     labelIds: null,
+    estimateMinutes: null,
+    taskType: null,
+    subTaskType: null,
   }))
 
   const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
@@ -254,6 +278,9 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     epicId: r.task.epicId,
     parentId: r.task.parentId,
     labelIds: r.task.labelIds,
+    estimateMinutes: r.task.estimateMinutes,
+    taskType: r.task.taskType,
+    subTaskType: r.task.subTaskType,
   }))
 
   return [...epicItems, ...taskItems]
@@ -281,6 +308,9 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     epicId: null,
     parentId: null,
     labelIds: null,
+    estimateMinutes: null,
+    taskType: null,
+    subTaskType: null,
   }))
 
   // หา parent ของทุก task ที่ผูกห้องนี้ (ไม่กรอง sprint/project) แค่พอรู้ depth ของ chain (Story→Task→Subtask) เผื่อ parent เองก็เป็น workspace-native เหมือนกัน
@@ -328,6 +358,9 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     epicId: r.task.epicId,
     parentId: r.task.parentId,
     labelIds: r.task.labelIds,
+    estimateMinutes: r.task.estimateMinutes,
+    taskType: r.task.taskType,
+    subTaskType: r.task.subTaskType,
   }))
 
   return [...epicItems, ...taskItems]

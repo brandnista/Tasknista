@@ -5,6 +5,7 @@ import { PageHeader } from '../components/PageHeader'
 import { BoardPresetSettings } from '../components/BoardPresetSettings'
 import { ServiceTypeSettings } from '../components/ServiceTypeSettings'
 import { ProductTypeSettings } from '../components/ProductTypeSettings'
+import { TaskTypeSettings } from '../components/TaskTypeSettings'
 import { LabelSettings } from '../components/LabelSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
 import { SettingsSubNav } from '../components/SettingsSubNav'
@@ -192,6 +193,8 @@ export function AdminPage() {
         <ServiceTypeSettings />
 
         <ProductTypeSettings />
+
+        <TaskTypeSettings />
 
         <LabelSettings />
 

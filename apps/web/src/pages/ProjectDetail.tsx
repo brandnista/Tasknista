@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
-import { formatSatang, minutesToHoursLabel, type Label, type PermissionTabKey, type PositionPermissions } from '@seedoffice/core'
+import { formatSatang, minutesToHoursLabel, resolveTaskTypes, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -15,6 +15,7 @@ import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
 import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
 import { ProjectChangeLogTab } from '../components/ProjectChangeLogTab'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
+import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
@@ -72,6 +73,10 @@ interface ProjectBacklogTask {
   epicCode?: string | null
   // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels)
   labelIds?: string[] | null
+  // Pronista §System Requirements Update — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint + ยอดรวมชั่วโมง
+  estimateMinutes?: number | null
+  taskType?: string | null
+  subTaskType?: string | null
 }
 interface BacklogEpic { id: string; title: string; code: string | null; doneCount: number; totalCount: number }
 interface BacklogResponse { tasks: ProjectBacklogTask[]; epics: BacklogEpic[] }
@@ -168,7 +173,7 @@ const BACKLOG_TAB_TO_PERMISSION_KEY: Record<(typeof FIXED_BACKLOG_TABS)[number],
   summary: 'backlogSummary',
 }
 
-function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, onOpenTask, refreshKey, revealTab, readOnly }: {
+function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, onOpenTask, refreshKey, revealTab, readOnly, onSprintChanged }: {
   projectId: string
   canEdit: boolean
   permissions?: PositionPermissions
@@ -178,12 +183,18 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   revealTab?: { tab: BacklogTab; nonce: number } | null
   // Pronista §Workspace — แท็บ Sprint เดิมในโปรเจกต์เหลือแค่ดู จัดการเต็มรูปแบบย้ายไปที่ Workspace แล้ว (ไม่กระทบ canEdit จริงของผู้ใช้ที่ส่งมา ใช้แค่ปิด mutation ในมุมมองนี้)
   readOnly?: boolean
+  // Pronista §System Requirements Update — บอก SprintSection (sibling) ให้รีโหลดหลังโยนงานเข้า Sprint จาก checkbox bulk-add ตรงนี้
+  onSprintChanged?: () => void
 }) {
   // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย ทำให้ทุกจุดที่เช็ค canEdit อยู่แล้วในฟังก์ชันนี้ (รวมถึงที่ส่งต่อลง sub-tab) กลายเป็น read-only อัตโนมัติโดยไม่ต้องไล่แก้ทีละจุด
   const canEdit = canEditProp && !readOnly
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
-  // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog
-  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
+  // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog · §System Requirements Update — แคตตาล็อก Task Type ใช้ filter
+  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  // Pronista §System Requirements Update — Sprint ที่เปิดอยู่ของโปรเจกต์นี้ (รวมที่มาจากห้อง Workspace) ใช้เป็นตัวเลือกปลายทางตอน "โยนเข้า Sprint" จาก Backlog panel นี้
+  const { data: sprintData } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
+  const [taskTypeFilter, setTaskTypeFilter] = useState('all')
+  const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
   const [title, setTitle] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
@@ -234,7 +245,11 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   }, [list])
   const regularList = byTab.get('regular') ?? []
   const docTabsPresent = BACKLOG_DOC_TABS.filter((k) => (byTab.get(k) ?? []).length > 0)
-  const activeList = tab === 'regular' ? regularList : (byTab.get(tab) ?? [])
+  const activeListUnfiltered = tab === 'regular' ? regularList : (byTab.get(tab) ?? [])
+  // Pronista §System Requirements Update — filter Task Type/Sub-task Type ก่อนแสดงผล ใช้ร่วมกับ checkbox เลือกหลายงานโยนเข้า Sprint
+  const activeList = activeListUnfiltered
+    .filter((t) => taskTypeFilter === 'all' || t.taskType === taskTypeFilter)
+    .filter((t) => subTaskTypeFilter === 'all' || t.subTaskType === subTaskTypeFilter)
 
   const add = async () => {
     if (!title.trim()) return
@@ -283,6 +298,18 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     } finally {
       setDeleting(false)
     }
+  }
+  // Pronista §System Requirements Update — เลือกงานด้วย checkbox โยนเข้า Sprint ทีเดียว (ใช้ selection เดิมของปุ่ม "ลบที่เลือก" ร่วมกัน)
+  const selectedTasks = activeList.filter((t) => selected.has(t.id))
+  const selectedTotalMinutes = selectedTasks.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
+  const sprintPickerOptions = (sprintData?.sprints ?? [])
+    .filter((s) => s.sprint.status !== 'completed')
+    .map((s) => ({ id: s.sprint.id, label: `${s.sprint.name ?? 'Sprint'} (${s.sprint.status === 'active' ? 'กำลังทำ' : 'วางแผน'})` }))
+  const bulkAddToSprint = async (sprintId: string) => {
+    await addTasksToSprintBatch(sprintId, [...selected])
+    setSelected(new Set())
+    void reload()
+    onSprintChanged?.()
   }
 
   return (
@@ -349,6 +376,27 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         </div>
       )}
 
+      {activeListUnfiltered.length > 0 && (
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <select
+            value={taskTypeFilter}
+            onChange={(e) => { setTaskTypeFilter(e.target.value); setSubTaskTypeFilter('all') }}
+            className="text-xs bg-white border border-border rounded-lg px-2 py-1"
+          >
+            <option value="all">ทุก Task Type</option>
+            {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+          </select>
+          {taskTypeFilter !== 'all' && (
+            <select value={subTaskTypeFilter} onChange={(e) => setSubTaskTypeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+              <option value="all">ทุก Sub-task Type</option>
+              {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === taskTypeFilter)?.subTypes ?? []).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
       {canEdit && activeList.length > 0 && (
         <div className="flex items-center gap-3 mb-2 text-xs">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
@@ -365,6 +413,16 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
             </button>
           )}
         </div>
+      )}
+
+      {canEdit && (
+        <SprintBulkAddBar
+          selectedCount={selectedTasks.length}
+          totalMinutes={selectedTotalMinutes}
+          sprintOptions={sprintPickerOptions}
+          onConfirm={bulkAddToSprint}
+          onClear={() => setSelected(new Set())}
+        />
       )}
 
       {tab === 'SOW' && canEdit && (
@@ -687,18 +745,20 @@ interface CurrentSprintData {
 /** Pronista §Sprint & Board — Default view ตอนเข้าโปรเจกต์: จัดการ Backlog เข้า Sprint + ดูประวัติ/report ย้อนหลัง
  * §Sprint & Board แก้ไข flow — ลาก task มาจาก ProjectBacklogSection (Backlog เดียวของโปรเจกต์) วางที่นี่แทนปุ่ม +Sprint เดิม
  * เลือก Preset ตอนกด "เริ่ม Sprint" แทนตอนสร้าง (SprintStartModal) · เพิ่ม/ปิด sprint กระทบ Backlog ของโปรเจกต์ → เรียก onBacklogChanged ให้ ProjectBacklogSection รีโหลดด้วย */
-function SprintSection({ projectId, canEdit: canEditProp, onBacklogChanged, readOnly }: {
+function SprintSection({ projectId, canEdit: canEditProp, onBacklogChanged, readOnly, refreshKey }: {
   projectId: string
   canEdit: boolean
   onBacklogChanged: (revealTab?: BacklogTab) => void
   // Pronista §Workspace — แท็บ Sprint เดิมในโปรเจกต์เหลือแค่ดู จัดการเต็มรูปแบบย้ายไปที่ Workspace แล้ว
   readOnly?: boolean
+  // Pronista §System Requirements Update — bump ทุกครั้งที่ ProjectBacklogSection โยนงานเข้า Sprint เอง (checkbox bulk-add) เพื่อรีโหลดข้อมูล Sprint ให้ตรงกัน
+  refreshKey?: number
 }) {
   // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย (ดูคอมเมนต์เดียวกันใน ProjectBacklogSection)
   const canEdit = canEditProp && !readOnly
   const navigate = useNavigate()
-  const { data, reload } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
-  const { data: history, reload: reloadHistory } = useLoad<SprintRow[]>(() => api.get(`/api/projects/${projectId}/sprints`), [projectId])
+  const { data, reload } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId, refreshKey])
+  const { data: history, reload: reloadHistory } = useLoad<SprintRow[]>(() => api.get(`/api/projects/${projectId}/sprints`), [projectId, refreshKey])
   const [instantCreating, setInstantCreating] = useState(false)
   // Pronista §Sprint queueing — ใช้ตัวเดียวเปิด SprintStartModal ได้ทั้ง sprint ปัจจุบันและ sprint ที่รอคิว (เก็บวันที่ placeholder ของ sprint นั้นไว้ทำ default ในฟอร์ม)
   const [starting, setStarting] = useState<{ id: string; startDate: string; endDate: string } | null>(null)
@@ -1264,6 +1324,7 @@ interface ProjectAllTask {
   status: TaskStatus
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   assigneeName: string | null
+  estimateMinutes: number | null
 }
 const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
 const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
@@ -1321,6 +1382,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask }: { projectId: s
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
               {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+              <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
               {t.defectStatus && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
               )}
@@ -1716,6 +1778,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask 
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
               {t.parentTitle && level === 'task' && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+              <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
               {level === 'story' && canEdit && (
                 <div className="relative shrink-0">
@@ -1927,6 +1990,8 @@ export function ProjectDetailPage() {
   // Pronista §Import Data — อัปงานเข้าระบบทีเดียวจาก Excel (+ เอกสารแนบ) วางไว้ข้างปุ่มอัปโหลด SOW ที่หัวโปรเจกต์ (เห็นได้ทุกแท็บ เพราะผลลัพธ์กระทบทั้ง Backlog และเอกสาร)
   const [importOpen, setImportOpen] = useState(false)
   const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
+  // Pronista §System Requirements Update — บังคับ SprintSection รีโหลดหลัง ProjectBacklogSection โยนงานเข้า Sprint เอง (checkbox bulk-add)
+  const [sprintRefreshKey, setSprintRefreshKey] = useState(0)
   // Pronista §Sprint & Board fix — สัญญาณให้ ProjectBacklogSection สลับไปแท็บที่งานที่เพิ่งเอาออกจาก Sprint กลับมาอยู่ (ไม่งั้นดูเหมือนงานหายเพราะแท็บที่เปิดค้างไม่ตรง)
   const [revealSignal, setRevealSignal] = useState<{ tab: BacklogTab; nonce: number } | null>(null)
   // Pronista §System Requirements Update — ลูกค้า (guest) เข้าเมนู Workspace ไม่ได้เลย ต้องคีย์ Backlog/Defect ตรงจากแท็บนี้ได้แทน — คุมด้วยเพดานสิทธิ์จริง (ไม่ใช่ role เฉยๆ เผื่อ owner ปิดสิทธิ์นี้ไว้)
@@ -2055,6 +2120,7 @@ export function ProjectDetailPage() {
               refreshKey={backlogRefreshKey}
               revealTab={revealSignal}
               readOnly={!(canEdit || guestCanKeyBacklog)}
+              onSprintChanged={() => setSprintRefreshKey((k) => k + 1)}
             />
             <SprintSection
               projectId={id}
@@ -2064,6 +2130,7 @@ export function ProjectDetailPage() {
                 if (revealTab) setRevealSignal((s) => ({ tab: revealTab, nonce: (s?.nonce ?? 0) + 1 }))
               }}
               readOnly
+              refreshKey={sprintRefreshKey}
             />
           </div>
         </>

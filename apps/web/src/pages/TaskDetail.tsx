@@ -1,4 +1,4 @@
-import { formatHMS, minutesToHoursLabel, resolveLabels, type Label } from '@seedoffice/core'
+import { formatHMS, minutesToHoursLabel, resolveLabels, resolveTaskTypes, type Label, type TaskType } from '@seedoffice/core'
 import {
   AlertTriangle,
   Check,
@@ -194,6 +194,9 @@ interface Detail {
   priority: 'low' | 'normal' | 'high'
   // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels) เลือกได้หลายอัน
   labelIds: string[] | null
+  // Pronista §System Requirements Update — ประเภทงาน/ตัวเลือกย่อย (อ้าง id ใน company_config.taskTypes) ใช้กับงานทุก kind
+  taskType: string | null
+  subTaskType: string | null
   assigneeId: string | null
   assigneeName: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
@@ -298,7 +301,8 @@ export function TaskDetailPage() {
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้แสดง+เลือกในแถบข้าง
-  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
+  // Pronista §System Requirements Update — แคตตาล็อกประเภทงาน/ตัวเลือกย่อย ใช้ dependent dropdown ในแถบข้าง
+  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   // Pronista §System Requirements Update — สลับฟีด "ความเคลื่อนไหวทั้งหมด" (คอมเมนต์+ประวัติ) กับ "ประวัติการเปลี่ยนแปลง" (เฉพาะสถานะ/ผู้รับผิดชอบ ไม่มีคอมเมนต์)
   const [feedTab, setFeedTab] = useState<'all' | 'history'>('all')
@@ -944,6 +948,41 @@ export function TaskDetailPage() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+              {!isAssignee && (
+                <div className="flex items-center justify-between text-sm gap-2">
+                  <span className="text-muted shrink-0">ประเภทงาน</span>
+                  {canEdit ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <select
+                        value={t.taskType ?? ''}
+                        onChange={(e) => void patch({ taskType: e.target.value || null, subTaskType: null })}
+                        aria-label="ประเภทงาน"
+                        className="text-xs bg-white shadow-xs rounded-lg px-2 py-1"
+                      >
+                        <option value="">— ไม่ระบุ —</option>
+                        {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+                      </select>
+                      <select
+                        value={t.subTaskType ?? ''}
+                        onChange={(e) => void patch({ subTaskType: e.target.value || null })}
+                        disabled={!t.taskType}
+                        aria-label="ตัวเลือกย่อย"
+                        className="text-xs bg-white shadow-xs rounded-lg px-2 py-1 disabled:opacity-40"
+                      >
+                        <option value="">— ไม่ระบุ —</option>
+                        {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes ?? []).map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <span className="text-ink font-medium text-xs text-right">
+                      {resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.name ?? '—'}
+                      {t.subTaskType && ` / ${resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes.find((s) => s.id === t.subTaskType)?.name ?? ''}`}
+                    </span>
+                  )}
                 </div>
               )}
               <div className="flex items-center justify-between text-sm">

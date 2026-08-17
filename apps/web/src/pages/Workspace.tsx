@@ -5,7 +5,7 @@
  * §รอบ 2 — Backlog Grid เป็นตารางแบนรวมทุก work item (Epic/Story/Task/Subtask) ข้ามโปรเจกต์ ไม่แยก section ต่อโปรเจกต์ ฟิลเตอร์เอาแทน
  * §รอบ 3 (ต่อยอด) — Sprint ผูกห้อง Workspace โดยตรง (ไม่ผูกโปรเจกต์เดียวอีกต่อไป) งานในนั้นมาจากหลายโปรเจกต์ในห้องเดียวกันได้ · ห้องใหม่เริ่มว่างเปล่าจนกว่าจะดึงโปรเจกต์เข้าห้อง (แก้ไขชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้องได้ที่นี่)
  */
-import type { Label } from '@seedoffice/core'
+import { minutesToHoursLabel, resolveTaskTypes, type Label, type TaskType } from '@seedoffice/core'
 import { AlertTriangle, ArrowLeft, CheckCircle2, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -15,6 +15,7 @@ import { useDialog } from '../components/Dialog'
 import { ImportDataModal } from '../components/ImportDataModal'
 import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
+import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -57,6 +58,9 @@ interface WsBacklogItem {
   assignedBy: string | null
   dispatcherName: string | null
   labelIds: string[] | null
+  estimateMinutes: number | null
+  taskType: string | null
+  subTaskType: string | null
   // Pronista §System Requirements Update — งาน "Backlog" คีย์ตรงในห้อง ไม่ผูกโปรเจกต์จริง → เป็น null ทั้ง 3 ฟิลด์นี้
   projectId: string | null
   projectCode: string | null
@@ -286,7 +290,7 @@ export function WorkspacePage() {
   )
 
   const { data: projects } = useLoad<AccessibleProject[]>(() => api.get(`/api/workspace/accessible-projects?workspaceId=${workspaceId}`), [workspaceId])
-  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
+  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
   const [projectFilter, setProjectFilter] = useState('all')
   const queryIds = projectFilter === 'all' ? '' : projectFilter
 
@@ -306,6 +310,10 @@ export function WorkspacePage() {
   const [workTypeFilter, setWorkTypeFilter] = useState<'all' | WorkType>('all')
   // Pronista §Feedback batch — ค้นหาด้วยชื่อ/รหัสงาน กรองซ้อนกับ dropdown อื่นๆ ได้
   const [searchQuery, setSearchQuery] = useState('')
+  // Pronista §System Requirements Update — filter ตาม Task Type/Sub-task Type + เลือกงานด้วย checkbox โยนเข้า Sprint ทีเดียว
+  const [taskTypeFilter, setTaskTypeFilter] = useState('all')
+  const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
@@ -502,11 +510,34 @@ export function WorkspacePage() {
     .filter((i) => assigneeFilter === 'all' || i.assigneeName === assigneeFilter)
     .filter((i) => statusFilter === 'all' || i.status === statusFilter)
     .filter((i) => workTypeFilter === 'all' || i.workType === workTypeFilter)
+    .filter((i) => taskTypeFilter === 'all' || i.taskType === taskTypeFilter)
+    .filter((i) => subTaskTypeFilter === 'all' || i.subTaskType === subTaskTypeFilter)
     .filter((i) => !trimmedSearch || i.title.toLowerCase().includes(trimmedSearch) || (i.code ?? '').toLowerCase().includes(trimmedSearch))
     .sort((a, b) => WORKTYPE_ORDER[a.workType] - WORKTYPE_ORDER[b.workType] || a.title.localeCompare(b.title))
 
   const sprintItems = boardData?.sprints ?? []
   const openSprints = sprintItems.filter((s) => s.sprint.status !== 'completed')
+
+  // Pronista §System Requirements Update — เลือกงานด้วย checkbox โยนเข้า Sprint ทีเดียว (เฉพาะห้อง developer ที่มี Sprint จริง)
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const selectedTasks = filteredItems.filter((i) => selectedIds.has(i.id))
+  const selectedTotalMinutes = selectedTasks.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
+  const sprintPickerOptions = openSprints.map(({ sprint }) => ({
+    id: sprint.id,
+    label: `${sprint.name ?? 'Sprint'} (${sprint.status === 'active' ? 'กำลังทำ' : 'วางแผน'})`,
+  }))
+  const bulkAddToSprint = async (sprintId: string) => {
+    await addTasksToSprintBatch(sprintId, [...selectedIds])
+    setSelectedIds(new Set())
+    reloadAll()
+  }
 
   // Pronista §Workspace Rooms — ต้องอยู่หลัง hook ตัวสุดท้ายเสมอ กัน "Rendered more hooks" (โหลด/error สลับกันข้าม render ได้)
   if (roomLoading) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
@@ -591,6 +622,22 @@ export function WorkspacePage() {
                 <option value="all">ทุกประเภทงาน</option>
                 {CREATE_TYPE_ORDER.map((w) => <option key={w} value={w}>{WORKTYPE_LABEL[w]}</option>)}
               </select>
+              <select
+                value={taskTypeFilter}
+                onChange={(e) => { setTaskTypeFilter(e.target.value); setSubTaskTypeFilter('all') }}
+                className={`${selectCls} w-full sm:w-auto`}
+              >
+                <option value="all">ทุก Task Type</option>
+                {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+              </select>
+              {taskTypeFilter !== 'all' && (
+                <select value={subTaskTypeFilter} onChange={(e) => setSubTaskTypeFilter(e.target.value)} className={`${selectCls} w-full sm:w-auto`}>
+                  <option value="all">ทุก Sub-task Type</option>
+                  {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === taskTypeFilter)?.subTypes ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className={room.type === 'developer' ? 'grid lg:grid-cols-2 gap-4' : 'space-y-4'}>
@@ -676,6 +723,15 @@ export function WorkspacePage() {
                         onDragEnd={() => setDragTaskId(null)}
                         className={`flex items-center gap-2 px-3 py-2 flex-wrap ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                       >
+                        {room.type === 'developer' && it.kind !== 'epic' && (
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(it.id)}
+                            onChange={() => toggleSelected(it.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0"
+                          />
+                        )}
                         {it.kind === 'epic' ? (
                           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
                         ) : (
@@ -757,6 +813,7 @@ export function WorkspacePage() {
                           <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
                         )}
                         {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
+                        {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
                         <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
                         {it.status && (
                           <select
@@ -810,6 +867,15 @@ export function WorkspacePage() {
                       </div>
                     ))}
                   </div>
+                  {room.type === 'developer' && (
+                    <SprintBulkAddBar
+                      selectedCount={selectedTasks.length}
+                      totalMinutes={selectedTotalMinutes}
+                      sprintOptions={sprintPickerOptions}
+                      onConfirm={bulkAddToSprint}
+                      onClear={() => setSelectedIds(new Set())}
+                    />
+                  )}
                   <div className={`flex flex-wrap items-center gap-2 p-3 rounded-b-lg border-t-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
                     <div className="relative shrink-0">
                       <button
@@ -897,6 +963,9 @@ export function WorkspacePage() {
                                 <span key={s} title={TASK_STATUS_LABEL[s]} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TASK_STATUS_BADGE[s]}`}>{counts[s]}</span>
                               ))}
                             </div>
+                          )}
+                          {sprint.status === 'active' && (
+                            <Link to={`/workspace/${workspaceId}/sprints/${sprint.id}/board`} className="text-sm border border-border-subtle rounded-lg px-3 py-1.5 text-dim hover:bg-hover">ไปที่ Board →</Link>
                           )}
                           {sprint.status === 'planned' && (
                             <button onClick={() => setStarting({ id: sprint.id, startDate: sprint.startDate, endDate: sprint.endDate })} className="inline-flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 font-medium">
