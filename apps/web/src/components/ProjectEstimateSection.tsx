@@ -306,7 +306,7 @@ export function ProjectEstimateSection({ projectId, members }: { projectId: stri
                 <tr key={r.taskId}>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
-                    {r.title}
+                    <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{r.assigneeName ?? '—'}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
