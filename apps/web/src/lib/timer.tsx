@@ -45,7 +45,9 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     }
     const startedAt = state.active.startedAt
     const tick = () => {
-      const secs = Math.floor((Date.now() - startedAt) / 1000)
+      // Pronista §Timer fix — นาฬิกาเครื่อง client กับ server ไม่มีทางตรงกันเป๊ะ ช่วงวินาทีแรกๆ หลังกดเริ่ม Date.now() (client) อาจยังตามหลัง startedAt (server) ทำให้ได้ค่าติดลบ
+      // formatHMS() โยน error ทันทีถ้าเป็นลบ (ไม่มี error boundary ครอบ) ทำให้ทั้งหน้าพังเป็น "Unexpected Application Error!" — clamp ไว้ที่ 0 กันไว้
+      const secs = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
       setRunningSeconds(secs)
       const sessionCapSecs = state.capMinutes * 60
       if (secs >= sessionCapSecs) {
