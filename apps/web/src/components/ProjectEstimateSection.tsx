@@ -193,7 +193,7 @@ export function ProjectEstimateSection({
                     <tr key={t.id}>
                       <td className="py-1.5">
                         {t.code && <span className="text-muted font-mono text-xs mr-1">{t.code}</span>}
-                        {t.title}
+                        <Link to={`/tasks/${t.id}`} className="text-brand-700 hover:underline">{t.title}</Link>
                       </td>
                       <td className="py-1.5 text-right tabular-nums">{t.estimateMinutes ? hours(t.estimateMinutes) : '—'}</td>
                     </tr>
