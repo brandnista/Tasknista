@@ -54,7 +54,15 @@ interface EstimateResponse {
 
 const KIND_LABEL: Record<string, string> = { task: 'Task', defect: 'Defect', cr: 'CR', backlog: 'Backlog' }
 
-export function ProjectEstimateSection({ projectId, members }: { projectId: string; members: { id: string; name: string }[] }) {
+export function ProjectEstimateSection({
+  projectId,
+  members,
+}: {
+  projectId: string
+  members: { id: string; name: string; role?: 'owner' | 'member' | 'vendor' | 'guest' }[]
+}) {
+  // Pronista §Project Estimate — สรุปงานรายบุคคล: ดึงสมาชิกทุกคนในโปรเจกต์ ยกเว้นลูกค้า (role='guest') — staff/outsource/admin ดึงมาหมด
+  const summaryMembers = members.filter((m) => m.role !== 'guest')
   const { data: allTasks, reload: reloadTasks } = useLoad<EstimateTaskRow[]>(() => api.get(`/api/projects/${projectId}/estimate/tasks`), [projectId])
   const { data: estimate, reload: reloadEstimate } = useLoad<EstimateResponse>(() => api.get(`/api/projects/${projectId}/estimate`), [projectId])
   const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
@@ -161,7 +169,7 @@ export function ProjectEstimateSection({ projectId, members }: { projectId: stri
           className="text-sm bg-white border border-border rounded-lg px-3 py-2 mb-3"
         >
           <option value="">— เลือกสมาชิก —</option>
-          {members.map((m) => (
+          {summaryMembers.map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
