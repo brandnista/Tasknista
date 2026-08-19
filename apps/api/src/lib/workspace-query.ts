@@ -142,10 +142,13 @@ export async function loadProjectBacklog(
   myRole: EffectiveProjectRole,
   userId: string,
 ) {
+  // Pronista §System Requirements Update (ต่อยอด) — dispatcherName (ผู้จ่ายงาน) ใช้ filter ในแท็บ "ทั่วไป"/เอกสาร ของ Backlog panel นี้ เหมือนที่ Workspace.tsx มีอยู่แล้ว
+  const dispatcher = alias(users, 'dispatcher')
   const rowsAll = await db
-    .select({ task: tasks, assigneeName: users.name, epicTitle: epics.title, epicCode: epics.code })
+    .select({ task: tasks, assigneeName: users.name, dispatcherName: dispatcher.name, epicTitle: epics.title, epicCode: epics.code })
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
     .leftJoin(epics, eq(tasks.epicId, epics.id))
     .where(
       and(
@@ -205,7 +208,7 @@ export async function loadProjectBacklog(
   return {
     tasks: rows
       .filter((r) => !hiddenParentIds.has(r.task.id))
-      .map((r) => ({ ...r.task, assigneeName: r.assigneeName, epicTitle: r.epicTitle, epicCode: r.epicCode })),
+      .map((r) => ({ ...r.task, assigneeName: r.assigneeName, dispatcherName: r.dispatcherName, epicTitle: r.epicTitle, epicCode: r.epicCode })),
     epics: epicList,
   }
 }

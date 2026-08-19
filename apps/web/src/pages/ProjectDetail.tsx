@@ -58,6 +58,8 @@ interface ProjectBacklogTask {
   priority: 'low' | 'normal' | 'high'
   kind: 'task' | 'defect'
   assigneeName: string | null
+  // Pronista §System Requirements Update (ต่อยอด) — ผู้จ่ายงาน ใช้ filter ในแท็บ "ทั่วไป"/เอกสาร
+  dispatcherName?: string | null
   // Pronista §SRS import — งานที่แตกมาจากเอกสาร SRS ผ่าน flow เดิม (มี srsDocId แต่ไม่มี originDocType) แยกแถบจาก Backlog ทั่วไป
   srsRefCode?: string | null
   srsDocId?: string | null
@@ -195,6 +197,9 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   const { data: sprintData } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
   const [taskTypeFilter, setTaskTypeFilter] = useState('all')
   const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
+  // Pronista §System Requirements Update (ต่อยอด) — ฟิลเตอร์ผู้จ่ายงาน/ผู้รับงาน (ชื่อ) เหมือนที่ Workspace.tsx มีอยู่แล้ว
+  const [dispatcherFilter, setDispatcherFilter] = useState('all')
+  const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [title, setTitle] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
@@ -246,10 +251,15 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   const regularList = byTab.get('regular') ?? []
   const docTabsPresent = BACKLOG_DOC_TABS.filter((k) => (byTab.get(k) ?? []).length > 0)
   const activeListUnfiltered = tab === 'regular' ? regularList : (byTab.get(tab) ?? [])
-  // Pronista §System Requirements Update — filter Task Type/Sub-task Type ก่อนแสดงผล ใช้ร่วมกับ checkbox เลือกหลายงานโยนเข้า Sprint
+  // Pronista §System Requirements Update (ต่อยอด) — ตัวเลือกผู้จ่ายงาน/ผู้รับงาน มาจากงานจริงในแท็บที่เปิดอยู่เท่านั้น
+  const dispatcherOptions = [...new Set(activeListUnfiltered.map((t) => t.dispatcherName).filter((n): n is string => !!n))].sort()
+  const assigneeOptions = [...new Set(activeListUnfiltered.map((t) => t.assigneeName).filter((n): n is string => !!n))].sort()
+  // Pronista §System Requirements Update — filter Task Type/Sub-task Type/ผู้จ่ายงาน/ผู้รับงาน ก่อนแสดงผล ใช้ร่วมกับ checkbox เลือกหลายงานโยนเข้า Sprint
   const activeList = activeListUnfiltered
     .filter((t) => taskTypeFilter === 'all' || t.taskType === taskTypeFilter)
     .filter((t) => subTaskTypeFilter === 'all' || t.subTaskType === subTaskTypeFilter)
+    .filter((t) => dispatcherFilter === 'all' || t.dispatcherName === dispatcherFilter)
+    .filter((t) => assigneeFilter === 'all' || t.assigneeName === assigneeFilter)
 
   const add = async () => {
     if (!title.trim()) return
@@ -381,6 +391,14 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
 
       {activeListUnfiltered.length > 0 && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+            <option value="all">ผู้จ่ายงานทั้งหมด</option>
+            {dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+            <option value="all">ผู้รับงานทั้งหมด</option>
+            {assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
           <select
             value={taskTypeFilter}
             onChange={(e) => { setTaskTypeFilter(e.target.value); setSubTaskTypeFilter('all') }}
@@ -1327,6 +1345,8 @@ interface ProjectAllTask {
   status: TaskStatus
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   assigneeName: string | null
+  // Pronista §System Requirements Update (ต่อยอด) — ผู้จ่ายงาน ใช้ filter ในแท็บ Task/Defect/CR
+  dispatcherName: string | null
   estimateMinutes: number | null
   // Pronista §System Requirements Update (ต่อยอด) — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint ในแท็บ Task/Defect/CR (เหมือนแท็บ "ทั่วไป")
   taskType: string | null
@@ -1337,20 +1357,24 @@ const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warni
 
 /** Pronista §System Requirements Update (ต่อยอด) — hook ใช้ร่วมกันของแท็บ Task/CR (ProjectHierarchyTab) + Defect (ProjectDefectSection)
  * ทำ filter Task Type/Sub-task Type + checkbox เลือกหลายงาน + ยอดรวมชั่วโมง real-time + โยนเข้า Sprint ทีเดียว — ตรรกะเดียวกับแท็บ "ทั่วไป" ใน ProjectBacklogSection เป๊ะ กันเพี้ยนกันระหว่างแท็บ */
-function useBacklogSprintSelect<T extends { id: string; taskType: string | null; subTaskType: string | null; estimateMinutes: number | null }>(
-  projectId: string,
-  items: T[],
-  reload: () => void,
-  onSprintChanged?: () => void,
-) {
+function useBacklogSprintSelect<
+  T extends { id: string; taskType: string | null; subTaskType: string | null; estimateMinutes: number | null; assigneeName?: string | null; dispatcherName?: string | null },
+>(projectId: string, items: T[], reload: () => void, onSprintChanged?: () => void) {
   const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
   const { data: sprintData } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
   const [taskTypeFilter, setTaskTypeFilter] = useState('all')
   const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
+  // Pronista §System Requirements Update (ต่อยอด) — ฟิลเตอร์ผู้จ่ายงาน/ผู้รับงาน (ชื่อ) เหมือนที่ Workspace.tsx มีอยู่แล้ว
+  const [dispatcherFilter, setDispatcherFilter] = useState('all')
+  const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const dispatcherOptions = [...new Set(items.map((t) => t.dispatcherName).filter((n): n is string => !!n))].sort()
+  const assigneeOptions = [...new Set(items.map((t) => t.assigneeName).filter((n): n is string => !!n))].sort()
   const filtered = items
     .filter((t) => taskTypeFilter === 'all' || t.taskType === taskTypeFilter)
     .filter((t) => subTaskTypeFilter === 'all' || t.subTaskType === subTaskTypeFilter)
+    .filter((t) => dispatcherFilter === 'all' || t.dispatcherName === dispatcherFilter)
+    .filter((t) => assigneeFilter === 'all' || t.assigneeName === assigneeFilter)
   const toggleSelect = (id: string) =>
     setSelected((s) => {
       const next = new Set(s)
@@ -1380,6 +1404,12 @@ function useBacklogSprintSelect<T extends { id: string; taskType: string | null;
     setTaskTypeFilter,
     subTaskTypeFilter,
     setSubTaskTypeFilter,
+    dispatcherFilter,
+    setDispatcherFilter,
+    dispatcherOptions,
+    assigneeFilter,
+    setAssigneeFilter,
+    assigneeOptions,
     selected,
     toggleSelect,
     toggleSelectAll,
@@ -1443,6 +1473,14 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged 
       )}
       {defects.length > 0 && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <select value={sel.dispatcherFilter} onChange={(e) => sel.setDispatcherFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+            <option value="all">ผู้จ่ายงานทั้งหมด</option>
+            {sel.dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <select value={sel.assigneeFilter} onChange={(e) => sel.setAssigneeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+            <option value="all">ผู้รับงานทั้งหมด</option>
+            {sel.assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
           <select
             value={sel.taskTypeFilter}
             onChange={(e) => { sel.setTaskTypeFilter(e.target.value); sel.setSubTaskTypeFilter('all') }}
@@ -1875,6 +1913,14 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
       )}
       {selectable && items.length > 0 && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <select value={sel.dispatcherFilter} onChange={(e) => sel.setDispatcherFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+            <option value="all">ผู้จ่ายงานทั้งหมด</option>
+            {sel.dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <select value={sel.assigneeFilter} onChange={(e) => sel.setAssigneeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+            <option value="all">ผู้รับงานทั้งหมด</option>
+            {sel.assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
           <select
             value={sel.taskTypeFilter}
             onChange={(e) => { sel.setTaskTypeFilter(e.target.value); sel.setSubTaskTypeFilter('all') }}

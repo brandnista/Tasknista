@@ -22,6 +22,7 @@ import {
   users,
 } from '@seedoffice/db'
 import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -252,6 +253,8 @@ export const taskRoutes = new Hono<AppEnv>()
   // Pronista §Project Refactor — task ทั้งหมดของโปรเจกต์ (ไม่กรอง sprint/group) แบบเบาๆ ใช้กับ TaskPickerModal (เลือก parent ตอน "จัดการ"→ย้ายประเภท) และแท็บ EPIC/Story/Task/CR
   .get('/projects/:id/tasks/all', async (c) => {
     const db = createDb(c.env.DB)
+    // Pronista §System Requirements Update (ต่อยอด) — dispatcherName (ผู้จ่ายงาน) ใช้ filter ในแท็บ Task/Defect/CR ของ Backlog panel
+    const dispatcher = alias(users, 'dispatcher')
     const rows = await db
       .select({
         id: tasks.id,
@@ -264,6 +267,7 @@ export const taskRoutes = new Hono<AppEnv>()
         status: tasks.status,
         defectStatus: tasks.defectStatus,
         assigneeName: users.name,
+        dispatcherName: dispatcher.name,
         // Pronista §System Requirements Update — โชว์เวลาประเมินในตาราง Grid (คอลัมน์นี้มีอยู่แล้ว แค่ไม่เคยถูก select ออกมาให้ frontend ใช้)
         estimateMinutes: tasks.estimateMinutes,
         // Pronista §System Requirements Update — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint (ProjectDetail Sprint tab)
@@ -272,6 +276,7 @@ export const taskRoutes = new Hono<AppEnv>()
       })
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
+      .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
       .where(eq(tasks.projectId, c.req.param('id')))
       .orderBy(asc(tasks.createdAt))
     const titleOf = new Map(rows.map((r) => [r.id, r.title]))
