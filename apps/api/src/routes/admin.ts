@@ -5,6 +5,7 @@ import {
   PERMISSION_MENU_KEYS,
   PERMISSION_RESOURCE_KEYS,
   PERMISSION_TAB_KEYS,
+  resolveCostRoles,
   resolveLabels,
   resolvePresets,
   resolvePermissionCeilings,
@@ -14,6 +15,7 @@ import {
   resolveStatuses,
   resolveTaskTypes,
   STATUS_COLOR_KEYS,
+  validateCostRoles,
   validateLabels,
   validatePermissionCeilings,
   validatePositions,
@@ -24,6 +26,7 @@ import {
   validateTaskTypes,
   type BoardPreset,
   type CeilingPermissions,
+  type CostRole,
   type Label,
   type PermissionCategory,
   type Position,
@@ -189,6 +192,50 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: { role: before.role, status: before.status }, after: body.data },
     })
     return c.json({ ...updated[0], projectIds: projectIds ?? undefined })
+  })
+
+  // Pronista §กำหนดต้นทุน — % buffer/margin default + แคตตาล็อกตำแหน่ง (เฉพาะ owner เห็น ไม่อยู่ใน /api/config สาธารณะ)
+  .get('/config', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (
+      await db
+        .select({
+          costBufferPercent: companyConfig.costBufferPercent,
+          costMarginPercent: companyConfig.costMarginPercent,
+          costRoles: companyConfig.costRoles,
+        })
+        .from(companyConfig)
+        .limit(1)
+    )[0]
+    if (!cfg) return c.json({ error: 'config_missing' }, 500)
+    return c.json({ ...cfg, costRoles: resolveCostRoles(cfg.costRoles) })
+  })
+
+  // Pronista §กำหนดต้นทุน — owner บันทึกทั้งลิสต์ตำแหน่ง+ต้นทุน/วัน (เพิ่ม/ลบ/เรียง/แก้) — ยังไม่มีที่ไหนอ้าง id นี้ ไม่ต้องเช็ค orphan
+  .put('/cost-roles', async (c) => {
+    const body = z
+      .object({
+        costRoles: z
+          .array(z.object({ id: z.string(), name: z.string(), costPerDaySatang: z.number().int().min(0), sortOrder: z.number().int() }))
+          .default([]),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const costRolesData = body.data.costRoles as CostRole[]
+    const check = validateCostRoles(costRolesData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const before = (await db.select({ costRoles: companyConfig.costRoles }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ costRoles: costRolesData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.cost_roles',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.costRoles ?? null, after: costRolesData },
+    })
+    return c.json({ costRoles: resolveCostRoles(costRolesData) })
   })
 
   // แก้ config บริษัท

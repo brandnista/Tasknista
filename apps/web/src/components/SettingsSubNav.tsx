@@ -5,6 +5,7 @@ const ITEMS = [
   { to: '/admin', label: 'ตั้งค่าทั่วไป' },
   { to: '/admin/users', label: 'ตั้งค่าผู้ใช้งาน' },
   { to: '/admin/permissions', label: 'ตั้งค่าสิทธิ์ผู้ใช้งาน' },
+  { to: '/admin/cost', label: 'กำหนดต้นทุน' },
 ] as const
 
 export function SettingsSubNav() {

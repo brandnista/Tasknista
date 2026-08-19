@@ -4,6 +4,7 @@ import { DialogProvider } from './components/Dialog'
 import { Layout } from './components/Layout'
 import { AuthProvider, useAuth, type Me, type MenuKey } from './lib/auth'
 import { AdminPage } from './pages/Admin'
+import { AdminCostPage } from './pages/AdminCost'
 import { AdminPermissionsPage } from './pages/AdminPermissions'
 import { BoardPage } from './pages/Board'
 import { ClientDetailPage } from './pages/ClientDetail'
@@ -201,6 +202,14 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <AdminPermissionsPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'admin/cost',
+        element: (
+          <Protected roles={['owner']}>
+            <AdminCostPage />
           </Protected>
         ),
       },

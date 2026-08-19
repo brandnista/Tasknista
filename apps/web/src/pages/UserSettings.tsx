@@ -215,11 +215,6 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
       setEmailErrors((prev) => ({ ...prev, [u.id]: e instanceof ApiError && e.message === 'email_exists' ? 'อีเมลนี้ถูกใช้แล้ว' : 'อีเมลไม่ถูกต้อง' }))
     }
   }
-  const saveUserEstimateFields = async (u: AdminUser, patch: { jobTitle?: string | null; costPerDaySatang?: number | null }) => {
-    await api.patch(`/api/admin/users/${u.id}`, patch)
-    await reload()
-  }
-
   const staffUsers = (usersList ?? []).filter((u) => u.role === 'owner' || u.role === 'member')
   const outsourceUsers = (usersList ?? []).filter((u) => u.role === 'vendor')
   const customerUsers = (usersList ?? []).filter((u) => u.role === 'guest')
@@ -325,14 +320,12 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                       <th className="text-left font-medium px-3 py-3">อีเมล</th>
                       <th className="text-left font-medium px-3 py-3">สิทธิ์ระบบ</th>
                       <th className="text-left font-medium px-3 py-3">ทีม</th>
-                      <th className="text-left font-medium px-3 py-3">ตำแหน่ง (ต้นทุน)</th>
-                      <th className="text-right font-medium px-3 py-3">ต้นทุน/วัน (฿)</th>
                       <th className="text-right font-medium px-5 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-divider">
                     {visibleUsers.length === 0 && (
-                      <tr><td colSpan={7} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
+                      <tr><td colSpan={5} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
                     )}
                     {visibleUsers.map((u) => (
                       <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
@@ -350,26 +343,6 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                           </select>
                         </td>
                         <td className="px-3 text-muted">{u.teamName ?? '—'}</td>
-                        <td className="px-3">
-                          <input
-                            type="text"
-                            placeholder="เช่น Project Manager"
-                            defaultValue={u.jobTitle ?? ''}
-                            onBlur={(e) => { const v = e.target.value.trim(); if (v !== (u.jobTitle ?? '')) void saveUserEstimateFields(u, { jobTitle: v || null }) }}
-                            className="w-36 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5"
-                          />
-                        </td>
-                        <td className="px-3">
-                          <input
-                            type="number"
-                            min={0}
-                            step={1}
-                            placeholder="—"
-                            defaultValue={u.costPerDaySatang != null ? u.costPerDaySatang / 100 : ''}
-                            onBlur={(e) => { const raw = e.target.value.trim(); const nextSatang = raw ? Math.round(Number(raw) * 100) : null; if (nextSatang !== u.costPerDaySatang) void saveUserEstimateFields(u, { costPerDaySatang: nextSatang }) }}
-                            className="w-24 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-right tabular-nums"
-                          />
-                        </td>
                         <td className="text-right px-5">
                           <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
                             {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
@@ -382,7 +355,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
               </div>
             )}
             <p className="text-xs text-muted px-5 py-3 border-t border-divider">
-              ปิดการใช้งาน = login ไม่ได้ทันที · ตำแหน่ง/ต้นทุน-วัน ใช้กับ Tab "Project Estimate" ในแต่ละโปรเจกต์เท่านั้น (เห็นเฉพาะ owner)
+              ปิดการใช้งาน = login ไม่ได้ทันที · ตำแหน่ง/ต้นทุน-วัน ย้ายไปตั้งที่เมนู "กำหนดต้นทุน" แล้ว
             </p>
           </div>
         )}

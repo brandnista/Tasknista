@@ -526,6 +526,13 @@
       "when": 1786959473230,
       "tag": "0074_talented_the_santerians",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1787122013254,
+      "tag": "0075_easy_moonstone",
+      "breakpoints": true
     }
   ]
 }

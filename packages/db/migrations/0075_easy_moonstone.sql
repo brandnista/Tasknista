@@ -1,0 +1,1 @@
+ALTER TABLE `company_config` ADD `cost_roles` text;
