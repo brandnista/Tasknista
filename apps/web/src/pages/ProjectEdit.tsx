@@ -45,13 +45,28 @@ function MembersSection({
   const team = users.filter((u) => u.role === 'member')
   const outsource = users.filter((u) => u.role === 'vendor')
   const customers = users.filter((u) => u.role === 'guest')
+  // Pronista §Member Management feedback — owner(Admin) เข้าถึงทุกโปรเจกต์เต็มรูปแบบเสมออยู่แล้ว (backend ปฏิเสธการเพิ่มเข้า project_members ตรงๆ)
+  // แต่ owner ก็ถูก assign งานในโปรเจกต์ได้เหมือนกัน จึงโชว์ในลิสต์สมาชิกไว้ให้เห็น (read-only ไม่มีปุ่มให้กด เพราะไม่มีอะไรต้องตั้งค่าเพิ่ม)
+  const admins = users.filter((u) => u.role === 'owner')
   return (
     <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
       <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
       <p className="text-xs text-muted mb-4">
         สิทธิ์แก้ไข/มองเห็นเมนูมาจากตำแหน่งที่เลือก (ตั้งค่าตำแหน่งได้ที่ ตั้งค่า → ตำแหน่งและสิทธิ์) · ยังไม่ตั้งค่า = ยังไม่ใช่สมาชิก · กด "บันทึก" ด้านล่างเพื่อยืนยัน
       </p>
-      <div className="text-[11px] font-medium text-muted mb-1.5">ทีมงาน (member)</div>
+
+      <div className="text-[11px] font-medium text-muted mb-1.5">Admin (owner)</div>
+      <div className="divide-y divide-divider mb-4">
+        {admins.map((u) => (
+          <div key={u.id} className="flex items-center gap-3 py-2.5">
+            <span className="flex-1 text-sm text-body">{u.name}</span>
+            <span className="text-xs text-muted">Admin · เข้าถึงเต็มรูปแบบทุกโปรเจกต์เสมอ</span>
+          </div>
+        ))}
+        {admins.length === 0 && <div className="text-sm text-muted py-3">ไม่มี Admin ในระบบ</div>}
+      </div>
+
+      <div className="text-[11px] font-medium text-muted mb-1.5 pt-3 border-t border-border-subtle">ทีมงาน (member)</div>
       <div className="divide-y divide-divider mb-4">
         {team.map((u) => (
           <div key={u.id} className="flex items-center gap-3 py-2.5">
