@@ -1,18 +1,17 @@
 /**
- * Pronista §กำหนดต้นทุน — แคตตาล็อกตำแหน่ง (Role) + ต้นทุน/วัน ใช้ใน Tab "Project Estimate"
+ * Pronista §กำหนดต้นทุน — จับคู่ตำแหน่ง (เลือกจาก Parameter Role ที่ "ตั้งค่าทั่วไป") กับต้นทุน/วัน ใช้ใน Tab "Project Estimate"
  * แยกจากพนักงานจริงโดยเจตนา — PM เลือก Role ต่อ Task เอง (คนเดียวกันรับ Role ต่างกันคนละ Task ได้)
- * บันทึกทั้งลิสต์ทีเดียว (PUT) เหมือน ServiceType/ProductType/TaskType — ไม่มี orphan-check เพราะยังไม่มีที่ไหนอ้าง id นี้
+ * บันทึกทั้งลิสต์ทีเดียว (PUT) เหมือน ServiceType/ProductType/TaskType — server เช็คตำแหน่งซ้ำ/ยังไม่เลือกให้แล้ว
  */
-import type { CostRole } from '@seedoffice/core'
+import type { CostRole, ParameterRole } from '@seedoffice/core'
 import { Briefcase, Check, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
-const randomId = () => `cr_${Math.random().toString(36).slice(2, 8)}`
-
 export function CostRoleSettings() {
   const { data, reload } = useLoad<{ costRoles: CostRole[] }>(() => api.get('/api/admin/config'))
+  const { data: rolesData } = useLoad<{ parameterRoles: ParameterRole[] }>(() => api.get('/api/admin/parameter-roles'))
   const [list, setList] = useState<CostRole[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -22,10 +21,13 @@ export function CostRoleSettings() {
     if (data) setList(data.costRoles)
   }, [data])
 
+  const roles = rolesData?.parameterRoles ?? []
+  const roleName = (roleId: string) => roles.find((r) => r.id === roleId)?.name ?? '(ตำแหน่งถูกลบไปแล้ว)'
+
   if (!list) return null
 
-  const rename = (i: number, name: string) => {
-    setList(list.map((r, idx) => (idx === i ? { ...r, name } : r)))
+  const setRoleId = (i: number, roleId: string) => {
+    setList(list.map((r, idx) => (idx === i ? { ...r, roleId } : r)))
     setSaved(false)
   }
   const setCostPerDay = (i: number, baht: string) => {
@@ -46,16 +48,20 @@ export function CostRoleSettings() {
     setSaved(false)
   }
   const add = () => {
-    setList([...list, { id: randomId(), name: 'ตำแหน่งใหม่', costPerDaySatang: 0, sortOrder: list.length }])
+    setList([...list, { roleId: '', costPerDaySatang: 0, sortOrder: list.length }])
     setSaved(false)
   }
 
   const save = async () => {
+    if (list.some((r) => !r.roleId)) {
+      setError('ต้องเลือกตำแหน่งให้ครบทุกแถวก่อนบันทึก')
+      return
+    }
     setSaving(true)
     setError('')
     setSaved(false)
     try {
-      const costRoles = list.map((r, i) => ({ ...r, name: r.name.trim(), sortOrder: i }))
+      const costRoles = list.map((r, i) => ({ ...r, sortOrder: i }))
       await api.put('/api/admin/cost-roles', { costRoles })
       setSaved(true)
       await reload()
@@ -75,42 +81,62 @@ export function CostRoleSettings() {
       </div>
 
       <div className="p-5 space-y-2">
-        {list.length === 0 && <div className="text-sm text-muted py-4 text-center">ยังไม่มีตำแหน่ง — กด "เพิ่มตำแหน่ง"</div>}
-        {list.map((r, i) => (
-          <div key={r.id} className="flex items-center gap-2 border border-border-subtle rounded-lg p-2.5">
-            <div className="flex flex-col">
-              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="text-muted hover:text-body disabled:opacity-30">
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1} className="text-muted hover:text-body disabled:opacity-30">
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <input
-              value={r.name}
-              onChange={(e) => rename(i, e.target.value)}
-              maxLength={60}
-              placeholder="เช่น Senior Full Stack Developer"
-              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
-            />
-            <div className="flex items-center gap-1.5 shrink-0">
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={r.costPerDaySatang / 100}
-                onChange={(e) => setCostPerDay(i, e.target.value)}
-                className="w-24 text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 text-right tabular-nums focus:outline-hidden focus:border-brand-400"
-              />
-              <span className="text-xs text-muted">฿/วัน</span>
-            </div>
-            <button type="button" onClick={() => remove(i)} title="ลบตำแหน่ง" className="text-muted hover:text-danger-600">
-              <Trash2 className="w-4 h-4" />
-            </button>
+        {roles.length === 0 && (
+          <div className="text-sm text-muted py-4 text-center">
+            ยังไม่มี Parameter Role — ไปเพิ่มที่หน้า "ตั้งค่าทั่วไป" ก่อน
           </div>
-        ))}
+        )}
+        {roles.length > 0 && list.length === 0 && <div className="text-sm text-muted py-4 text-center">ยังไม่มีตำแหน่ง — กด "เพิ่มตำแหน่ง"</div>}
+        {list.map((r, i) => {
+          const usedElsewhere = new Set(list.filter((_, idx) => idx !== i).map((x) => x.roleId))
+          const options = roles.filter((role) => role.id === r.roleId || !usedElsewhere.has(role.id))
+          return (
+            <div key={i} className="flex items-center gap-2 border border-border-subtle rounded-lg p-2.5">
+              <div className="flex flex-col">
+                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="text-muted hover:text-body disabled:opacity-30">
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1} className="text-muted hover:text-body disabled:opacity-30">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <select
+                value={r.roleId}
+                onChange={(e) => setRoleId(i, e.target.value)}
+                className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400"
+              >
+                <option value="">— เลือกตำแหน่ง —</option>
+                {options.map((role) => (
+                  <option key={role.id} value={role.id}>
+                    {role.name}
+                  </option>
+                ))}
+                {r.roleId && !roles.some((role) => role.id === r.roleId) && <option value={r.roleId}>{roleName(r.roleId)}</option>}
+              </select>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={r.costPerDaySatang / 100}
+                  onChange={(e) => setCostPerDay(i, e.target.value)}
+                  className="w-24 text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 text-right tabular-nums focus:outline-hidden focus:border-brand-400"
+                />
+                <span className="text-xs text-muted">฿/วัน</span>
+              </div>
+              <button type="button" onClick={() => remove(i)} title="ลบตำแหน่ง" className="text-muted hover:text-danger-600">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          )
+        })}
 
-        <button type="button" onClick={add} className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800 pt-1">
+        <button
+          type="button"
+          onClick={add}
+          disabled={roles.length === 0}
+          className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800 pt-1 disabled:opacity-40 disabled:hover:text-brand-700"
+        >
           <Briefcase className="w-4 h-4" /> เพิ่มตำแหน่ง
         </button>
 

@@ -111,13 +111,13 @@ export function validateProductTypes(list: ProductType[]): { ok: true } | { ok: 
 }
 
 /**
- * Pronista §กำหนดต้นทุน — แคตตาล็อกตำแหน่ง (Role) + ต้นทุน/วัน ใช้ใน Tab "Project Estimate"
+ * Pronista §กำหนดต้นทุน — จับคู่ตำแหน่ง (อ้าง Parameter Role — ดู parameter-role.ts) กับต้นทุน/วัน ใช้ใน Tab "Project Estimate"
  * แยกจาก positions (สิทธิ์โปรเจกต์) โดยเจตนา — อันนี้เป็นแค่ rate card ไม่มีเรื่องสิทธิ์
  * PM เลือก Role ต่อ Task ได้เอง (ไม่ผูกกับคนคนเดียวตายตัว) — คนเดียวกันรับ Role ต่างกันคนละ Task ได้ ต้นทุน/วันจึงมาจาก Role ไม่ใช่จากคน
+ * ชื่อตำแหน่งไม่ได้เก็บซ้ำที่นี่ — อ้าง roleId ไปที่ company_config.parameterRoles เสมอ (ไม่มี DB-level FK)
  */
 export interface CostRole {
-  id: string
-  name: string
+  roleId: string
   costPerDaySatang: number
   sortOrder: number
 }
@@ -129,22 +129,20 @@ export function resolveCostRoles(raw: CostRole[] | null | undefined): CostRole[]
   return [...list].sort((a, b) => a.sortOrder - b.sortOrder)
 }
 
-export function costRoleById(raw: CostRole[] | null | undefined, id: string | null | undefined): CostRole | undefined {
-  if (!id) return undefined
-  return resolveCostRoles(raw).find((r) => r.id === id)
+export function costRoleByRoleId(raw: CostRole[] | null | undefined, roleId: string | null | undefined): CostRole | undefined {
+  if (!roleId) return undefined
+  return resolveCostRoles(raw).find((r) => r.roleId === roleId)
 }
 
 /** ตรวจ config ที่จะบันทึก (CRUD ผ่าน API) — คืน error ภาษาไทยถ้าไม่ผ่าน */
 export function validateCostRoles(list: CostRole[]): { ok: true } | { ok: false; error: string } {
   if (!Array.isArray(list)) return { ok: false, error: 'ข้อมูลไม่ถูกต้อง' }
-  const ids = new Set<string>()
+  const roleIds = new Set<string>()
   for (const r of list) {
-    if (!ID_RE.test(r.id)) return { ok: false, error: `id ตำแหน่งไม่ถูกต้อง: ${r.id}` }
-    if (ids.has(r.id)) return { ok: false, error: `id ตำแหน่งซ้ำ: ${r.id}` }
-    ids.add(r.id)
-    const name = r.name?.trim() ?? ''
-    if (name.length === 0 || name.length > 60) return { ok: false, error: 'ชื่อตำแหน่งต้องยาว 1–60 ตัว' }
-    if (!Number.isInteger(r.costPerDaySatang) || r.costPerDaySatang < 0) return { ok: false, error: `ต้นทุน/วันของ "${name}" ต้องเป็นจำนวนเต็มไม่ติดลบ` }
+    if (!r.roleId || typeof r.roleId !== 'string') return { ok: false, error: 'ต้องเลือกตำแหน่งทุกแถว' }
+    if (roleIds.has(r.roleId)) return { ok: false, error: 'ตำแหน่งซ้ำ — เลือกตำแหน่งได้แค่ครั้งเดียวต่อรายการ' }
+    roleIds.add(r.roleId)
+    if (!Number.isInteger(r.costPerDaySatang) || r.costPerDaySatang < 0) return { ok: false, error: 'ต้นทุน/วันต้องเป็นจำนวนเต็มไม่ติดลบ' }
   }
   return { ok: true }
 }

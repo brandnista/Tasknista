@@ -203,8 +203,10 @@ export const companyConfig = sqliteTable('company_config', {
   // Pronista §Project Estimate — % buffer/margin default ใช้คำนวณต้นทุน (owner แก้ได้ที่ตั้งค่า ไม่ hardcode)
   costBufferPercent: integer('cost_buffer_percent').notNull().default(20),
   costMarginPercent: integer('cost_margin_percent').notNull().default(30),
-  // Pronista §กำหนดต้นทุน — แคตตาล็อกตำแหน่ง (Role) + ต้นทุน/วัน ใช้ใน Tab "Project Estimate" (null = ยังไม่ตั้งค่า — resolve ใน core/subscription เป็น list ว่าง)
-  costRoles: text('cost_roles', { mode: 'json' }).$type<{ id: string; name: string; costPerDaySatang: number; sortOrder: number }[]>(),
+  // Pronista §Parameter Role — ข้อมูลกลาง (Master Data) รายชื่อตำแหน่ง/บทบาทงาน ตั้งค่าที่ "ตั้งค่าทั่วไป" (null = ยังไม่ตั้งค่า — resolve ใน core/parameter-role เป็น list ว่าง)
+  parameterRoles: text('parameter_roles', { mode: 'json' }).$type<{ id: string; name: string; sortOrder: number }[]>(),
+  // Pronista §กำหนดต้นทุน — จับคู่ roleId (อ้าง parameterRoles ข้างบน) กับต้นทุน/วัน ใช้ใน Tab "Project Estimate" (null = ยังไม่ตั้งค่า — resolve ใน core/subscription เป็น list ว่าง)
+  costRoles: text('cost_roles', { mode: 'json' }).$type<{ roleId: string; costPerDaySatang: number; sortOrder: number }[]>(),
   // Pronista §Position-based permission — แคตตาล็อกตำแหน่งต่อโปรเจกต์ (BA/PM/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/permissions)
   // project_members.positionId อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน sprints.boardPresetId อ้าง boardPresets)
   positions: text('positions', { mode: 'json' }).$type<

@@ -1,6 +1,7 @@
 import { CalendarDays, Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 import { GcalSettings } from '../components/GcalSettings'
+import { ParameterRoleSettings } from '../components/ParameterRoleSettings'
 import { PageHeader } from '../components/PageHeader'
 import { BoardPresetSettings } from '../components/BoardPresetSettings'
 import { ServiceTypeSettings } from '../components/ServiceTypeSettings'
@@ -187,6 +188,8 @@ export function AdminPage() {
         <IcsLinkCard />
 
         <ProjectStatusSettings />
+
+        <ParameterRoleSettings />
 
         <BoardPresetSettings />
 

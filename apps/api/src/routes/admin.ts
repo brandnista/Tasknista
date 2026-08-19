@@ -7,6 +7,7 @@ import {
   PERMISSION_TAB_KEYS,
   resolveCostRoles,
   resolveLabels,
+  resolveParameterRoles,
   resolvePresets,
   resolvePermissionCeilings,
   resolvePositions,
@@ -17,6 +18,7 @@ import {
   STATUS_COLOR_KEYS,
   validateCostRoles,
   validateLabels,
+  validateParameterRoles,
   validatePermissionCeilings,
   validatePositions,
   validatePresets,
@@ -28,6 +30,7 @@ import {
   type CeilingPermissions,
   type CostRole,
   type Label,
+  type ParameterRole,
   type PermissionCategory,
   type Position,
   type ProductType,
@@ -211,12 +214,12 @@ export const adminRoutes = new Hono<AppEnv>()
     return c.json({ ...cfg, costRoles: resolveCostRoles(cfg.costRoles) })
   })
 
-  // Pronista §กำหนดต้นทุน — owner บันทึกทั้งลิสต์ตำแหน่ง+ต้นทุน/วัน (เพิ่ม/ลบ/เรียง/แก้) — ยังไม่มีที่ไหนอ้าง id นี้ ไม่ต้องเช็ค orphan
+  // Pronista §กำหนดต้นทุน — owner บันทึกทั้งลิสต์ roleId+ต้นทุน/วัน (เพิ่ม/ลบ/เรียง/แก้) — roleId ต้องมาจาก parameterRoles (ไม่เช็ค FK จริง แค่ validate รูปแบบ)
   .put('/cost-roles', async (c) => {
     const body = z
       .object({
         costRoles: z
-          .array(z.object({ id: z.string(), name: z.string(), costPerDaySatang: z.number().int().min(0), sortOrder: z.number().int() }))
+          .array(z.object({ roleId: z.string(), costPerDaySatang: z.number().int().min(0), sortOrder: z.number().int() }))
           .default([]),
       })
       .safeParse(await c.req.json())
@@ -236,6 +239,47 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.costRoles ?? null, after: costRolesData },
     })
     return c.json({ costRoles: resolveCostRoles(costRolesData) })
+  })
+
+  // Pronista §Parameter Role — ข้อมูลกลาง (ตั้งค่าทั่วไป) ใช้ในเมนู "กำหนดต้นทุน" (dropdown เลือกตำแหน่ง) และ Tab "Project Estimate" ในอนาคต
+  .get('/parameter-roles', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ parameterRoles: companyConfig.parameterRoles }).from(companyConfig).limit(1))[0]
+    return c.json({ parameterRoles: resolveParameterRoles(cfg?.parameterRoles) })
+  })
+
+  // owner บันทึกทั้งลิสต์ (เพิ่ม/ลบ/เรียง/แก้ชื่อ) — กันลบตำแหน่งที่ "กำหนดต้นทุน" ยังใช้จับคู่ต้นทุน/วันอยู่
+  .put('/parameter-roles', async (c) => {
+    const body = z
+      .object({
+        parameterRoles: z.array(z.object({ id: z.string(), name: z.string(), sortOrder: z.number().int() })).default([]),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const parameterRolesData = body.data.parameterRoles as ParameterRole[]
+    const check = validateParameterRoles(parameterRolesData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const before = (await db.select({ parameterRoles: companyConfig.parameterRoles, costRoles: companyConfig.costRoles }).from(companyConfig).limit(1))[0]
+    const newIds = new Set(parameterRolesData.map((r) => r.id))
+    const usedRoleIds = resolveCostRoles(before?.costRoles).map((r) => r.roleId)
+    const orphan = usedRoleIds.filter((id) => !newIds.has(id))
+    if (orphan.length > 0)
+      return c.json(
+        { error: 'role_in_use', message: `ยังมีตำแหน่งที่ตั้งต้นทุน/วันไว้ที่เมนู "กำหนดต้นทุน" — ลบต้นทุน/วันของตำแหน่งนั้นก่อนจึงลบตำแหน่งนี้ได้` },
+        409,
+      )
+
+    await db.update(companyConfig).set({ parameterRoles: parameterRolesData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.parameter_roles',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.parameterRoles ?? null, after: parameterRolesData },
+    })
+    return c.json({ parameterRoles: resolveParameterRoles(parameterRolesData) })
   })
 
   // แก้ config บริษัท

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  costRoleById,
+  costRoleByRoleId,
   DEFAULT_COST_ROLES,
   DEFAULT_PRODUCT_TYPES,
   DEFAULT_SERVICE_TYPES,
@@ -110,19 +110,19 @@ describe('validateProductTypes', () => {
   })
 })
 
-describe('resolveCostRoles / costRoleById', () => {
+describe('resolveCostRoles / costRoleByRoleId', () => {
   it('คืน list ว่างเมื่อยังไม่ตั้งค่า (ไม่มี default ตายตัว)', () => {
     expect(resolveCostRoles(null)).toEqual(DEFAULT_COST_ROLES)
     expect(resolveCostRoles(null)).toHaveLength(0)
   })
-  it('เรียงตาม sortOrder และหา id ได้', () => {
+  it('เรียงตาม sortOrder และหา roleId ได้', () => {
     const custom = [
-      { id: 'b', name: 'B', costPerDaySatang: 200000, sortOrder: 1 },
-      { id: 'a', name: 'A', costPerDaySatang: 100000, sortOrder: 0 },
+      { roleId: 'b', costPerDaySatang: 200000, sortOrder: 1 },
+      { roleId: 'a', costPerDaySatang: 100000, sortOrder: 0 },
     ]
-    expect(resolveCostRoles(custom).map((r) => r.id)).toEqual(['a', 'b'])
-    expect(costRoleById(custom, 'b')?.name).toBe('B')
-    expect(costRoleById(custom, 'missing')).toBeUndefined()
+    expect(resolveCostRoles(custom).map((r) => r.roleId)).toEqual(['a', 'b'])
+    expect(costRoleByRoleId(custom, 'b')?.costPerDaySatang).toBe(200000)
+    expect(costRoleByRoleId(custom, 'missing')).toBeUndefined()
   })
 })
 
@@ -131,26 +131,26 @@ describe('validateCostRoles', () => {
     expect(validateCostRoles([])).toEqual({ ok: true })
   })
   it('ผ่านเมื่อข้อมูลถูกต้อง', () => {
-    const list = [{ id: 'r1', name: 'Senior Full Stack Developer', costPerDaySatang: 650000, sortOrder: 0 }]
+    const list = [{ roleId: 'r1', costPerDaySatang: 650000, sortOrder: 0 }]
     expect(validateCostRoles(list)).toEqual({ ok: true })
   })
-  it('ไม่ผ่านเมื่อ id ซ้ำ', () => {
+  it('ไม่ผ่านเมื่อ roleId ซ้ำ', () => {
     const list = [
-      { id: 'x', name: 'X', costPerDaySatang: 0, sortOrder: 0 },
-      { id: 'x', name: 'Y', costPerDaySatang: 0, sortOrder: 1 },
+      { roleId: 'x', costPerDaySatang: 0, sortOrder: 0 },
+      { roleId: 'x', costPerDaySatang: 0, sortOrder: 1 },
     ]
     expect(validateCostRoles(list).ok).toBe(false)
   })
-  it('ไม่ผ่านเมื่อชื่อว่าง', () => {
-    const list = [{ id: 'x', name: '  ', costPerDaySatang: 0, sortOrder: 0 }]
+  it('ไม่ผ่านเมื่อไม่ได้เลือกตำแหน่ง', () => {
+    const list = [{ roleId: '', costPerDaySatang: 0, sortOrder: 0 }]
     expect(validateCostRoles(list).ok).toBe(false)
   })
   it('ไม่ผ่านเมื่อต้นทุน/วันติดลบ', () => {
-    const list = [{ id: 'x', name: 'X', costPerDaySatang: -1, sortOrder: 0 }]
+    const list = [{ roleId: 'x', costPerDaySatang: -1, sortOrder: 0 }]
     expect(validateCostRoles(list).ok).toBe(false)
   })
   it('ไม่ผ่านเมื่อต้นทุน/วันไม่ใช่จำนวนเต็ม', () => {
-    const list = [{ id: 'x', name: 'X', costPerDaySatang: 1.5, sortOrder: 0 }]
+    const list = [{ roleId: 'x', costPerDaySatang: 1.5, sortOrder: 0 }]
     expect(validateCostRoles(list).ok).toBe(false)
   })
 })
