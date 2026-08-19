@@ -2,6 +2,36 @@ import { describe, expect, it } from 'vitest'
 import { baseSatang } from './money'
 import { bufferMinutes, costPerHourFromDay, estimateDays, marginSatang, quotationSatang } from './estimate'
 
+describe('โจทย์เต็ม — ไล่สูตรทั้งสายตรงกับไฟล์คอนเฟิร์ม (กานต์ / Senior Full Stack Developer)', () => {
+  it('Cost/Day 6,000 → Cost/Hour 750 → Estimate 20h + Buffer 20% → Total 24h → Net Cost 18,000 → Margin 30% 5,400 → Quotation 23,400 → Work Hour/Day 4h → Estimate Day 6', () => {
+    const costPerDaySatang = 6_000_00
+    const estimateMinutes = 20 * 60
+    const bufferPercent = 20
+    const marginPercent = 30
+    const workMinutesPerDay = 4 * 60
+
+    const costPerHourSatang = costPerHourFromDay(costPerDaySatang)
+    expect(costPerHourSatang).toBe(750_00)
+
+    const bufferMin = bufferMinutes(estimateMinutes, bufferPercent)
+    expect(bufferMin).toBe(4 * 60)
+
+    const totalMinutes = estimateMinutes + bufferMin
+    expect(totalMinutes).toBe(24 * 60)
+
+    const netCostSatang = baseSatang(totalMinutes, costPerHourSatang)
+    expect(netCostSatang).toBe(18_000_00)
+
+    const margin = marginSatang(netCostSatang, marginPercent)
+    expect(margin).toBe(5_400_00)
+
+    const quotation = quotationSatang(netCostSatang, margin)
+    expect(quotation).toBe(23_400_00)
+
+    expect(estimateDays(totalMinutes, workMinutesPerDay)).toBe(6)
+  })
+})
+
 describe('costPerHourFromDay — Cost/Day ÷ 8 ปัดครึ่งขึ้น (SPEC Project Estimate)', () => {
   it('หารลงตัว', () => {
     expect(costPerHourFromDay(8000)).toBe(1000) // ฿80/วัน → ฿10/ชม.

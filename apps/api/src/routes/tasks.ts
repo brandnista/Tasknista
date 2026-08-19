@@ -50,6 +50,8 @@ const taskPatchSchema = z.object({
   costWorkMinutesPerDay: z.number().int().positive().nullable().optional(),
   // Pronista §Project Estimate — % buffer เฉพาะ task นี้ (null = ใช้ company_config.costBufferPercent)
   costBufferPercent: z.number().int().min(0).max(100).nullable().optional(),
+  // Pronista §Project Estimate — Role (อ้าง company_config.parameterRoles) ที่ PM เลือกให้ task นี้ ใช้ดึง Cost/Day จาก company_config.costRoles
+  costRoleId: z.string().nullable().optional(),
   startDate: isoDate.nullable().optional(),
   dueDate: isoDate.nullable().optional(),
   groupId: z.string().nullable().optional(),

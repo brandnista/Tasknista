@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
-import { formatSatang, minutesToHoursLabel, resolveTaskTypes, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
+import { minutesToHoursLabel, resolveTaskTypes, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -14,6 +14,7 @@ import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModa
 import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
 import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
 import { ProjectChangeLogTab } from '../components/ProjectChangeLogTab'
+import { ProjectEstimateSection } from '../components/ProjectEstimateSection'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { api } from '../lib/api'
@@ -1101,237 +1102,6 @@ function ProjectDocsSection({ projectId }: { projectId: string }) {
   )
 }
 
-interface EstimateRow {
-  taskId: string
-  taskCode: string | null
-  title: string
-  assigneeId: string
-  assigneeName: string
-  jobTitle: string | null
-  costPerDaySatang: number | null
-  costPerHourSatang: number | null
-  estimateMinutes: number
-  bufferPercent: number
-  bufferMinutes: number
-  totalMinutes: number
-  netCostSatang: number | null
-  workMinutesPerDay: number
-  estimateDays: number
-  marginSatang: number | null
-  quotationSatang: number | null
-}
-interface EstimateResponse {
-  rows: EstimateRow[]
-  totals: { netCostSatang: number; marginSatang: number; quotationSatang: number }
-  project: { estimateNetWorkingDays: number | null; quotedSatang: number | null }
-  suggestedNetWorkingDays: number | null
-  estimateProjectCostPerDaySatang: number | null
-}
-
-interface AdminUserLite {
-  id: string
-  jobTitle: string | null
-}
-
-/** Pronista §Project Estimate — เห็นเฉพาะ owner (gate ที่ ProjectDetailPage ก่อนเรนเดอร์แล้ว, endpoint เองก็ ownerOnly ซ้ำที่ server) */
-function ProjectEstimateSection({ projectId }: { projectId: string }) {
-  const { data, reload } = useLoad<EstimateResponse>(() => api.get(`/api/projects/${projectId}/estimate`), [projectId])
-  // Pronista §Project Estimate — ดึงรายชื่อตำแหน่งที่มีอยู่แล้วในทีมมาทำ dropdown เลือกซ้ำ (แทนพิมพ์เอง)
-  const { data: allUsers } = useLoad<AdminUserLite[]>(() => api.get('/api/admin/users'))
-  const [customRoleFor, setCustomRoleFor] = useState<string | null>(null)
-  const money = (satang: number | null) => (satang != null ? formatSatang(satang) : '—')
-  const hours = (minutes: number) => minutesToHoursLabel(minutes)
-  const roleOptions = useMemo(
-    () => [...new Set((allUsers ?? []).map((u) => u.jobTitle).filter((j): j is string => !!j))].sort((a, b) => a.localeCompare(b)),
-    [allUsers],
-  )
-
-  const saveNetWorkingDays = async (v: string) => {
-    const n = v.trim() ? Math.round(Number(v)) : null
-    await api.patch(`/api/projects/${projectId}`, { estimateNetWorkingDays: n })
-    await reload()
-  }
-  // Pronista §Project Estimate — PM กรอก Estimate W/H + Buffer % ตรงจากตารางนี้เลย ไม่ต้องเปิด Task/ไปหน้าตั้งค่า
-  const saveEstimateHours = async (taskId: string, v: string) => {
-    await api.patch(`/api/tasks/${taskId}`, { estimateMinutes: v.trim() ? Math.round(Number(v) * 60) : null })
-    await reload()
-  }
-  const saveBufferPercent = async (taskId: string, v: string) => {
-    await api.patch(`/api/tasks/${taskId}`, { costBufferPercent: v.trim() ? Math.round(Number(v)) : null })
-    await reload()
-  }
-  // Pronista §Project Estimate — Role/Cost-Day ผูกกับ "คน" (users.jobTitle/costPerDaySatang) ไม่ใช่ต่อ task — แก้ที่นี่ = แก้ทุกแถวของคนนั้นพร้อมกัน (เหมือนแก้ที่หน้าตั้งค่า)
-  const saveJobTitle = async (assigneeId: string, jobTitle: string | null) => {
-    await api.patch(`/api/admin/users/${assigneeId}`, { jobTitle })
-    await reload()
-  }
-  const saveCostPerDay = async (assigneeId: string, v: string) => {
-    await api.patch(`/api/admin/users/${assigneeId}`, { costPerDaySatang: v.trim() ? Math.round(Number(v) * 100) : null })
-    await reload()
-  }
-  const inputCell = 'w-20 text-right text-sm bg-white border border-border rounded-lg px-2 py-1 tabular-nums focus:outline-hidden focus:border-brand-400'
-
-  if (!data) return <div className="text-sm text-muted py-6 text-center">กำลังโหลด…</div>
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-sm font-semibold text-strong">ต้นทุนต่อ Task ({data.rows.length})</div>
-          <div className="flex items-center gap-3 text-[11px] text-muted">
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-xs bg-white border border-border inline-block" /> PM กรอกที่นี่</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-xs bg-hover inline-block" /> ระบบคำนวณอัตโนมัติ</span>
-          </div>
-        </div>
-        {data.rows.length === 0 ? (
-          <div className="text-sm text-muted py-6 text-center">
-            ยังไม่มี Task ที่มีทั้งผู้รับผิดชอบและชั่วโมงประเมิน — กรอกในหน้า Task ก่อน (แถวจะขึ้นที่นี่อัตโนมัติ)
-          </div>
-        ) : (
-          <table className="w-full text-sm min-w-[1200px]">
-            <thead className="bg-hover text-dim text-xs">
-              <tr>
-                <th className="text-left font-medium px-3 py-2">Team Member</th>
-                <th className="text-left font-medium px-3 py-2">Role</th>
-                <th className="text-right font-medium px-3 py-2">Cost/Day</th>
-                <th className="text-right font-medium px-3 py-2">Cost/Hour</th>
-                <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
-                <th className="text-right font-medium px-3 py-2">Buffer %</th>
-                <th className="text-right font-medium px-3 py-2">Buffer W/H</th>
-                <th className="text-right font-medium px-3 py-2">Total W/H</th>
-                <th className="text-right font-medium px-3 py-2">Net Cost (Hour)</th>
-                <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
-                <th className="text-right font-medium px-3 py-2">Estimate Day</th>
-                <th className="text-right font-medium px-3 py-2">Margin</th>
-                <th className="text-right font-medium px-3 py-2">Quotation Cost</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-divider">
-              {data.rows.map((r) => (
-                <tr key={r.taskId}>
-                  <td className="px-3 py-2 whitespace-nowrap">{r.assigneeName}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {customRoleFor === r.taskId ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        defaultValue={r.jobTitle ?? ''}
-                        placeholder="พิมพ์ตำแหน่งใหม่"
-                        onBlur={(e) => {
-                          setCustomRoleFor(null)
-                          void saveJobTitle(r.assigneeId, e.target.value.trim() || null)
-                        }}
-                        className="w-36 text-sm bg-white border border-border rounded-lg px-2 py-1 focus:outline-hidden focus:border-brand-400"
-                      />
-                    ) : (
-                      <select
-                        value={r.jobTitle && roleOptions.includes(r.jobTitle) ? r.jobTitle : ''}
-                        onChange={(e) => {
-                          if (e.target.value === '__custom__') setCustomRoleFor(r.taskId)
-                          else void saveJobTitle(r.assigneeId, e.target.value || null)
-                        }}
-                        className="w-36 text-sm bg-white border border-border rounded-lg px-2 py-1 focus:outline-hidden focus:border-brand-400"
-                      >
-                        <option value="">— ยังไม่ระบุ —</option>
-                        {r.jobTitle && !roleOptions.includes(r.jobTitle) && <option value={r.jobTitle}>{r.jobTitle}</option>}
-                        {roleOptions.map((role) => (
-                          <option key={role} value={role}>{role}</option>
-                        ))}
-                        <option value="__custom__">+ พิมพ์ตำแหน่งใหม่</option>
-                      </select>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      defaultValue={r.costPerDaySatang != null ? r.costPerDaySatang / 100 : ''}
-                      placeholder="—"
-                      onBlur={(e) => void saveCostPerDay(r.assigneeId, e.target.value)}
-                      className={inputCell}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.costPerHourSatang)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      defaultValue={r.estimateMinutes / 60}
-                      onBlur={(e) => void saveEstimateHours(r.taskId, e.target.value)}
-                      className={inputCell}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      defaultValue={r.bufferPercent}
-                      onBlur={(e) => void saveBufferPercent(r.taskId, e.target.value)}
-                      className={inputCell}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.bufferMinutes)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.totalMinutes)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">
-                    {r.netCostSatang != null ? money(r.netCostSatang) : <span className="text-warning-600 text-xs">ยังไม่ตั้งต้นทุน</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.workMinutesPerDay)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{r.estimateDays.toFixed(1)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.marginSatang)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-medium">{money(r.quotationSatang)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-border-subtle font-semibold">
-                <td className="px-3 py-2" colSpan={8}>รวม</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatSatang(data.totals.netCostSatang)}</td>
-                <td />
-                <td />
-                <td className="px-3 py-2 text-right tabular-nums">{formatSatang(data.totals.marginSatang)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatSatang(data.totals.quotationSatang)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        )}
-        {data.rows.some((r) => r.netCostSatang == null) && (
-          <p className="text-xs text-warning-600 mt-2">
-            แถวที่ "ยังไม่ตั้งต้นทุน" ไม่ถูกรวมในยอดด้านบน — ไปตั้งต้นทุน/วันของคนนั้นที่หน้า{' '}
-            <Link to="/admin" className="underline">ตั้งค่า</Link>
-          </p>
-        )}
-      </div>
-
-      <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 grid sm:grid-cols-3 gap-4">
-        <label className="text-xs text-muted">
-          Net Working Days
-          <input
-            type="number"
-            min={1}
-            defaultValue={data.project.estimateNetWorkingDays ?? data.suggestedNetWorkingDays ?? ''}
-            placeholder={data.suggestedNetWorkingDays != null ? String(data.suggestedNetWorkingDays) : ''}
-            onBlur={(e) => void saveNetWorkingDays(e.target.value)}
-            className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 mt-1 tabular-nums"
-          />
-          {data.suggestedNetWorkingDays != null && (
-            <span className="text-[11px] text-muted">แนะนำ {data.suggestedNetWorkingDays} วัน (จาก Task ที่ใช้เวลานานสุด)</span>
-          )}
-        </label>
-        <div className="text-xs text-muted">
-          Net Quotation Cost
-          <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(data.project.quotedSatang)}</div>
-          <Link to={`/projects/${projectId}/edit`} className="text-[11px] text-brand-600 hover:underline">แก้ที่หน้าแก้ไขโปรเจกต์</Link>
-        </div>
-        <div className="text-xs text-muted">
-          Estimate Project Cost/Day
-          <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(data.estimateProjectCostPerDaySatang)}</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 interface ProjectAllTask {
   id: string
   code: string | null
@@ -2163,7 +1933,7 @@ export function ProjectDetailPage() {
   const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'releases' | 'changeLog' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
     searchParams.get('tab') === 'assets' ? 'assets' : 'sprint',
   )
-  // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร/Version Release — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document/Project Estimate ถอดออกจากแถบ (ยังไม่อยู่ใน Phase นี้ — component/route เดิมยังอยู่ ไม่ได้ลบ)
+  // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร/Version Release — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document ยังถอดออกจากแถบอยู่ (component/route เดิมยังอยู่ ไม่ได้ลบ) · Project Estimate กลับมาแล้ว (owner เท่านั้น — ดู .concat ด้านล่าง)
   // Pronista §Position-based permission — กรองด้วย myPermissions.tabs (key ตรงกับ view value เป๊ะ: sprint/docs/assets/releases) — ?? true = fail-open ระหว่างยังโหลดข้อมูลไม่เสร็จ ไม่ใช่ fail-closed
   const tabs: [typeof view, string][] = (
     [
@@ -2173,7 +1943,10 @@ export function ProjectDetailPage() {
       ['releases', 'Version Release'],
       ['changeLog', 'Change Log'],
     ] as [typeof view, string][]
-  ).filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
+  )
+    .filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
+    // Pronista §Project Estimate — owner เท่านั้น ไม่ผ่านระบบ tabs permission ปกติ (ต้นทุนทีมทั้งหมด ไม่ใช่แค่งบรวม)
+    .concat(user?.role === 'owner' ? [['estimate', 'Project Estimate']] : [])
   // Pronista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
   useEffect(() => {
     if (tabs.length > 0 && !tabs.some(([v]) => v === view)) setView(tabs[0]![0])
@@ -2360,7 +2133,9 @@ export function ProjectDetailPage() {
       {/* Pronista §Back to Basic — API Document/Project Estimate ถอดออกจาก Tab บนสุด (ยังไม่อยู่ใน Phase นี้) เก็บ component+route ไว้เผื่อกลับมาใช้ ไม่มีปุ่มเข้าถึงแล้วเท่านั้น */}
       {view === 'apidoc' && id && <ApiDocumentSection key={project.id} projectId={id} canEdit={canEdit} />}
 
-      {view === 'estimate' && id && user?.role === 'owner' && <ProjectEstimateSection projectId={id} />}
+      {view === 'estimate' && id && user?.role === 'owner' && (
+        <ProjectEstimateSection projectId={id} members={project.members ?? []} />
+      )}
 
       {uploadOpen && id && (
         <SowUploadBreakoutModal

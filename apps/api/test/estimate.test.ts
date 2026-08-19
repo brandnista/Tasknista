@@ -13,6 +13,11 @@ const patchJson = (cookie: string, body: unknown) => ({
   headers: { cookie, 'content-type': 'application/json' },
   body: JSON.stringify(body),
 })
+const putJson = (cookie: string, body: unknown) => ({
+  method: 'PUT',
+  headers: { cookie, 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
 
 beforeEach(async () => {
   await seedUsers()
@@ -27,12 +32,27 @@ async function setupProjectWithTask(cookie: string, assigneeId: string, estimate
   return { projectId: p.id, taskId: t.id }
 }
 
-describe('T?? — Project Estimate: GET /api/projects/:id/estimate', () => {
+/** เลือก task เข้าตาราง Estimate ของโปรเจกต์ (full replace ตาม taskIds ที่ส่งมา) */
+async function selectForEstimate(cookie: string, projectId: string, taskIds: string[]) {
+  await app.request(`/api/projects/${projectId}/estimate/selection`, putJson(cookie, { taskIds }), env)
+}
+
+/** ตั้ง Role + Cost/Day (Parameter Role + Cost Role rate card) แล้วผูกเข้า task — มิเรอร์ CostRoleSettings/ParameterRoleSettings จริง */
+async function setupRoleWithCost(cookie: string, taskId: string, costPerDaySatang: number) {
+  const roleId = 'role_dev'
+  await app.request('/api/admin/parameter-roles', putJson(cookie, { parameterRoles: [{ id: roleId, name: 'Developer', sortOrder: 0 }] }), env)
+  await app.request('/api/admin/cost-roles', putJson(cookie, { costRoles: [{ roleId, costPerDaySatang, sortOrder: 0 }] }), env)
+  await app.request(`/api/tasks/${taskId}`, patchJson(cookie, { costRoleId: roleId }), env)
+  return roleId
+}
+
+describe('T?? — Project Estimate: GET /api/projects/:id/estimate (role-based — Role ต่อ task จาก Parameter Role, ไม่ผูกกับคน)', () => {
   it('owner: คำนวณ Cost/Hour, Buffer, Net Cost, Margin, Quotation ตรงสูตร · suggestedNetWorkingDays = ceil(max Estimate Day)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    // ปอนด์ ต้นทุน ฿80/วัน (8000 สตางค์) → Cost/Hour ฿10/ชม. (1000 สตางค์)
-    await app.request('/api/admin/users/u_pond', patchJson(owner, { costPerDaySatang: 8000 }), env)
-    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 6600) // 110 ชม.
+    const { projectId, taskId } = await setupProjectWithTask(owner, 'u_pond', 6600) // 110 ชม.
+    // Role "Developer" ต้นทุน ฿80/วัน (8000 สตางค์) → Cost/Hour ฿10/ชม. (1000 สตางค์)
+    const roleId = await setupRoleWithCost(owner, taskId, 8000)
+    await selectForEstimate(owner, projectId, [taskId])
 
     const res = await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: owner } }, env)
     expect(res.status).toBe(200)
@@ -44,6 +64,8 @@ describe('T?? — Project Estimate: GET /api/projects/:id/estimate', () => {
     expect(body.rows).toHaveLength(1)
     expect(body.rows[0]).toMatchObject({
       assigneeId: 'u_pond',
+      costRoleId: roleId,
+      roleName: 'Developer',
       costPerDaySatang: 8000,
       costPerHourSatang: 1000,
       estimateMinutes: 6600,
@@ -59,22 +81,44 @@ describe('T?? — Project Estimate: GET /api/projects/:id/estimate', () => {
     expect(body.suggestedNetWorkingDays).toBe(17) // ceil(16.5)
   })
 
-  it('assignee ยังไม่ตั้ง costPerDaySatang → แถวโชว์แต่ cost/margin/quotation = null และไม่รวมในยอด', async () => {
+  it('task ยังไม่เลือก Role → แถวโชว์แต่ cost/margin/quotation = null และไม่รวมในยอด', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const { projectId } = await setupProjectWithTask(owner, 'u_somchai', 1000) // สมชายไม่มี costPerDaySatang
+    const { projectId, taskId } = await setupProjectWithTask(owner, 'u_somchai', 1000) // ยังไม่เลือก Role ให้ task นี้
+    await selectForEstimate(owner, projectId, [taskId])
 
     const res = await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: owner } }, env)
     const body = (await res.json()) as { rows: Record<string, unknown>[]; totals: { netCostSatang: number } }
-    expect(body.rows[0]).toMatchObject({ costPerDaySatang: null, costPerHourSatang: null, netCostSatang: null, marginSatang: null, quotationSatang: null })
+    expect(body.rows[0]).toMatchObject({
+      costRoleId: null,
+      roleName: null,
+      costPerDaySatang: null,
+      costPerHourSatang: null,
+      netCostSatang: null,
+      marginSatang: null,
+      quotationSatang: null,
+    })
     expect(body.totals.netCostSatang).toBe(0)
   })
 
-  it('member/vendor เรียก → 403 (ต้นทุนทีมเห็นเฉพาะ owner)', async () => {
+  it('task ที่ไม่ได้ติ๊กเลือกเข้า Estimate ไม่โชว์ในตาราง แม้จะมี Role+estimate ครบ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
+    const { projectId, taskId } = await setupProjectWithTask(owner, 'u_pond', 100)
+    await setupRoleWithCost(owner, taskId, 8000)
+    // ไม่เรียก selectForEstimate — task ยังไม่ถูกเลือกเข้า Estimate
+
+    const res = await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: owner } }, env)
+    const body = (await res.json()) as { rows: unknown[] }
+    expect(body.rows).toHaveLength(0)
+  })
+
+  it('member/vendor เรียก → 403 ทั้ง /estimate, /estimate/tasks, /estimate/selection (ต้นทุนทีมเห็นเฉพาะ owner)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId, taskId } = await setupProjectWithTask(owner, 'u_pond', 100)
 
     const member = await loginAs(app, 'pond@example-co.test')
     expect((await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: member } }, env)).status).toBe(403)
+    expect((await app.request(`/api/projects/${projectId}/estimate/tasks`, { headers: { cookie: member } }, env)).status).toBe(403)
+    expect((await app.request(`/api/projects/${projectId}/estimate/selection`, putJson(member, { taskIds: [taskId] }), env)).status).toBe(403)
 
     const vendor = await loginAs(app, 'somchai@example.com')
     expect((await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: vendor } }, env)).status).toBe(403)

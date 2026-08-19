@@ -497,6 +497,10 @@ export const tasks = sqliteTable(
     costWorkMinutesPerDay: integer('cost_work_minutes_per_day'),
     // Pronista §Project Estimate — % buffer เฉพาะ task นี้ (null = ใช้ company_config.costBufferPercent) — PM ปรับได้ตรงจาก Tab Project Estimate
     costBufferPercent: integer('cost_buffer_percent'),
+    // Pronista §Project Estimate — PM เลือก Role (อ้าง company_config.parameterRoles) ต่อ task เพื่อดึง Cost/Day จาก company_config.costRoles — ไม่ผูกกับตำแหน่งสิทธิ์ (positions) ของสมาชิกโปรเจกต์
+    costRoleId: text('cost_role_id'),
+    // Pronista §Project Estimate — task นี้ถูกเลือกเข้าตาราง Estimate ของโปรเจกต์หรือไม่ (ติ๊กเลือกจากหน้า Tab Project Estimate)
+    estimateSelected: integer('estimate_selected', { mode: 'boolean' }).notNull().default(false),
     startDate: text('start_date'), // YYYY-MM-DD → ไทม์ไลน์ต่อกลุ่ม
     dueDate: text('due_date'),
     createdBy: text('created_by')

@@ -3,6 +3,7 @@ import {
   bkkDateOf,
   bufferMinutes,
   costPerHourFromDay,
+  costRoleByRoleId,
   costSatang,
   defaultStatusId,
   estimateDays,
@@ -10,11 +11,14 @@ import {
   isNearExpiry,
   isPatchableLogo,
   marginSatang,
+  parameterRoleById,
   parseProjectLogo,
   positionById,
   POSITION_FULL_ACCESS_ID,
   productTypeById,
   quotationSatang,
+  resolveCostRoles,
+  resolveParameterRoles,
   resolvePositions,
   resolveProductTypes,
   resolveServiceTypes,
@@ -566,7 +570,46 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Pronista §Project Estimate — ต้นทุนต่อ Task (เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์)
+  // Pronista §Project Estimate — task ทั้งหมดในโปรเจกต์ (ไม่กรอง) ใช้เลือกงานเข้าตาราง Estimate แบบ checkbox+filter (เห็นเฉพาะ owner เหมือน /estimate — เผย estimateSelected/costRoleId ซึ่งเป็นข้อมูลต้นทุน)
+  .get('/:id/estimate/tasks', ownerOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const rows = await db
+      .select({
+        id: tasks.id,
+        code: tasks.code,
+        title: tasks.title,
+        kind: tasks.kind,
+        assigneeId: tasks.assigneeId,
+        assigneeName: users.name,
+        taskType: tasks.taskType,
+        subTaskType: tasks.subTaskType,
+        estimateMinutes: tasks.estimateMinutes,
+        estimateSelected: tasks.estimateSelected,
+      })
+      .from(tasks)
+      .leftJoin(users, eq(tasks.assigneeId, users.id))
+      .where(eq(tasks.projectId, projectId))
+      .orderBy(asc(tasks.createdAt))
+    return c.json(rows)
+  })
+
+  // Pronista §Project Estimate — บันทึกรายการ task ที่เลือกเข้าตาราง Estimate ทีเดียว (full replace ตาม taskIds ที่ส่งมา — เคลียร์ของเดิมในโปรเจกต์นี้ก่อนเสมอ)
+  .put('/:id/estimate/selection', ownerOnly, async (c) => {
+    const body = z.object({ taskIds: z.array(z.string()).max(500) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const { taskIds } = body.data
+    await db.update(tasks).set({ estimateSelected: false }).where(and(eq(tasks.projectId, projectId), eq(tasks.estimateSelected, true)))
+    if (taskIds.length > 0) {
+      await db.update(tasks).set({ estimateSelected: true }).where(and(eq(tasks.projectId, projectId), inArray(tasks.id, taskIds)))
+    }
+    return c.json({ ok: true })
+  })
+
+  // Pronista §Project Estimate — ต้นทุนต่อ Task ของงานที่เลือกไว้ (เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์)
+  // Role ต่อ task มาจาก company_config.parameterRoles (PM เลือกเองต่อ task) ไม่ผูกกับตำแหน่งสิทธิ์ (positions) ของสมาชิกโปรเจกต์ — ดู tasks.costRoleId
   .get('/:id/estimate', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -576,6 +619,8 @@ export const projectRoutes = new Hono<AppEnv>()
 
     const cfg = (await db.select().from(companyConfig).limit(1))[0]
     if (!cfg) return c.json({ error: 'config_missing' }, 500)
+    const parameterRoles = resolveParameterRoles(cfg.parameterRoles)
+    const costRoles = resolveCostRoles(cfg.costRoles)
 
     const taskRows = await db
       .select({
@@ -585,14 +630,14 @@ export const projectRoutes = new Hono<AppEnv>()
         estimateMinutes: tasks.estimateMinutes,
         costWorkMinutesPerDay: tasks.costWorkMinutesPerDay,
         costBufferPercent: tasks.costBufferPercent,
-        assigneeId: users.id,
+        costRoleId: tasks.costRoleId,
+        assigneeId: tasks.assigneeId,
         assigneeName: users.name,
-        jobTitle: users.jobTitle,
-        costPerDaySatang: users.costPerDaySatang,
       })
       .from(tasks)
-      .innerJoin(users, eq(tasks.assigneeId, users.id))
-      .where(and(eq(tasks.projectId, projectId), isNotNull(tasks.assigneeId), isNotNull(tasks.estimateMinutes)))
+      .leftJoin(users, eq(tasks.assigneeId, users.id))
+      .where(and(eq(tasks.projectId, projectId), eq(tasks.estimateSelected, true)))
+      .orderBy(asc(tasks.createdAt))
 
     let totalNetCostSatang = 0
     let totalMarginSatang = 0
@@ -600,7 +645,7 @@ export const projectRoutes = new Hono<AppEnv>()
     let maxEstimateDays = 0
 
     const rows = taskRows.map((t) => {
-      const estMinutes = t.estimateMinutes ?? 0 // กรองมาแล้วว่าไม่ null จาก WHERE ด้านบน
+      const estMinutes = t.estimateMinutes ?? 0
       const bufferPercent = t.costBufferPercent ?? cfg.costBufferPercent
       const buffer = bufferMinutes(estMinutes, bufferPercent)
       const totalMinutes = estMinutes + buffer
@@ -608,7 +653,9 @@ export const projectRoutes = new Hono<AppEnv>()
       const days = estimateDays(totalMinutes, workMinutesPerDay)
       maxEstimateDays = Math.max(maxEstimateDays, days)
 
-      const costPerHourSatang = t.costPerDaySatang != null ? costPerHourFromDay(t.costPerDaySatang) : null
+      const roleName = t.costRoleId ? (parameterRoleById(parameterRoles, t.costRoleId)?.name ?? null) : null
+      const costPerDaySatang = t.costRoleId ? (costRoleByRoleId(costRoles, t.costRoleId)?.costPerDaySatang ?? null) : null
+      const costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
       const netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
       const margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
       const quotation = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
@@ -624,8 +671,9 @@ export const projectRoutes = new Hono<AppEnv>()
         title: t.title,
         assigneeId: t.assigneeId,
         assigneeName: t.assigneeName,
-        jobTitle: t.jobTitle,
-        costPerDaySatang: t.costPerDaySatang,
+        costRoleId: t.costRoleId,
+        roleName,
+        costPerDaySatang,
         costPerHourSatang,
         estimateMinutes: estMinutes,
         bufferPercent,
