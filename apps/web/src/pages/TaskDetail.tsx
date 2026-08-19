@@ -863,148 +863,164 @@ export function TaskDetailPage() {
           </div>
 
           <div className="p-5 space-y-5 bg-hover/40">
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">สถานะ</span>
-                {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น */}
-                {canEdit && !isAssignee ? (
-                  <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะ" className={`px-2 py-1 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
-                    {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-                  </select>
-                ) : (
-                  <span className={`px-2 py-1 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
-                )}
-              </div>
-              {t.kind === 'defect' && t.defectStatus && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted">Defect</span>
+            <div className="space-y-4">
+              {/* Pronista §Meta panel redesign — จัดเป็นกริด label/ช่องกรอกคงที่แทน flex justify-between ที่แนวไม่ตรงกัน + เพิ่ม border ให้ทุกช่องกรอกได้ (เดิม bg-white ล้วนกลืนกับพื้นหลัง bg-hover/40 แยกไม่ออกว่ากรอกตรงไหนได้) */}
+              <div>
+                <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
+                <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 items-center text-sm">
+                  <span className="text-dim">สถานะ</span>
+                  {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น */}
                   {canEdit && !isAssignee ? (
-                    <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="สถานะ Defect" className={`px-2 py-1 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
-                      {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
+                    <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะ" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
+                      {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                     </select>
                   ) : (
-                    <span className={`px-2 py-1 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
+                    <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
+                  )}
+
+                  {t.kind === 'defect' && t.defectStatus && (
+                    <>
+                      <span className="text-dim">Defect</span>
+                      {canEdit && !isAssignee ? (
+                        <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="สถานะ Defect" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
+                          {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
+                        </select>
+                      ) : (
+                        <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
+                      )}
+                    </>
+                  )}
+
+                  <span className="text-dim">ผู้รับผิดชอบ</span>
+                  {canEdit && !isAssignee ? (
+                    <select value={t.assigneeId ?? ''} onChange={(e) => void patch({ assigneeId: e.target.value || null })} aria-label="ผู้รับผิดชอบ" className="w-full border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                      <option value="">— ไม่ระบุ —</option>
+                      {(userOpts ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  ) : (
+                    t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
+                  )}
+
+                  {!isAssignee && (
+                    <>
+                      <span className="text-dim">ความสำคัญ</span>
+                      {canEdit ? (
+                        <select value={t.priority} onChange={(e) => void patch({ priority: e.target.value })} aria-label="ความสำคัญ" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${PRIORITY_CLASS[t.priority]}`}>
+                          {(['low', 'normal', 'high'] as const).map((p) => <option key={p} value={p}>{PRIORITY_THAI[p]}</option>)}
+                        </select>
+                      ) : (
+                        <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${PRIORITY_CLASS[t.priority]}`}>{PRIORITY_THAI[t.priority]}</span>
+                      )}
+                    </>
                   )}
                 </div>
-              )}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">ผู้รับผิดชอบ</span>
-                {canEdit && !isAssignee ? (
-                  <select value={t.assigneeId ?? ''} onChange={(e) => void patch({ assigneeId: e.target.value || null })} aria-label="ผู้รับผิดชอบ" className="bg-white text-soft px-2 py-1 rounded-lg text-xs">
-                    <option value="">— ไม่ระบุ —</option>
-                    {(userOpts ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                ) : (
-                  t.assigneeName && <span className="bg-white text-soft px-2 py-1 rounded-lg text-xs">{t.assigneeName}</span>
-                )}
               </div>
+
               {!isAssignee && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted">ความสำคัญ</span>
-                  {canEdit ? (
-                    <select value={t.priority} onChange={(e) => void patch({ priority: e.target.value })} aria-label="ความสำคัญ" className={`px-2 py-1 rounded-lg text-xs ${PRIORITY_CLASS[t.priority]}`}>
-                      {(['low', 'normal', 'high'] as const).map((p) => <option key={p} value={p}>{PRIORITY_THAI[p]}</option>)}
-                    </select>
-                  ) : (
-                    <span className={`px-2 py-1 rounded-lg text-xs ${PRIORITY_CLASS[t.priority]}`}>{PRIORITY_THAI[t.priority]}</span>
-                  )}
-                </div>
-              )}
-              {!isAssignee && (
-                <div className="flex items-start justify-between text-sm gap-2">
-                  <span className="text-muted shrink-0 pt-1">Labels</span>
-                  <div className="flex-1 flex flex-col items-end gap-1.5">
-                    <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
-                    {canEdit && (
-                      <div className="relative">
-                        <button type="button" onClick={() => setLabelPickerOpen((v) => !v)} className="text-xs text-brand-700 hover:text-brand-800 flex items-center gap-1">
-                          <Plus className="w-3 h-3" /> แท็ก
-                        </button>
-                        {labelPickerOpen && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setLabelPickerOpen(false)} />
-                            <div className="absolute right-0 top-full mt-1 z-50 w-48 bg-white rounded-lg shadow-2xl border border-border-subtle p-2 space-y-1">
-                              {resolveLabels(cfg?.labels).map((l) => {
-                                const active = (t.labelIds ?? []).includes(l.id)
-                                return (
-                                  <button
-                                    key={l.id}
-                                    type="button"
-                                    onClick={() => {
-                                      const next = active ? (t.labelIds ?? []).filter((id) => id !== l.id) : [...(t.labelIds ?? []), l.id]
-                                      void patch({ labelIds: next })
-                                    }}
-                                    className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-hover text-left"
-                                  >
-                                    <span className={`w-3 h-3 rounded-full shrink-0 ${STATUS_SWATCH[l.color] ?? 'bg-slate-400'}`} />
-                                    <span className="flex-1 text-xs text-body">{l.name}</span>
-                                    {active && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </>
+                <>
+                  <div className="border-t border-border-subtle" />
+                  <div>
+                    <div className="text-[11px] font-medium text-muted tracking-wide mb-2">การจัดหมวด</div>
+                    <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 items-start text-sm">
+                      <span className="text-dim pt-1.5">Labels</span>
+                      <div className="flex flex-col items-start gap-1.5">
+                        <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
+                        {canEdit && (
+                          <div className="relative">
+                            <button type="button" onClick={() => setLabelPickerOpen((v) => !v)} className="text-xs text-brand-700 hover:text-brand-800 border border-brand-200 bg-brand-50 hover:bg-brand-100 rounded-lg px-2.5 py-1 flex items-center gap-1">
+                              <Plus className="w-3 h-3" /> แท็ก
+                            </button>
+                            {labelPickerOpen && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setLabelPickerOpen(false)} />
+                                <div className="absolute left-0 top-full mt-1 z-50 w-48 bg-white rounded-lg shadow-2xl border border-border-subtle p-2 space-y-1">
+                                  {resolveLabels(cfg?.labels).map((l) => {
+                                    const active = (t.labelIds ?? []).includes(l.id)
+                                    return (
+                                      <button
+                                        key={l.id}
+                                        type="button"
+                                        onClick={() => {
+                                          const next = active ? (t.labelIds ?? []).filter((id) => id !== l.id) : [...(t.labelIds ?? []), l.id]
+                                          void patch({ labelIds: next })
+                                        }}
+                                        className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-hover text-left"
+                                      >
+                                        <span className={`w-3 h-3 rounded-full shrink-0 ${STATUS_SWATCH[l.color] ?? 'bg-slate-400'}`} />
+                                        <span className="flex-1 text-xs text-body">{l.name}</span>
+                                        {active && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {!isAssignee && (
-                <div className="flex items-center justify-between text-sm gap-2">
-                  <span className="text-muted shrink-0">ประเภทงาน</span>
-                  {canEdit ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <select
-                        value={t.taskType ?? ''}
-                        onChange={(e) => void patch({ taskType: e.target.value || null, subTaskType: null })}
-                        aria-label="ประเภทงาน"
-                        className="text-xs bg-white shadow-xs rounded-lg px-2 py-1"
-                      >
-                        <option value="">— ไม่ระบุ —</option>
-                        {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
-                      </select>
-                      <select
-                        value={t.subTaskType ?? ''}
-                        onChange={(e) => void patch({ subTaskType: e.target.value || null })}
-                        disabled={!t.taskType}
-                        aria-label="ตัวเลือกย่อย"
-                        className="text-xs bg-white shadow-xs rounded-lg px-2 py-1 disabled:opacity-40"
-                      >
-                        <option value="">— ไม่ระบุ —</option>
-                        {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes ?? []).map((s) => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
+
+                      <span className="text-dim pt-1.5">ประเภทงาน</span>
+                      {canEdit ? (
+                        <div className="flex flex-col gap-1.5">
+                          <select
+                            value={t.taskType ?? ''}
+                            onChange={(e) => void patch({ taskType: e.target.value || null, subTaskType: null })}
+                            aria-label="ประเภทงาน"
+                            className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
+                          >
+                            <option value="">— ไม่ระบุ —</option>
+                            {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+                          </select>
+                          <select
+                            value={t.subTaskType ?? ''}
+                            onChange={(e) => void patch({ subTaskType: e.target.value || null })}
+                            disabled={!t.taskType}
+                            aria-label="ตัวเลือกย่อย"
+                            className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 disabled:opacity-40 focus:outline-hidden focus:border-brand-400"
+                          >
+                            <option value="">— ไม่ระบุ —</option>
+                            {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes ?? []).map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <span className="text-ink font-medium text-xs pt-1.5">
+                          {resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.name ?? '—'}
+                          {t.subTaskType && ` / ${resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes.find((s) => s.id === t.subTaskType)?.name ?? ''}`}
+                        </span>
+                      )}
                     </div>
+                  </div>
+                </>
+              )}
+
+              <div className="border-t border-border-subtle" />
+              <div>
+                <div className="text-[11px] font-medium text-muted tracking-wide mb-2">กำหนดการ</div>
+                <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 items-center text-sm">
+                  <span className="text-dim">กำหนดส่ง</span>
+                  {canEdit && !isAssignee ? (
+                    <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
                   ) : (
-                    <span className="text-ink font-medium text-xs text-right">
-                      {resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.name ?? '—'}
-                      {t.subTaskType && ` / ${resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes.find((s) => s.id === t.subTaskType)?.name ?? ''}`}
-                    </span>
+                    <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
+                  )}
+
+                  {canEdit && !isAssignee && (
+                    <>
+                      <span className="text-dim">เริ่ม</span>
+                      <DateInputTH value={t.startDate ?? ''} onChange={(v) => void patch({ startDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
+                    </>
+                  )}
+
+                  {!isAssignee && canEdit && (
+                    <>
+                      <span className="text-dim">ประเมิน (ชม.)</span>
+                      <input type="number" defaultValue={t.estimateMinutes != null ? t.estimateMinutes / 60 : ''} onBlur={(e) => void patch({ estimateMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : null })} className="w-20 text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
+                    </>
                   )}
                 </div>
-              )}
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">กำหนดส่ง</span>
-                {canEdit && !isAssignee ? (
-                  <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
-                ) : (
-                  <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
-                )}
               </div>
-              {canEdit && !isAssignee && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted">เริ่ม</span>
-                  <DateInputTH value={t.startDate ?? ''} onChange={(v) => void patch({ startDate: v || null })} className="text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
-                </div>
-              )}
-              {!isAssignee && canEdit && (
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted">ประเมิน (ชม.)</span>
-                  <input type="number" defaultValue={t.estimateMinutes != null ? t.estimateMinutes / 60 : ''} onBlur={(e) => void patch({ estimateMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : null })} className="w-16 text-xs bg-white shadow-xs rounded-lg px-2 py-1" />
-                </div>
-              )}
             </div>
 
             {t.sprintActive ? (
