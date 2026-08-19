@@ -280,29 +280,32 @@ function ChangelogItemsView({ items }: { items: ChangelogItem[] }) {
               <div className="text-sm text-muted pl-2.5">-</div>
             ) : (
               <ul className="space-y-1">
-                {catItems.map((it) => (
-                  <li key={it.id} className="text-sm text-body flex items-start gap-1.5">
-                    <span className="text-muted shrink-0">•</span>
-                    <span>
-                      {it.text}
-                      {it.linkedTasks.length > 0 && (
-                        <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">
-                          {it.linkedTasks.map((lt) => (
-                            <button
-                              key={lt.id}
-                              onClick={() => navigate(`/tasks/${lt.id}`)}
-                              title={lt.title}
-                              className="inline-flex items-center gap-1 text-[11px] bg-hover hover:bg-divider rounded-lg px-1.5 py-0.5 align-middle"
-                            >
-                              <KindBadge kind={lt.kind} />
-                              {lt.code ?? lt.title}
-                            </button>
-                          ))}
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                ))}
+                {catItems.map((it) => {
+                  const lines = it.text.split('\n').map((l) => l.trim()).filter(Boolean)
+                  return lines.map((line, li) => (
+                    <li key={`${it.id}-${li}`} className="text-sm text-body flex items-start gap-1.5">
+                      <span className="text-muted shrink-0">•</span>
+                      <span>
+                        {line}
+                        {li === lines.length - 1 && it.linkedTasks.length > 0 && (
+                          <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">
+                            {it.linkedTasks.map((lt) => (
+                              <button
+                                key={lt.id}
+                                onClick={() => navigate(`/tasks/${lt.id}`)}
+                                title={lt.title}
+                                className="inline-flex items-center gap-1 text-[11px] bg-hover hover:bg-divider rounded-lg px-1.5 py-0.5 align-middle"
+                              >
+                                <KindBadge kind={lt.kind} />
+                                {lt.code ?? lt.title}
+                              </button>
+                            ))}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))
+                })}
               </ul>
             )}
           </div>
