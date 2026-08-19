@@ -13,7 +13,7 @@ export const PERMISSION_TAB_KEYS = [
 export type PermissionTabKey = (typeof PERMISSION_TAB_KEYS)[number]
 
 /** Epic/Story ไม่มี action ของตัวเอง (fold เข้า task — เป็นแถวใน tasks table เดียวกัน ไม่มี endpoint แยก) */
-export const PERMISSION_RESOURCE_KEYS = ['task', 'doc', 'sprint', 'defect', 'cr', 'release'] as const
+export const PERMISSION_RESOURCE_KEYS = ['task', 'doc', 'sprint', 'defect', 'cr', 'release', 'changeLog'] as const
 export type PermissionResourceKey = (typeof PERMISSION_RESOURCE_KEYS)[number]
 
 export interface ResourceActions {

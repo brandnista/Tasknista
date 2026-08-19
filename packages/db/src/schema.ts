@@ -1026,6 +1026,71 @@ export const releaseNoteItemLinks = sqliteTable(
   ],
 )
 
+/** Pronista §Change Log (Internal) — แท็บ "Change Log" ต่อโปรเจกต์ บันทึกรายละเอียดการแก้ไขเชิงเทคนิคแยกจาก Version Release (External)
+ * 1 changelog = ข้อมูลทั่วไป (เลข/วันที่/หัวข้อ) + รายการย่อยแบ่งตาม 5 หมวดคงที่ (ดู CHANGELOG_CATEGORIES ใน packages/core/src/changelog.ts)
+ * changelogNo = เลขรันต่อโปรเจกต์ (auto ตอนสร้าง, ไม่แก้ทีหลัง) · sortOrder ใช้แสดงลำดับเหมือน project_releases (ใหม่สุดอยู่บนสุด, ค่าใหม่ = max(sortOrder ที่มี)+1)
+ * entryDate แก้ได้อิสระ (ย้อนหลังได้) — ไม่ใช่ตัวกำหนดลำดับแสดงผล */
+export const projectChangelogs = sqliteTable(
+  'project_changelogs',
+  {
+    id: id(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    changelogNo: integer('changelog_no').notNull(),
+    title: text('title').notNull(),
+    entryDate: text('entry_date').notNull(), // ISO yyyy-mm-dd
+    sortOrder: integer('sort_order').notNull(),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('project_changelogs_project_idx').on(t.projectId)],
+)
+
+// รายการย่อยของ changelog 1 รายการ — category คือ 1 ใน 5 หมวดคงที่ (ไม่ใช่ freeform header แบบ release_note_items.section)
+export const changelogItems = sqliteTable(
+  'changelog_items',
+  {
+    id: id(),
+    changelogId: text('changelog_id')
+      .notNull()
+      .references(() => projectChangelogs.id),
+    category: text('category').notNull(),
+    text: text('text').notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('changelog_items_changelog_idx').on(t.changelogId)],
+)
+
+// บรรทัด changelog item 1 บรรทัด ผูกกับ Task/Defect/CR ได้หลายอัน (tasks.kind ='task'|'defect'|'cr' เท่านั้น — คุมที่ API เหมือน release_note_item_links)
+export const changelogItemLinks = sqliteTable(
+  'changelog_item_links',
+  {
+    id: id(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => changelogItems.id),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index('changelog_item_links_item_idx').on(t.itemId),
+    index('changelog_item_links_task_idx').on(t.taskId),
+    uniqueIndex('changelog_item_links_uq_idx').on(t.itemId, t.taskId),
+  ],
+)
+
 export const ADJUSTMENT_KINDS = [
   'allowance',
   'depreciation',

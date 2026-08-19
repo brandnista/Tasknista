@@ -38,6 +38,7 @@ const RESOURCE_LABEL: Record<PermissionResourceKey, string> = {
   defect: 'Defect',
   cr: 'CR',
   release: 'Version Release',
+  changeLog: 'Change Log',
 }
 
 const DENY_ALL_PERMISSIONS = (): Position['permissions'] => ({

@@ -2348,7 +2348,14 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {view === 'changeLog' && id && <ProjectChangeLogTab projectId={id} />}
+      {view === 'changeLog' && id && (
+        <ProjectChangeLogTab
+          projectId={id}
+          canCreate={project.myPermissions?.actions.changeLog.create ?? false}
+          canEdit={project.myPermissions?.actions.changeLog.edit ?? false}
+          canDelete={project.myPermissions?.actions.changeLog.delete ?? false}
+        />
+      )}
 
       {/* Pronista §Back to Basic — API Document/Project Estimate ถอดออกจาก Tab บนสุด (ยังไม่อยู่ใน Phase นี้) เก็บ component+route ไว้เผื่อกลับมาใช้ ไม่มีปุ่มเข้าถึงแล้วเท่านั้น */}
       {view === 'apidoc' && id && <ApiDocumentSection key={project.id} projectId={id} canEdit={canEdit} />}

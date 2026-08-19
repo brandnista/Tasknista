@@ -35,7 +35,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   backlogSummary: 'Backlog: ภาพรวมโครงสร้าง',
 }
 const RESOURCE_LABEL: Record<PermissionResourceKey, string> = {
-  task: 'Task', doc: 'เอกสาร', sprint: 'Sprint', defect: 'Defect', cr: 'CR', release: 'Version Release',
+  task: 'Task', doc: 'เอกสาร', sprint: 'Sprint', defect: 'Defect', cr: 'CR', release: 'Version Release', changeLog: 'Change Log',
 }
 const CATEGORY_DESC: Record<PermissionCategory, string> = {
   staff: 'ครอบสิทธิ์ตำแหน่งอีกชั้น (position × เพดานนี้) — ตำแหน่งเปิดได้เท่าที่เพดานอนุญาต',
