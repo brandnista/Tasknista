@@ -61,8 +61,11 @@ export function ProjectEstimateSection({
   projectId: string
   members: { id: string; name: string; role?: 'owner' | 'member' | 'vendor' | 'guest' }[]
 }) {
-  // Pronista §Project Estimate — สรุปงานรายบุคคล: ดึงสมาชิกทุกคนในโปรเจกต์ ยกเว้นลูกค้า (role='guest') — staff/outsource/admin ดึงมาหมด
-  const summaryMembers = members.filter((m) => m.role !== 'guest')
+  // Pronista §Project Estimate — สรุปงานรายบุคคล: ดึงสมาชิกทุกคนในโปรเจกต์ ยกเว้นลูกค้า (role='guest') — staff/outsource ดึงมาหมด
+  // Admin(owner) ไม่มีทางอยู่ใน project_members ได้เลย (backend กันไว้ เพราะ owner เข้าถึงทุกโปรเจกต์เต็มรูปแบบเสมอ) แต่ยังถูก assign งานได้ปกติ — ดึงจาก /api/users มาต่อท้ายแทน
+  const { data: allUsersData } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
+  const adminUsers = (allUsersData ?? []).filter((u) => u.role === 'owner')
+  const summaryMembers = [...members.filter((m) => m.role !== 'guest'), ...adminUsers.filter((a) => !members.some((m) => m.id === a.id))]
   const { data: allTasks, reload: reloadTasks } = useLoad<EstimateTaskRow[]>(() => api.get(`/api/projects/${projectId}/estimate/tasks`), [projectId])
   const { data: estimate, reload: reloadEstimate } = useLoad<EstimateResponse>(() => api.get(`/api/projects/${projectId}/estimate`), [projectId])
   const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
