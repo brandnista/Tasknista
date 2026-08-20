@@ -130,16 +130,49 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate (ไม่
 })
 
 describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/groups (Tab Task Group)', () => {
-  it('กลุ่มที่มี task จริง → รวมอัตโนมัติจากงานที่ตั้ง Task Type/Sub-type ตรงกัน', async () => {
+  it('ตารางเริ่มจากว่างเปล่าเสมอ — ต่อให้มี task จริงอยู่ก็ยังไม่โผล่ แต่ไปโผล่ใน available พร้อมจำนวนงาน', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { projectId, taskId } = await setupProjectWithTask(owner, 'u_pond', 6600, 'tt_development', 'tts_api')
     await setupRoleWithCost(owner, taskId, 8000)
 
     const res = await app.request(`/api/projects/${projectId}/estimate/groups`, { headers: { cookie: owner } }, env)
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { groups: Record<string, unknown>[] }
-    const apiGroup = body.groups.find((g) => g.subTaskTypeId === 'tts_api')
-    expect(apiGroup).toMatchObject({ source: 'auto', teamMember: 'ปอนด์', role: 'Developer', estimateMinutes: 6600, netCostSatang: 132000 })
+    const body = (await res.json()) as { groups: unknown[]; available: Record<string, unknown>[] }
+    expect(body.groups).toHaveLength(0)
+    expect(body.available.find((a) => a.subTaskTypeId === 'tts_api')).toMatchObject({
+      taskTypeId: 'tt_development',
+      taskTypeName: 'Development',
+      name: 'API',
+      taskCount: 1,
+    })
+    // กลุ่มที่ไม่มี task จริงก็อยู่ใน available เหมือนกัน แต่ taskCount = 0
+    expect(body.available.find((a) => a.subTaskTypeId === 'tts_debug')).toMatchObject({ taskCount: 0 })
+  })
+
+  it('พอ PM เลือกกลุ่มที่มี task จริง → แถวเติมข้อมูลจากงานจริงให้เอง (source=auto) + หายไปจาก available', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId, taskId } = await setupProjectWithTask(owner, 'u_pond', 6600, 'tt_development', 'tts_api')
+    await setupRoleWithCost(owner, taskId, 8000)
+
+    await app.request(
+      `/api/projects/${projectId}/estimate/groups/override`,
+      putJson(owner, { taskTypeId: 'tt_development', subTaskTypeId: 'tts_api' }),
+      env,
+    )
+
+    const body = (await (
+      await app.request(`/api/projects/${projectId}/estimate/groups`, { headers: { cookie: owner } }, env)
+    ).json()) as { groups: Record<string, unknown>[]; available: Record<string, unknown>[] }
+    expect(body.groups).toHaveLength(1)
+    expect(body.groups[0]).toMatchObject({
+      source: 'auto',
+      taskTypeName: 'Development',
+      teamMember: 'ปอนด์',
+      role: 'Developer',
+      estimateMinutes: 6600,
+      netCostSatang: 132000,
+    })
+    expect(body.available.find((a) => a.subTaskTypeId === 'tts_api')).toBeUndefined()
   })
 
   it('กลุ่มที่ไม่มี task เลย และ PM ยังไม่ได้กดเพิ่มแถวเอง → ไม่โชว์แถว จนกว่าจะ PUT override เข้าไป', async () => {
@@ -187,10 +220,22 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/groups (Ta
 })
 
 describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/phases (Tab Phase — รวม Estimate Day ตามหัวข้อหลัก)', () => {
-  it('รวม Estimate Day ของ Task Group ย่อยเข้าเป็นยอดของ Task Type หลัก', async () => {
+  it('นับเฉพาะกลุ่มที่ PM เลือกไว้ใน Tab Task Group — ข้อมูลตรงกันทุกแท็บ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { projectId, taskId } = await setupProjectWithTask(owner, 'u_pond', 2880, 'tt_development', 'tts_api') // 48 ชม.
     await app.request(`/api/tasks/${taskId}`, patchJson(owner, { costWorkMinutesPerDay: 240 }), env) // 4 ชม./วัน
+
+    // ยังไม่เลือกกลุ่ม → Phase ยังไม่นับ (ตรงกับ Tab Task Group ที่ยังว่างอยู่)
+    const before = (await (
+      await app.request(`/api/projects/${projectId}/estimate/phases`, { headers: { cookie: owner } }, env)
+    ).json()) as { phases: { taskTypeId: string; totalEstimateDays: number }[] }
+    expect(before.phases.find((p) => p.taskTypeId === 'tt_development')!.totalEstimateDays).toBe(0)
+
+    await app.request(
+      `/api/projects/${projectId}/estimate/groups/override`,
+      putJson(owner, { taskTypeId: 'tt_development', subTaskTypeId: 'tts_api' }),
+      env,
+    )
 
     const res = await app.request(`/api/projects/${projectId}/estimate/phases`, { headers: { cookie: owner } }, env)
     expect(res.status).toBe(200)

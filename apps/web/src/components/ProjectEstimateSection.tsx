@@ -4,7 +4,8 @@
  * Cost/Hour คำนวณอัตโนมัติจาก Cost/Day ÷ 8 (costPerHourFromDay) · Work Hour/Day กรอกเองต่อ task (tasks.costWorkMinutesPerDay)
  * สรุปงานรายบุคคล (ภาพรวมทุกคน → คลิกดูรายละเอียดต่อคน) + 4 แท็บย่อย: Summary / Phase / Task Group / Task (ดึงงานทั้งหมดในโปรเจกต์อัตโนมัติ ไม่มี checkbox เลือกอีกต่อไป)
  */
-import { formatSatang, minutesToHoursLabel, resolveParameterRoles, resolveTaskTypes, type ParameterRole, type TaskType } from '@seedoffice/core'
+import { formatSatang, minutesToHoursLabel, resolveParameterRoles, type ParameterRole } from '@seedoffice/core'
+import { Check, Table2, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../lib/api'
@@ -43,6 +44,7 @@ interface EstimateResponse {
 
 interface GroupRow {
   taskTypeId: string
+  taskTypeName: string
   subTaskTypeId: string
   name: string
   source: 'auto' | 'manual'
@@ -70,8 +72,18 @@ interface ExtraCost {
   amountSatang: number
 }
 
+/** กลุ่มที่ยังไม่ถูกเลือก — ใช้ทำเมนู "เพิ่มกลุ่มงาน" · taskCount > 0 = เลือกแล้วระบบดึงงานจริงมากรอกให้เอง */
+interface AvailableGroup {
+  taskTypeId: string
+  taskTypeName: string
+  subTaskTypeId: string
+  name: string
+  taskCount: number
+}
+
 interface GroupsResponse {
   groups: GroupRow[]
+  available: AvailableGroup[]
   extraCosts: ExtraCost[]
   totals: { netCostSatang: number; marginSatang: number; extraCostsSatang: number; estimateCostSatang: number; quotationSatang: number }
 }
@@ -89,6 +101,74 @@ const VIEWS: [EstimateView, string][] = [
   ['group', 'Task Group'],
   ['task', 'Task'],
 ]
+
+/* ตาราง Task Group — คลาสร่วม แยก "ช่องกรอกเอง" ออกจาก "ตัวเลขที่ระบบคำนวณให้" ด้วยสายตา */
+const bandCell = 'bg-hover text-left text-[10px] font-semibold tracking-[0.09em] uppercase text-muted px-3 pt-2 pb-0.5'
+const colCell = 'bg-hover text-[11.5px] font-medium text-dim px-3 pt-1 pb-2.5 border-b border-border-subtle whitespace-nowrap'
+const bodyCell = 'px-3 py-2.5 border-b border-divider align-middle'
+const calcCell = `${bodyCell} text-right tabular-nums text-dim`
+const footCell = 'px-3 py-3 border-t-2 border-border-subtle bg-white'
+const fieldCell =
+  'text-sm text-body bg-white border border-border rounded-md px-2 py-1.5 hover:border-muted focus:outline-hidden focus:border-brand-400 focus:ring-3 focus:ring-brand-100'
+const numCell = `${fieldCell} w-[78px] text-right tabular-nums`
+
+/** ปุ่ม + เมนูเลือกกลุ่มงาน (จัดกลุ่มตาม Task Type · badge บอกว่ากลุ่มไหนมีงานจริงรออยู่) */
+function GroupPicker({
+  open,
+  setOpen,
+  buckets,
+  onPick,
+  label,
+}: {
+  open: boolean
+  setOpen: (v: boolean) => void
+  buckets: { taskTypeId: string; taskTypeName: string; items: AvailableGroup[] }[]
+  onPick: (taskTypeId: string, subTaskTypeId: string) => void | Promise<void>
+  label: string
+}) {
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 active:translate-y-px rounded-lg px-3.5 py-2 whitespace-nowrap focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2"
+      >
+        {label}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-[300px] max-h-[330px] overflow-y-auto bg-white rounded-xl shadow-2xl border border-border-subtle p-2">
+            {buckets.length === 0 ? (
+              <div className="px-2.5 py-4 text-center text-xs text-muted">เลือกครบทุกกลุ่มแล้ว</div>
+            ) : (
+              buckets.map((b) => (
+                <div key={b.taskTypeId}>
+                  <div className="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold tracking-wider uppercase text-muted">{b.taskTypeName}</div>
+                  {b.items.map((it) => (
+                    <button
+                      key={it.subTaskTypeId}
+                      type="button"
+                      onClick={() => void onPick(it.taskTypeId, it.subTaskTypeId)}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-hover text-left text-[13px] text-body"
+                    >
+                      <span className="flex-1 min-w-0 truncate">{it.name}</span>
+                      {it.taskCount > 0 && (
+                        <span className="text-[10.5px] font-medium rounded-full px-1.5 py-0.5 bg-success-50 text-success-700 whitespace-nowrap">
+                          มีงานจริง {it.taskCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 export function ProjectEstimateSection({
   projectId,
@@ -108,10 +188,8 @@ export function ProjectEstimateSection({
   const { data: groupsData, reload: reloadGroups } = useLoad<GroupsResponse>(() => api.get(`/api/projects/${projectId}/estimate/groups`), [projectId])
   const { data: phasesData, reload: reloadPhases } = useLoad<{ phases: PhaseRow[] }>(() => api.get(`/api/projects/${projectId}/estimate/phases`), [projectId])
   const { data: roleCfg } = useLoad<{ parameterRoles: ParameterRole[] }>(() => api.get('/api/admin/parameter-roles'))
-  const { data: taskTypeCfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/admin/task-types'))
 
   const parameterRoles = resolveParameterRoles(roleCfg?.parameterRoles)
-  const taskTypeCatalog = resolveTaskTypes(taskTypeCfg?.taskTypes)
 
   const money = (satang: number | null) => (satang != null ? formatSatang(satang) : '—')
   const hours = (minutes: number) => minutesToHoursLabel(minutes)
@@ -161,23 +239,33 @@ export function ProjectEstimateSection({
     await api.put(`/api/projects/${projectId}/estimate/groups/override`, { taskTypeId, subTaskTypeId, ...patch })
     await reloadAll()
   }
-  const [addGroupKey, setAddGroupKey] = useState('')
-  const existingGroupKeys = new Set(groupsData?.groups.map((g) => `${g.taskTypeId}::${g.subTaskTypeId}`) ?? [])
-  const availableGroupOptions = taskTypeCatalog.flatMap((tt) =>
-    tt.subTypes.filter((st) => !existingGroupKeys.has(`${tt.id}::${st.id}`)).map((st) => ({ taskTypeId: tt.id, taskTypeName: tt.name, subTaskTypeId: st.id, subTaskTypeName: st.name })),
-  )
-  const addGroupRow = async () => {
-    const [taskTypeId, subTaskTypeId] = addGroupKey.split('::')
-    if (!taskTypeId || !subTaskTypeId) return
+  // เมนูเลือกกลุ่มงาน — จัดกลุ่มตาม Task Type ตามแคตตาล็อกใน ตั้งค่า > ประเภทงาน
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false)
+  const availableByType = (groupsData?.available ?? []).reduce<{ taskTypeId: string; taskTypeName: string; items: AvailableGroup[] }[]>((acc, a) => {
+    const bucket = acc.find((x) => x.taskTypeId === a.taskTypeId)
+    if (bucket) bucket.items.push(a)
+    else acc.push({ taskTypeId: a.taskTypeId, taskTypeName: a.taskTypeName, items: [a] })
+    return acc
+  }, [])
+  const addGroupRow = async (taskTypeId: string, subTaskTypeId: string) => {
+    setGroupPickerOpen(false)
     await saveGroupField(taskTypeId, subTaskTypeId, {})
-    setAddGroupKey('')
   }
-  const deleteGroupRow = async (taskTypeId: string, subTaskTypeId: string) => {
-    const yes = await confirmDialog({ title: 'ลบแถวนี้ออกจาก Task Group?', message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', confirmLabel: 'ลบ', danger: true })
+  const deleteGroupRow = async (taskTypeId: string, subTaskTypeId: string, name: string) => {
+    const yes = await confirmDialog({ title: `เอา "${name}" ออกจาก Task Group?`, message: 'ค่าที่กรอกไว้ในแถวนี้จะหายไป', confirmLabel: 'เอาออก', danger: true })
     if (!yes) return
     await api.delete(`/api/projects/${projectId}/estimate/groups/override?taskTypeId=${taskTypeId}&subTaskTypeId=${subTaskTypeId}`)
     await reloadAll()
   }
+
+  // เลือกคนทีละคน — เมนูค้างเปิดไว้ ติ๊กรวดเดียวหลายคนได้ (key = taskTypeId::subTaskTypeId ของแถวที่เปิดอยู่)
+  const [peoplePickerFor, setPeoplePickerFor] = useState('')
+  const toggleMember = async (g: GroupRow, userId: string) => {
+    const next = g.teamMemberIds.includes(userId) ? g.teamMemberIds.filter((id) => id !== userId) : [...g.teamMemberIds, userId]
+    await saveGroupField(g.taskTypeId, g.subTaskTypeId, { teamMemberIds: next })
+  }
+  const memberName = (id: string) => summaryMembers.find((m) => m.id === id)?.name ?? id
+  const rowKey = (g: GroupRow) => `${g.taskTypeId}::${g.subTaskTypeId}`
 
   // --- ค่าใช้จ่ายนอกระบบ ---
   const addExtraCost = async () => {
@@ -359,184 +447,296 @@ export function ProjectEstimateSection({
         </div>
       )}
 
-      {/* Tab: Task Group */}
+      {/* Tab: Task Group — เริ่มจากตารางว่าง PM เลือกกลุ่มงานเองทีละกลุ่ม (กลุ่มที่มี task จริงจะเติมข้อมูลให้อัตโนมัติ) */}
       {view === 'group' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <div className="text-sm font-semibold text-strong">ตาราง Task Group</div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={addGroupKey}
-                  onChange={(e) => setAddGroupKey(e.target.value)}
-                  className="text-sm bg-white border border-border rounded-lg px-2 py-1.5"
-                >
-                  <option value="">— เลือก Task Group —</option>
-                  {taskTypeCatalog.map((tt) => {
-                    const opts = availableGroupOptions.filter((o) => o.taskTypeId === tt.id)
-                    if (opts.length === 0) return null
-                    return (
-                      <optgroup key={tt.id} label={tt.name}>
-                        {opts.map((o) => (
-                          <option key={o.subTaskTypeId} value={`${o.taskTypeId}::${o.subTaskTypeId}`}>{o.subTaskTypeName}</option>
-                        ))}
-                      </optgroup>
-                    )
-                  })}
-                </select>
-                <button
-                  onClick={() => void addGroupRow()}
-                  disabled={!addGroupKey}
-                  className="text-sm text-brand-700 hover:text-brand-800 disabled:text-muted disabled:cursor-not-allowed"
-                >
-                  + เพิ่มแถว
-                </button>
+          <div className="bg-white rounded-lg shadow-xs">
+            <div className="flex items-start justify-between gap-4 flex-wrap p-4 sm:p-5 pb-4">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-strong">Task Group</div>
+                <p className="text-xs text-dim mt-0.5">
+                  เลือกกลุ่มงานที่จะใส่ในใบเสนอราคา — กลุ่มไหนมีงานจริงในโปรเจกต์อยู่แล้ว ระบบจะดึงมากรอกให้เอง
+                </p>
               </div>
+              {groupsData.groups.length > 0 && (
+                <GroupPicker
+                  open={groupPickerOpen}
+                  setOpen={setGroupPickerOpen}
+                  buckets={availableByType}
+                  onPick={addGroupRow}
+                  label="+ เพิ่มกลุ่มงาน"
+                />
+              )}
             </div>
-            <table className="w-full text-sm min-w-[1600px]">
-              <thead className="bg-hover text-dim text-xs">
-                <tr>
-                  <th className="text-left font-medium px-3 py-2">Task Group</th>
-                  <th className="text-left font-medium px-3 py-2">Team Member</th>
-                  <th className="text-left font-medium px-3 py-2">Role</th>
-                  <th className="text-right font-medium px-3 py-2">Cost/Day</th>
-                  <th className="text-right font-medium px-3 py-2">Cost/Hour</th>
-                  <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Buffer %</th>
-                  <th className="text-right font-medium px-3 py-2">Buffer W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Total W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Net Cost (Hour)</th>
-                  <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
-                  <th className="text-right font-medium px-3 py-2">Estimate Day</th>
-                  <th className="text-right font-medium px-3 py-2">Margin</th>
-                  <th className="text-right font-medium px-3 py-2">Estimate Cost</th>
-                  <th className="text-right font-medium px-3 py-2">Quotation Cost</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-divider">
-                {groupsData.groups.map((g) => (
-                  <tr key={g.subTaskTypeId}>
-                    <td className="px-3 py-2 whitespace-nowrap">{g.name}</td>
-                    {g.source === 'auto' ? (
-                      <>
-                        <td className="px-3 py-2 whitespace-nowrap text-dim">{g.teamMember ?? '—'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-dim">{g.role ?? '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.estimateMinutes)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.bufferMinutes)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.totalMinutes)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.workMinutesPerDay != null ? hours(g.workMinutesPerDay) : '—'}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-3 py-2">
-                          <select
-                            multiple
-                            size={Math.min(4, Math.max(2, summaryMembers.length))}
-                            value={g.teamMemberIds}
-                            onChange={(e) =>
-                              void saveGroupField(g.taskTypeId, g.subTaskTypeId, {
-                                teamMemberIds: Array.from(e.target.selectedOptions).map((o) => o.value),
-                              })
-                            }
-                            className="w-36 text-sm bg-white border border-border rounded-lg px-2 py-1"
-                          >
-                            {summaryMembers.map((m) => (
-                              <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                          </select>
+
+            {groupsData.groups.length === 0 ? (
+              <div className="m-4 sm:m-5 mt-0 border-[1.5px] border-dashed border-border rounded-lg bg-hover px-6 py-14 text-center">
+                <div className="w-11 h-11 mx-auto mb-4 grid place-items-center rounded-[10px] bg-brand-50 text-brand-600">
+                  <Table2 className="w-[22px] h-[22px]" />
+                </div>
+                <div className="text-sm font-semibold text-strong mb-1.5">ยังไม่ได้เลือกกลุ่มงาน</div>
+                <p className="text-[13px] text-dim leading-relaxed max-w-[42ch] mx-auto mb-5">
+                  เริ่มจากเลือกกลุ่มงานที่จะคิดเงินลูกค้า เช่น UX &amp; UI Design หรือ Backend แล้วค่อยกรอกชั่วโมงกับราคา
+                </p>
+                <GroupPicker
+                  open={groupPickerOpen}
+                  setOpen={setGroupPickerOpen}
+                  buckets={availableByType}
+                  onPick={addGroupRow}
+                  label="+ เลือกกลุ่มงานแรก"
+                />
+              </div>
+            ) : (
+              <>
+                {/* legend — บอกความหมายของสีในตาราง ไม่ต้องเดาว่าช่องไหนแตะได้ */}
+                <div className="flex items-center gap-4 flex-wrap px-4 sm:px-5 pb-3 text-[11.5px] text-dim">
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className="w-[22px] h-3.5 rounded bg-white border border-border inline-block" /> ช่องที่กรอกเอง
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className="w-[22px] h-3.5 rounded bg-divider inline-block" /> ระบบคำนวณให้
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <i className="w-[22px] h-3.5 rounded bg-brand-50 border border-brand-100 inline-block" /> เงินที่จะเสนอลูกค้า
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto border-t border-divider">
+                  <table className="w-full text-sm min-w-[1360px] border-separate border-spacing-0">
+                    <thead>
+                      {/* แถวบน = ป้ายกลุ่มคอลัมน์ ให้ตาจับได้ว่ากำลังอ่านโซนไหน */}
+                      <tr>
+                        <th colSpan={3} className={`${bandCell} sticky left-0 z-30 bg-hover`}>งาน &amp; ผู้รับผิดชอบ</th>
+                        <th colSpan={9} className={bandCell}>ต้นทุน &amp; เวลา</th>
+                        <th colSpan={3} className={`${bandCell} bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>ราคา</th>
+                        <th className="bg-hover" />
+                      </tr>
+                      <tr>
+                        <th className={`${colCell} text-left sticky left-0 z-30 bg-hover shadow-[1px_0_0_var(--color-border-subtle)]`}>Task Group</th>
+                        <th className={`${colCell} text-left`}>Team Member</th>
+                        <th className={`${colCell} text-left`}>Role</th>
+                        <th className={`${colCell} text-right`}>Cost/Day</th>
+                        <th className={`${colCell} text-right`}>Cost/Hour</th>
+                        <th className={`${colCell} text-right`}>Estimate W/H</th>
+                        <th className={`${colCell} text-right`}>Buffer %</th>
+                        <th className={`${colCell} text-right`}>Buffer W/H</th>
+                        <th className={`${colCell} text-right`}>Total W/H</th>
+                        <th className={`${colCell} text-right`}>Net Cost (Hour)</th>
+                        <th className={`${colCell} text-right`}>Work Hour/Day</th>
+                        <th className={`${colCell} text-right`}>Estimate Day</th>
+                        <th className={`${colCell} text-right bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>Margin</th>
+                        <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Estimate Cost</th>
+                        <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Quotation Cost</th>
+                        <th className={colCell} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupsData.groups.map((g) => {
+                        const auto = g.source === 'auto'
+                        return (
+                          <tr key={`${g.taskTypeId}::${g.subTaskTypeId}`} className="group/row">
+                            {/* คอลัมน์แรกตรึงไว้ — เลื่อนไปขวาสุดก็ยังรู้ว่าอ่านแถวไหนอยู่ */}
+                            <td className={`${bodyCell} sticky left-0 z-20 bg-white group-hover/row:bg-hover shadow-[1px_0_0_var(--color-border-subtle)] whitespace-nowrap`}>
+                              <span className="font-medium text-strong">{g.name}</span>
+                              {auto && (
+                                <span className="ml-2 align-middle text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-success-50 text-success-700 whitespace-nowrap">
+                                  จากงานจริง
+                                </span>
+                              )}
+                              <span className="block text-[10.5px] text-muted font-normal mt-px">{g.taskTypeName}</span>
+                            </td>
+
+                            {/* Team Member — chip เลือกทีละคน */}
+                            <td className={`${bodyCell} relative`}>
+                              <div className="flex items-center gap-1.5 flex-wrap min-w-[172px]">
+                                {g.teamMemberIds.map((uid) => (
+                                  <span
+                                    key={uid}
+                                    className={
+                                      auto
+                                        ? 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-divider text-soft border border-border-subtle whitespace-nowrap'
+                                        : 'inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-1 py-0.5 text-xs font-medium bg-brand-50 text-brand-800 border border-brand-100 whitespace-nowrap'
+                                    }
+                                  >
+                                    {memberName(uid)}
+                                    {!auto && (
+                                      <button
+                                        type="button"
+                                        aria-label={`เอา ${memberName(uid)} ออก`}
+                                        onClick={() => void toggleMember(g, uid)}
+                                        className="w-[17px] h-[17px] grid place-items-center rounded-full text-brand-600 hover:bg-brand-200 hover:text-brand-800 focus-visible:outline-2 focus-visible:outline-brand-500"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </span>
+                                ))}
+                                {auto ? (
+                                  g.teamMemberIds.length === 0 && <span className="text-muted tabular-nums">{g.teamMember ?? '—'}</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPeoplePickerFor((v) => (v === rowKey(g) ? '' : rowKey(g)))}
+                                    className="text-xs font-medium text-brand-700 bg-white border border-dashed border-border rounded-full px-2.5 py-0.5 whitespace-nowrap hover:border-brand-400 hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2"
+                                  >
+                                    {g.teamMemberIds.length ? '+ เพิ่ม' : '+ เลือกคน'}
+                                  </button>
+                                )}
+                              </div>
+                              {peoplePickerFor === rowKey(g) && (
+                                <>
+                                  <div className="fixed inset-0 z-40" onClick={() => setPeoplePickerFor('')} />
+                                  <div className="absolute left-3 top-full mt-1 z-50 w-[186px] bg-white rounded-lg shadow-2xl border border-border-subtle p-2">
+                                    <div className="px-2.5 pt-1 pb-1 text-[10.5px] font-semibold tracking-wider uppercase text-muted">สมาชิกโปรเจกต์</div>
+                                    {summaryMembers.map((m) => {
+                                      const on = g.teamMemberIds.includes(m.id)
+                                      return (
+                                        <button
+                                          key={m.id}
+                                          type="button"
+                                          aria-pressed={on}
+                                          onClick={() => void toggleMember(g, m.id)}
+                                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-hover text-left text-[13px] text-body"
+                                        >
+                                          <span className="flex-1 min-w-0 truncate">{m.name}</span>
+                                          {on && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
+                                        </button>
+                                      )
+                                    })}
+                                    {summaryMembers.length === 0 && <div className="px-2.5 py-4 text-center text-xs text-muted">ยังไม่มีสมาชิกในโปรเจกต์</div>}
+                                  </div>
+                                </>
+                              )}
+                            </td>
+
+                            {/* Role */}
+                            <td className={bodyCell}>
+                              {auto ? (
+                                <span className="text-dim whitespace-nowrap">{g.role ?? '—'}</span>
+                              ) : (
+                                <select
+                                  value={g.costRoleId ?? ''}
+                                  onChange={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { costRoleId: e.target.value || null })}
+                                  className={`${fieldCell} w-[150px] cursor-pointer`}
+                                >
+                                  <option value="">— ยังไม่ระบุ —</option>
+                                  {parameterRoles.map((pr) => (
+                                    <option key={pr.id} value={pr.id}>{pr.name}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </td>
+
+                            <td className={calcCell}>{g.costPerDaySatang != null ? money(g.costPerDaySatang) : '—'}</td>
+                            <td className={calcCell}>{g.costPerHourSatang != null ? money(g.costPerHourSatang) : '—'}</td>
+
+                            {/* Estimate W/H */}
+                            <td className={auto ? calcCell : `${bodyCell} text-right`}>
+                              {auto ? (
+                                hours(g.estimateMinutes)
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.5}
+                                  defaultValue={g.estimateMinutes / 60}
+                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { estimateMinutes: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : 0 })}
+                                  className={numCell}
+                                />
+                              )}
+                            </td>
+
+                            {/* Buffer % */}
+                            <td className={auto ? calcCell : `${bodyCell} text-right`}>
+                              {auto ? (
+                                (g.bufferPercent ?? '—')
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  defaultValue={g.bufferPercent ?? ''}
+                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { bufferPercent: e.target.value.trim() ? Math.round(Number(e.target.value)) : null })}
+                                  className={numCell}
+                                />
+                              )}
+                            </td>
+
+                            <td className={calcCell}>{hours(g.bufferMinutes)}</td>
+                            <td className={calcCell}>{hours(g.totalMinutes)}</td>
+                            <td className={calcCell}>{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
+
+                            {/* Work Hour/Day */}
+                            <td className={auto ? calcCell : `${bodyCell} text-right`}>
+                              {auto ? (
+                                g.workMinutesPerDay != null ? hours(g.workMinutesPerDay) : '—'
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.5}
+                                  defaultValue={(g.workMinutesPerDay ?? 0) / 60}
+                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { workMinutesPerDay: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : null })}
+                                  className={numCell}
+                                />
+                              )}
+                            </td>
+
+                            <td className={calcCell}>{g.estimateDays.toFixed(1)}</td>
+
+                            {/* โซนเงิน */}
+                            <td className={`${calcCell} bg-brand-50 group-hover/row:bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(g.marginSatang)}</td>
+                            <td className={`${calcCell} bg-brand-50 group-hover/row:bg-brand-50 text-strong font-semibold`}>{money(g.estimateCostSatang)}</td>
+                            <td className={`${bodyCell} text-right bg-brand-50 group-hover/row:bg-brand-50`}>
+                              {auto ? (
+                                <span className="tabular-nums text-muted">{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  defaultValue={g.quotationSatang != null ? g.quotationSatang / 100 : ''}
+                                  placeholder={g.estimateCostSatang != null ? String(Math.round(g.estimateCostSatang / 100)) : '—'}
+                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { quotationSatang: e.target.value.trim() ? Math.round(Number(e.target.value) * 100) : null })}
+                                  className={`${numCell} w-[104px]`}
+                                />
+                              )}
+                            </td>
+
+                            <td className={`${bodyCell} text-right`}>
+                              <button
+                                type="button"
+                                aria-label={`เอา ${g.name} ออก`}
+                                onClick={() => void deleteGroupRow(g.taskTypeId, g.subTaskTypeId, g.name)}
+                                className="text-[11.5px] text-muted rounded px-1.5 py-1 hover:bg-danger-50 hover:text-danger-700 group-hover/row:text-danger-600"
+                              >
+                                เอาออก
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-semibold text-strong">
+                        <td className={`${footCell} sticky left-0 z-20 bg-white shadow-[1px_0_0_var(--color-border-subtle)] whitespace-nowrap`} colSpan={9}>
+                          รวมทั้งหมด
+                          <span className="block text-[11px] font-normal text-dim mt-px">รวมค่าใช้จ่ายนอกระบบแล้ว</span>
                         </td>
-                        <td className="px-3 py-2">
-                          <select
-                            defaultValue={g.costRoleId ?? ''}
-                            onChange={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { costRoleId: e.target.value || null })}
-                            className="w-36 text-sm bg-white border border-border rounded-lg px-2 py-1"
-                          >
-                            <option value="">— ยังไม่ระบุ —</option>
-                            {parameterRoles.map((pr) => (
-                              <option key={pr.id} value={pr.id}>{pr.name}</option>
-                            ))}
-                          </select>
+                        <td className={`${footCell} text-right tabular-nums`}>{formatSatang(groupsData.totals.netCostSatang)}</td>
+                        <td className={footCell} />
+                        <td className={`${footCell} text-right tabular-nums`}>
+                          {groupsData.groups.reduce((s, g) => s + g.estimateDays, 0).toFixed(1)}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.costPerDaySatang != null ? money(g.costPerDaySatang) : '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.costPerHourSatang != null ? money(g.costPerHourSatang) : '—'}</td>
-                        <td className="px-3 py-2 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.5}
-                            defaultValue={g.estimateMinutes / 60}
-                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { estimateMinutes: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : 0 })}
-                            className={inputCell}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            defaultValue={g.bufferPercent ?? ''}
-                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { bufferPercent: e.target.value.trim() ? Math.round(Number(e.target.value)) : null })}
-                            className={inputCell}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.bufferMinutes)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.totalMinutes)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
-                        <td className="px-3 py-2 text-right">
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.5}
-                            defaultValue={(g.workMinutesPerDay ?? 0) / 60}
-                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { workMinutesPerDay: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : null })}
-                            className={inputCell}
-                          />
-                        </td>
-                      </>
-                    )}
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{g.estimateDays.toFixed(1)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{money(g.marginSatang)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">{money(g.estimateCostSatang)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {g.source === 'auto' ? (
-                        <span className="tabular-nums text-muted">{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</span>
-                      ) : (
-                        <input
-                          type="number"
-                          min={0}
-                          defaultValue={g.quotationSatang != null ? g.quotationSatang / 100 : ''}
-                          placeholder="—"
-                          onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { quotationSatang: e.target.value.trim() ? Math.round(Number(e.target.value) * 100) : null })}
-                          className={inputCell}
-                        />
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {g.source === 'manual' && (
-                        <button onClick={() => void deleteGroupRow(g.taskTypeId, g.subTaskTypeId)} className="text-danger-600 hover:text-danger-700 text-xs">ลบ</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border-subtle font-semibold">
-                  <td className="px-3 py-2" colSpan={8}>รวม (รวมค่าใช้จ่ายนอกระบบแล้ว)</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.netCostSatang)}</td>
-                  <td />
-                  <td />
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.marginSatang)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.estimateCostSatang)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.quotationSatang)}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+                        <td className={`${footCell} text-right tabular-nums bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{formatSatang(groupsData.totals.marginSatang)}</td>
+                        <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(groupsData.totals.estimateCostSatang)}</td>
+                        <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(groupsData.totals.quotationSatang)}</td>
+                        <td className={footCell} />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">

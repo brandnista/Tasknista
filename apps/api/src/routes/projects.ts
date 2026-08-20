@@ -722,14 +722,23 @@ export const projectRoutes = new Hono<AppEnv>()
       .orderBy(asc(estimateExtraCosts.sortOrder), asc(estimateExtraCosts.createdAt))
 
     const groups = []
+    // กลุ่มที่ยังไม่ถูกเลือก — ส่งไปให้ picker ฝั่ง FE พร้อมจำนวนงานจริงที่รออยู่ (โชว์เป็น badge "มีงานจริง N")
+    const available: { taskTypeId: string; taskTypeName: string; subTaskTypeId: string; name: string; taskCount: number }[] = []
     for (const tt of taskTypes) {
       for (const st of tt.subTypes) {
         const memberTasks = taskRows.filter((r) => r.taskType === tt.id && r.subTaskType === st.id)
+        const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
+        // แถวจะโผล่ก็ต่อเมื่อ PM กดเลือกกลุ่มนี้เอง (= มี override row) — ตารางจึงเริ่มจากว่างเปล่าเสมอ
+        if (!ov) {
+          available.push({ taskTypeId: tt.id, taskTypeName: tt.name, subTaskTypeId: st.id, name: st.name, taskCount: memberTasks.length })
+          continue
+        }
         if (memberTasks.length > 0) {
           const teamMemberNames = [...new Set(memberTasks.map((r) => r.assigneeName).filter((n): n is string => !!n))]
           const roleNames = [...new Set(memberTasks.map((r) => r.roleName).filter((n): n is string => !!n))]
           groups.push({
             taskTypeId: tt.id,
+            taskTypeName: tt.name,
             subTaskTypeId: st.id,
             name: st.name,
             source: 'auto' as const,
@@ -752,8 +761,6 @@ export const projectRoutes = new Hono<AppEnv>()
           })
           continue
         }
-        const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
-        if (!ov) continue // ไม่มี task จริง และ PM ยังไม่ได้กดเพิ่มแถวนี้เอง → ไม่ต้องโชว์
         const estMinutes = ov.estimateMinutes ?? 0
         const bufferPercent = ov.bufferPercent ?? cfg.costBufferPercent
         const buffer = bufferMinutes(estMinutes, bufferPercent)
@@ -768,6 +775,7 @@ export const projectRoutes = new Hono<AppEnv>()
         const estimateCost = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
         groups.push({
           taskTypeId: tt.id,
+          taskTypeName: tt.name,
           subTaskTypeId: st.id,
           name: st.name,
           source: 'manual' as const,
@@ -799,6 +807,7 @@ export const projectRoutes = new Hono<AppEnv>()
 
     return c.json({
       groups,
+      available,
       extraCosts: extraCosts.map((x) => ({ id: x.id, name: x.name, amountSatang: x.amountSatang })),
       totals: {
         netCostSatang,
@@ -880,16 +889,17 @@ export const projectRoutes = new Hono<AppEnv>()
     const taskRows = await estimateTaskRows(db, cfg, projectId)
     const overrides = await db.select().from(estimateGroupOverrides).where(eq(estimateGroupOverrides.projectId, projectId))
 
+    // ใช้กฎเดียวกับ Tab Task Group เป๊ะ (นับเฉพาะกลุ่มที่ PM เลือกไว้) — ข้อมูลจะได้ตรงกันทุกแท็บ
     const phases = taskTypes.map((tt) => {
       let totalDays = 0
       for (const st of tt.subTypes) {
+        const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
+        if (!ov) continue
         const memberTasks = taskRows.filter((r) => r.taskType === tt.id && r.subTaskType === st.id)
         if (memberTasks.length > 0) {
           totalDays += memberTasks.reduce((sum, r) => sum + r.estimateDays, 0)
           continue
         }
-        const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
-        if (!ov) continue
         const estMinutes = ov.estimateMinutes ?? 0
         const buffer = bufferMinutes(estMinutes, ov.bufferPercent ?? cfg.costBufferPercent)
         totalDays += estimateDays(estMinutes + buffer, ov.workMinutesPerDay ?? cfg.workHourCapMinutes)
