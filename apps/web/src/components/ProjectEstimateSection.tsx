@@ -127,6 +127,11 @@ const VIEWS: [EstimateView, string][] = [
 
 /* ตาราง Task Group — คลาสร่วม แยก "ช่องกรอกเอง" ออกจาก "ตัวเลขที่ระบบคำนวณให้" ด้วยสายตา */
 const bandCell = 'bg-hover text-left text-[10px] font-semibold tracking-[0.09em] uppercase text-muted px-3 pt-2 pb-0.5'
+/* Tab Summary — "ค่าใช้จ่ายในระบบ" กับ "ค่าใช้จ่ายนอกระบบ" ใช้โทนฟ้าเดียวกันทั้งคู่ (ไม่แยกสี) แต่หัวข้อหลักตัวหนา+ใหญ่กว่าหัวข้อย่อย ให้เห็นลำดับชั้นชัดโดยไม่ต้องแย่งสี */
+const bandCellMain = 'text-left text-[13px] font-bold px-3 py-2 bg-sky-100 text-sky-900'
+const bandCellIn = `${bandCell} bg-sky-50 text-sky-700`
+const bandCellOutMain = bandCellMain
+const bandCellOut = `${bandCell} bg-sky-50 text-sky-700`
 const colCell = 'bg-hover text-[11.5px] font-medium text-dim px-3 pt-1 pb-2.5 border-b border-border-subtle whitespace-nowrap'
 const bodyCell = 'px-3 py-2.5 border-b border-divider align-middle'
 const calcCell = `${bodyCell} text-right tabular-nums text-dim`
@@ -302,7 +307,9 @@ export function ProjectEstimateSection({
     const next = g.teamMemberIds.includes(userId) ? g.teamMemberIds.filter((id) => id !== userId) : [...g.teamMemberIds, userId]
     await saveGroupField(g.taskTypeId, g.subTaskTypeId, { teamMemberIds: next })
   }
-  const memberName = (id: string) => summaryMembers.find((m) => m.id === id)?.name ?? id
+  // ค้นชื่อจาก allUsersData (สมาชิกทั้งองค์กร) ก่อนเสมอ — ไม่ใช่แค่ summaryMembers (สมาชิกโปรเจกต์) เพราะ Task Group แบบ auto อาจมีคนที่ถูก assign งานจริงแต่ไม่ได้ถูกเพิ่มเป็นสมาชิกโปรเจกต์ทางการ (เช่น vendor ที่รับงานตรง) — ไม่งั้นจะเจอ user id ดิบๆ โผล่แทนชื่อ
+  const memberName = (id: string) => (allUsersData ?? []).find((u) => u.id === id)?.name ?? summaryMembers.find((m) => m.id === id)?.name ?? id
+  const memberAvatarUrl = (id: string) => (allUsersData ?? []).find((u) => u.id === id)?.avatarUrl ?? summaryMembers.find((m) => m.id === id)?.avatarUrl
   const rowKey = (g: GroupRow) => `${g.taskTypeId}::${g.subTaskTypeId}`
 
   // --- ค่าใช้จ่ายนอกระบบ — แยกหัวข้อหลัก AEX/OPEX · netCostSatang กรอกเอง margin/estimateCost คำนวณจาก company margin% ---
@@ -442,27 +449,34 @@ export function ProjectEstimateSection({
                   </tr>
                 </thead>
                 <tbody>
-                  {groupsByType.map((bucket) => (
-                    <Fragment key={bucket.taskTypeId}>
+                  {groupsByType.length > 0 && (
+                    <>
                       <tr>
-                        <td colSpan={5} className={bandCell}>{bucket.taskTypeName}</td>
+                        <td colSpan={5} className={bandCellMain}>ค่าใช้จ่ายในระบบ</td>
                       </tr>
-                      {bucket.items.map((g) => (
-                        <tr key={`${g.taskTypeId}::${g.subTaskTypeId}`} className="hover:bg-hover">
-                          <td className={`${bodyCell} pl-6`}>{g.name}</td>
-                          <td className={calcCell}>{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
-                          <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(g.marginSatang)}</td>
-                          <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{money(g.estimateCostSatang)}</td>
-                          <td className={`${calcCell} bg-brand-50`}>{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</td>
-                        </tr>
+                      {groupsByType.map((bucket) => (
+                        <Fragment key={bucket.taskTypeId}>
+                          <tr>
+                            <td colSpan={5} className={`${bandCellIn} pl-6`}>{bucket.taskTypeName}</td>
+                          </tr>
+                          {bucket.items.map((g) => (
+                            <tr key={`${g.taskTypeId}::${g.subTaskTypeId}`} className="hover:bg-hover">
+                              <td className={`${bodyCell} pl-9`}>{g.name}</td>
+                              <td className={calcCell}>{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
+                              <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(g.marginSatang)}</td>
+                              <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{money(g.estimateCostSatang)}</td>
+                              <td className={`${calcCell} bg-brand-50`}>{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</td>
+                            </tr>
+                          ))}
+                        </Fragment>
                       ))}
-                    </Fragment>
-                  ))}
+                    </>
+                  )}
 
                   {groupsData.extraCosts.length > 0 && (
                     <>
                       <tr>
-                        <td colSpan={5} className={bandCell}>ค่าใช้จ่ายนอกระบบ</td>
+                        <td colSpan={5} className={bandCellOutMain}>ค่าใช้จ่ายนอกระบบ</td>
                       </tr>
                       {(['aex', 'opex'] as const).map((cat) => {
                         const items = groupsData.extraCosts.filter((x) => x.category === cat)
@@ -470,7 +484,7 @@ export function ProjectEstimateSection({
                         return (
                           <Fragment key={cat}>
                             <tr>
-                              <td colSpan={5} className={`${bandCell} pl-6`}>{EXTRA_COST_LABEL[cat]}</td>
+                              <td colSpan={5} className={`${bandCellOut} pl-6`}>{EXTRA_COST_LABEL[cat]}</td>
                             </tr>
                             {items.map((x) => (
                               <tr key={x.id} className="hover:bg-hover">
@@ -503,32 +517,6 @@ export function ProjectEstimateSection({
                   </tr>
                 </tfoot>
               </table>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 grid sm:grid-cols-3 gap-4">
-            <label className="text-xs text-muted">
-              Net Working Days
-              <input
-                type="number"
-                min={1}
-                defaultValue={estimate.project.estimateNetWorkingDays ?? estimate.suggestedNetWorkingDays ?? ''}
-                placeholder={estimate.suggestedNetWorkingDays != null ? String(estimate.suggestedNetWorkingDays) : ''}
-                onBlur={(e) => void saveNetWorkingDays(e.target.value)}
-                className={`${fieldCell} w-full mt-1`}
-              />
-              {estimate.suggestedNetWorkingDays != null && (
-                <span className="text-[11px] text-muted">แนะนำ {estimate.suggestedNetWorkingDays} วัน (จาก Task ที่ใช้เวลานานสุด)</span>
-              )}
-            </label>
-            <div className="text-xs text-muted">
-              Net Quotation Cost
-              <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.project.quotedSatang)}</div>
-              <Link to={`/projects/${projectId}/edit`} className="text-[11px] text-brand-600 hover:underline">แก้ที่หน้าแก้ไขโปรเจกต์</Link>
-            </div>
-            <div className="text-xs text-muted">
-              Estimate Project Cost/Day
-              <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.estimateProjectCostPerDaySatang)}</div>
             </div>
           </div>
         </div>
@@ -695,42 +683,33 @@ export function ProjectEstimateSection({
                               <span className="block text-[10.5px] text-muted font-normal mt-px">{g.taskTypeName}</span>
                             </td>
 
-                            {/* Team Member — chip เลือกทีละคน */}
+                            {/* Team Member — กรอกทับเองได้เสมอ (chip ใช้สีเดียวกับ avatar แถวสมาชิกด้านบนของโปรเจกต์) ไม่แตะ = auto-fill จากผู้รับผิดชอบงานจริง */}
                             <td className={`${bodyCell} relative`}>
                               <div className="flex items-center gap-1.5 flex-wrap min-w-[172px]">
                                 {g.teamMemberIds.map((uid) => (
                                   <span
                                     key={uid}
-                                    className={
-                                      auto
-                                        ? 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-divider text-soft border border-border-subtle whitespace-nowrap'
-                                        : 'inline-flex items-center gap-1.5 rounded-full pl-2.5 pr-1 py-0.5 text-xs font-medium bg-brand-50 text-brand-800 border border-brand-100 whitespace-nowrap'
-                                    }
+                                    className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-1 py-0.5 text-xs font-medium bg-brand-50 text-brand-800 border border-brand-100 whitespace-nowrap"
                                   >
+                                    <Avatar name={memberName(uid)} avatarUrl={memberAvatarUrl(uid)} className="w-4 h-4 text-[8px]" colorClass={avatarColor(memberName(uid))} />
                                     {memberName(uid)}
-                                    {!auto && (
-                                      <button
-                                        type="button"
-                                        aria-label={`เอา ${memberName(uid)} ออก`}
-                                        onClick={() => void toggleMember(g, uid)}
-                                        className="w-[17px] h-[17px] grid place-items-center rounded-full text-brand-600 hover:bg-brand-200 hover:text-brand-800 focus-visible:outline-2 focus-visible:outline-brand-500"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    )}
+                                    <button
+                                      type="button"
+                                      aria-label={`เอา ${memberName(uid)} ออก`}
+                                      onClick={() => void toggleMember(g, uid)}
+                                      className="w-[17px] h-[17px] grid place-items-center rounded-full text-brand-600 hover:bg-brand-200 hover:text-brand-800 focus-visible:outline-2 focus-visible:outline-brand-500"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
                                   </span>
                                 ))}
-                                {auto ? (
-                                  g.teamMemberIds.length === 0 && <span className="text-muted tabular-nums">{g.teamMember ?? '—'}</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPeoplePickerFor((v) => (v === rowKey(g) ? '' : rowKey(g)))}
-                                    className="text-xs font-medium text-brand-700 bg-white border border-dashed border-border rounded-full px-2.5 py-0.5 whitespace-nowrap hover:border-brand-400 hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2"
-                                  >
-                                    {g.teamMemberIds.length ? '+ เพิ่ม' : '+ เลือกคน'}
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setPeoplePickerFor((v) => (v === rowKey(g) ? '' : rowKey(g)))}
+                                  className="text-xs font-medium text-brand-700 bg-white border border-dashed border-border rounded-full px-2.5 py-0.5 whitespace-nowrap hover:border-brand-400 hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2"
+                                >
+                                  {g.teamMemberIds.length ? '+ เพิ่ม' : '+ เลือกคน'}
+                                </button>
                               </div>
                               {peoplePickerFor === rowKey(g) && (
                                 <>
@@ -747,6 +726,7 @@ export function ProjectEstimateSection({
                                           onClick={() => void toggleMember(g, m.id)}
                                           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-hover text-left text-[13px] text-body"
                                         >
+                                          <Avatar name={m.name} avatarUrl={m.avatarUrl} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(m.name)} />
                                           <span className="flex-1 min-w-0 truncate">{m.name}</span>
                                           {on && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
                                         </button>
@@ -758,77 +738,61 @@ export function ProjectEstimateSection({
                               )}
                             </td>
 
-                            {/* Role */}
+                            {/* Role — กรอกทับเองได้เสมอ ไม่แตะ = auto-fill จาก role ที่งานจริงในกลุ่มนี้ใช้ตรงกันหมด */}
                             <td className={bodyCell}>
-                              {auto ? (
-                                <span className="text-dim whitespace-nowrap">{g.role ?? '—'}</span>
-                              ) : (
-                                <select
-                                  value={g.costRoleId ?? ''}
-                                  onChange={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { costRoleId: e.target.value || null })}
-                                  className={`${fieldCell} w-[150px] cursor-pointer`}
-                                >
-                                  <option value="">— ยังไม่ระบุ —</option>
-                                  {parameterRoles.map((pr) => (
-                                    <option key={pr.id} value={pr.id}>{pr.name}</option>
-                                  ))}
-                                </select>
-                              )}
+                              <select
+                                value={g.costRoleId ?? ''}
+                                onChange={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { costRoleId: e.target.value || null })}
+                                className={`${fieldCell} w-[150px] cursor-pointer`}
+                              >
+                                <option value="">— ยังไม่ระบุ —</option>
+                                {parameterRoles.map((pr) => (
+                                  <option key={pr.id} value={pr.id}>{pr.name}</option>
+                                ))}
+                              </select>
                             </td>
 
                             <td className={calcCell}>{g.costPerDaySatang != null ? money(g.costPerDaySatang) : '—'}</td>
                             <td className={calcCell}>{g.costPerHourSatang != null ? money(g.costPerHourSatang) : '—'}</td>
 
-                            {/* Estimate W/H */}
-                            <td className={auto ? calcCell : `${bodyCell} text-right`}>
-                              {auto ? (
-                                hours(g.estimateMinutes)
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={0.5}
-                                  defaultValue={g.estimateMinutes / 60}
-                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { estimateMinutes: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : 0 })}
-                                  className={numCell}
-                                />
-                              )}
+                            {/* Estimate W/H — กรอกทับเองได้เสมอ ไม่แตะ = auto-fill จากงานจริงในกลุ่ม */}
+                            <td className={`${bodyCell} text-right`}>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.5}
+                                defaultValue={g.estimateMinutes / 60}
+                                onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { estimateMinutes: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : 0 })}
+                                className={numCell}
+                              />
                             </td>
 
-                            {/* Buffer % */}
-                            <td className={auto ? calcCell : `${bodyCell} text-right`}>
-                              {auto ? (
-                                (g.bufferPercent ?? '—')
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  defaultValue={g.bufferPercent ?? ''}
-                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { bufferPercent: e.target.value.trim() ? Math.round(Number(e.target.value)) : null })}
-                                  className={numCell}
-                                />
-                              )}
+                            {/* Buffer % — กรอกทับเองได้เสมอ */}
+                            <td className={`${bodyCell} text-right`}>
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                defaultValue={g.bufferPercent ?? ''}
+                                onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { bufferPercent: e.target.value.trim() ? Math.round(Number(e.target.value)) : null })}
+                                className={numCell}
+                              />
                             </td>
 
                             <td className={calcCell}>{hours(g.bufferMinutes)}</td>
                             <td className={calcCell}>{hours(g.totalMinutes)}</td>
                             <td className={calcCell}>{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
 
-                            {/* Work Hour/Day */}
-                            <td className={auto ? calcCell : `${bodyCell} text-right`}>
-                              {auto ? (
-                                g.workMinutesPerDay != null ? hours(g.workMinutesPerDay) : '—'
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step={0.5}
-                                  defaultValue={(g.workMinutesPerDay ?? 0) / 60}
-                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { workMinutesPerDay: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : null })}
-                                  className={numCell}
-                                />
-                              )}
+                            {/* Work Hour/Day — กรอกทับเองได้เสมอ */}
+                            <td className={`${bodyCell} text-right`}>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.5}
+                                defaultValue={(g.workMinutesPerDay ?? 0) / 60}
+                                onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { workMinutesPerDay: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : null })}
+                                className={numCell}
+                              />
                             </td>
 
                             <td className={calcCell}>{g.estimateDays.toFixed(1)}</td>
@@ -836,19 +800,16 @@ export function ProjectEstimateSection({
                             {/* โซนเงิน */}
                             <td className={`${calcCell} bg-brand-50 group-hover/row:bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(g.marginSatang)}</td>
                             <td className={`${calcCell} bg-brand-50 group-hover/row:bg-brand-50 text-strong font-semibold`}>{money(g.estimateCostSatang)}</td>
+                            {/* Quotation Cost — กรอกทับเองได้เสมอ ไม่ว่า Task Group นี้จะ auto หรือ manual (ราคาที่จะเสนอลูกค้าเป็นสิทธิ์ PM กำหนดเองอยู่แล้ว) */}
                             <td className={`${bodyCell} text-right bg-brand-50 group-hover/row:bg-brand-50`}>
-                              {auto ? (
-                                <span className="tabular-nums text-muted">{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</span>
-                              ) : (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  defaultValue={g.quotationSatang != null ? g.quotationSatang / 100 : ''}
-                                  placeholder={g.estimateCostSatang != null ? String(Math.round(g.estimateCostSatang / 100)) : '—'}
-                                  onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { quotationSatang: e.target.value.trim() ? Math.round(Number(e.target.value) * 100) : null })}
-                                  className={`${numCell} w-[104px]`}
-                                />
-                              )}
+                              <input
+                                type="number"
+                                min={0}
+                                defaultValue={g.quotationSatang != null ? g.quotationSatang / 100 : ''}
+                                placeholder={g.estimateCostSatang != null ? String(Math.round(g.estimateCostSatang / 100)) : '—'}
+                                onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { quotationSatang: e.target.value.trim() ? Math.round(Number(e.target.value) * 100) : null })}
+                                className={`${numCell} w-[104px]`}
+                              />
                             </td>
 
                             <td className={`${bodyCell} text-right`}>
@@ -970,6 +931,32 @@ export function ProjectEstimateSection({
             })}
             <div className="border-t-2 border-border-subtle px-4 sm:px-5 py-3 flex justify-end">
               <div className="text-sm font-semibold text-strong tabular-nums">รวมค่าใช้จ่ายนอกระบบ: {formatSatang(groupsData.totals.extraCostsSatang)}</div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 grid sm:grid-cols-3 gap-4">
+            <label className="text-xs text-muted">
+              Net Working Days
+              <input
+                type="number"
+                min={1}
+                defaultValue={estimate.project.estimateNetWorkingDays ?? estimate.suggestedNetWorkingDays ?? ''}
+                placeholder={estimate.suggestedNetWorkingDays != null ? String(estimate.suggestedNetWorkingDays) : ''}
+                onBlur={(e) => void saveNetWorkingDays(e.target.value)}
+                className={`${fieldCell} w-full mt-1`}
+              />
+              {estimate.suggestedNetWorkingDays != null && (
+                <span className="text-[11px] text-muted">แนะนำ {estimate.suggestedNetWorkingDays} วัน (จาก Task ที่ใช้เวลานานสุด)</span>
+              )}
+            </label>
+            <div className="text-xs text-muted">
+              Net Quotation Cost
+              <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.project.quotedSatang)}</div>
+              <Link to={`/projects/${projectId}/edit`} className="text-[11px] text-brand-600 hover:underline">แก้ที่หน้าแก้ไขโปรเจกต์</Link>
+            </div>
+            <div className="text-xs text-muted">
+              Estimate Project Cost/Day
+              <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.estimateProjectCostPerDaySatang)}</div>
             </div>
           </div>
         </div>

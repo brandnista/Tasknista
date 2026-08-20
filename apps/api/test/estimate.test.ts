@@ -167,7 +167,7 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/groups (Ta
     expect(body.groups[0]).toMatchObject({
       source: 'auto',
       taskTypeName: 'Development',
-      teamMember: 'ปอนด์',
+      teamMemberIds: ['u_pond'],
       role: 'Developer',
       estimateMinutes: 6600,
       netCostSatang: 132000,

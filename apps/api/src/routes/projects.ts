@@ -741,68 +741,88 @@ export const projectRoutes = new Hono<AppEnv>()
           available.push({ taskTypeId: tt.id, taskTypeName: tt.name, subTaskTypeId: st.id, name: st.name, taskCount: memberTasks.length })
           continue
         }
-        if (memberTasks.length > 0) {
-          const teamMemberNames = [...new Set(memberTasks.map((r) => r.assigneeName).filter((n): n is string => !!n))]
-          const roleNames = [...new Set(memberTasks.map((r) => r.roleName).filter((n): n is string => !!n))]
-          groups.push({
-            taskTypeId: tt.id,
-            taskTypeName: tt.name,
-            subTaskTypeId: st.id,
-            name: st.name,
-            source: 'auto' as const,
-            teamMember: teamMemberNames.join(', ') || null,
-            teamMemberIds: [] as string[],
-            role: roleNames.join(', ') || null,
-            costRoleId: null as string | null,
-            costPerDaySatang: null,
-            costPerHourSatang: null,
-            estimateMinutes: sumMinutes(memberTasks.map((r) => r.estimateMinutes)),
-            bufferPercent: null as number | null,
-            bufferMinutes: sumMinutes(memberTasks.map((r) => r.bufferMinutes)),
-            totalMinutes: sumMinutes(memberTasks.map((r) => r.totalMinutes)),
-            netCostSatang: sumSatang(memberTasks.map((r) => r.netCostSatang)),
-            workMinutesPerDay: null,
-            estimateDays: memberTasks.reduce((sum, r) => sum + r.estimateDays, 0),
-            marginSatang: sumSatang(memberTasks.map((r) => r.marginSatang)),
-            estimateCostSatang: sumSatang(memberTasks.map((r) => r.estimateCostSatang)),
-            quotationSatang: sumSatang(memberTasks.map((r) => r.quotationSatang)),
-          })
-          continue
+        // Pronista §Project Estimate v2 — ทุกช่อง (Team Member/Role/Estimate W/H/Buffer %/Work Hour/Day) กรอกทับเองได้เสมอไม่ว่ากลุ่มจะมีงานจริงหรือไม่
+        // ค่าที่ PM ยังไม่แตะ = auto-fill จากงานจริง (รวม/ค่าที่ตรงกันทั้งกลุ่ม) — ยังไม่ได้แตะ Cost/Estimate/Buffer/WorkHour เลยสักช่อง → รวม net cost ตรงจากแต่ละ task (กัน role/ค่าไม่ตรงกันในกลุ่มพัง) · แตะช่องไหนก็ตาม → คำนวณใหม่ทั้งแถวจากค่าที่กรอก+auto-fill ที่เหลือ
+        const hasRealTasks = memberTasks.length > 0
+        const autoTeamMemberIds = [...new Set(memberTasks.map((r) => r.assigneeId).filter((v): v is string => !!v))]
+        // Pronista §Project Estimate v2 (bugfix) — เช็ค != null ไม่ใช่ length > 0 ก่อนหน้านี้ถ้า PM ลบคนออกจนว่างเปล่า ([]) โค้ดจะตีความว่า "ยังไม่ได้แตะ" แล้วเด้งกลับไปโชว์รายชื่อ auto-fill เดิม ทำให้ลบคนสุดท้ายไม่ได้
+        const teamMemberIds = ov.teamMemberIds != null ? ov.teamMemberIds : autoTeamMemberIds
+
+        const uniqueCostRoleIds = [...new Set(memberTasks.map((r) => r.costRoleId).filter((v): v is string => !!v))]
+        const sharedCostRoleId = uniqueCostRoleIds.length === 1 ? (uniqueCostRoleIds[0] ?? null) : null
+        const uniqueBufferPercents = [...new Set(memberTasks.map((r) => r.bufferPercent))]
+        const sharedBufferPercent = uniqueBufferPercents.length === 1 ? uniqueBufferPercents[0] : null
+        const uniqueWorkMinutesPerDay = [...new Set(memberTasks.map((r) => r.workMinutesPerDay))]
+        const sharedWorkMinutesPerDay = uniqueWorkMinutesPerDay.length === 1 ? uniqueWorkMinutesPerDay[0] : null
+
+        const hasOverrideFields = ov.costRoleId != null || ov.estimateMinutes != null || ov.bufferPercent != null || ov.workMinutesPerDay != null
+
+        let costRoleId: string | null
+        let costPerDaySatang: number | null
+        let costPerHourSatang: number | null
+        let estimateMinutes: number
+        let bufferPercent: number
+        let workMinutesPerDay: number
+        let bufferMins: number
+        let totalMinutes: number
+        let netCostSatang: number | null
+        let days: number
+        let margin: number | null
+        let estimateCost: number | null
+
+        if (!hasOverrideFields) {
+          // ยังไม่มีช่องไหนถูกกรอกทับ — โชว์ผลรวมตรงจากงานจริง (สู้กับกรณี role/buffer/work-hour ไม่ตรงกันในกลุ่มได้แม่นกว่า เพราะรวมจาก net cost ที่คำนวณต่อ task ไว้แล้ว)
+          costRoleId = sharedCostRoleId
+          costPerDaySatang = costRoleId ? (costRoleByRoleId(costRoles, costRoleId)?.costPerDaySatang ?? null) : null
+          costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
+          estimateMinutes = sumMinutes(memberTasks.map((r) => r.estimateMinutes))
+          bufferPercent = sharedBufferPercent ?? cfg.costBufferPercent
+          workMinutesPerDay = sharedWorkMinutesPerDay ?? cfg.workHourCapMinutes
+          bufferMins = sumMinutes(memberTasks.map((r) => r.bufferMinutes))
+          totalMinutes = sumMinutes(memberTasks.map((r) => r.totalMinutes))
+          netCostSatang = hasRealTasks ? sumSatang(memberTasks.map((r) => r.netCostSatang)) : null
+          days = memberTasks.reduce((sum, r) => sum + r.estimateDays, 0)
+          margin = hasRealTasks ? sumSatang(memberTasks.map((r) => r.marginSatang)) : null
+          estimateCost = hasRealTasks ? sumSatang(memberTasks.map((r) => r.estimateCostSatang)) : null
+        } else {
+          // PM แตะช่องใดช่องหนึ่งแล้ว — คำนวณใหม่ทั้งแถวจากค่าที่กรอก ผสมกับ auto-fill ในช่องที่ยังไม่แตะ
+          costRoleId = ov.costRoleId ?? sharedCostRoleId
+          costPerDaySatang = costRoleId ? (costRoleByRoleId(costRoles, costRoleId)?.costPerDaySatang ?? null) : null
+          costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
+          estimateMinutes = ov.estimateMinutes ?? sumMinutes(memberTasks.map((r) => r.estimateMinutes))
+          bufferPercent = ov.bufferPercent ?? sharedBufferPercent ?? cfg.costBufferPercent
+          workMinutesPerDay = ov.workMinutesPerDay ?? sharedWorkMinutesPerDay ?? cfg.workHourCapMinutes
+          bufferMins = bufferMinutes(estimateMinutes, bufferPercent)
+          totalMinutes = estimateMinutes + bufferMins
+          days = estimateDays(totalMinutes, workMinutesPerDay)
+          netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
+          margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
+          estimateCost = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
         }
-        const estMinutes = ov.estimateMinutes ?? 0
-        const bufferPercent = ov.bufferPercent ?? cfg.costBufferPercent
-        const buffer = bufferMinutes(estMinutes, bufferPercent)
-        const totalMinutes = estMinutes + buffer
-        const workMinutesPerDay = ov.workMinutesPerDay ?? cfg.workHourCapMinutes
-        const days = estimateDays(totalMinutes, workMinutesPerDay)
-        const roleName = ov.costRoleId ? (parameterRoleById(parameterRoles, ov.costRoleId)?.name ?? null) : null
-        const costPerDaySatang = ov.costRoleId ? (costRoleByRoleId(costRoles, ov.costRoleId)?.costPerDaySatang ?? null) : null
-        const costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
-        const netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
-        const margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
-        const estimateCost = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
+
         groups.push({
           taskTypeId: tt.id,
           taskTypeName: tt.name,
           subTaskTypeId: st.id,
           name: st.name,
-          source: 'manual' as const,
+          source: hasRealTasks ? ('auto' as const) : ('manual' as const),
           teamMember: null,
-          teamMemberIds: ov.teamMemberIds ?? [],
-          role: roleName,
-          costRoleId: ov.costRoleId ?? null,
+          teamMemberIds,
+          role: costRoleId ? (parameterRoleById(parameterRoles, costRoleId)?.name ?? null) : null,
+          costRoleId,
           costPerDaySatang,
           costPerHourSatang,
-          estimateMinutes: estMinutes,
+          estimateMinutes,
           bufferPercent,
-          bufferMinutes: buffer,
+          bufferMinutes: bufferMins,
           totalMinutes,
           netCostSatang,
           workMinutesPerDay,
           estimateDays: days,
           marginSatang: margin,
           estimateCostSatang: estimateCost,
-          quotationSatang: ov.quotationSatang ?? null,
+          // Pronista §Project Estimate v2 — Quotation Cost กรอกทับเองได้เสมอไม่ว่ากลุ่มจะ auto หรือ manual
+          quotationSatang: ov.quotationSatang ?? (hasRealTasks ? sumSatang(memberTasks.map((r) => r.quotationSatang)) : null),
         })
       }
     }
