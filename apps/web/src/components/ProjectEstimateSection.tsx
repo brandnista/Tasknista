@@ -6,11 +6,16 @@
  */
 import { formatSatang, minutesToHoursLabel, resolveParameterRoles, type ParameterRole } from '@seedoffice/core'
 import { Check, Table2, X } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { Avatar } from './Avatar'
 import { useDialog } from './Dialog'
+
+/* ตัวย่อสี fallback ของ Avatar — ก็อปสูตรเดียวกับ pages/ProjectDetail.tsx (ไม่ import ข้ามหน้า กัน circular import เพราะหน้านั้น import component นี้อยู่แล้ว) */
+const AVATAR_COLORS = ['bg-brand-100 text-brand-700', 'bg-sky-100 text-sky-700', 'bg-violet-100 text-violet-700', 'bg-rose-100 text-rose-700', 'bg-amber-100 text-amber-700', 'bg-teal-100 text-teal-700', 'bg-indigo-100 text-indigo-700', 'bg-pink-100 text-pink-700']
+const avatarColor = (key: string) => AVATAR_COLORS[[...key].reduce((s, ch) => s + ch.charCodeAt(0), 0) % AVATAR_COLORS.length]
 
 interface EstimateRow {
   taskId: string
@@ -68,8 +73,12 @@ interface GroupRow {
 
 interface ExtraCost {
   id: string
+  category: 'aex' | 'opex'
   name: string
-  amountSatang: number
+  netCostSatang: number | null
+  marginSatang: number | null
+  estimateCostSatang: number | null
+  quotationSatang: number | null
 }
 
 /** กลุ่มที่ยังไม่ถูกเลือก — ใช้ทำเมนู "เพิ่มกลุ่มงาน" · taskCount > 0 = เลือกแล้วระบบดึงงานจริงมากรอกให้เอง */
@@ -93,6 +102,20 @@ interface PhaseRow {
   name: string
   totalEstimateDays: number
 }
+
+interface ExtraCostCategoryTotal {
+  netCostSatang: number
+  marginSatang: number
+  estimateCostSatang: number
+  quotationSatang: number
+}
+
+interface PhasesResponse {
+  phases: PhaseRow[]
+  extraCostTotals: { aex: ExtraCostCategoryTotal; opex: ExtraCostCategoryTotal }
+}
+
+const EXTRA_COST_LABEL: Record<'aex' | 'opex', string> = { aex: 'AEX', opex: 'OPEX' }
 
 type EstimateView = 'summary' | 'phase' | 'group' | 'task'
 const VIEWS: [EstimateView, string][] = [
@@ -175,18 +198,20 @@ export function ProjectEstimateSection({
   members,
 }: {
   projectId: string
-  members: { id: string; name: string; role?: 'owner' | 'member' | 'vendor' | 'guest' }[]
+  members: { id: string; name: string; role?: 'owner' | 'member' | 'vendor' | 'guest'; avatarUrl?: string | null }[]
 }) {
   const { confirmDialog } = useDialog()
   // Pronista §Project Estimate — สรุปงานรายบุคคล: ดึงสมาชิกทุกคนในโปรเจกต์ ยกเว้นลูกค้า (role='guest') — staff/outsource ดึงมาหมด
   // Admin(owner) ไม่มีทางอยู่ใน project_members ได้เลย (backend กันไว้ เพราะ owner เข้าถึงทุกโปรเจกต์เต็มรูปแบบเสมอ) แต่ยังถูก assign งานได้ปกติ — ดึงจาก /api/users มาต่อท้ายแทน
-  const { data: allUsersData } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
+  const { data: allUsersData } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest'; avatarUrl: string | null }[]>(() =>
+    api.get('/api/users'),
+  )
   const adminUsers = (allUsersData ?? []).filter((u) => u.role === 'owner')
   const summaryMembers = [...members.filter((m) => m.role !== 'guest'), ...adminUsers.filter((a) => !members.some((m) => m.id === a.id))]
 
   const { data: estimate, reload: reloadEstimate } = useLoad<EstimateResponse>(() => api.get(`/api/projects/${projectId}/estimate`), [projectId])
   const { data: groupsData, reload: reloadGroups } = useLoad<GroupsResponse>(() => api.get(`/api/projects/${projectId}/estimate/groups`), [projectId])
-  const { data: phasesData, reload: reloadPhases } = useLoad<{ phases: PhaseRow[] }>(() => api.get(`/api/projects/${projectId}/estimate/phases`), [projectId])
+  const { data: phasesData, reload: reloadPhases } = useLoad<PhasesResponse>(() => api.get(`/api/projects/${projectId}/estimate/phases`), [projectId])
   const { data: roleCfg } = useLoad<{ parameterRoles: ParameterRole[] }>(() => api.get('/api/admin/parameter-roles'))
 
   const parameterRoles = resolveParameterRoles(roleCfg?.parameterRoles)
@@ -202,7 +227,13 @@ export function ProjectEstimateSection({
   const [memberId, setMemberId] = useState('')
   const memberOverview = summaryMembers.map((m) => {
     const tasksOfMember = (estimate?.rows ?? []).filter((r) => r.assigneeId === m.id)
-    return { id: m.id, name: m.name, totalMinutes: tasksOfMember.reduce((sum, r) => sum + r.estimateMinutes, 0), count: tasksOfMember.length }
+    return {
+      id: m.id,
+      name: m.name,
+      avatarUrl: m.avatarUrl,
+      totalMinutes: tasksOfMember.reduce((sum, r) => sum + r.estimateMinutes, 0),
+      count: tasksOfMember.length,
+    }
   })
   const selectedMember = summaryMembers.find((m) => m.id === memberId)
   const memberTasks = (estimate?.rows ?? []).filter((r) => r.assigneeId === memberId)
@@ -247,6 +278,13 @@ export function ProjectEstimateSection({
     else acc.push({ taskTypeId: a.taskTypeId, taskTypeName: a.taskTypeName, items: [a] })
     return acc
   }, [])
+  // Tab Summary — ต้นไม้ Task Type > Task Group (groupsData.groups มาตามลำดับแคตตาล็อกจาก backend อยู่แล้ว)
+  const groupsByType = (groupsData?.groups ?? []).reduce<{ taskTypeId: string; taskTypeName: string; items: GroupRow[] }[]>((acc, g) => {
+    const bucket = acc.find((x) => x.taskTypeId === g.taskTypeId)
+    if (bucket) bucket.items.push(g)
+    else acc.push({ taskTypeId: g.taskTypeId, taskTypeName: g.taskTypeName, items: [g] })
+    return acc
+  }, [])
   const addGroupRow = async (taskTypeId: string, subTaskTypeId: string) => {
     setGroupPickerOpen(false)
     await saveGroupField(taskTypeId, subTaskTypeId, {})
@@ -267,90 +305,106 @@ export function ProjectEstimateSection({
   const memberName = (id: string) => summaryMembers.find((m) => m.id === id)?.name ?? id
   const rowKey = (g: GroupRow) => `${g.taskTypeId}::${g.subTaskTypeId}`
 
-  // --- ค่าใช้จ่ายนอกระบบ ---
-  const addExtraCost = async () => {
-    await api.post(`/api/projects/${projectId}/estimate/extra-costs`, { name: 'รายการใหม่', amountSatang: 0 })
-    await reloadGroups()
+  // --- ค่าใช้จ่ายนอกระบบ — แยกหัวข้อหลัก AEX/OPEX · netCostSatang กรอกเอง margin/estimateCost คำนวณจาก company margin% ---
+  const addExtraCost = async (category: 'aex' | 'opex') => {
+    await api.post(`/api/projects/${projectId}/estimate/extra-costs`, { category, name: 'รายการใหม่' })
+    await reloadAll()
   }
   const saveExtraCostName = async (id: string, name: string) => {
     await api.patch(`/api/projects/${projectId}/estimate/extra-costs/${id}`, { name })
-    await reloadGroups()
+    await reloadAll()
   }
-  const saveExtraCostAmount = async (id: string, v: string) => {
-    await api.patch(`/api/projects/${projectId}/estimate/extra-costs/${id}`, { amountSatang: v.trim() ? Math.round(Number(v) * 100) : 0 })
-    await reloadGroups()
+  const saveExtraCostNetCost = async (id: string, v: string) => {
+    await api.patch(`/api/projects/${projectId}/estimate/extra-costs/${id}`, { netCostSatang: v.trim() ? Math.round(Number(v) * 100) : null })
+    await reloadAll()
   }
-  const deleteExtraCost = async (id: string) => {
+  const saveExtraCostQuotation = async (id: string, v: string) => {
+    await api.patch(`/api/projects/${projectId}/estimate/extra-costs/${id}`, { quotationSatang: v.trim() ? Math.round(Number(v) * 100) : null })
+    await reloadAll()
+  }
+  const deleteExtraCost = async (id: string, name: string) => {
+    const yes = await confirmDialog({ title: `เอา "${name}" ออกจากค่าใช้จ่ายนอกระบบ?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', confirmLabel: 'เอาออก', danger: true })
+    if (!yes) return
     await api.delete(`/api/projects/${projectId}/estimate/extra-costs/${id}`)
-    await reloadGroups()
+    await reloadAll()
   }
-
-  const inputCell = 'w-20 text-right text-sm bg-white border border-border rounded-lg px-2 py-1 tabular-nums focus:outline-hidden focus:border-brand-400'
 
   if (!estimate || !groupsData || !phasesData) return <div className="text-sm text-muted py-6 text-center">กำลังโหลด…</div>
 
   return (
     <div className="space-y-4">
       {/* ส่วนสรุปงานรายบุคคล */}
-      <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-        <div className="text-sm font-semibold text-strong mb-3">สรุปงานรายบุคคล</div>
-        <select
-          value={memberId}
-          onChange={(e) => setMemberId(e.target.value)}
-          className="text-sm bg-white border border-border rounded-lg px-3 py-2 mb-3"
-        >
-          <option value="">— ภาพรวมทุกคน —</option>
-          {summaryMembers.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
+      <div className="bg-white rounded-lg shadow-xs">
+        <div className="flex items-center justify-between gap-3 flex-wrap p-4 sm:p-5 pb-4">
+          <div className="text-sm font-semibold text-strong">สรุปงานรายบุคคล</div>
+          <select
+            value={memberId}
+            onChange={(e) => setMemberId(e.target.value)}
+            className={`${fieldCell} w-[200px]`}
+          >
+            <option value="">— ภาพรวมทุกคน —</option>
+            {summaryMembers.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+        </div>
         {!memberId ? (
           <table className="w-full text-sm">
-            <thead className="text-dim text-xs">
+            <thead>
               <tr>
-                <th className="text-left font-medium py-1.5">สมาชิก</th>
-                <th className="text-right font-medium py-1.5">จำนวนงาน</th>
-                <th className="text-right font-medium py-1.5">ประมาณการรวม (ชม.)</th>
+                <th className={`${colCell} text-left`}>สมาชิก</th>
+                <th className={`${colCell} text-right`}>จำนวนงาน</th>
+                <th className={`${colCell} text-right`}>ประมาณการรวม (ชม.)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-divider">
+            <tbody>
               {memberOverview.map((m) => (
-                <tr key={m.id}>
-                  <td className="py-1.5">
-                    <button onClick={() => setMemberId(m.id)} className="text-brand-700 hover:underline">{m.name}</button>
+                <tr key={m.id} className="hover:bg-hover">
+                  <td className={bodyCell}>
+                    <button onClick={() => setMemberId(m.id)} className="flex items-center gap-2.5 text-brand-700 hover:underline">
+                      <Avatar name={m.name} avatarUrl={m.avatarUrl} className="w-7 h-7 text-[11px]" colorClass={avatarColor(m.name)} />
+                      {m.name}
+                    </button>
                   </td>
-                  <td className="py-1.5 text-right tabular-nums">{m.count}</td>
-                  <td className="py-1.5 text-right tabular-nums">{m.totalMinutes ? hours(m.totalMinutes) : '—'}</td>
+                  <td className={calcCell}>{m.count}</td>
+                  <td className={calcCell}>{m.totalMinutes ? hours(m.totalMinutes) : '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : memberTasks.length === 0 ? (
-          <div className="text-sm text-muted py-4 text-center">ยังไม่มีงานที่ Assign ให้ {selectedMember?.name ?? 'คนนี้'} ในโปรเจกต์นี้</div>
+          <div className="text-sm text-muted py-8 text-center border-t border-divider">ยังไม่มีงานที่ Assign ให้ {selectedMember?.name ?? 'คนนี้'} ในโปรเจกต์นี้</div>
         ) : (
           <>
+            <div className="flex items-center gap-2.5 px-4 sm:px-5 pb-3">
+              <Avatar name={selectedMember?.name ?? ''} avatarUrl={selectedMember?.avatarUrl} className="w-8 h-8 text-xs" colorClass={avatarColor(selectedMember?.name ?? '')} />
+              <span className="text-sm font-medium text-strong">{selectedMember?.name}</span>
+            </div>
             <table className="w-full text-sm">
-              <thead className="text-dim text-xs">
+              <thead>
                 <tr>
-                  <th className="text-left font-medium py-1.5">งาน</th>
-                  <th className="text-right font-medium py-1.5">ประมาณการ (ชม.)</th>
+                  <th className={`${colCell} text-left`}>งาน</th>
+                  <th className={`${colCell} text-right`}>ประมาณการ (ชม.)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-divider">
+              <tbody>
                 {memberTasks.map((r) => (
-                  <tr key={r.taskId}>
-                    <td className="py-1.5">
+                  <tr key={r.taskId} className="hover:bg-hover">
+                    <td className={bodyCell}>
                       {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
                       <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
                     </td>
-                    <td className="py-1.5 text-right tabular-nums">{r.estimateMinutes ? hours(r.estimateMinutes) : '—'}</td>
+                    <td className={calcCell}>{r.estimateMinutes ? hours(r.estimateMinutes) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="font-semibold text-strong">
+                  <td className={footCell}>รวม</td>
+                  <td className={`${footCell} text-right tabular-nums`}>{hours(memberTotalMinutes)} ชม.</td>
+                </tr>
+              </tfoot>
             </table>
-            <div className="text-right text-sm font-semibold mt-2 pt-2 border-t border-border-subtle">
-              รวม {hours(memberTotalMinutes)} ชม.
-            </div>
           </>
         )}
       </div>
@@ -368,34 +422,90 @@ export function ProjectEstimateSection({
         ))}
       </div>
 
-      {/* Tab: Summary */}
+      {/* Tab: Summary — ต้นไม้ Task Type > Task Group + ค่าใช้จ่ายนอกระบบ (AEX/OPEX) แล้วปิดท้ายด้วย Total ตามภาพร่างที่แนบ */}
       {view === 'summary' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-            <div className="text-sm font-semibold text-strong mb-3">สรุปวันประเมินตามหัวข้อหลัก (Phase)</div>
-            <table className="w-full text-sm">
-              <thead className="text-dim text-xs">
-                <tr>
-                  <th className="text-left font-medium py-1.5">Phase</th>
-                  <th className="text-right font-medium py-1.5">Total Estimate Day</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-divider">
-                {phasesData.phases.map((p) => (
-                  <tr key={p.taskTypeId}>
-                    <td className="py-1.5">{p.name}</td>
-                    <td className="py-1.5 text-right tabular-nums">{p.totalEstimateDays.toFixed(1)}</td>
+          <div className="bg-white rounded-lg shadow-xs">
+            <div className="p-4 sm:p-5 pb-3">
+              <div className="text-sm font-semibold text-strong">Summary — ภาพรวมต้นทุนทั้งโปรเจกต์</div>
+              <p className="text-xs text-dim mt-0.5">รวมทุก Task Group และค่าใช้จ่ายนอกระบบ แยกตามหัวข้อ</p>
+            </div>
+            <div className="overflow-x-auto border-t border-divider">
+              <table className="w-full text-sm min-w-[720px]">
+                <thead>
+                  <tr>
+                    <th className={`${colCell} text-left`}>รายการ</th>
+                    <th className={`${colCell} text-right`}>Net Cost (Hour)</th>
+                    <th className={`${colCell} text-right bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>Margin</th>
+                    <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Estimate Cost</th>
+                    <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Quotation Cost</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border-subtle font-semibold">
-                  <td className="py-1.5">รวม</td>
-                  <td className="py-1.5 text-right tabular-nums">{phasesData.phases.reduce((s, p) => s + p.totalEstimateDays, 0).toFixed(1)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {groupsByType.map((bucket) => (
+                    <Fragment key={bucket.taskTypeId}>
+                      <tr>
+                        <td colSpan={5} className={bandCell}>{bucket.taskTypeName}</td>
+                      </tr>
+                      {bucket.items.map((g) => (
+                        <tr key={`${g.taskTypeId}::${g.subTaskTypeId}`} className="hover:bg-hover">
+                          <td className={`${bodyCell} pl-6`}>{g.name}</td>
+                          <td className={calcCell}>{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
+                          <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(g.marginSatang)}</td>
+                          <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{money(g.estimateCostSatang)}</td>
+                          <td className={`${calcCell} bg-brand-50`}>{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+
+                  {groupsData.extraCosts.length > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={5} className={bandCell}>ค่าใช้จ่ายนอกระบบ</td>
+                      </tr>
+                      {(['aex', 'opex'] as const).map((cat) => {
+                        const items = groupsData.extraCosts.filter((x) => x.category === cat)
+                        if (items.length === 0) return null
+                        return (
+                          <Fragment key={cat}>
+                            <tr>
+                              <td colSpan={5} className={`${bandCell} pl-6`}>{EXTRA_COST_LABEL[cat]}</td>
+                            </tr>
+                            {items.map((x) => (
+                              <tr key={x.id} className="hover:bg-hover">
+                                <td className={`${bodyCell} pl-9`}>{x.name}</td>
+                                <td className={calcCell}>{x.netCostSatang != null ? money(x.netCostSatang) : '—'}</td>
+                                <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(x.marginSatang)}</td>
+                                <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{money(x.estimateCostSatang)}</td>
+                                <td className={`${calcCell} bg-brand-50`}>{x.quotationSatang != null ? money(x.quotationSatang) : '—'}</td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        )
+                      })}
+                    </>
+                  )}
+
+                  {groupsByType.length === 0 && groupsData.extraCosts.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-sm text-muted py-8 text-center">ยังไม่มีรายการ — เริ่มที่แท็บ Task Group</td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="font-semibold text-strong">
+                    <td className={`${footCell} whitespace-nowrap`}>Total</td>
+                    <td className={`${footCell} text-right tabular-nums`}>{formatSatang(groupsData.totals.netCostSatang)}</td>
+                    <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(groupsData.totals.marginSatang)}</td>
+                    <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(groupsData.totals.estimateCostSatang)}</td>
+                    <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(groupsData.totals.quotationSatang)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
+
           <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 grid sm:grid-cols-3 gap-4">
             <label className="text-xs text-muted">
               Net Working Days
@@ -405,7 +515,7 @@ export function ProjectEstimateSection({
                 defaultValue={estimate.project.estimateNetWorkingDays ?? estimate.suggestedNetWorkingDays ?? ''}
                 placeholder={estimate.suggestedNetWorkingDays != null ? String(estimate.suggestedNetWorkingDays) : ''}
                 onBlur={(e) => void saveNetWorkingDays(e.target.value)}
-                className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 mt-1 tabular-nums"
+                className={`${fieldCell} w-full mt-1`}
               />
               {estimate.suggestedNetWorkingDays != null && (
                 <span className="text-[11px] text-muted">แนะนำ {estimate.suggestedNetWorkingDays} วัน (จาก Task ที่ใช้เวลานานสุด)</span>
@@ -424,26 +534,65 @@ export function ProjectEstimateSection({
         </div>
       )}
 
-      {/* Tab: Phase */}
+      {/* Tab: Phase — Estimate Day ตามหัวข้อหลัก + สรุปค่าใช้จ่ายนอกระบบแยก AEX/OPEX */}
       {view === 'phase' && (
-        <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-          <div className="text-sm font-semibold text-strong mb-3">Phase — รวม Estimate Day จาก Task Group ตามหัวข้อหลัก</div>
-          <table className="w-full text-sm">
-            <thead className="text-dim text-xs">
-              <tr>
-                <th className="text-left font-medium py-1.5">Phase</th>
-                <th className="text-right font-medium py-1.5">Total Estimate Day</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-divider">
-              {phasesData.phases.map((p) => (
-                <tr key={p.taskTypeId}>
-                  <td className="py-1.5">{p.name}</td>
-                  <td className="py-1.5 text-right tabular-nums">{p.totalEstimateDays.toFixed(1)}</td>
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow-xs">
+            <div className="p-4 sm:p-5 pb-3">
+              <div className="text-sm font-semibold text-strong">Phase — รวม Estimate Day จาก Task Group ตามหัวข้อหลัก</div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className={`${colCell} text-left`}>Phase</th>
+                  <th className={`${colCell} text-right`}>Total Estimate Day</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {phasesData.phases.map((p) => (
+                  <tr key={p.taskTypeId} className="hover:bg-hover">
+                    <td className={bodyCell}>{p.name}</td>
+                    <td className={calcCell}>{p.totalEstimateDays.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="font-semibold text-strong">
+                  <td className={footCell}>รวม</td>
+                  <td className={`${footCell} text-right tabular-nums`}>{phasesData.phases.reduce((s, p) => s + p.totalEstimateDays, 0).toFixed(1)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-xs">
+            <div className="p-4 sm:p-5 pb-3">
+              <div className="text-sm font-semibold text-strong">ค่าใช้จ่ายนอกระบบ — รวมตามหัวข้อ AEX / OPEX</div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className={`${colCell} text-left`}>หัวข้อ</th>
+                  <th className={`${colCell} text-right`}>Net Cost (Hour)</th>
+                  <th className={`${colCell} text-right bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>Margin</th>
+                  <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Estimate Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(['aex', 'opex'] as const).map((cat) => {
+                  const t = phasesData.extraCostTotals[cat]
+                  return (
+                    <tr key={cat} className="hover:bg-hover">
+                      <td className={bodyCell}>{EXTRA_COST_LABEL[cat]}</td>
+                      <td className={calcCell}>{formatSatang(t.netCostSatang)}</td>
+                      <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{formatSatang(t.marginSatang)}</td>
+                      <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{formatSatang(t.estimateCostSatang)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -739,160 +888,208 @@ export function ProjectEstimateSection({
             )}
           </div>
 
-          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-semibold text-strong">ค่าใช้จ่ายนอกระบบ (Cloud, ค่าเดินทาง ฯลฯ)</div>
-              <button onClick={() => void addExtraCost()} className="text-sm text-brand-700 hover:text-brand-800">+ เพิ่มรายการ</button>
+          <div className="bg-white rounded-lg shadow-xs">
+            <div className="p-4 sm:p-5 pb-2">
+              <div className="text-sm font-semibold text-strong">ค่าใช้จ่ายนอกระบบ</div>
+              <p className="text-xs text-dim mt-0.5">แยกหัวข้อหลัก AEX / OPEX — กรอก Net Cost แล้วระบบคำนวณ Margin/Estimate Cost ให้อัตโนมัติ</p>
             </div>
-            {groupsData.extraCosts.length === 0 ? (
-              <div className="text-sm text-muted py-3 text-center">ยังไม่มีรายการ</div>
-            ) : (
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-divider">
-                  {groupsData.extraCosts.map((x) => (
-                    <tr key={x.id}>
-                      <td className="py-1.5 pr-2">
-                        <input
-                          type="text"
-                          defaultValue={x.name}
-                          onBlur={(e) => void saveExtraCostName(x.id, e.target.value)}
-                          className="w-full text-sm bg-white border border-border rounded-lg px-2 py-1"
-                        />
+            {(['aex', 'opex'] as const).map((cat) => {
+              const items = groupsData.extraCosts.filter((x) => x.category === cat)
+              return (
+                <div key={cat} className="border-t border-divider">
+                  <div className="flex items-center justify-between px-4 sm:px-5 py-2.5">
+                    <div className="text-[10.5px] font-semibold tracking-[0.09em] uppercase text-muted">{EXTRA_COST_LABEL[cat]}</div>
+                    <button onClick={() => void addExtraCost(cat)} className="text-sm text-brand-700 hover:text-brand-800">+ เพิ่มรายการ</button>
+                  </div>
+                  {items.length === 0 ? (
+                    <div className="text-sm text-muted pb-4 text-center">ยังไม่มีรายการ</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm min-w-[640px]">
+                        <thead>
+                          <tr>
+                            <th className={`${colCell} text-left`}>รายการ</th>
+                            <th className={`${colCell} text-right`}>Net Cost (Hour)</th>
+                            <th className={`${colCell} text-right bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>Margin</th>
+                            <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Estimate Cost</th>
+                            <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Quotation Cost</th>
+                            <th className={colCell} />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((x) => (
+                            <tr key={x.id} className="group/row hover:bg-hover">
+                              <td className={bodyCell}>
+                                <input
+                                  type="text"
+                                  defaultValue={x.name}
+                                  onBlur={(e) => void saveExtraCostName(x.id, e.target.value)}
+                                  className={`${fieldCell} w-full`}
+                                />
+                              </td>
+                              <td className={`${bodyCell} text-right`}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  defaultValue={x.netCostSatang != null ? x.netCostSatang / 100 : ''}
+                                  placeholder="—"
+                                  onBlur={(e) => void saveExtraCostNetCost(x.id, e.target.value)}
+                                  className={numCell}
+                                />
+                              </td>
+                              <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{x.marginSatang != null ? money(x.marginSatang) : '—'}</td>
+                              <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{x.estimateCostSatang != null ? money(x.estimateCostSatang) : '—'}</td>
+                              <td className={`${bodyCell} text-right bg-brand-50`}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  defaultValue={x.quotationSatang != null ? x.quotationSatang / 100 : ''}
+                                  placeholder={x.estimateCostSatang != null ? String(Math.round(x.estimateCostSatang / 100)) : '—'}
+                                  onBlur={(e) => void saveExtraCostQuotation(x.id, e.target.value)}
+                                  className={`${numCell} w-[104px]`}
+                                />
+                              </td>
+                              <td className={`${bodyCell} text-right`}>
+                                <button
+                                  type="button"
+                                  aria-label={`เอา ${x.name} ออก`}
+                                  onClick={() => void deleteExtraCost(x.id, x.name)}
+                                  className="text-[11.5px] text-muted rounded px-1.5 py-1 hover:bg-danger-50 hover:text-danger-700 group-hover/row:text-danger-600"
+                                >
+                                  เอาออก
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            <div className="border-t-2 border-border-subtle px-4 sm:px-5 py-3 flex justify-end">
+              <div className="text-sm font-semibold text-strong tabular-nums">รวมค่าใช้จ่ายนอกระบบ: {formatSatang(groupsData.totals.extraCostsSatang)}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Task — สไตล์เดียวกับ Task Group (band header + money-zone) เพื่อความสม่ำเสมอทั้ง 4 แท็บ */}
+      {view === 'task' && (
+        <div className="bg-white rounded-lg shadow-xs">
+          <div className="p-4 sm:p-5 pb-3">
+            <div className="text-sm font-semibold text-strong">Task ({estimate.rows.length})</div>
+          </div>
+          {estimate.rows.length === 0 ? (
+            <div className="text-sm text-muted py-8 text-center border-t border-divider">ยังไม่มีงานในโปรเจกต์นี้</div>
+          ) : (
+            <div className="overflow-x-auto border-t border-divider">
+              <table className="w-full text-sm min-w-[1360px]">
+                <thead>
+                  <tr>
+                    <th colSpan={3} className={bandCell}>งาน &amp; ผู้รับผิดชอบ</th>
+                    <th colSpan={9} className={bandCell}>ต้นทุน &amp; เวลา</th>
+                    <th colSpan={3} className={`${bandCell} bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>ราคา</th>
+                  </tr>
+                  <tr>
+                    <th className={`${colCell} text-left`}>Task</th>
+                    <th className={`${colCell} text-left`}>Team Member</th>
+                    <th className={`${colCell} text-left`}>Role</th>
+                    <th className={`${colCell} text-right`}>Cost/Day</th>
+                    <th className={`${colCell} text-right`}>Cost/Hour</th>
+                    <th className={`${colCell} text-right`}>Estimate W/H</th>
+                    <th className={`${colCell} text-right`}>Buffer %</th>
+                    <th className={`${colCell} text-right`}>Buffer W/H</th>
+                    <th className={`${colCell} text-right`}>Total W/H</th>
+                    <th className={`${colCell} text-right`}>Net Cost (Hour)</th>
+                    <th className={`${colCell} text-right`}>Work Hour/Day</th>
+                    <th className={`${colCell} text-right`}>Estimate Day</th>
+                    <th className={`${colCell} text-right bg-brand-50 text-brand-700 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>Margin</th>
+                    <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Estimate Cost</th>
+                    <th className={`${colCell} text-right bg-brand-50 text-brand-700`}>Quotation Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {estimate.rows.map((r) => (
+                    <tr key={r.taskId} className="hover:bg-hover">
+                      <td className={`${bodyCell} whitespace-nowrap`}>
+                        {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
+                        <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
                       </td>
-                      <td className="py-1.5 pr-2 w-32">
+                      <td className={`${bodyCell} whitespace-nowrap`}>{r.assigneeName ?? '—'}</td>
+                      <td className={bodyCell}>
+                        <select
+                          value={r.costRoleId ?? ''}
+                          onChange={(e) => void saveRole(r.taskId, e.target.value)}
+                          className={`${fieldCell} w-[150px] cursor-pointer`}
+                        >
+                          <option value="">— ยังไม่ระบุ —</option>
+                          {parameterRoles.map((pr) => (
+                            <option key={pr.id} value={pr.id}>{pr.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className={calcCell}>
+                        {r.costPerDaySatang != null ? money(r.costPerDaySatang) : <span className="text-warning-600 text-xs">ยังไม่ตั้งต้นทุน</span>}
+                      </td>
+                      <td className={calcCell}>{money(r.costPerHourSatang)}</td>
+                      <td className={calcCell}>{hours(r.estimateMinutes)}</td>
+                      <td className={`${bodyCell} text-right`}>
                         <input
                           type="number"
                           min={0}
-                          defaultValue={x.amountSatang / 100}
-                          onBlur={(e) => void saveExtraCostAmount(x.id, e.target.value)}
-                          className="w-full text-sm text-right bg-white border border-border rounded-lg px-2 py-1 tabular-nums"
+                          max={100}
+                          defaultValue={r.bufferPercent}
+                          onBlur={(e) => void saveBufferPercent(r.taskId, e.target.value)}
+                          className={numCell}
                         />
                       </td>
-                      <td className="py-1.5 w-8">
-                        <button onClick={() => void deleteExtraCost(x.id)} className="text-danger-600 hover:text-danger-700 text-xs">ลบ</button>
+                      <td className={calcCell}>{hours(r.bufferMinutes)}</td>
+                      <td className={calcCell}>{hours(r.totalMinutes)}</td>
+                      <td className={calcCell}>{r.netCostSatang != null ? money(r.netCostSatang) : '—'}</td>
+                      <td className={`${bodyCell} text-right`}>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          defaultValue={r.workMinutesPerDay / 60}
+                          onBlur={(e) => void saveWorkHourPerDay(r.taskId, e.target.value)}
+                          className={numCell}
+                        />
+                      </td>
+                      <td className={calcCell}>{r.estimateDays.toFixed(1)}</td>
+                      <td className={`${calcCell} bg-brand-50 shadow-[inset_2px_0_0_var(--color-brand-200)]`}>{money(r.marginSatang)}</td>
+                      <td className={`${calcCell} bg-brand-50 text-strong font-semibold`}>{money(r.estimateCostSatang)}</td>
+                      <td className={`${bodyCell} text-right bg-brand-50`}>
+                        <input
+                          type="number"
+                          min={0}
+                          defaultValue={r.quotationSatang != null ? r.quotationSatang / 100 : ''}
+                          placeholder="—"
+                          onBlur={(e) => void saveQuotation(r.taskId, e.target.value)}
+                          className={`${numCell} w-[104px]`}
+                        />
                       </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-border-subtle font-semibold">
-                    <td className="py-1.5">รวม</td>
-                    <td className="py-1.5 text-right tabular-nums">{formatSatang(groupsData.totals.extraCostsSatang)}</td>
-                    <td />
+                  <tr className="font-semibold text-strong">
+                    <td className={footCell} colSpan={9}>รวม</td>
+                    <td className={`${footCell} text-right tabular-nums`}>{formatSatang(estimate.totals.netCostSatang)}</td>
+                    <td className={footCell} />
+                    <td className={footCell} />
+                    <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(estimate.totals.marginSatang)}</td>
+                    <td className={`${footCell} text-right tabular-nums bg-brand-50`}>{formatSatang(estimate.totals.estimateCostSatang)}</td>
+                    <td className={`${footCell} bg-brand-50`} />
                   </tr>
                 </tfoot>
               </table>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab: Task */}
-      {view === 'task' && (
-        <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
-          <div className="text-sm font-semibold text-strong mb-3">ตาราง Task ({estimate.rows.length})</div>
-          {estimate.rows.length === 0 ? (
-            <div className="text-sm text-muted py-6 text-center">ยังไม่มีงานในโปรเจกต์นี้</div>
-          ) : (
-            <table className="w-full text-sm min-w-[1400px]">
-              <thead className="bg-hover text-dim text-xs">
-                <tr>
-                  <th className="text-left font-medium px-3 py-2">Task</th>
-                  <th className="text-left font-medium px-3 py-2">Team Member</th>
-                  <th className="text-left font-medium px-3 py-2">Role</th>
-                  <th className="text-right font-medium px-3 py-2">Cost/Day</th>
-                  <th className="text-right font-medium px-3 py-2">Cost/Hour</th>
-                  <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Buffer %</th>
-                  <th className="text-right font-medium px-3 py-2">Buffer W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Total W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Net Cost (Hour)</th>
-                  <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
-                  <th className="text-right font-medium px-3 py-2">Estimate Day</th>
-                  <th className="text-right font-medium px-3 py-2">Margin</th>
-                  <th className="text-right font-medium px-3 py-2">Estimate Cost</th>
-                  <th className="text-right font-medium px-3 py-2">Quotation Cost</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-divider">
-                {estimate.rows.map((r) => (
-                  <tr key={r.taskId}>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
-                      <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{r.assigneeName ?? '—'}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <select
-                        value={r.costRoleId ?? ''}
-                        onChange={(e) => void saveRole(r.taskId, e.target.value)}
-                        className="w-40 text-sm bg-white border border-border rounded-lg px-2 py-1 focus:outline-hidden focus:border-brand-400"
-                      >
-                        <option value="">— ยังไม่ระบุ —</option>
-                        {parameterRoles.map((pr) => (
-                          <option key={pr.id} value={pr.id}>{pr.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">
-                      {r.costPerDaySatang != null ? money(r.costPerDaySatang) : <span className="text-warning-600 text-xs">ยังไม่ตั้งต้นทุน</span>}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.costPerHourSatang)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.estimateMinutes)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        defaultValue={r.bufferPercent}
-                        onBlur={(e) => void saveBufferPercent(r.taskId, e.target.value)}
-                        className={inputCell}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.bufferMinutes)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.totalMinutes)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{r.netCostSatang != null ? money(r.netCostSatang) : '—'}</td>
-                    <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        defaultValue={r.workMinutesPerDay / 60}
-                        onBlur={(e) => void saveWorkHourPerDay(r.taskId, e.target.value)}
-                        className={inputCell}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{r.estimateDays.toFixed(1)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.marginSatang)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium">{money(r.estimateCostSatang)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <input
-                        type="number"
-                        min={0}
-                        defaultValue={r.quotationSatang != null ? r.quotationSatang / 100 : ''}
-                        placeholder="—"
-                        onBlur={(e) => void saveQuotation(r.taskId, e.target.value)}
-                        className={inputCell}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border-subtle font-semibold">
-                  <td className="px-3 py-2" colSpan={9}>รวม</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.netCostSatang)}</td>
-                  <td />
-                  <td />
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.marginSatang)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.estimateCostSatang)}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+            </div>
           )}
           {estimate.rows.some((r) => r.netCostSatang == null) && (
-            <p className="text-xs text-warning-600 mt-2">
+            <p className="text-xs text-warning-600 px-4 sm:px-5 pb-4 pt-2">
               แถวที่ "ยังไม่ตั้งต้นทุน" ไม่ถูกรวมในยอดด้านบน — เลือก Role ให้ครบ หรือไปตั้งต้นทุน/วันของ Role นั้นที่เมนู{' '}
               <Link to="/admin/cost" className="underline">กำหนดต้นทุน</Link>
             </p>

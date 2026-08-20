@@ -206,16 +206,27 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/groups (Ta
     expect(afterDelete.groups.find((g) => g.subTaskTypeId === 'tts_debug')).toBeUndefined()
   })
 
-  it('ค่าใช้จ่ายนอกระบบ (extra costs) รวมเข้ายอดรวมของ Tab Task Group', async () => {
+  it('ค่าใช้จ่ายนอกระบบ (AEX/OPEX) — netCostSatang กรอกเองแล้ว margin/estimateCost คำนวณจาก company margin% รวมเข้ายอดรวมของ Tab Task Group', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
 
-    await app.request(`/api/projects/${projectId}/estimate/extra-costs`, json(owner, { name: 'Cloud Hosting', amountSatang: 300000 }), env)
+    const created = (await (
+      await app.request(`/api/projects/${projectId}/estimate/extra-costs`, json(owner, { category: 'aex', name: 'Cloud Hosting' }), env)
+    ).json()) as { id: string; category: string }
+    expect(created.category).toBe('aex')
+    await app.request(`/api/projects/${projectId}/estimate/extra-costs/${created.id}`, patchJson(owner, { netCostSatang: 300000 }), env)
+
     const res = await app.request(`/api/projects/${projectId}/estimate/groups`, { headers: { cookie: owner } }, env)
-    const body = (await res.json()) as { extraCosts: Record<string, unknown>[]; totals: { extraCostsSatang: number; netCostSatang: number } }
+    const body = (await res.json()) as {
+      extraCosts: { id: string; category: string; netCostSatang: number; marginSatang: number; estimateCostSatang: number }[]
+      totals: { extraCostsSatang: number; netCostSatang: number; marginSatang: number; estimateCostSatang: number }
+    }
     expect(body.extraCosts).toHaveLength(1)
+    expect(body.extraCosts[0]).toMatchObject({ category: 'aex', netCostSatang: 300000, marginSatang: 90000, estimateCostSatang: 390000 })
     expect(body.totals.extraCostsSatang).toBe(300000)
     expect(body.totals.netCostSatang).toBeGreaterThanOrEqual(300000)
+    expect(body.totals.marginSatang).toBeGreaterThanOrEqual(90000)
+    expect(body.totals.estimateCostSatang).toBeGreaterThanOrEqual(390000)
   })
 })
 
@@ -243,5 +254,27 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/phases (Ta
     const dev = body.phases.find((p) => p.taskTypeId === 'tt_development')!
     // 48 ชม. + buffer 20% = 57.6 ชม. ÷ 4 ชม./วัน = 14.4 วัน
     expect(dev.totalEstimateDays).toBeCloseTo(14.4, 5)
+  })
+
+  it('extraCostTotals — รวม AEX/OPEX แยกหัวข้อ ตรงกับ Tab Task Group', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
+
+    const aex = (await (
+      await app.request(`/api/projects/${projectId}/estimate/extra-costs`, json(owner, { category: 'aex', name: 'Server' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/projects/${projectId}/estimate/extra-costs/${aex.id}`, patchJson(owner, { netCostSatang: 100000 }), env)
+    const opex = (await (
+      await app.request(`/api/projects/${projectId}/estimate/extra-costs`, json(owner, { category: 'opex', name: 'ค่าเดินทาง' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/projects/${projectId}/estimate/extra-costs/${opex.id}`, patchJson(owner, { netCostSatang: 50000 }), env)
+
+    const body = (await (
+      await app.request(`/api/projects/${projectId}/estimate/phases`, { headers: { cookie: owner } }, env)
+    ).json()) as { extraCostTotals: Record<'aex' | 'opex', { netCostSatang: number; estimateCostSatang: number }> }
+    expect(body.extraCostTotals.aex.netCostSatang).toBe(100000)
+    expect(body.extraCostTotals.aex.estimateCostSatang).toBe(130000) // +30% margin
+    expect(body.extraCostTotals.opex.netCostSatang).toBe(50000)
+    expect(body.extraCostTotals.opex.estimateCostSatang).toBe(65000)
   })
 })

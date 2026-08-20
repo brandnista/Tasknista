@@ -1,0 +1,1 @@
+ALTER TABLE `estimate_extra_costs` DROP COLUMN `amount_satang`;

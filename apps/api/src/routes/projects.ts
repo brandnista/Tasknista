@@ -134,6 +134,14 @@ async function estimateTaskRows(db: Db, cfg: typeof companyConfig.$inferSelect, 
   })
 }
 
+/** Pronista §Project Estimate v2 — ค่าใช้จ่ายนอกระบบ (AEX/OPEX): netCostSatang กรอกเอง → margin/estimateCost คำนวณจาก company margin% เหมือนแถวอื่นๆ */
+function computeExtraCost(x: { netCostSatang: number | null; quotationSatang: number | null }, cfg: typeof companyConfig.$inferSelect) {
+  const net = x.netCostSatang
+  const margin = net != null ? marginSatang(net, cfg.costMarginPercent) : null
+  const estimateCost = net != null && margin != null ? quotationSatang(net, margin) : null
+  return { netCostSatang: net, marginSatang: margin, estimateCostSatang: estimateCost, quotationSatang: x.quotationSatang }
+}
+
 /** vendor ห้ามเห็นการเงินโปรเจกต์ (SPEC §2/§4.8) — ตัดที่ server เสมอ */
 function serialize<
   T extends {
@@ -799,16 +807,21 @@ export const projectRoutes = new Hono<AppEnv>()
       }
     }
 
-    const extraCostsSatang = extraCosts.reduce((sum, x) => sum + x.amountSatang, 0)
+    const extraCostsComputed = extraCosts.map((x) => ({ id: x.id, category: x.category, name: x.name, ...computeExtraCost(x, cfg) }))
+    const extraCostsSatang = sumSatang(extraCostsComputed.map((x) => x.netCostSatang)) ?? 0
+    const extraCostsMargin = sumSatang(extraCostsComputed.map((x) => x.marginSatang)) ?? 0
+    const extraCostsEstimateCost = sumSatang(extraCostsComputed.map((x) => x.estimateCostSatang)) ?? 0
+    const extraCostsQuotation = sumSatang(extraCostsComputed.map((x) => x.quotationSatang)) ?? 0
+
     const netCostSatang = (sumSatang(groups.map((g) => g.netCostSatang)) ?? 0) + extraCostsSatang
-    const marginTotal = sumSatang(groups.map((g) => g.marginSatang)) ?? 0
-    const estimateCostTotal = (sumSatang(groups.map((g) => g.estimateCostSatang)) ?? 0) + extraCostsSatang
-    const quotationTotal = (sumSatang(groups.map((g) => g.quotationSatang)) ?? 0) + extraCostsSatang
+    const marginTotal = (sumSatang(groups.map((g) => g.marginSatang)) ?? 0) + extraCostsMargin
+    const estimateCostTotal = (sumSatang(groups.map((g) => g.estimateCostSatang)) ?? 0) + extraCostsEstimateCost
+    const quotationTotal = (sumSatang(groups.map((g) => g.quotationSatang)) ?? 0) + extraCostsQuotation
 
     return c.json({
       groups,
       available,
-      extraCosts: extraCosts.map((x) => ({ id: x.id, name: x.name, amountSatang: x.amountSatang })),
+      extraCosts: extraCostsComputed,
       totals: {
         netCostSatang,
         marginSatang: marginTotal,
@@ -907,24 +920,44 @@ export const projectRoutes = new Hono<AppEnv>()
       return { taskTypeId: tt.id, name: tt.name, totalEstimateDays: totalDays }
     })
 
-    return c.json({ phases })
+    // ผลรวม AEX/OPEX — ให้ Tab Phase และ Tab Summary โชว์ยอดค่าใช้จ่ายนอกระบบตรงกับ Tab Task Group
+    const extraCosts = await db.select().from(estimateExtraCosts).where(eq(estimateExtraCosts.projectId, projectId))
+    const extraCostTotals = (['aex', 'opex'] as const).reduce(
+      (acc, cat) => {
+        const items = extraCosts.filter((x) => x.category === cat).map((x) => computeExtraCost(x, cfg))
+        acc[cat] = {
+          netCostSatang: sumSatang(items.map((x) => x.netCostSatang)) ?? 0,
+          marginSatang: sumSatang(items.map((x) => x.marginSatang)) ?? 0,
+          estimateCostSatang: sumSatang(items.map((x) => x.estimateCostSatang)) ?? 0,
+          quotationSatang: sumSatang(items.map((x) => x.quotationSatang)) ?? 0,
+        }
+        return acc
+      },
+      {} as Record<'aex' | 'opex', { netCostSatang: number; marginSatang: number; estimateCostSatang: number; quotationSatang: number }>,
+    )
+
+    return c.json({ phases, extraCostTotals })
   })
 
-  // Pronista §Project Estimate v2 — Grid ค่าใช้จ่ายนอกระบบใน Tab Task Group (Cloud, ค่าเดินทาง ฯลฯ) รวมเข้ายอดรวมเสมอ
+  // Pronista §Project Estimate v2 — Grid ค่าใช้จ่ายนอกระบบใน Tab Task Group แยกหัวข้อ AEX/OPEX รวมเข้ายอดรวมเสมอ
   .get('/:id/estimate/extra-costs', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
+    const cfg = (await db.select().from(companyConfig).limit(1))[0]
+    if (!cfg) return c.json({ error: 'config_missing' }, 500)
     const rows = await db
       .select()
       .from(estimateExtraCosts)
       .where(eq(estimateExtraCosts.projectId, c.req.param('id')))
       .orderBy(asc(estimateExtraCosts.sortOrder), asc(estimateExtraCosts.createdAt))
-    return c.json(rows.map((x) => ({ id: x.id, name: x.name, amountSatang: x.amountSatang })))
+    return c.json(rows.map((x) => ({ id: x.id, category: x.category, name: x.name, ...computeExtraCost(x, cfg) })))
   })
 
   .post('/:id/estimate/extra-costs', ownerOnly, async (c) => {
-    const body = z.object({ name: z.string().min(1).max(200), amountSatang: z.number().int().nonnegative() }).safeParse(await c.req.json())
+    const body = z.object({ category: z.enum(['aex', 'opex']), name: z.string().min(1).max(200) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
+    const cfg = (await db.select().from(companyConfig).limit(1))[0]
+    if (!cfg) return c.json({ error: 'config_missing' }, 500)
     const projectId = c.req.param('id')
     const maxSort = (
       await db.select({ sortOrder: estimateExtraCosts.sortOrder }).from(estimateExtraCosts).where(eq(estimateExtraCosts.projectId, projectId))
@@ -932,15 +965,20 @@ export const projectRoutes = new Hono<AppEnv>()
     const created = (
       await db
         .insert(estimateExtraCosts)
-        .values({ projectId, name: body.data.name, amountSatang: body.data.amountSatang, sortOrder: maxSort + 1 })
+        .values({ projectId, category: body.data.category, name: body.data.name, sortOrder: maxSort + 1 })
         .returning()
     )[0]!
-    return c.json({ id: created.id, name: created.name, amountSatang: created.amountSatang })
+    return c.json({ id: created.id, category: created.category, name: created.name, ...computeExtraCost(created, cfg) })
   })
 
   .patch('/:id/estimate/extra-costs/:costId', ownerOnly, async (c) => {
     const body = z
-      .object({ name: z.string().min(1).max(200).optional(), amountSatang: z.number().int().nonnegative().optional() })
+      .object({
+        category: z.enum(['aex', 'opex']).optional(),
+        name: z.string().min(1).max(200).optional(),
+        netCostSatang: z.number().int().nonnegative().nullable().optional(),
+        quotationSatang: z.number().int().nonnegative().nullable().optional(),
+      })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)

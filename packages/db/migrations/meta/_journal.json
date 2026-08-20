@@ -582,6 +582,20 @@
       "when": 1787202221701,
       "tag": "0082_previous_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "6",
+      "when": 1787209915352,
+      "tag": "0083_flashy_revanche",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1787209933334,
+      "tag": "0084_cool_randall",
+      "breakpoints": true
     }
   ]
 }

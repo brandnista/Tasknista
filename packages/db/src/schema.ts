@@ -1095,7 +1095,9 @@ export const changelogItemLinks = sqliteTable(
   ],
 )
 
-/** Pronista §Project Estimate v2 — Tab "Task Group": ค่าใช้จ่ายนอกระบบต่อโปรเจกต์ (Cloud, ค่าเดินทาง ฯลฯ) กรอกอิสระ รวมเข้ายอดรวมของ Tab Task Group */
+/** Pronista §Project Estimate v2 — Tab "Task Group": ค่าใช้จ่ายนอกระบบต่อโปรเจกต์ แยกหัวข้อหลัก AEX/OPEX
+ * netCostSatang = PM กรอกเอง (ยอดฐานก่อนกำไร) · marginSatang/estimateCostSatang คำนวณจาก company margin% (ไม่เก็บ derive สด)
+ * quotationSatang = PM กรอกทับเองได้แยกจาก estimateCostSatang (null = ยังไม่กรอก ใช้ estimateCostSatang แทนตอนรวมยอด) */
 export const estimateExtraCosts = sqliteTable(
   'estimate_extra_costs',
   {
@@ -1103,8 +1105,10 @@ export const estimateExtraCosts = sqliteTable(
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id),
+    category: text('category', { enum: ['aex', 'opex'] }).notNull().default('opex'),
     name: text('name').notNull(),
-    amountSatang: integer('amount_satang').notNull(),
+    netCostSatang: integer('net_cost_satang'),
+    quotationSatang: integer('quotation_satang'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
