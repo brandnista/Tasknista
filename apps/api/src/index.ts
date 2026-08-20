@@ -40,6 +40,7 @@ import { runScheduled } from './scheduled'
 
 export { PresenceHub } from './do/presence-hub'
 export { InboxThreadHub } from './do/inbox-thread-hub'
+export { BoardPresenceHub } from './do/board-presence-hub'
 import type { AppEnv } from './types'
 
 const app = new Hono<AppEnv>()
@@ -198,6 +199,18 @@ app.get('/api/presence/ws', requireAuth, teamOnly, async (c) => {
   headers.set('x-user-id', me.id)
   headers.set('x-user-name', me.name)
   const stub = c.env.PRESENCE.get(c.env.PRESENCE.idFromName('global'))
+  return stub.fetch(new Request(c.req.raw.url, { headers }))
+})
+
+// presence WebSocket ของ Sprint Board (ใครกำลังดูบอร์ดนี้อยู่) — DO ต่อ sprint
+app.get('/api/sprints/:id/board/ws', requireAuth, async (c) => {
+  if (c.req.header('upgrade')?.toLowerCase() !== 'websocket')
+    return c.json({ error: 'expected_websocket' }, 426)
+  const me = c.get('user')
+  const headers = new Headers(c.req.raw.headers)
+  headers.set('x-user-id', me.id)
+  headers.set('x-user-name', me.name)
+  const stub = c.env.BOARD_HUB.get(c.env.BOARD_HUB.idFromName(c.req.param('id')))
   return stub.fetch(new Request(c.req.raw.url, { headers }))
 })
 

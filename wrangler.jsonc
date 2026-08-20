@@ -44,16 +44,18 @@
     "IMPORT_DATA_ENABLED": "0"
   },
 
-  // DO: PRESENCE = timer realtime (SPEC §4.15) · INBOX_HUB = collision อีเมลกลางราย thread (SPEC §4.12)
+  // DO: PRESENCE = timer realtime (SPEC §4.15) · INBOX_HUB = collision อีเมลกลางราย thread (SPEC §4.12) · BOARD_HUB = ใครดู Sprint Board อยู่ราย sprint
   "durable_objects": {
     "bindings": [
       { "name": "PRESENCE", "class_name": "PresenceHub" },
-      { "name": "INBOX_HUB", "class_name": "InboxThreadHub" }
+      { "name": "INBOX_HUB", "class_name": "InboxThreadHub" },
+      { "name": "BOARD_HUB", "class_name": "BoardPresenceHub" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PresenceHub"] },
-    { "tag": "v2", "new_sqlite_classes": ["InboxThreadHub"] }
+    { "tag": "v2", "new_sqlite_classes": ["InboxThreadHub"] },
+    { "tag": "v3", "new_sqlite_classes": ["BoardPresenceHub"] }
   ],
 
   // D1: (2026-08-05) database ใหม่บนบัญชี Brandnista Co., Ltd. — ย้ายข้อมูลจากบัญชีเดิมมาแล้วผ่าน export/import
@@ -92,7 +94,8 @@
       "durable_objects": {
         "bindings": [
           { "name": "PRESENCE", "class_name": "PresenceHub" },
-          { "name": "INBOX_HUB", "class_name": "InboxThreadHub" }
+          { "name": "INBOX_HUB", "class_name": "InboxThreadHub" },
+          { "name": "BOARD_HUB", "class_name": "BoardPresenceHub" }
         ]
       },
       "d1_databases": [

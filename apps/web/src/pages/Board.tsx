@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronLeft, X } from 'lucide-react'
-import { type DragEvent, useState } from 'react'
+import { type DragEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
@@ -245,6 +245,42 @@ export function BoardPage() {
   const [subView, setSubView] = useState<SubView>('sub')
   const [busy, setBusy] = useState(false)
 
+  // Pronista §Board Presence — WebSocket เข้า DO ราย sprint: ใครกำลังเปิดบอร์ดนี้อยู่ (pattern เดียวกับ Inbox.tsx)
+  const [viewers, setViewers] = useState<{ userId: string; name: string }[]>([])
+  const wsRef = useRef<WebSocket | null>(null)
+  useEffect(() => {
+    if (!sprintId) return
+    let stopped = false
+    let retry: number | null = null
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const ws = new WebSocket(`${proto}://${location.host}/api/sprints/${sprintId}/board/ws`)
+      wsRef.current = ws
+      ws.onmessage = (e) => {
+        if (e.data === 'pong') return
+        try {
+          const msg = JSON.parse(String(e.data)) as { type?: string; viewers?: typeof viewers }
+          if (msg.type === 'roster' && msg.viewers) setViewers(msg.viewers)
+        } catch {
+          // ข้อความนอกรูปแบบ
+        }
+      }
+      ws.onclose = () => {
+        if (!stopped) retry = window.setTimeout(connect, 2000)
+      }
+    }
+    connect()
+    const ping = window.setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send('ping')
+    }, 30_000)
+    return () => {
+      stopped = true
+      if (retry) window.clearTimeout(retry)
+      window.clearInterval(ping)
+      wsRef.current?.close()
+    }
+  }, [sprintId])
+
   const sprint = data?.sprint
   const preset = data?.preset
   const tasks = data?.tasks ?? []
@@ -345,6 +381,16 @@ export function BoardPage() {
         <h2 className="text-lg font-bold text-ink">{sprint.name || 'Sprint'}</h2>
         <span className="text-xs text-muted">{fmtThaiDate(sprint.startDate)} – {fmtThaiDate(sprint.endDate, true)}</span>
         <span className="text-xs px-2 py-0.5 rounded-full bg-info-50 text-info-700 ml-2">{preset.name}</span>
+        {viewers.length > 0 && (
+          <div className="flex items-center -space-x-1.5 ml-2" title={`${viewers.length} คนกำลังดูบอร์ดนี้: ${viewers.map((v) => v.name).join(', ')}`}>
+            {viewers.slice(0, 5).map((v) => (
+              <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
+            ))}
+            {viewers.length > 5 && (
+              <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
+            )}
+          </div>
+        )}
         {canEditSprint && (
           <button
             onClick={() => void completeSprint()}
