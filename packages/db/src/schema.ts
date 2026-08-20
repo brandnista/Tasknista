@@ -499,8 +499,8 @@ export const tasks = sqliteTable(
     costBufferPercent: integer('cost_buffer_percent'),
     // Pronista §Project Estimate — PM เลือก Role (อ้าง company_config.parameterRoles) ต่อ task เพื่อดึง Cost/Day จาก company_config.costRoles — ไม่ผูกกับตำแหน่งสิทธิ์ (positions) ของสมาชิกโปรเจกต์
     costRoleId: text('cost_role_id'),
-    // Pronista §Project Estimate — task นี้ถูกเลือกเข้าตาราง Estimate ของโปรเจกต์หรือไม่ (ติ๊กเลือกจากหน้า Tab Project Estimate)
-    estimateSelected: integer('estimate_selected', { mode: 'boolean' }).notNull().default(false),
+    // Pronista §Project Estimate v2 — ราคาที่จะเสนอลูกค้าจริง กรอกเองโดย PM ต่อ task แยกจาก Estimate Cost ที่คำนวณอัตโนมัติจากสูตร (null = ยังไม่กรอก)
+    quotationSatang: integer('quotation_satang'),
     startDate: text('start_date'), // YYYY-MM-DD → ไทม์ไลน์ต่อกลุ่ม
     dueDate: text('due_date'),
     createdBy: text('created_by')
@@ -1092,6 +1092,50 @@ export const changelogItemLinks = sqliteTable(
     index('changelog_item_links_item_idx').on(t.itemId),
     index('changelog_item_links_task_idx').on(t.taskId),
     uniqueIndex('changelog_item_links_uq_idx').on(t.itemId, t.taskId),
+  ],
+)
+
+/** Pronista §Project Estimate v2 — Tab "Task Group": ค่าใช้จ่ายนอกระบบต่อโปรเจกต์ (Cloud, ค่าเดินทาง ฯลฯ) กรอกอิสระ รวมเข้ายอดรวมของ Tab Task Group */
+export const estimateExtraCosts = sqliteTable(
+  'estimate_extra_costs',
+  {
+    id: id(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    name: text('name').notNull(),
+    amountSatang: integer('amount_satang').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('estimate_extra_costs_project_idx').on(t.projectId)],
+)
+
+/** Pronista §Project Estimate v2 — Tab "Task Group": แถวที่ PM กรอกเองตรงๆ สำหรับ Task Type/Sub-type ที่ยังไม่มี task จริงในโปรเจกต์เลย (แถวที่มี task จริงคำนวณรวมอัตโนมัติ ไม่ผ่านตารางนี้)
+ * key = 1 แถวต่อ (projectId, taskTypeId, subTaskTypeId) — subTaskTypeId เป็น null ได้ถ้าอยากกรอกที่ระดับ Task Type ตรงๆ ไม่มี sub */
+export const estimateGroupOverrides = sqliteTable(
+  'estimate_group_overrides',
+  {
+    id: id(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    taskTypeId: text('task_type_id').notNull(),
+    subTaskTypeId: text('sub_task_type_id'),
+    teamMemberText: text('team_member_text'),
+    costRoleId: text('cost_role_id'),
+    estimateMinutes: integer('estimate_minutes'),
+    bufferPercent: integer('buffer_percent'),
+    workMinutesPerDay: integer('work_minutes_per_day'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index('estimate_group_overrides_project_idx').on(t.projectId),
+    uniqueIndex('estimate_group_overrides_uq_idx').on(t.projectId, t.taskTypeId, t.subTaskTypeId),
   ],
 )
 

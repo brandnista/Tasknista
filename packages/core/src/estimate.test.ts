@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { baseSatang } from './money'
-import { bufferMinutes, costPerHourFromDay, estimateDays, marginSatang, quotationSatang } from './estimate'
+import { bufferMinutes, costPerHourFromDay, estimateDays, marginSatang, quotationSatang, sumMinutes, sumSatang } from './estimate'
 
 describe('โจทย์เต็ม — ไล่สูตรทั้งสายตรงกับไฟล์คอนเฟิร์ม (กานต์ / Senior Full Stack Developer)', () => {
   it('Cost/Day 6,000 → Cost/Hour 750 → Estimate 20h + Buffer 20% → Total 24h → Net Cost 18,000 → Margin 30% 5,400 → Quotation 23,400 → Work Hour/Day 4h → Estimate Day 6', () => {
@@ -95,5 +95,26 @@ describe('estimateDays — Total W/H ÷ Work Hour/Day (แสดงผลเท�
 describe('reuse baseSatang สำหรับ Net Cost (Hour) — ไม่เขียนใหม่', () => {
   it('Total W/H (นาที) × Cost/Hour (สตางค์) ตรงไฟล์ตัวอย่าง', () => {
     expect(baseSatang(6600, 850_00)).toBe(93_500_00) // 110 ชม. × ฿850/ชม. = ฿93,500
+  })
+})
+
+describe('sumMinutes — รวมนาทีของหลาย task เข้าเป็น Task Group (Pronista §Project Estimate v2)', () => {
+  it('บวกตรงๆ', () => {
+    expect(sumMinutes([60, 120, 30])).toBe(210)
+  })
+  it('array ว่าง → 0', () => {
+    expect(sumMinutes([])).toBe(0)
+  })
+})
+
+describe('sumSatang — รวมเงินของหลาย task เข้าเป็น Task Group (ข้าม task ที่ยังไม่ตั้งต้นทุน)', () => {
+  it('บวกเฉพาะค่าที่ไม่ใช่ null', () => {
+    expect(sumSatang([100_00, null, 200_00])).toBe(300_00)
+  })
+  it('ทุกค่าเป็น null → คืน null', () => {
+    expect(sumSatang([null, null])).toBeNull()
+  })
+  it('array ว่าง → null', () => {
+    expect(sumSatang([])).toBeNull()
   })
 })

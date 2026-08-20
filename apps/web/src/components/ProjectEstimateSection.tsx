@@ -1,27 +1,14 @@
 /**
- * Pronista §Project Estimate — แท็บ "Project Estimate" (เห็นเฉพาะ owner — เผยต้นทุน/margin ของทีมทั้งหมด)
+ * Pronista §Project Estimate v2 — แท็บ "Project Estimate" (เห็นเฉพาะ owner — เผยต้นทุน/margin ของทีมทั้งหมด)
  * Role ต่อ task มาจาก PM เลือกเองจาก company_config.parameterRoles (ดู tasks.costRoleId) — ไม่ผูกกับตำแหน่งสิทธิ์ (positions) ของสมาชิกโปรเจกต์
  * Cost/Hour คำนวณอัตโนมัติจาก Cost/Day ÷ 8 (costPerHourFromDay) · Work Hour/Day กรอกเองต่อ task (tasks.costWorkMinutesPerDay)
- * 3 ส่วน: (1) สรุปงานรายบุคคล (2) เลือกงานเข้า Estimate แบบ filter+checkbox (3) ตาราง Estimate ที่คำนวณจากงานที่เลือกไว้
+ * สรุปงานรายบุคคล (ภาพรวมทุกคน → คลิกดูรายละเอียดต่อคน) + 4 แท็บย่อย: Summary / Phase / Task Group / Task (ดึงงานทั้งหมดในโปรเจกต์อัตโนมัติ ไม่มี checkbox เลือกอีกต่อไป)
  */
-import { formatSatang, minutesToHoursLabel, resolveParameterRoles, resolveTaskTypes, type ParameterRole, type TaskType } from '@seedoffice/core'
+import { formatSatang, minutesToHoursLabel, resolveParameterRoles, type ParameterRole } from '@seedoffice/core'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
-
-interface EstimateTaskRow {
-  id: string
-  code: string | null
-  title: string
-  kind: string
-  assigneeId: string | null
-  assigneeName: string | null
-  taskType: string | null
-  subTaskType: string | null
-  estimateMinutes: number | null
-  estimateSelected: boolean
-}
 
 interface EstimateRow {
   taskId: string
@@ -41,18 +28,64 @@ interface EstimateRow {
   workMinutesPerDay: number
   estimateDays: number
   marginSatang: number | null
+  estimateCostSatang: number | null
   quotationSatang: number | null
 }
 
 interface EstimateResponse {
   rows: EstimateRow[]
-  totals: { netCostSatang: number; marginSatang: number; quotationSatang: number }
+  totals: { netCostSatang: number; marginSatang: number; estimateCostSatang: number }
   project: { estimateNetWorkingDays: number | null; quotedSatang: number | null }
   suggestedNetWorkingDays: number | null
   estimateProjectCostPerDaySatang: number | null
 }
 
-const KIND_LABEL: Record<string, string> = { task: 'Task', defect: 'Defect', cr: 'CR', backlog: 'Backlog' }
+interface GroupRow {
+  taskTypeId: string
+  subTaskTypeId: string
+  name: string
+  source: 'auto' | 'manual'
+  teamMember: string | null
+  role: string | null
+  costRoleId?: string | null
+  costPerDaySatang: number | null
+  costPerHourSatang: number | null
+  estimateMinutes: number
+  bufferPercent?: number
+  bufferMinutes: number
+  totalMinutes: number
+  netCostSatang: number | null
+  workMinutesPerDay: number | null
+  estimateDays: number
+  marginSatang: number | null
+  estimateCostSatang: number | null
+}
+
+interface ExtraCost {
+  id: string
+  name: string
+  amountSatang: number
+}
+
+interface GroupsResponse {
+  groups: GroupRow[]
+  extraCosts: ExtraCost[]
+  totals: { netCostSatang: number; marginSatang: number; extraCostsSatang: number; estimateCostSatang: number }
+}
+
+interface PhaseRow {
+  taskTypeId: string
+  name: string
+  totalEstimateDays: number
+}
+
+type EstimateView = 'summary' | 'phase' | 'group' | 'task'
+const VIEWS: [EstimateView, string][] = [
+  ['summary', 'Summary'],
+  ['phase', 'Phase'],
+  ['group', 'Task Group'],
+  ['task', 'Task'],
+]
 
 export function ProjectEstimateSection({
   projectId,
@@ -66,90 +99,50 @@ export function ProjectEstimateSection({
   const { data: allUsersData } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
   const adminUsers = (allUsersData ?? []).filter((u) => u.role === 'owner')
   const summaryMembers = [...members.filter((m) => m.role !== 'guest'), ...adminUsers.filter((a) => !members.some((m) => m.id === a.id))]
-  const { data: allTasks, reload: reloadTasks } = useLoad<EstimateTaskRow[]>(() => api.get(`/api/projects/${projectId}/estimate/tasks`), [projectId])
+
   const { data: estimate, reload: reloadEstimate } = useLoad<EstimateResponse>(() => api.get(`/api/projects/${projectId}/estimate`), [projectId])
-  const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  const { data: groupsData, reload: reloadGroups } = useLoad<GroupsResponse>(() => api.get(`/api/projects/${projectId}/estimate/groups`), [projectId])
+  const { data: phasesData, reload: reloadPhases } = useLoad<{ phases: PhaseRow[] }>(() => api.get(`/api/projects/${projectId}/estimate/phases`), [projectId])
   const { data: roleCfg } = useLoad<{ parameterRoles: ParameterRole[] }>(() => api.get('/api/admin/parameter-roles'))
 
   const parameterRoles = resolveParameterRoles(roleCfg?.parameterRoles)
-  const taskTypeCatalog = resolveTaskTypes(cfg?.taskTypes)
 
   const money = (satang: number | null) => (satang != null ? formatSatang(satang) : '—')
   const hours = (minutes: number) => minutesToHoursLabel(minutes)
 
-  const reload = async () => {
-    await Promise.all([reloadTasks(), reloadEstimate()])
+  const reloadAll = async () => {
+    await Promise.all([reloadEstimate(), reloadGroups(), reloadPhases()])
   }
 
-  // --- สรุปงานรายบุคคล ---
+  // --- สรุปงานรายบุคคล — default = ภาพรวมทุกคน · คลิกชื่อ = ดูรายละเอียดงานของคนนั้น ---
   const [memberId, setMemberId] = useState('')
-  const memberTasks = (allTasks ?? []).filter((t) => t.assigneeId === memberId)
-  const memberTotalMinutes = memberTasks.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
+  const memberOverview = summaryMembers.map((m) => {
+    const tasksOfMember = (estimate?.rows ?? []).filter((r) => r.assigneeId === m.id)
+    return { id: m.id, name: m.name, totalMinutes: tasksOfMember.reduce((sum, r) => sum + r.estimateMinutes, 0), count: tasksOfMember.length }
+  })
+  const selectedMember = summaryMembers.find((m) => m.id === memberId)
+  const memberTasks = (estimate?.rows ?? []).filter((r) => r.assigneeId === memberId)
+  const memberTotalMinutes = memberTasks.reduce((sum, r) => sum + r.estimateMinutes, 0)
 
-  // --- เลือกงานเข้า Estimate ---
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [assigneeFilter, setAssigneeFilter] = useState('all')
-  const [kindFilter, setKindFilter] = useState('all')
-  const [taskTypeFilter, setTaskTypeFilter] = useState('all')
-  const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [saving, setSaving] = useState(false)
+  // --- แท็บย่อย ---
+  const [view, setView] = useState<EstimateView>('group')
 
-  const openPicker = () => {
-    setPicked(new Set((allTasks ?? []).filter((t) => t.estimateSelected).map((t) => t.id)))
-    setAssigneeFilter('all')
-    setKindFilter('all')
-    setTaskTypeFilter('all')
-    setPickerOpen(true)
-  }
-  const assigneeOptions = [...new Set((allTasks ?? []).map((t) => t.assigneeName).filter((n): n is string => !!n))].sort()
-  const filteredTasks = (allTasks ?? [])
-    .filter((t) => assigneeFilter === 'all' || t.assigneeName === assigneeFilter)
-    .filter((t) => kindFilter === 'all' || t.kind === kindFilter)
-    .filter((t) => taskTypeFilter === 'all' || t.taskType === taskTypeFilter)
-  const togglePick = (id: string) =>
-    setPicked((s) => {
-      const next = new Set(s)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  const allFilteredPicked = filteredTasks.length > 0 && filteredTasks.every((t) => picked.has(t.id))
-  const toggleAll = () =>
-    setPicked((s) => {
-      const next = new Set(s)
-      for (const t of filteredTasks) {
-        if (allFilteredPicked) next.delete(t.id)
-        else next.add(t.id)
-      }
-      return next
-    })
-  const pickedTotalMinutes = (allTasks ?? [])
-    .filter((t) => picked.has(t.id))
-    .reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
-
-  const confirmSelection = async () => {
-    setSaving(true)
-    try {
-      await api.put(`/api/projects/${projectId}/estimate/selection`, { taskIds: [...picked] })
-      setPickerOpen(false)
-      await reload()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // --- แก้ไขในตาราง Estimate ---
+  // --- แก้ไขในตาราง Estimate (แท็บ Task) ---
   const saveRole = async (taskId: string, costRoleId: string) => {
     await api.patch(`/api/tasks/${taskId}`, { costRoleId: costRoleId || null })
-    await reloadEstimate()
+    await reloadAll()
   }
   const saveWorkHourPerDay = async (taskId: string, v: string) => {
     await api.patch(`/api/tasks/${taskId}`, { costWorkMinutesPerDay: v.trim() ? Math.round(Number(v) * 60) : null })
-    await reloadEstimate()
+    await reloadAll()
   }
   const saveBufferPercent = async (taskId: string, v: string) => {
     await api.patch(`/api/tasks/${taskId}`, { costBufferPercent: v.trim() ? Math.round(Number(v)) : null })
-    await reloadEstimate()
+    await reloadAll()
+  }
+  const saveQuotation = async (taskId: string, v: string) => {
+    await api.patch(`/api/tasks/${taskId}`, { quotationSatang: v.trim() ? Math.round(Number(v) * 100) : null })
+    await reloadAll()
   }
   const saveNetWorkingDays = async (v: string) => {
     const n = v.trim() ? Math.round(Number(v)) : null
@@ -157,9 +150,33 @@ export function ProjectEstimateSection({
     await reloadEstimate()
   }
 
+  // --- แก้ไข Task Group ที่ยังไม่มี task จริง (source='manual') ---
+  const saveGroupField = async (taskTypeId: string, subTaskTypeId: string, patch: Record<string, unknown>) => {
+    await api.put(`/api/projects/${projectId}/estimate/groups/override`, { taskTypeId, subTaskTypeId, ...patch })
+    await reloadAll()
+  }
+
+  // --- ค่าใช้จ่ายนอกระบบ ---
+  const addExtraCost = async () => {
+    await api.post(`/api/projects/${projectId}/estimate/extra-costs`, { name: 'รายการใหม่', amountSatang: 0 })
+    await reloadGroups()
+  }
+  const saveExtraCostName = async (id: string, name: string) => {
+    await api.patch(`/api/projects/${projectId}/estimate/extra-costs/${id}`, { name })
+    await reloadGroups()
+  }
+  const saveExtraCostAmount = async (id: string, v: string) => {
+    await api.patch(`/api/projects/${projectId}/estimate/extra-costs/${id}`, { amountSatang: v.trim() ? Math.round(Number(v) * 100) : 0 })
+    await reloadGroups()
+  }
+  const deleteExtraCost = async (id: string) => {
+    await api.delete(`/api/projects/${projectId}/estimate/extra-costs/${id}`)
+    await reloadGroups()
+  }
+
   const inputCell = 'w-20 text-right text-sm bg-white border border-border rounded-lg px-2 py-1 tabular-nums focus:outline-hidden focus:border-brand-400'
 
-  if (!allTasks || !estimate) return <div className="text-sm text-muted py-6 text-center">กำลังโหลด…</div>
+  if (!estimate || !groupsData || !phasesData) return <div className="text-sm text-muted py-6 text-center">กำลังโหลด…</div>
 
   return (
     <div className="space-y-4">
@@ -171,247 +188,415 @@ export function ProjectEstimateSection({
           onChange={(e) => setMemberId(e.target.value)}
           className="text-sm bg-white border border-border rounded-lg px-3 py-2 mb-3"
         >
-          <option value="">— เลือกสมาชิก —</option>
+          <option value="">— ภาพรวมทุกคน —</option>
           {summaryMembers.map((m) => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
-        {memberId &&
-          (memberTasks.length === 0 ? (
-            <div className="text-sm text-muted py-4 text-center">ยังไม่มีงานที่ Assign ให้คนนี้ในโปรเจกต์นี้</div>
-          ) : (
-            <>
-              <table className="w-full text-sm">
-                <thead className="text-dim text-xs">
-                  <tr>
-                    <th className="text-left font-medium py-1.5">งาน</th>
-                    <th className="text-right font-medium py-1.5">ประมาณการ (ชม.)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-divider">
-                  {memberTasks.map((t) => (
-                    <tr key={t.id}>
-                      <td className="py-1.5">
-                        {t.code && <span className="text-muted font-mono text-xs mr-1">{t.code}</span>}
-                        <Link to={`/tasks/${t.id}`} className="text-brand-700 hover:underline">{t.title}</Link>
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums">{t.estimateMinutes ? hours(t.estimateMinutes) : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="text-right text-sm font-semibold mt-2 pt-2 border-t border-border-subtle">
-                รวม {hours(memberTotalMinutes)} ชม.
-              </div>
-            </>
-          ))}
-      </div>
-
-      {/* เลือกงานเข้า Estimate */}
-      <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="text-sm font-semibold text-strong">รายการงานใน Estimate ({estimate.rows.length})</div>
-          <button onClick={openPicker} className="text-sm text-brand-700 hover:text-brand-800">จัดการรายการงาน</button>
-        </div>
-        {pickerOpen && (
-          <div className="mt-3 border-t border-border-subtle pt-3">
-            <div className="flex flex-wrap gap-2 mb-3">
-              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="text-xs border border-border rounded-lg px-2 py-1.5">
-                <option value="all">ผู้รับผิดชอบ: ทั้งหมด</option>
-                {assigneeOptions.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-              <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)} className="text-xs border border-border rounded-lg px-2 py-1.5">
-                <option value="all">ประเภทงาน: ทั้งหมด</option>
-                {Object.entries(KIND_LABEL).map(([k, label]) => (
-                  <option key={k} value={k}>{label}</option>
-                ))}
-              </select>
-              <select value={taskTypeFilter} onChange={(e) => setTaskTypeFilter(e.target.value)} className="text-xs border border-border rounded-lg px-2 py-1.5">
-                <option value="all">ประเภท Task: ทั้งหมด</option>
-                {taskTypeCatalog.map((tt) => (
-                  <option key={tt.id} value={tt.id}>{tt.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="max-h-80 overflow-y-auto border border-border-subtle rounded-lg">
-              <table className="w-full text-sm">
-                <thead className="bg-hover text-dim text-xs sticky top-0">
-                  <tr>
-                    <th className="px-2 py-1.5 w-8">
-                      <input type="checkbox" checked={allFilteredPicked} onChange={toggleAll} />
-                    </th>
-                    <th className="text-left font-medium px-2 py-1.5">งาน</th>
-                    <th className="text-left font-medium px-2 py-1.5">ผู้รับผิดชอบ</th>
-                    <th className="text-right font-medium px-2 py-1.5">ประมาณการ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-divider">
-                  {filteredTasks.map((t) => (
-                    <tr key={t.id}>
-                      <td className="px-2 py-1.5">
-                        <input type="checkbox" checked={picked.has(t.id)} onChange={() => togglePick(t.id)} />
-                      </td>
-                      <td className="px-2 py-1.5">
-                        {t.code && <span className="text-muted font-mono text-xs mr-1">{t.code}</span>}
-                        {t.title}
-                      </td>
-                      <td className="px-2 py-1.5 text-dim">{t.assigneeName ?? '—'}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">{t.estimateMinutes ? hours(t.estimateMinutes) : '—'}</td>
-                    </tr>
-                  ))}
-                  {filteredTasks.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="text-center text-muted py-4">ไม่มีงานตรงเงื่อนไข</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="sticky bottom-0 z-10 flex items-center gap-3 bg-ink text-white rounded-lg shadow-lg px-4 py-2.5 mt-2 flex-wrap">
-              <span className="text-sm font-medium">เลือก {picked.size} งาน</span>
-              <span className="text-sm text-white/70">รวม ⏱ {hours(pickedTotalMinutes)} ชม.</span>
-              <div className="ml-auto flex items-center gap-2">
-                <button onClick={() => setPickerOpen(false)} className="text-sm text-white/70 hover:text-white px-2">ยกเลิก</button>
-                <button
-                  onClick={() => void confirmSelection()}
-                  disabled={saving}
-                  className="text-sm bg-white text-ink px-3 py-1.5 rounded-lg font-medium disabled:opacity-40"
-                >
-                  {saving ? 'กำลังบันทึก…' : 'ตกลง'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ตาราง Estimate */}
-      <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
-        <div className="text-sm font-semibold text-strong mb-3">ตาราง Estimate</div>
-        {estimate.rows.length === 0 ? (
-          <div className="text-sm text-muted py-6 text-center">ยังไม่มีงานที่เลือกเข้า Estimate — กด "จัดการรายการงาน" ด้านบน</div>
-        ) : (
-          <table className="w-full text-sm min-w-[1280px]">
-            <thead className="bg-hover text-dim text-xs">
+        {!memberId ? (
+          <table className="w-full text-sm">
+            <thead className="text-dim text-xs">
               <tr>
-                <th className="text-left font-medium px-3 py-2">Task</th>
-                <th className="text-left font-medium px-3 py-2">Team Member</th>
-                <th className="text-left font-medium px-3 py-2">Role</th>
-                <th className="text-right font-medium px-3 py-2">Cost/Day</th>
-                <th className="text-right font-medium px-3 py-2">Cost/Hour</th>
-                <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
-                <th className="text-right font-medium px-3 py-2">Buffer %</th>
-                <th className="text-right font-medium px-3 py-2">Buffer W/H</th>
-                <th className="text-right font-medium px-3 py-2">Total W/H</th>
-                <th className="text-right font-medium px-3 py-2">Net Cost (Hour)</th>
-                <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
-                <th className="text-right font-medium px-3 py-2">Estimate Day</th>
-                <th className="text-right font-medium px-3 py-2">Margin</th>
-                <th className="text-right font-medium px-3 py-2">Quotation Cost</th>
+                <th className="text-left font-medium py-1.5">สมาชิก</th>
+                <th className="text-right font-medium py-1.5">จำนวนงาน</th>
+                <th className="text-right font-medium py-1.5">ประมาณการรวม (ชม.)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-divider">
-              {estimate.rows.map((r) => (
-                <tr key={r.taskId}>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
-                    <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
+              {memberOverview.map((m) => (
+                <tr key={m.id}>
+                  <td className="py-1.5">
+                    <button onClick={() => setMemberId(m.id)} className="text-brand-700 hover:underline">{m.name}</button>
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{r.assigneeName ?? '—'}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <select
-                      value={r.costRoleId ?? ''}
-                      onChange={(e) => void saveRole(r.taskId, e.target.value)}
-                      className="w-40 text-sm bg-white border border-border rounded-lg px-2 py-1 focus:outline-hidden focus:border-brand-400"
-                    >
-                      <option value="">— ยังไม่ระบุ —</option>
-                      {parameterRoles.map((pr) => (
-                        <option key={pr.id} value={pr.id}>{pr.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">
-                    {r.costPerDaySatang != null ? money(r.costPerDaySatang) : <span className="text-warning-600 text-xs">ยังไม่ตั้งต้นทุน</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.costPerHourSatang)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.estimateMinutes)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      defaultValue={r.bufferPercent}
-                      onBlur={(e) => void saveBufferPercent(r.taskId, e.target.value)}
-                      className={inputCell}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.bufferMinutes)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.totalMinutes)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{r.netCostSatang != null ? money(r.netCostSatang) : '—'}</td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      defaultValue={r.workMinutesPerDay / 60}
-                      onBlur={(e) => void saveWorkHourPerDay(r.taskId, e.target.value)}
-                      className={inputCell}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{r.estimateDays.toFixed(1)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.marginSatang)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-medium">{money(r.quotationSatang)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{m.count}</td>
+                  <td className="py-1.5 text-right tabular-nums">{m.totalMinutes ? hours(m.totalMinutes) : '—'}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-border-subtle font-semibold">
-                <td className="px-3 py-2" colSpan={9}>รวม</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.netCostSatang)}</td>
-                <td />
-                <td />
-                <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.marginSatang)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.quotationSatang)}</td>
-              </tr>
-            </tfoot>
           </table>
-        )}
-        {estimate.rows.some((r) => r.netCostSatang == null) && (
-          <p className="text-xs text-warning-600 mt-2">
-            แถวที่ "ยังไม่ตั้งต้นทุน" ไม่ถูกรวมในยอดด้านบน — เลือก Role ให้ครบ หรือไปตั้งต้นทุน/วันของ Role นั้นที่เมนู{' '}
-            <Link to="/admin/cost" className="underline">กำหนดต้นทุน</Link>
-          </p>
+        ) : memberTasks.length === 0 ? (
+          <div className="text-sm text-muted py-4 text-center">ยังไม่มีงานที่ Assign ให้ {selectedMember?.name ?? 'คนนี้'} ในโปรเจกต์นี้</div>
+        ) : (
+          <>
+            <table className="w-full text-sm">
+              <thead className="text-dim text-xs">
+                <tr>
+                  <th className="text-left font-medium py-1.5">งาน</th>
+                  <th className="text-right font-medium py-1.5">ประมาณการ (ชม.)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-divider">
+                {memberTasks.map((r) => (
+                  <tr key={r.taskId}>
+                    <td className="py-1.5">
+                      {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
+                      <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums">{r.estimateMinutes ? hours(r.estimateMinutes) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-right text-sm font-semibold mt-2 pt-2 border-t border-border-subtle">
+              รวม {hours(memberTotalMinutes)} ชม.
+            </div>
+          </>
         )}
       </div>
 
-      {/* Net Quotation Cost / Net Working Days / Estimate Project Cost per Day */}
-      <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 grid sm:grid-cols-3 gap-4">
-        <label className="text-xs text-muted">
-          Net Working Days
-          <input
-            type="number"
-            min={1}
-            defaultValue={estimate.project.estimateNetWorkingDays ?? estimate.suggestedNetWorkingDays ?? ''}
-            placeholder={estimate.suggestedNetWorkingDays != null ? String(estimate.suggestedNetWorkingDays) : ''}
-            onBlur={(e) => void saveNetWorkingDays(e.target.value)}
-            className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 mt-1 tabular-nums"
-          />
-          {estimate.suggestedNetWorkingDays != null && (
-            <span className="text-[11px] text-muted">แนะนำ {estimate.suggestedNetWorkingDays} วัน (จาก Task ที่ใช้เวลานานสุด)</span>
-          )}
-        </label>
-        <div className="text-xs text-muted">
-          Net Quotation Cost
-          <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.project.quotedSatang)}</div>
-          <Link to={`/projects/${projectId}/edit`} className="text-[11px] text-brand-600 hover:underline">แก้ที่หน้าแก้ไขโปรเจกต์</Link>
-        </div>
-        <div className="text-xs text-muted">
-          Estimate Project Cost/Day
-          <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.estimateProjectCostPerDaySatang)}</div>
-        </div>
+      {/* แท็บย่อย Summary / Phase / Task Group / Task */}
+      <div className="bg-white rounded-lg shadow-xs p-2 flex gap-1 flex-wrap">
+        {VIEWS.map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`text-sm px-3 py-1.5 rounded-lg font-medium ${view === v ? 'bg-ink text-white' : 'text-body hover:bg-hover'}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
+
+      {/* Tab: Summary */}
+      {view === 'summary' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
+            <div className="text-sm font-semibold text-strong mb-3">สรุปวันประเมินตามหัวข้อหลัก (Phase)</div>
+            <table className="w-full text-sm">
+              <thead className="text-dim text-xs">
+                <tr>
+                  <th className="text-left font-medium py-1.5">Phase</th>
+                  <th className="text-right font-medium py-1.5">Total Estimate Day</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-divider">
+                {phasesData.phases.map((p) => (
+                  <tr key={p.taskTypeId}>
+                    <td className="py-1.5">{p.name}</td>
+                    <td className="py-1.5 text-right tabular-nums">{p.totalEstimateDays.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border-subtle font-semibold">
+                  <td className="py-1.5">รวม</td>
+                  <td className="py-1.5 text-right tabular-nums">{phasesData.phases.reduce((s, p) => s + p.totalEstimateDays, 0).toFixed(1)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 grid sm:grid-cols-3 gap-4">
+            <label className="text-xs text-muted">
+              Net Working Days
+              <input
+                type="number"
+                min={1}
+                defaultValue={estimate.project.estimateNetWorkingDays ?? estimate.suggestedNetWorkingDays ?? ''}
+                placeholder={estimate.suggestedNetWorkingDays != null ? String(estimate.suggestedNetWorkingDays) : ''}
+                onBlur={(e) => void saveNetWorkingDays(e.target.value)}
+                className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 mt-1 tabular-nums"
+              />
+              {estimate.suggestedNetWorkingDays != null && (
+                <span className="text-[11px] text-muted">แนะนำ {estimate.suggestedNetWorkingDays} วัน (จาก Task ที่ใช้เวลานานสุด)</span>
+              )}
+            </label>
+            <div className="text-xs text-muted">
+              Net Quotation Cost
+              <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.project.quotedSatang)}</div>
+              <Link to={`/projects/${projectId}/edit`} className="text-[11px] text-brand-600 hover:underline">แก้ที่หน้าแก้ไขโปรเจกต์</Link>
+            </div>
+            <div className="text-xs text-muted">
+              Estimate Project Cost/Day
+              <div className="text-lg font-semibold text-ink tabular-nums mt-1">{money(estimate.estimateProjectCostPerDaySatang)}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Phase */}
+      {view === 'phase' && (
+        <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
+          <div className="text-sm font-semibold text-strong mb-3">Phase — รวม Estimate Day จาก Task Group ตามหัวข้อหลัก</div>
+          <table className="w-full text-sm">
+            <thead className="text-dim text-xs">
+              <tr>
+                <th className="text-left font-medium py-1.5">Phase</th>
+                <th className="text-right font-medium py-1.5">Total Estimate Day</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-divider">
+              {phasesData.phases.map((p) => (
+                <tr key={p.taskTypeId}>
+                  <td className="py-1.5">{p.name}</td>
+                  <td className="py-1.5 text-right tabular-nums">{p.totalEstimateDays.toFixed(1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Tab: Task Group */}
+      {view === 'group' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
+            <div className="text-sm font-semibold text-strong mb-3">ตาราง Task Group</div>
+            <table className="w-full text-sm min-w-[1200px]">
+              <thead className="bg-hover text-dim text-xs">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2">Task Group</th>
+                  <th className="text-left font-medium px-3 py-2">Team Member</th>
+                  <th className="text-left font-medium px-3 py-2">Role</th>
+                  <th className="text-right font-medium px-3 py-2">Cost/Day</th>
+                  <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
+                  <th className="text-right font-medium px-3 py-2">Total W/H</th>
+                  <th className="text-right font-medium px-3 py-2">Net Cost</th>
+                  <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
+                  <th className="text-right font-medium px-3 py-2">Estimate Day</th>
+                  <th className="text-right font-medium px-3 py-2">Margin</th>
+                  <th className="text-right font-medium px-3 py-2">Estimate Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-divider">
+                {groupsData.groups.map((g) => (
+                  <tr key={g.subTaskTypeId}>
+                    <td className="px-3 py-2 whitespace-nowrap">{g.name}</td>
+                    {g.source === 'auto' ? (
+                      <>
+                        <td className="px-3 py-2 whitespace-nowrap text-dim">{g.teamMember ?? '—'}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-dim">{g.role ?? '—'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.estimateMinutes)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.totalMinutes)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.workMinutesPerDay != null ? hours(g.workMinutesPerDay) : '—'}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            defaultValue={g.teamMember ?? ''}
+                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { teamMemberText: e.target.value || null })}
+                            className="w-32 text-sm bg-white border border-border rounded-lg px-2 py-1"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            defaultValue={g.costRoleId ?? ''}
+                            onChange={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { costRoleId: e.target.value || null })}
+                            className="w-36 text-sm bg-white border border-border rounded-lg px-2 py-1"
+                          >
+                            <option value="">— ยังไม่ระบุ —</option>
+                            {parameterRoles.map((pr) => (
+                              <option key={pr.id} value={pr.id}>{pr.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.costPerDaySatang != null ? money(g.costPerDaySatang) : '—'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            defaultValue={g.estimateMinutes / 60}
+                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { estimateMinutes: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : 0 })}
+                            className={inputCell}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.totalMinutes)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.5}
+                            defaultValue={(g.workMinutesPerDay ?? 0) / 60}
+                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { workMinutesPerDay: e.target.value.trim() ? Math.round(Number(e.target.value) * 60) : null })}
+                            className={inputCell}
+                          />
+                        </td>
+                      </>
+                    )}
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{g.estimateDays.toFixed(1)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{money(g.marginSatang)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium">{money(g.estimateCostSatang)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border-subtle font-semibold">
+                  <td className="px-3 py-2" colSpan={6}>รวม (รวมค่าใช้จ่ายนอกระบบแล้ว)</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.netCostSatang)}</td>
+                  <td />
+                  <td />
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.marginSatang)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.estimateCostSatang)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold text-strong">ค่าใช้จ่ายนอกระบบ (Cloud, ค่าเดินทาง ฯลฯ)</div>
+              <button onClick={() => void addExtraCost()} className="text-sm text-brand-700 hover:text-brand-800">+ เพิ่มรายการ</button>
+            </div>
+            {groupsData.extraCosts.length === 0 ? (
+              <div className="text-sm text-muted py-3 text-center">ยังไม่มีรายการ</div>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-divider">
+                  {groupsData.extraCosts.map((x) => (
+                    <tr key={x.id}>
+                      <td className="py-1.5 pr-2">
+                        <input
+                          type="text"
+                          defaultValue={x.name}
+                          onBlur={(e) => void saveExtraCostName(x.id, e.target.value)}
+                          className="w-full text-sm bg-white border border-border rounded-lg px-2 py-1"
+                        />
+                      </td>
+                      <td className="py-1.5 pr-2 w-32">
+                        <input
+                          type="number"
+                          min={0}
+                          defaultValue={x.amountSatang / 100}
+                          onBlur={(e) => void saveExtraCostAmount(x.id, e.target.value)}
+                          className="w-full text-sm text-right bg-white border border-border rounded-lg px-2 py-1 tabular-nums"
+                        />
+                      </td>
+                      <td className="py-1.5 w-8">
+                        <button onClick={() => void deleteExtraCost(x.id)} className="text-danger-600 hover:text-danger-700 text-xs">ลบ</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border-subtle font-semibold">
+                    <td className="py-1.5">รวม</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatSatang(groupsData.totals.extraCostsSatang)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Task */}
+      {view === 'task' && (
+        <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
+          <div className="text-sm font-semibold text-strong mb-3">ตาราง Task ({estimate.rows.length})</div>
+          {estimate.rows.length === 0 ? (
+            <div className="text-sm text-muted py-6 text-center">ยังไม่มีงานในโปรเจกต์นี้</div>
+          ) : (
+            <table className="w-full text-sm min-w-[1400px]">
+              <thead className="bg-hover text-dim text-xs">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2">Task</th>
+                  <th className="text-left font-medium px-3 py-2">Team Member</th>
+                  <th className="text-left font-medium px-3 py-2">Role</th>
+                  <th className="text-right font-medium px-3 py-2">Cost/Day</th>
+                  <th className="text-right font-medium px-3 py-2">Cost/Hour</th>
+                  <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
+                  <th className="text-right font-medium px-3 py-2">Buffer %</th>
+                  <th className="text-right font-medium px-3 py-2">Buffer W/H</th>
+                  <th className="text-right font-medium px-3 py-2">Total W/H</th>
+                  <th className="text-right font-medium px-3 py-2">Net Cost (Hour)</th>
+                  <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
+                  <th className="text-right font-medium px-3 py-2">Estimate Day</th>
+                  <th className="text-right font-medium px-3 py-2">Margin</th>
+                  <th className="text-right font-medium px-3 py-2">Estimate Cost</th>
+                  <th className="text-right font-medium px-3 py-2">Quotation Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-divider">
+                {estimate.rows.map((r) => (
+                  <tr key={r.taskId}>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {r.taskCode && <span className="text-muted font-mono text-xs mr-1">{r.taskCode}</span>}
+                      <Link to={`/tasks/${r.taskId}`} className="text-brand-700 hover:underline">{r.title}</Link>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{r.assigneeName ?? '—'}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <select
+                        value={r.costRoleId ?? ''}
+                        onChange={(e) => void saveRole(r.taskId, e.target.value)}
+                        className="w-40 text-sm bg-white border border-border rounded-lg px-2 py-1 focus:outline-hidden focus:border-brand-400"
+                      >
+                        <option value="">— ยังไม่ระบุ —</option>
+                        {parameterRoles.map((pr) => (
+                          <option key={pr.id} value={pr.id}>{pr.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">
+                      {r.costPerDaySatang != null ? money(r.costPerDaySatang) : <span className="text-warning-600 text-xs">ยังไม่ตั้งต้นทุน</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.costPerHourSatang)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.estimateMinutes)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        defaultValue={r.bufferPercent}
+                        onBlur={(e) => void saveBufferPercent(r.taskId, e.target.value)}
+                        className={inputCell}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.bufferMinutes)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(r.totalMinutes)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{r.netCostSatang != null ? money(r.netCostSatang) : '—'}</td>
+                    <td className="px-3 py-2 text-right">
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        defaultValue={r.workMinutesPerDay / 60}
+                        onBlur={(e) => void saveWorkHourPerDay(r.taskId, e.target.value)}
+                        className={inputCell}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{r.estimateDays.toFixed(1)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted">{money(r.marginSatang)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium">{money(r.estimateCostSatang)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <input
+                        type="number"
+                        min={0}
+                        defaultValue={r.quotationSatang != null ? r.quotationSatang / 100 : ''}
+                        placeholder="—"
+                        onBlur={(e) => void saveQuotation(r.taskId, e.target.value)}
+                        className={inputCell}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border-subtle font-semibold">
+                  <td className="px-3 py-2" colSpan={9}>รวม</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.netCostSatang)}</td>
+                  <td />
+                  <td />
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.marginSatang)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(estimate.totals.estimateCostSatang)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          )}
+          {estimate.rows.some((r) => r.netCostSatang == null) && (
+            <p className="text-xs text-warning-600 mt-2">
+              แถวที่ "ยังไม่ตั้งต้นทุน" ไม่ถูกรวมในยอดด้านบน — เลือก Role ให้ครบ หรือไปตั้งต้นทุน/วันของ Role นั้นที่เมนู{' '}
+              <Link to="/admin/cost" className="underline">กำหนดต้นทุน</Link>
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

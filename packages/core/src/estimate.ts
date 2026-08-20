@@ -47,3 +47,20 @@ export function estimateDays(totalMinutes: number, workMinutesPerDay: number): n
   if (workMinutesPerDay <= 0) return 0
   return totalMinutes / workMinutesPerDay
 }
+
+/** รวมนาที (Estimate/Buffer/Total W/H) ของหลาย task เข้าเป็นยอดของ Task Group — บวกตรงๆ ไม่มีปัดเศษ */
+export function sumMinutes(values: number[]): number {
+  for (const v of values) assertNonNeg(v, 'minutes')
+  return values.reduce((a, b) => a + b, 0)
+}
+
+/**
+ * รวมเงิน (Net Cost/Margin/Estimate Cost) ของหลาย task เข้าเป็นยอดของ Task Group — task ที่ยังไม่ตั้งต้นทุน (null) ไม่ถูกรวม
+ * ทุกค่าเป็น null (ไม่มี task ไหนตั้งต้นทุนเลย) → คืน null (ตรงกับ convention เดิมของแถว "ยังไม่ตั้งต้นทุน")
+ */
+export function sumSatang(values: (number | null)[]): number | null {
+  const present = values.filter((v): v is number => v != null)
+  if (present.length === 0) return null
+  for (const v of present) assertNonNeg(v, 'satang')
+  return present.reduce((a, b) => a + b, 0)
+}

@@ -23,11 +23,35 @@ import {
   resolveProductTypes,
   resolveServiceTypes,
   resolveStatuses,
+  resolveTaskTypes,
   serviceTypeById,
   statusById,
+  sumMinutes,
+  sumSatang,
   uploadLogo,
 } from '@seedoffice/core'
-import { auditLogs, clients, companyConfig, createDb, customerProjects, docLinks, docs, epics, milestones, payments, projectMembers, projects, sprints, tasks, timeEntries, users, type Project } from '@seedoffice/db'
+import {
+  auditLogs,
+  clients,
+  companyConfig,
+  createDb,
+  customerProjects,
+  docLinks,
+  docs,
+  epics,
+  estimateExtraCosts,
+  estimateGroupOverrides,
+  milestones,
+  payments,
+  projectMembers,
+  projects,
+  sprints,
+  tasks,
+  timeEntries,
+  users,
+  type Db,
+  type Project,
+} from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
@@ -39,6 +63,76 @@ import type { AppEnv } from '../types'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_LOGO_BYTES = 2 * 1024 * 1024 // โลโก้ลูกค้า ≤ 2MB
+
+/**
+ * Pronista §Project Estimate v2 — ดึง+คำนวณ estimate ต่อ task ของ "ทุก" task ในโปรเจกต์ (ไม่กรอง estimateSelected อีกต่อไป)
+ * ใช้ร่วมกันทั้ง GET /:id/estimate (Task tab), GET /:id/estimate/groups และ GET /:id/estimate/phases (รวมตาม taskType/subTaskType)
+ */
+async function estimateTaskRows(db: Db, cfg: typeof companyConfig.$inferSelect, projectId: string) {
+  const parameterRoles = resolveParameterRoles(cfg.parameterRoles)
+  const costRoles = resolveCostRoles(cfg.costRoles)
+
+  const taskRows = await db
+    .select({
+      taskId: tasks.id,
+      taskCode: tasks.code,
+      title: tasks.title,
+      taskType: tasks.taskType,
+      subTaskType: tasks.subTaskType,
+      estimateMinutes: tasks.estimateMinutes,
+      costWorkMinutesPerDay: tasks.costWorkMinutesPerDay,
+      costBufferPercent: tasks.costBufferPercent,
+      costRoleId: tasks.costRoleId,
+      quotationSatang: tasks.quotationSatang,
+      assigneeId: tasks.assigneeId,
+      assigneeName: users.name,
+    })
+    .from(tasks)
+    .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .where(eq(tasks.projectId, projectId))
+    .orderBy(asc(tasks.createdAt))
+
+  return taskRows.map((t) => {
+    const estMinutes = t.estimateMinutes ?? 0
+    const bufferPercent = t.costBufferPercent ?? cfg.costBufferPercent
+    const buffer = bufferMinutes(estMinutes, bufferPercent)
+    const totalMinutes = estMinutes + buffer
+    const workMinutesPerDay = t.costWorkMinutesPerDay ?? cfg.workHourCapMinutes
+    const days = estimateDays(totalMinutes, workMinutesPerDay)
+
+    const roleName = t.costRoleId ? (parameterRoleById(parameterRoles, t.costRoleId)?.name ?? null) : null
+    const costPerDaySatang = t.costRoleId ? (costRoleByRoleId(costRoles, t.costRoleId)?.costPerDaySatang ?? null) : null
+    const costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
+    const netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
+    const margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
+    // Pronista §Project Estimate v2 — คอลัมน์นี้เดิมชื่อ "Quotation Cost" เปลี่ยนชื่อเป็น "Estimate Cost" (ราคาที่คำนวณอัตโนมัติ) แยกจาก tasks.quotationSatang ที่ PM กรอกเอง (คอลัมน์ "Quotation Cost" ใหม่)
+    const estimateCostSatang = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
+
+    return {
+      taskId: t.taskId,
+      taskCode: t.taskCode,
+      title: t.title,
+      taskType: t.taskType,
+      subTaskType: t.subTaskType,
+      assigneeId: t.assigneeId,
+      assigneeName: t.assigneeName,
+      costRoleId: t.costRoleId,
+      roleName,
+      costPerDaySatang,
+      costPerHourSatang,
+      estimateMinutes: estMinutes,
+      bufferPercent,
+      bufferMinutes: buffer,
+      totalMinutes,
+      netCostSatang,
+      workMinutesPerDay,
+      estimateDays: days,
+      marginSatang: margin,
+      estimateCostSatang,
+      quotationSatang: t.quotationSatang,
+    }
+  })
+}
 
 /** vendor ห้ามเห็นการเงินโปรเจกต์ (SPEC §2/§4.8) — ตัดที่ server เสมอ */
 function serialize<
@@ -570,46 +664,8 @@ export const projectRoutes = new Hono<AppEnv>()
     })
   })
 
-  // Pronista §Project Estimate — task ทั้งหมดในโปรเจกต์ (ไม่กรอง) ใช้เลือกงานเข้าตาราง Estimate แบบ checkbox+filter (เห็นเฉพาะ owner เหมือน /estimate — เผย estimateSelected/costRoleId ซึ่งเป็นข้อมูลต้นทุน)
-  .get('/:id/estimate/tasks', ownerOnly, async (c) => {
-    const db = createDb(c.env.DB)
-    const projectId = c.req.param('id')
-    const rows = await db
-      .select({
-        id: tasks.id,
-        code: tasks.code,
-        title: tasks.title,
-        kind: tasks.kind,
-        assigneeId: tasks.assigneeId,
-        assigneeName: users.name,
-        taskType: tasks.taskType,
-        subTaskType: tasks.subTaskType,
-        estimateMinutes: tasks.estimateMinutes,
-        estimateSelected: tasks.estimateSelected,
-      })
-      .from(tasks)
-      .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(eq(tasks.projectId, projectId))
-      .orderBy(asc(tasks.createdAt))
-    return c.json(rows)
-  })
-
-  // Pronista §Project Estimate — บันทึกรายการ task ที่เลือกเข้าตาราง Estimate ทีเดียว (full replace ตาม taskIds ที่ส่งมา — เคลียร์ของเดิมในโปรเจกต์นี้ก่อนเสมอ)
-  .put('/:id/estimate/selection', ownerOnly, async (c) => {
-    const body = z.object({ taskIds: z.array(z.string()).max(500) }).safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
-    const db = createDb(c.env.DB)
-    const projectId = c.req.param('id')
-    const { taskIds } = body.data
-    await db.update(tasks).set({ estimateSelected: false }).where(and(eq(tasks.projectId, projectId), eq(tasks.estimateSelected, true)))
-    if (taskIds.length > 0) {
-      await db.update(tasks).set({ estimateSelected: true }).where(and(eq(tasks.projectId, projectId), inArray(tasks.id, taskIds)))
-    }
-    return c.json({ ok: true })
-  })
-
-  // Pronista §Project Estimate — ต้นทุนต่อ Task ของงานที่เลือกไว้ (เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์)
-  // Role ต่อ task มาจาก company_config.parameterRoles (PM เลือกเองต่อ task) ไม่ผูกกับตำแหน่งสิทธิ์ (positions) ของสมาชิกโปรเจกต์ — ดู tasks.costRoleId
+  // Pronista §Project Estimate v2 — ต้นทุนต่อ Task ของ "ทุก" task ในโปรเจกต์ (ไม่มี checkbox เลือกอีกต่อไป — PEP ต้องคิดจากงานทั้งหมดเสมอ)
+  // เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์ · Role ต่อ task มาจาก company_config.parameterRoles ไม่ผูกกับตำแหน่งสิทธิ์ของสมาชิกโปรเจกต์
   .get('/:id/estimate', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -619,73 +675,13 @@ export const projectRoutes = new Hono<AppEnv>()
 
     const cfg = (await db.select().from(companyConfig).limit(1))[0]
     if (!cfg) return c.json({ error: 'config_missing' }, 500)
-    const parameterRoles = resolveParameterRoles(cfg.parameterRoles)
-    const costRoles = resolveCostRoles(cfg.costRoles)
 
-    const taskRows = await db
-      .select({
-        taskId: tasks.id,
-        taskCode: tasks.code,
-        title: tasks.title,
-        estimateMinutes: tasks.estimateMinutes,
-        costWorkMinutesPerDay: tasks.costWorkMinutesPerDay,
-        costBufferPercent: tasks.costBufferPercent,
-        costRoleId: tasks.costRoleId,
-        assigneeId: tasks.assigneeId,
-        assigneeName: users.name,
-      })
-      .from(tasks)
-      .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(and(eq(tasks.projectId, projectId), eq(tasks.estimateSelected, true)))
-      .orderBy(asc(tasks.createdAt))
+    const rows = await estimateTaskRows(db, cfg, projectId)
 
-    let totalNetCostSatang = 0
-    let totalMarginSatang = 0
-    let totalQuotationSatang = 0
-    let maxEstimateDays = 0
-
-    const rows = taskRows.map((t) => {
-      const estMinutes = t.estimateMinutes ?? 0
-      const bufferPercent = t.costBufferPercent ?? cfg.costBufferPercent
-      const buffer = bufferMinutes(estMinutes, bufferPercent)
-      const totalMinutes = estMinutes + buffer
-      const workMinutesPerDay = t.costWorkMinutesPerDay ?? cfg.workHourCapMinutes
-      const days = estimateDays(totalMinutes, workMinutesPerDay)
-      maxEstimateDays = Math.max(maxEstimateDays, days)
-
-      const roleName = t.costRoleId ? (parameterRoleById(parameterRoles, t.costRoleId)?.name ?? null) : null
-      const costPerDaySatang = t.costRoleId ? (costRoleByRoleId(costRoles, t.costRoleId)?.costPerDaySatang ?? null) : null
-      const costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
-      const netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
-      const margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
-      const quotation = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
-      if (netCostSatang != null && margin != null && quotation != null) {
-        totalNetCostSatang += netCostSatang
-        totalMarginSatang += margin
-        totalQuotationSatang += quotation
-      }
-
-      return {
-        taskId: t.taskId,
-        taskCode: t.taskCode,
-        title: t.title,
-        assigneeId: t.assigneeId,
-        assigneeName: t.assigneeName,
-        costRoleId: t.costRoleId,
-        roleName,
-        costPerDaySatang,
-        costPerHourSatang,
-        estimateMinutes: estMinutes,
-        bufferPercent,
-        bufferMinutes: buffer,
-        totalMinutes,
-        netCostSatang,
-        workMinutesPerDay,
-        estimateDays: days,
-        marginSatang: margin,
-        quotationSatang: quotation,
-      }
-    })
+    const totalNetCostSatang = sumSatang(rows.map((r) => r.netCostSatang)) ?? 0
+    const totalMarginSatang = sumSatang(rows.map((r) => r.marginSatang)) ?? 0
+    const totalEstimateCostSatang = sumSatang(rows.map((r) => r.estimateCostSatang)) ?? 0
+    const maxEstimateDays = rows.reduce((max, r) => Math.max(max, r.estimateDays), 0)
 
     const suggestedNetWorkingDays = maxEstimateDays > 0 ? Math.ceil(maxEstimateDays) : null
     const estimateProjectCostPerDaySatang =
@@ -695,11 +691,227 @@ export const projectRoutes = new Hono<AppEnv>()
 
     return c.json({
       rows,
-      totals: { netCostSatang: totalNetCostSatang, marginSatang: totalMarginSatang, quotationSatang: totalQuotationSatang },
+      totals: { netCostSatang: totalNetCostSatang, marginSatang: totalMarginSatang, estimateCostSatang: totalEstimateCostSatang },
       project: { estimateNetWorkingDays: project.estimateNetWorkingDays, quotedSatang: project.quotedSatang },
       suggestedNetWorkingDays,
       estimateProjectCostPerDaySatang,
     })
+  })
+
+  // Pronista §Project Estimate v2 — Tab "Task Group": รวม task ทั้งหมดตาม Task Type/Sub-type (catalog เดียวกับ ตั้งค่า > ประเภทงาน)
+  // กลุ่มที่มี task จริง → รวมอัตโนมัติ (อ่านอย่างเดียว) · กลุ่มที่ยังไม่มี task เลย → ใช้ค่าที่ PM กรอกเองใน estimate_group_overrides (ถ้ามี) ไม่งั้นแถวว่าง
+  .get('/:id/estimate/groups', ownerOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+
+    const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
+    if (!project) return c.json({ error: 'not_found' }, 404)
+    const cfg = (await db.select().from(companyConfig).limit(1))[0]
+    if (!cfg) return c.json({ error: 'config_missing' }, 500)
+    const parameterRoles = resolveParameterRoles(cfg.parameterRoles)
+    const costRoles = resolveCostRoles(cfg.costRoles)
+    const taskTypes = resolveTaskTypes(cfg.taskTypes)
+
+    const taskRows = await estimateTaskRows(db, cfg, projectId)
+    const overrides = await db.select().from(estimateGroupOverrides).where(eq(estimateGroupOverrides.projectId, projectId))
+    const extraCosts = await db
+      .select()
+      .from(estimateExtraCosts)
+      .where(eq(estimateExtraCosts.projectId, projectId))
+      .orderBy(asc(estimateExtraCosts.sortOrder), asc(estimateExtraCosts.createdAt))
+
+    const groups = []
+    for (const tt of taskTypes) {
+      for (const st of tt.subTypes) {
+        const memberTasks = taskRows.filter((r) => r.taskType === tt.id && r.subTaskType === st.id)
+        if (memberTasks.length > 0) {
+          const teamMemberNames = [...new Set(memberTasks.map((r) => r.assigneeName).filter((n): n is string => !!n))]
+          const roleNames = [...new Set(memberTasks.map((r) => r.roleName).filter((n): n is string => !!n))]
+          groups.push({
+            taskTypeId: tt.id,
+            subTaskTypeId: st.id,
+            name: st.name,
+            source: 'auto' as const,
+            teamMember: teamMemberNames.join(', ') || null,
+            role: roleNames.join(', ') || null,
+            costPerDaySatang: null,
+            costPerHourSatang: null,
+            estimateMinutes: sumMinutes(memberTasks.map((r) => r.estimateMinutes)),
+            bufferMinutes: sumMinutes(memberTasks.map((r) => r.bufferMinutes)),
+            totalMinutes: sumMinutes(memberTasks.map((r) => r.totalMinutes)),
+            netCostSatang: sumSatang(memberTasks.map((r) => r.netCostSatang)),
+            workMinutesPerDay: null,
+            estimateDays: memberTasks.reduce((sum, r) => sum + r.estimateDays, 0),
+            marginSatang: sumSatang(memberTasks.map((r) => r.marginSatang)),
+            estimateCostSatang: sumSatang(memberTasks.map((r) => r.estimateCostSatang)),
+          })
+          continue
+        }
+        const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
+        const estMinutes = ov?.estimateMinutes ?? 0
+        const bufferPercent = ov?.bufferPercent ?? cfg.costBufferPercent
+        const buffer = bufferMinutes(estMinutes, bufferPercent)
+        const totalMinutes = estMinutes + buffer
+        const workMinutesPerDay = ov?.workMinutesPerDay ?? cfg.workHourCapMinutes
+        const days = estimateDays(totalMinutes, workMinutesPerDay)
+        const roleName = ov?.costRoleId ? (parameterRoleById(parameterRoles, ov.costRoleId)?.name ?? null) : null
+        const costPerDaySatang = ov?.costRoleId ? (costRoleByRoleId(costRoles, ov.costRoleId)?.costPerDaySatang ?? null) : null
+        const costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
+        const netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
+        const margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
+        const estimateCost = netCostSatang != null && margin != null ? quotationSatang(netCostSatang, margin) : null
+        groups.push({
+          taskTypeId: tt.id,
+          subTaskTypeId: st.id,
+          name: st.name,
+          source: 'manual' as const,
+          teamMember: ov?.teamMemberText ?? null,
+          role: roleName,
+          costRoleId: ov?.costRoleId ?? null,
+          costPerDaySatang,
+          costPerHourSatang,
+          estimateMinutes: estMinutes,
+          bufferPercent,
+          bufferMinutes: buffer,
+          totalMinutes,
+          netCostSatang,
+          workMinutesPerDay,
+          estimateDays: days,
+          marginSatang: margin,
+          estimateCostSatang: estimateCost,
+        })
+      }
+    }
+
+    const extraCostsSatang = extraCosts.reduce((sum, x) => sum + x.amountSatang, 0)
+    const netCostSatang = (sumSatang(groups.map((g) => g.netCostSatang)) ?? 0) + extraCostsSatang
+    const marginTotal = sumSatang(groups.map((g) => g.marginSatang)) ?? 0
+    const estimateCostTotal = (sumSatang(groups.map((g) => g.estimateCostSatang)) ?? 0) + extraCostsSatang
+
+    return c.json({
+      groups,
+      extraCosts: extraCosts.map((x) => ({ id: x.id, name: x.name, amountSatang: x.amountSatang })),
+      totals: { netCostSatang, marginSatang: marginTotal, extraCostsSatang, estimateCostSatang: estimateCostTotal },
+    })
+  })
+
+  // Pronista §Project Estimate v2 — บันทึกค่าที่ PM กรอกเองสำหรับ Task Group ที่ยังไม่มี task จริง (upsert บน projectId+taskTypeId+subTaskTypeId)
+  .put('/:id/estimate/groups/override', ownerOnly, async (c) => {
+    const body = z
+      .object({
+        taskTypeId: z.string(),
+        subTaskTypeId: z.string().nullable(),
+        teamMemberText: z.string().max(200).nullable().optional(),
+        costRoleId: z.string().nullable().optional(),
+        estimateMinutes: z.number().int().nonnegative().nullable().optional(),
+        bufferPercent: z.number().int().min(0).max(100).nullable().optional(),
+        workMinutesPerDay: z.number().int().positive().nullable().optional(),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const { taskTypeId, subTaskTypeId, ...rest } = body.data
+    const existing = (
+      await db
+        .select({ id: estimateGroupOverrides.id })
+        .from(estimateGroupOverrides)
+        .where(
+          and(
+            eq(estimateGroupOverrides.projectId, projectId),
+            eq(estimateGroupOverrides.taskTypeId, taskTypeId),
+            subTaskTypeId ? eq(estimateGroupOverrides.subTaskTypeId, subTaskTypeId) : isNull(estimateGroupOverrides.subTaskTypeId),
+          ),
+        )
+        .limit(1)
+    )[0]
+    if (existing) {
+      await db.update(estimateGroupOverrides).set(rest).where(eq(estimateGroupOverrides.id, existing.id))
+    } else {
+      await db.insert(estimateGroupOverrides).values({ projectId, taskTypeId, subTaskTypeId, ...rest })
+    }
+    return c.json({ ok: true })
+  })
+
+  // Pronista §Project Estimate v2 — Tab "Phase": รวม Estimate Day จาก Tab Task Group ตามหัวข้อหลัก (Task Type)
+  .get('/:id/estimate/phases', ownerOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
+    if (!project) return c.json({ error: 'not_found' }, 404)
+    const cfg = (await db.select().from(companyConfig).limit(1))[0]
+    if (!cfg) return c.json({ error: 'config_missing' }, 500)
+    const taskTypes = resolveTaskTypes(cfg.taskTypes)
+    const taskRows = await estimateTaskRows(db, cfg, projectId)
+    const overrides = await db.select().from(estimateGroupOverrides).where(eq(estimateGroupOverrides.projectId, projectId))
+
+    const phases = taskTypes.map((tt) => {
+      let totalDays = 0
+      for (const st of tt.subTypes) {
+        const memberTasks = taskRows.filter((r) => r.taskType === tt.id && r.subTaskType === st.id)
+        if (memberTasks.length > 0) {
+          totalDays += memberTasks.reduce((sum, r) => sum + r.estimateDays, 0)
+          continue
+        }
+        const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
+        if (!ov) continue
+        const estMinutes = ov.estimateMinutes ?? 0
+        const buffer = bufferMinutes(estMinutes, ov.bufferPercent ?? cfg.costBufferPercent)
+        totalDays += estimateDays(estMinutes + buffer, ov.workMinutesPerDay ?? cfg.workHourCapMinutes)
+      }
+      return { taskTypeId: tt.id, name: tt.name, totalEstimateDays: totalDays }
+    })
+
+    return c.json({ phases })
+  })
+
+  // Pronista §Project Estimate v2 — Grid ค่าใช้จ่ายนอกระบบใน Tab Task Group (Cloud, ค่าเดินทาง ฯลฯ) รวมเข้ายอดรวมเสมอ
+  .get('/:id/estimate/extra-costs', ownerOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const rows = await db
+      .select()
+      .from(estimateExtraCosts)
+      .where(eq(estimateExtraCosts.projectId, c.req.param('id')))
+      .orderBy(asc(estimateExtraCosts.sortOrder), asc(estimateExtraCosts.createdAt))
+    return c.json(rows.map((x) => ({ id: x.id, name: x.name, amountSatang: x.amountSatang })))
+  })
+
+  .post('/:id/estimate/extra-costs', ownerOnly, async (c) => {
+    const body = z.object({ name: z.string().min(1).max(200), amountSatang: z.number().int().nonnegative() }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const maxSort = (
+      await db.select({ sortOrder: estimateExtraCosts.sortOrder }).from(estimateExtraCosts).where(eq(estimateExtraCosts.projectId, projectId))
+    ).reduce((max, r) => Math.max(max, r.sortOrder), -1)
+    const created = (
+      await db
+        .insert(estimateExtraCosts)
+        .values({ projectId, name: body.data.name, amountSatang: body.data.amountSatang, sortOrder: maxSort + 1 })
+        .returning()
+    )[0]!
+    return c.json({ id: created.id, name: created.name, amountSatang: created.amountSatang })
+  })
+
+  .patch('/:id/estimate/extra-costs/:costId', ownerOnly, async (c) => {
+    const body = z
+      .object({ name: z.string().min(1).max(200).optional(), amountSatang: z.number().int().nonnegative().optional() })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    await db
+      .update(estimateExtraCosts)
+      .set(body.data)
+      .where(and(eq(estimateExtraCosts.id, c.req.param('costId')), eq(estimateExtraCosts.projectId, c.req.param('id'))))
+    return c.json({ ok: true })
+  })
+
+  .delete('/:id/estimate/extra-costs/:costId', ownerOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    await db
+      .delete(estimateExtraCosts)
+      .where(and(eq(estimateExtraCosts.id, c.req.param('costId')), eq(estimateExtraCosts.projectId, c.req.param('id'))))
+    return c.json({ ok: true })
   })
 
   // Pronista §Feedback batch 3 — เดิม owner เท่านั้น เปิดให้ editor ของโปรเจกต์นั้นๆ จัดการสมาชิกโปรเจกต์ตัวเองได้ด้วย (แก้ปัญหาสร้างโปรเจกต์แล้วมาเพิ่มสมาชิกทีหลังไม่ได้ถ้าไม่ใช่ owner)

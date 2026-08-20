@@ -52,6 +52,8 @@ const taskPatchSchema = z.object({
   costBufferPercent: z.number().int().min(0).max(100).nullable().optional(),
   // Pronista §Project Estimate — Role (อ้าง company_config.parameterRoles) ที่ PM เลือกให้ task นี้ ใช้ดึง Cost/Day จาก company_config.costRoles
   costRoleId: z.string().nullable().optional(),
+  // Pronista §Project Estimate v2 — ราคาที่จะเสนอลูกค้าจริง กรอกเองโดย PM แยกจาก Estimate Cost ที่คำนวณอัตโนมัติ
+  quotationSatang: z.number().int().nonnegative().nullable().optional(),
   startDate: isoDate.nullable().optional(),
   dueDate: isoDate.nullable().optional(),
   groupId: z.string().nullable().optional(),
