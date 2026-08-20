@@ -142,26 +142,35 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/groups (Ta
     expect(apiGroup).toMatchObject({ source: 'auto', teamMember: 'ปอนด์', role: 'Developer', estimateMinutes: 6600, netCostSatang: 132000 })
   })
 
-  it('กลุ่มที่ไม่มี task เลย → แถวว่าง จนกว่าจะ PUT override เข้าไป', async () => {
+  it('กลุ่มที่ไม่มี task เลย และ PM ยังไม่ได้กดเพิ่มแถวเอง → ไม่โชว์แถว จนกว่าจะ PUT override เข้าไป', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100, 'tt_development', 'tts_api')
 
     const before = (await (
       await app.request(`/api/projects/${projectId}/estimate/groups`, { headers: { cookie: owner } }, env)
     ).json()) as { groups: Record<string, unknown>[] }
-    const debugBefore = before.groups.find((g) => g.subTaskTypeId === 'tts_debug')
-    expect(debugBefore).toMatchObject({ source: 'manual', estimateMinutes: 0, netCostSatang: null })
+    expect(before.groups.find((g) => g.subTaskTypeId === 'tts_debug')).toBeUndefined()
 
     await app.request(
       `/api/projects/${projectId}/estimate/groups/override`,
-      putJson(owner, { taskTypeId: 'tt_debug', subTaskTypeId: 'tts_debug', teamMemberText: 'สมชาย (freelance)', estimateMinutes: 480 }),
+      putJson(owner, { taskTypeId: 'tt_debug', subTaskTypeId: 'tts_debug', teamMemberIds: ['u_pond'], estimateMinutes: 480 }),
       env,
     )
     const after = (await (
       await app.request(`/api/projects/${projectId}/estimate/groups`, { headers: { cookie: owner } }, env)
     ).json()) as { groups: Record<string, unknown>[] }
     const debugAfter = after.groups.find((g) => g.subTaskTypeId === 'tts_debug')
-    expect(debugAfter).toMatchObject({ source: 'manual', teamMember: 'สมชาย (freelance)', estimateMinutes: 480 })
+    expect(debugAfter).toMatchObject({ source: 'manual', teamMemberIds: ['u_pond'], estimateMinutes: 480 })
+
+    await app.request(
+      `/api/projects/${projectId}/estimate/groups/override?taskTypeId=tt_debug&subTaskTypeId=tts_debug`,
+      { method: 'DELETE', headers: { cookie: owner } },
+      env,
+    )
+    const afterDelete = (await (
+      await app.request(`/api/projects/${projectId}/estimate/groups`, { headers: { cookie: owner } }, env)
+    ).json()) as { groups: Record<string, unknown>[] }
+    expect(afterDelete.groups.find((g) => g.subTaskTypeId === 'tts_debug')).toBeUndefined()
   })
 
   it('ค่าใช้จ่ายนอกระบบ (extra costs) รวมเข้ายอดรวมของ Tab Task Group', async () => {

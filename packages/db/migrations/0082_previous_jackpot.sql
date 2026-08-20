@@ -1,0 +1,1 @@
+ALTER TABLE `estimate_group_overrides` DROP COLUMN `team_member_text`;

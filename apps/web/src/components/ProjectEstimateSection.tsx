@@ -4,11 +4,12 @@
  * Cost/Hour คำนวณอัตโนมัติจาก Cost/Day ÷ 8 (costPerHourFromDay) · Work Hour/Day กรอกเองต่อ task (tasks.costWorkMinutesPerDay)
  * สรุปงานรายบุคคล (ภาพรวมทุกคน → คลิกดูรายละเอียดต่อคน) + 4 แท็บย่อย: Summary / Phase / Task Group / Task (ดึงงานทั้งหมดในโปรเจกต์อัตโนมัติ ไม่มี checkbox เลือกอีกต่อไป)
  */
-import { formatSatang, minutesToHoursLabel, resolveParameterRoles, type ParameterRole } from '@seedoffice/core'
+import { formatSatang, minutesToHoursLabel, resolveParameterRoles, resolveTaskTypes, type ParameterRole, type TaskType } from '@seedoffice/core'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useDialog } from './Dialog'
 
 interface EstimateRow {
   taskId: string
@@ -46,12 +47,13 @@ interface GroupRow {
   name: string
   source: 'auto' | 'manual'
   teamMember: string | null
+  teamMemberIds: string[]
   role: string | null
   costRoleId?: string | null
   costPerDaySatang: number | null
   costPerHourSatang: number | null
   estimateMinutes: number
-  bufferPercent?: number
+  bufferPercent: number | null
   bufferMinutes: number
   totalMinutes: number
   netCostSatang: number | null
@@ -59,6 +61,7 @@ interface GroupRow {
   estimateDays: number
   marginSatang: number | null
   estimateCostSatang: number | null
+  quotationSatang: number | null
 }
 
 interface ExtraCost {
@@ -70,7 +73,7 @@ interface ExtraCost {
 interface GroupsResponse {
   groups: GroupRow[]
   extraCosts: ExtraCost[]
-  totals: { netCostSatang: number; marginSatang: number; extraCostsSatang: number; estimateCostSatang: number }
+  totals: { netCostSatang: number; marginSatang: number; extraCostsSatang: number; estimateCostSatang: number; quotationSatang: number }
 }
 
 interface PhaseRow {
@@ -94,6 +97,7 @@ export function ProjectEstimateSection({
   projectId: string
   members: { id: string; name: string; role?: 'owner' | 'member' | 'vendor' | 'guest' }[]
 }) {
+  const { confirmDialog } = useDialog()
   // Pronista §Project Estimate — สรุปงานรายบุคคล: ดึงสมาชิกทุกคนในโปรเจกต์ ยกเว้นลูกค้า (role='guest') — staff/outsource ดึงมาหมด
   // Admin(owner) ไม่มีทางอยู่ใน project_members ได้เลย (backend กันไว้ เพราะ owner เข้าถึงทุกโปรเจกต์เต็มรูปแบบเสมอ) แต่ยังถูก assign งานได้ปกติ — ดึงจาก /api/users มาต่อท้ายแทน
   const { data: allUsersData } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
@@ -104,8 +108,10 @@ export function ProjectEstimateSection({
   const { data: groupsData, reload: reloadGroups } = useLoad<GroupsResponse>(() => api.get(`/api/projects/${projectId}/estimate/groups`), [projectId])
   const { data: phasesData, reload: reloadPhases } = useLoad<{ phases: PhaseRow[] }>(() => api.get(`/api/projects/${projectId}/estimate/phases`), [projectId])
   const { data: roleCfg } = useLoad<{ parameterRoles: ParameterRole[] }>(() => api.get('/api/admin/parameter-roles'))
+  const { data: taskTypeCfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/admin/task-types'))
 
   const parameterRoles = resolveParameterRoles(roleCfg?.parameterRoles)
+  const taskTypeCatalog = resolveTaskTypes(taskTypeCfg?.taskTypes)
 
   const money = (satang: number | null) => (satang != null ? formatSatang(satang) : '—')
   const hours = (minutes: number) => minutesToHoursLabel(minutes)
@@ -150,9 +156,26 @@ export function ProjectEstimateSection({
     await reloadEstimate()
   }
 
-  // --- แก้ไข Task Group ที่ยังไม่มี task จริง (source='manual') ---
+  // --- Task Group แบบ custom: PM/แบงค์กดเพิ่มแถวเอง เลือก Task Group จากแคตตาล็อก ตั้งค่า > ประเภทงาน ---
   const saveGroupField = async (taskTypeId: string, subTaskTypeId: string, patch: Record<string, unknown>) => {
     await api.put(`/api/projects/${projectId}/estimate/groups/override`, { taskTypeId, subTaskTypeId, ...patch })
+    await reloadAll()
+  }
+  const [addGroupKey, setAddGroupKey] = useState('')
+  const existingGroupKeys = new Set(groupsData?.groups.map((g) => `${g.taskTypeId}::${g.subTaskTypeId}`) ?? [])
+  const availableGroupOptions = taskTypeCatalog.flatMap((tt) =>
+    tt.subTypes.filter((st) => !existingGroupKeys.has(`${tt.id}::${st.id}`)).map((st) => ({ taskTypeId: tt.id, taskTypeName: tt.name, subTaskTypeId: st.id, subTaskTypeName: st.name })),
+  )
+  const addGroupRow = async () => {
+    const [taskTypeId, subTaskTypeId] = addGroupKey.split('::')
+    if (!taskTypeId || !subTaskTypeId) return
+    await saveGroupField(taskTypeId, subTaskTypeId, {})
+    setAddGroupKey('')
+  }
+  const deleteGroupRow = async (taskTypeId: string, subTaskTypeId: string) => {
+    const yes = await confirmDialog({ title: 'ลบแถวนี้ออกจาก Task Group?', message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', confirmLabel: 'ลบ', danger: true })
+    if (!yes) return
+    await api.delete(`/api/projects/${projectId}/estimate/groups/override?taskTypeId=${taskTypeId}&subTaskTypeId=${subTaskTypeId}`)
     await reloadAll()
   }
 
@@ -340,21 +363,55 @@ export function ProjectEstimateSection({
       {view === 'group' && (
         <div className="space-y-4">
           <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5 overflow-x-auto">
-            <div className="text-sm font-semibold text-strong mb-3">ตาราง Task Group</div>
-            <table className="w-full text-sm min-w-[1200px]">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="text-sm font-semibold text-strong">ตาราง Task Group</div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={addGroupKey}
+                  onChange={(e) => setAddGroupKey(e.target.value)}
+                  className="text-sm bg-white border border-border rounded-lg px-2 py-1.5"
+                >
+                  <option value="">— เลือก Task Group —</option>
+                  {taskTypeCatalog.map((tt) => {
+                    const opts = availableGroupOptions.filter((o) => o.taskTypeId === tt.id)
+                    if (opts.length === 0) return null
+                    return (
+                      <optgroup key={tt.id} label={tt.name}>
+                        {opts.map((o) => (
+                          <option key={o.subTaskTypeId} value={`${o.taskTypeId}::${o.subTaskTypeId}`}>{o.subTaskTypeName}</option>
+                        ))}
+                      </optgroup>
+                    )
+                  })}
+                </select>
+                <button
+                  onClick={() => void addGroupRow()}
+                  disabled={!addGroupKey}
+                  className="text-sm text-brand-700 hover:text-brand-800 disabled:text-muted disabled:cursor-not-allowed"
+                >
+                  + เพิ่มแถว
+                </button>
+              </div>
+            </div>
+            <table className="w-full text-sm min-w-[1600px]">
               <thead className="bg-hover text-dim text-xs">
                 <tr>
                   <th className="text-left font-medium px-3 py-2">Task Group</th>
                   <th className="text-left font-medium px-3 py-2">Team Member</th>
                   <th className="text-left font-medium px-3 py-2">Role</th>
                   <th className="text-right font-medium px-3 py-2">Cost/Day</th>
+                  <th className="text-right font-medium px-3 py-2">Cost/Hour</th>
                   <th className="text-right font-medium px-3 py-2">Estimate W/H</th>
+                  <th className="text-right font-medium px-3 py-2">Buffer %</th>
+                  <th className="text-right font-medium px-3 py-2">Buffer W/H</th>
                   <th className="text-right font-medium px-3 py-2">Total W/H</th>
-                  <th className="text-right font-medium px-3 py-2">Net Cost</th>
+                  <th className="text-right font-medium px-3 py-2">Net Cost (Hour)</th>
                   <th className="text-right font-medium px-3 py-2">Work Hour/Day</th>
                   <th className="text-right font-medium px-3 py-2">Estimate Day</th>
                   <th className="text-right font-medium px-3 py-2">Margin</th>
                   <th className="text-right font-medium px-3 py-2">Estimate Cost</th>
+                  <th className="text-right font-medium px-3 py-2">Quotation Cost</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-divider">
@@ -366,7 +423,10 @@ export function ProjectEstimateSection({
                         <td className="px-3 py-2 whitespace-nowrap text-dim">{g.teamMember ?? '—'}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-dim">{g.role ?? '—'}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.estimateMinutes)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">—</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.bufferMinutes)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.totalMinutes)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{g.workMinutesPerDay != null ? hours(g.workMinutesPerDay) : '—'}</td>
@@ -374,12 +434,21 @@ export function ProjectEstimateSection({
                     ) : (
                       <>
                         <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            defaultValue={g.teamMember ?? ''}
-                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { teamMemberText: e.target.value || null })}
-                            className="w-32 text-sm bg-white border border-border rounded-lg px-2 py-1"
-                          />
+                          <select
+                            multiple
+                            size={Math.min(4, Math.max(2, summaryMembers.length))}
+                            value={g.teamMemberIds}
+                            onChange={(e) =>
+                              void saveGroupField(g.taskTypeId, g.subTaskTypeId, {
+                                teamMemberIds: Array.from(e.target.selectedOptions).map((o) => o.value),
+                              })
+                            }
+                            className="w-36 text-sm bg-white border border-border rounded-lg px-2 py-1"
+                          >
+                            {summaryMembers.map((m) => (
+                              <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                          </select>
                         </td>
                         <td className="px-3 py-2">
                           <select
@@ -394,6 +463,7 @@ export function ProjectEstimateSection({
                           </select>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{g.costPerDaySatang != null ? money(g.costPerDaySatang) : '—'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{g.costPerHourSatang != null ? money(g.costPerHourSatang) : '—'}</td>
                         <td className="px-3 py-2 text-right">
                           <input
                             type="number"
@@ -404,6 +474,17 @@ export function ProjectEstimateSection({
                             className={inputCell}
                           />
                         </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            defaultValue={g.bufferPercent ?? ''}
+                            onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { bufferPercent: e.target.value.trim() ? Math.round(Number(e.target.value)) : null })}
+                            className={inputCell}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.bufferMinutes)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{hours(g.totalMinutes)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted">{g.netCostSatang != null ? money(g.netCostSatang) : '—'}</td>
                         <td className="px-3 py-2 text-right">
@@ -421,17 +502,38 @@ export function ProjectEstimateSection({
                     <td className="px-3 py-2 text-right tabular-nums text-muted">{g.estimateDays.toFixed(1)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted">{money(g.marginSatang)}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-medium">{money(g.estimateCostSatang)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {g.source === 'auto' ? (
+                        <span className="tabular-nums text-muted">{g.quotationSatang != null ? money(g.quotationSatang) : '—'}</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          defaultValue={g.quotationSatang != null ? g.quotationSatang / 100 : ''}
+                          placeholder="—"
+                          onBlur={(e) => void saveGroupField(g.taskTypeId, g.subTaskTypeId, { quotationSatang: e.target.value.trim() ? Math.round(Number(e.target.value) * 100) : null })}
+                          className={inputCell}
+                        />
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {g.source === 'manual' && (
+                        <button onClick={() => void deleteGroupRow(g.taskTypeId, g.subTaskTypeId)} className="text-danger-600 hover:text-danger-700 text-xs">ลบ</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-border-subtle font-semibold">
-                  <td className="px-3 py-2" colSpan={6}>รวม (รวมค่าใช้จ่ายนอกระบบแล้ว)</td>
+                  <td className="px-3 py-2" colSpan={8}>รวม (รวมค่าใช้จ่ายนอกระบบแล้ว)</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.netCostSatang)}</td>
                   <td />
                   <td />
                   <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.marginSatang)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.estimateCostSatang)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatSatang(groupsData.totals.quotationSatang)}</td>
+                  <td />
                 </tr>
               </tfoot>
             </table>

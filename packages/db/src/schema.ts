@@ -1124,11 +1124,12 @@ export const estimateGroupOverrides = sqliteTable(
       .references(() => projects.id),
     taskTypeId: text('task_type_id').notNull(),
     subTaskTypeId: text('sub_task_type_id'),
-    teamMemberText: text('team_member_text'),
+    teamMemberIds: text('team_member_ids', { mode: 'json' }).$type<string[]>(),
     costRoleId: text('cost_role_id'),
     estimateMinutes: integer('estimate_minutes'),
     bufferPercent: integer('buffer_percent'),
     workMinutesPerDay: integer('work_minutes_per_day'),
+    quotationSatang: integer('quotation_satang'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

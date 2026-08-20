@@ -699,7 +699,8 @@ export const projectRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §Project Estimate v2 — Tab "Task Group": รวม task ทั้งหมดตาม Task Type/Sub-type (catalog เดียวกับ ตั้งค่า > ประเภทงาน)
-  // กลุ่มที่มี task จริง → รวมอัตโนมัติ (อ่านอย่างเดียว) · กลุ่มที่ยังไม่มี task เลย → ใช้ค่าที่ PM กรอกเองใน estimate_group_overrides (ถ้ามี) ไม่งั้นแถวว่าง
+  // กลุ่มที่มี task จริง → รวมอัตโนมัติ (อ่านอย่างเดียว) · กลุ่มที่ PM เลือกเพิ่มเองผ่านแถว custom (estimate_group_overrides) → กรอกเอง
+  // Task Group ไม่ auto-list ทุก sub-type ในแคตตาล็อกอีกต่อไป — โชว์เฉพาะกลุ่มที่มี task จริง หรือกลุ่มที่ PM กดเพิ่มแถวเองเท่านั้น
   .get('/:id/estimate/groups', ownerOnly, async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
@@ -733,10 +734,13 @@ export const projectRoutes = new Hono<AppEnv>()
             name: st.name,
             source: 'auto' as const,
             teamMember: teamMemberNames.join(', ') || null,
+            teamMemberIds: [] as string[],
             role: roleNames.join(', ') || null,
+            costRoleId: null as string | null,
             costPerDaySatang: null,
             costPerHourSatang: null,
             estimateMinutes: sumMinutes(memberTasks.map((r) => r.estimateMinutes)),
+            bufferPercent: null as number | null,
             bufferMinutes: sumMinutes(memberTasks.map((r) => r.bufferMinutes)),
             totalMinutes: sumMinutes(memberTasks.map((r) => r.totalMinutes)),
             netCostSatang: sumSatang(memberTasks.map((r) => r.netCostSatang)),
@@ -744,18 +748,20 @@ export const projectRoutes = new Hono<AppEnv>()
             estimateDays: memberTasks.reduce((sum, r) => sum + r.estimateDays, 0),
             marginSatang: sumSatang(memberTasks.map((r) => r.marginSatang)),
             estimateCostSatang: sumSatang(memberTasks.map((r) => r.estimateCostSatang)),
+            quotationSatang: sumSatang(memberTasks.map((r) => r.quotationSatang)),
           })
           continue
         }
         const ov = overrides.find((o) => o.taskTypeId === tt.id && o.subTaskTypeId === st.id)
-        const estMinutes = ov?.estimateMinutes ?? 0
-        const bufferPercent = ov?.bufferPercent ?? cfg.costBufferPercent
+        if (!ov) continue // ไม่มี task จริง และ PM ยังไม่ได้กดเพิ่มแถวนี้เอง → ไม่ต้องโชว์
+        const estMinutes = ov.estimateMinutes ?? 0
+        const bufferPercent = ov.bufferPercent ?? cfg.costBufferPercent
         const buffer = bufferMinutes(estMinutes, bufferPercent)
         const totalMinutes = estMinutes + buffer
-        const workMinutesPerDay = ov?.workMinutesPerDay ?? cfg.workHourCapMinutes
+        const workMinutesPerDay = ov.workMinutesPerDay ?? cfg.workHourCapMinutes
         const days = estimateDays(totalMinutes, workMinutesPerDay)
-        const roleName = ov?.costRoleId ? (parameterRoleById(parameterRoles, ov.costRoleId)?.name ?? null) : null
-        const costPerDaySatang = ov?.costRoleId ? (costRoleByRoleId(costRoles, ov.costRoleId)?.costPerDaySatang ?? null) : null
+        const roleName = ov.costRoleId ? (parameterRoleById(parameterRoles, ov.costRoleId)?.name ?? null) : null
+        const costPerDaySatang = ov.costRoleId ? (costRoleByRoleId(costRoles, ov.costRoleId)?.costPerDaySatang ?? null) : null
         const costPerHourSatang = costPerDaySatang != null ? costPerHourFromDay(costPerDaySatang) : null
         const netCostSatang = costPerHourSatang != null ? baseSatang(totalMinutes, costPerHourSatang) : null
         const margin = netCostSatang != null ? marginSatang(netCostSatang, cfg.costMarginPercent) : null
@@ -765,9 +771,10 @@ export const projectRoutes = new Hono<AppEnv>()
           subTaskTypeId: st.id,
           name: st.name,
           source: 'manual' as const,
-          teamMember: ov?.teamMemberText ?? null,
+          teamMember: null,
+          teamMemberIds: ov.teamMemberIds ?? [],
           role: roleName,
-          costRoleId: ov?.costRoleId ?? null,
+          costRoleId: ov.costRoleId ?? null,
           costPerDaySatang,
           costPerHourSatang,
           estimateMinutes: estMinutes,
@@ -779,6 +786,7 @@ export const projectRoutes = new Hono<AppEnv>()
           estimateDays: days,
           marginSatang: margin,
           estimateCostSatang: estimateCost,
+          quotationSatang: ov.quotationSatang ?? null,
         })
       }
     }
@@ -787,25 +795,33 @@ export const projectRoutes = new Hono<AppEnv>()
     const netCostSatang = (sumSatang(groups.map((g) => g.netCostSatang)) ?? 0) + extraCostsSatang
     const marginTotal = sumSatang(groups.map((g) => g.marginSatang)) ?? 0
     const estimateCostTotal = (sumSatang(groups.map((g) => g.estimateCostSatang)) ?? 0) + extraCostsSatang
+    const quotationTotal = (sumSatang(groups.map((g) => g.quotationSatang)) ?? 0) + extraCostsSatang
 
     return c.json({
       groups,
       extraCosts: extraCosts.map((x) => ({ id: x.id, name: x.name, amountSatang: x.amountSatang })),
-      totals: { netCostSatang, marginSatang: marginTotal, extraCostsSatang, estimateCostSatang: estimateCostTotal },
+      totals: {
+        netCostSatang,
+        marginSatang: marginTotal,
+        extraCostsSatang,
+        estimateCostSatang: estimateCostTotal,
+        quotationSatang: quotationTotal,
+      },
     })
   })
 
-  // Pronista §Project Estimate v2 — บันทึกค่าที่ PM กรอกเองสำหรับ Task Group ที่ยังไม่มี task จริง (upsert บน projectId+taskTypeId+subTaskTypeId)
+  // Pronista §Project Estimate v2 — บันทึกค่าที่ PM กรอกเองสำหรับ Task Group ที่กดเพิ่มแถวเอง (upsert บน projectId+taskTypeId+subTaskTypeId)
   .put('/:id/estimate/groups/override', ownerOnly, async (c) => {
     const body = z
       .object({
         taskTypeId: z.string(),
         subTaskTypeId: z.string().nullable(),
-        teamMemberText: z.string().max(200).nullable().optional(),
+        teamMemberIds: z.array(z.string()).nullable().optional(),
         costRoleId: z.string().nullable().optional(),
         estimateMinutes: z.number().int().nonnegative().nullable().optional(),
         bufferPercent: z.number().int().min(0).max(100).nullable().optional(),
         workMinutesPerDay: z.number().int().positive().nullable().optional(),
+        quotationSatang: z.number().int().nonnegative().nullable().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
@@ -830,6 +846,25 @@ export const projectRoutes = new Hono<AppEnv>()
     } else {
       await db.insert(estimateGroupOverrides).values({ projectId, taskTypeId, subTaskTypeId, ...rest })
     }
+    return c.json({ ok: true })
+  })
+
+  // Pronista §Project Estimate v2 — ลบแถว Task Group ที่ PM กดเพิ่มเองออก (แถวที่มี task จริงอยู่แล้วลบไม่ได้ตรงนี้ ต้องลบที่ Task)
+  .delete('/:id/estimate/groups/override', ownerOnly, async (c) => {
+    const taskTypeId = c.req.query('taskTypeId')
+    const subTaskTypeId = c.req.query('subTaskTypeId')
+    if (!taskTypeId || !subTaskTypeId) return c.json({ error: 'taskTypeId และ subTaskTypeId จำเป็น' }, 400)
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    await db
+      .delete(estimateGroupOverrides)
+      .where(
+        and(
+          eq(estimateGroupOverrides.projectId, projectId),
+          eq(estimateGroupOverrides.taskTypeId, taskTypeId),
+          eq(estimateGroupOverrides.subTaskTypeId, subTaskTypeId),
+        ),
+      )
     return c.json({ ok: true })
   })
 
