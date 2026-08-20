@@ -214,6 +214,18 @@ app.get('/api/sprints/:id/board/ws', requireAuth, async (c) => {
   return stub.fetch(new Request(c.req.raw.url, { headers }))
 })
 
+// presence WebSocket ของ Task Detail (ใครกำลังเปิด/ดู task นี้อยู่) — ใช้ DO ตัวเดียวกับ Board (roster ทั่วไป) แค่แยก instance ด้วย prefix "task:"
+app.get('/api/tasks/:id/presence/ws', requireAuth, async (c) => {
+  if (c.req.header('upgrade')?.toLowerCase() !== 'websocket')
+    return c.json({ error: 'expected_websocket' }, 426)
+  const me = c.get('user')
+  const headers = new Headers(c.req.raw.headers)
+  headers.set('x-user-id', me.id)
+  headers.set('x-user-name', me.name)
+  const stub = c.env.BOARD_HUB.get(c.env.BOARD_HUB.idFromName(`task:${c.req.param('id')}`))
+  return stub.fetch(new Request(c.req.raw.url, { headers }))
+})
+
 // โปรไฟล์ตัวเอง (GET/PATCH /api/me) — ทุก role · ดู/แก้ ชื่อจริง/นามสกุล/ชื่อเล่น ของตัวเอง
 // เช็คอิน/งานวันนี้ของฉัน (SPEC §4.18) — PAT scope tasks:read หรือ session cookie · ก่อน /api/me (path เจาะจงกว่า)
 app.use('/api/me/today', requireAuthOrToken, requireScope('tasks:read'))

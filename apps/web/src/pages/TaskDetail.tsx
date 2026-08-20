@@ -17,7 +17,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { DateInputTH } from '../components/DateInputTH'
@@ -337,6 +337,42 @@ export function TaskDetailPage() {
     [existingDocPickerOpen],
   )
 
+  // Pronista §Task Presence — WebSocket เข้า DO ราย task: ใครกำลังเปิด task นี้อยู่ (pattern เดียวกับ Board.tsx)
+  const [viewers, setViewers] = useState<{ userId: string; name: string }[]>([])
+  const presenceWsRef = useRef<WebSocket | null>(null)
+  useEffect(() => {
+    if (!taskId) return
+    let stopped = false
+    let retry: number | null = null
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const ws = new WebSocket(`${proto}://${location.host}/api/tasks/${taskId}/presence/ws`)
+      presenceWsRef.current = ws
+      ws.onmessage = (e) => {
+        if (e.data === 'pong') return
+        try {
+          const msg = JSON.parse(String(e.data)) as { type?: string; viewers?: typeof viewers }
+          if (msg.type === 'roster' && msg.viewers) setViewers(msg.viewers)
+        } catch {
+          // ข้อความนอกรูปแบบ
+        }
+      }
+      ws.onclose = () => {
+        if (!stopped) retry = window.setTimeout(connect, 2000)
+      }
+    }
+    connect()
+    const ping = window.setInterval(() => {
+      if (presenceWsRef.current?.readyState === WebSocket.OPEN) presenceWsRef.current.send('ping')
+    }, 30_000)
+    return () => {
+      stopped = true
+      if (retry) window.clearTimeout(retry)
+      window.clearInterval(ping)
+      presenceWsRef.current?.close()
+    }
+  }, [taskId])
+
   if (!t) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
   const patch = async (data: Record<string, unknown>) => {
@@ -514,7 +550,19 @@ export function TaskDetailPage() {
         </div>
 
         <div className="px-5 pt-5 pb-4 border-b border-border-subtle">
-          {t.code && <span className="text-xs font-mono text-muted bg-hover border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span>}
+          <div className="flex items-center justify-between gap-2">
+            {t.code ? <span className="text-xs font-mono text-muted bg-hover border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span> : <span />}
+            {viewers.length > 0 && (
+              <div className="flex items-center -space-x-1.5" title={`${viewers.length} คนกำลังเปิด Task นี้อยู่: ${viewers.map((v) => v.name).join(', ')}`}>
+                {viewers.slice(0, 5).map((v) => (
+                  <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
+                ))}
+                {viewers.length > 5 && (
+                  <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
+                )}
+              </div>
+            )}
+          </div>
           <div className="flex items-start gap-2.5 mt-2">
             <button
               onClick={() => canEdit && !isAssignee && void patch({ status: done ? 'non_start' : 'done' })}
