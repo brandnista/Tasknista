@@ -669,17 +669,11 @@ export function ProjectEstimateSection({
                     </thead>
                     <tbody>
                       {groupsData.groups.map((g) => {
-                        const auto = g.source === 'auto'
                         return (
                           <tr key={`${g.taskTypeId}::${g.subTaskTypeId}`} className="group/row">
                             {/* คอลัมน์แรกตรึงไว้ — เลื่อนไปขวาสุดก็ยังรู้ว่าอ่านแถวไหนอยู่ */}
                             <td className={`${bodyCell} sticky left-0 z-20 bg-white group-hover/row:bg-hover shadow-[1px_0_0_var(--color-border-subtle)] whitespace-nowrap`}>
                               <span className="font-medium text-strong">{g.name}</span>
-                              {auto && (
-                                <span className="ml-2 align-middle text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-success-50 text-success-700 whitespace-nowrap">
-                                  จากงานจริง
-                                </span>
-                              )}
                               <span className="block text-[10.5px] text-muted font-normal mt-px">{g.taskTypeName}</span>
                             </td>
 
