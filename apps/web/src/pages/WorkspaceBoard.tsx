@@ -23,6 +23,8 @@ interface BoardTask {
   id: string
   code: string | null
   title: string
+  // Pronista §Card glance-at-a-glance — คำโปรยรายละเอียดงาน โชว์ตัวอย่างสั้นๆ บนการ์ด (Worktray-inspired)
+  description: string | null
   priority: 'low' | 'normal' | 'high'
   sprintStatus: string | null
   assigneeName: string | null
@@ -195,6 +197,9 @@ export function WorkspaceBoardPage() {
             </button>
           )}
         </div>
+        {t.description && (
+          <div className="text-[11px] text-dim bg-black/[0.03] rounded px-2 py-1.5 mt-1.5 line-clamp-2">{t.description}</div>
+        )}
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[t.priority]}`} />
           {t.dueDate && (

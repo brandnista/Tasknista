@@ -41,6 +41,8 @@ export interface WorkspaceBacklogItem {
   id: string
   code: string | null
   title: string
+  // Pronista §Card glance-at-a-glance — คำโปรยรายละเอียดงาน โชว์ตัวอย่างสั้นๆ บนการ์ด Kanban (Worktray-inspired)
+  description: string | null
   kind: 'epic' | 'task' | 'backlog' | 'defect' | 'cr'
   workType: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr'
   status: string | null
@@ -283,6 +285,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     id: e.id,
     code: e.code,
     title: e.title,
+    description: null,
     kind: 'epic',
     workType: 'epic',
     status: null,
@@ -306,6 +309,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
+    description: r.task.description,
     kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : r.task.kind === 'cr' ? 'cr' : 'task',
     workType: classify(r.task),
     status: r.task.status,
@@ -338,6 +342,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     id: e.id,
     code: e.code,
     title: e.title,
+    description: null,
     kind: 'epic',
     workType: 'epic',
     status: null,
@@ -391,6 +396,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     id: r.task.id,
     code: r.task.code,
     title: r.task.title,
+    description: r.task.description,
     kind: r.task.kind === 'backlog' ? 'backlog' : r.task.kind === 'defect' ? 'defect' : r.task.kind === 'cr' ? 'cr' : 'task',
     workType: classify(r.task),
     status: r.task.status,

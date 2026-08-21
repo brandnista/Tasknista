@@ -47,6 +47,7 @@ interface WsBacklogItem {
   id: string
   code: string | null
   title: string
+  description: string | null
   kind: 'epic' | 'task' | 'backlog' | 'defect' | 'cr'
   workType: WorkType
   status: TaskStatus | null
@@ -713,6 +714,9 @@ export function WorkspacePage() {
                                     {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
                                   </div>
                                   <div className="text-sm text-body mt-1">{it.title}</div>
+                                  {it.description && (
+                                    <div className="text-[11px] text-dim bg-black/[0.03] rounded px-2 py-1.5 mt-1.5 line-clamp-2">{it.description}</div>
+                                  )}
                                   <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
                                     <LabelChips catalog={cfg?.labels} ids={it.labelIds} />

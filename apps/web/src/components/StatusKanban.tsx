@@ -9,6 +9,8 @@ import { avatarColor } from '../pages/ProjectDetail'
 export interface KanbanTask {
   id: string
   title: string
+  // Pronista §Card glance-at-a-glance — คำโปรยรายละเอียดงาน โชว์ตัวอย่างสั้นๆ บนการ์ด (Worktray-inspired)
+  description?: string | null
   status: TaskStatus
   priority: 'low' | 'normal' | 'high'
   dueDate: string | null
@@ -89,6 +91,9 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
                   >
                     <div className="text-sm text-body mb-1.5">{t.title}</div>
                     {t.projectName && <div className="text-[11px] text-muted mb-1.5">{t.projectName}</div>}
+                    {t.description && (
+                      <div className="text-[11px] text-dim bg-black/[0.03] rounded px-2 py-1.5 mb-1.5 line-clamp-2">{t.description}</div>
+                    )}
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {t.code && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-divider text-dim">{t.code}</span>}
                       {t.kind !== undefined && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-info-50 text-info-700">{taskTypeLabel(t)}</span>}
