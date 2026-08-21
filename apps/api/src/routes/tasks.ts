@@ -27,6 +27,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyProjectPmAndBa } from '../lib/notify'
+import { notifyBoard } from '../lib/presence-notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
 import { loadProjectBacklog } from '../lib/workspace-query'
@@ -571,6 +572,9 @@ export const taskRoutes = new Hono<AppEnv>()
     }
 
     const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()
+
+    // Pronista §Board Live Update — งาน/สถานะในบอร์ดขยับ (ลากคอลัมน์เป็นเคสหลัก) บอก client ที่เปิด Board ของ sprint นี้อยู่ให้ reload สด
+    if (before.sprintId) await notifyBoard(c.env, before.sprintId)
 
     const action =
       body.data.status && body.data.status !== before.status

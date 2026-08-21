@@ -261,6 +261,8 @@ export function BoardPage() {
         try {
           const msg = JSON.parse(String(e.data)) as { type?: string; viewers?: typeof viewers }
           if (msg.type === 'roster' && msg.viewers) setViewers(msg.viewers)
+          // Pronista §Board Live Update — งานในบอร์ดนี้ขยับที่เครื่องคนอื่น (ลาก/เพิ่ม/เอาออกจาก sprint) → reload สด ไม่ต้อง refresh เอง
+          if (msg.type === 'board_changed') void reload()
         } catch {
           // ข้อความนอกรูปแบบ
         }

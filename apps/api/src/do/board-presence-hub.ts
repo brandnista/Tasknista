@@ -46,6 +46,18 @@ export class BoardPresenceHub extends DurableObject<Env> {
     }
   }
 
+  /** RPC จาก worker routes — งาน/สถานะในบอร์ดนี้เปลี่ยน (ลาก/เพิ่ม/เอาออกจาก sprint) บอกทุก client ให้ reload ข้อมูลสด */
+  notify(event: { type: string; [k: string]: unknown }): void {
+    const data = JSON.stringify(event)
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(data)
+      } catch {
+        // socket ตายระหว่างส่ง — hibernation API จะเก็บกวาดเอง
+      }
+    }
+  }
+
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     if (message === 'ping') ws.send('pong') // keepalive จาก client
   }

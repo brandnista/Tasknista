@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { canEditProject, canEditTasksBatch, getProjectRole } from '../lib/project-role'
+import { notifyBoard } from '../lib/presence-notify'
 import { completeSprint } from '../lib/sprint'
 import { isWorkspaceMember, loadPreset, loadProjectSprintBoards, loadSprintBoard, loadWorkspaceSprintBoards, projectSprintIds, workspaceProjectIds } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
@@ -290,6 +291,7 @@ export const sprintRoutes = new Hono<AppEnv>()
       return c.json({ error: 'not_in_backlog', message: 'ต้องเป็นงานในโปรเจกต์ที่อยู่ในห้อง/โปรเจกต์เดียวกับ Sprint นี้เท่านั้น' }, 400)
     }
     const added = await db.select().from(tasks).where(inArray(tasks.id, result.addedIds))
+    await notifyBoard(c.env, sprint.id)
     return c.json({ added })
   })
 
@@ -319,6 +321,7 @@ export const sprintRoutes = new Hono<AppEnv>()
       else skipped++
     }
     await writeAudit(c.env, { actorId: me.id, action: 'sprint.tasks_batch_add', entity: 'sprint', entityId: sprint.id, meta: { requested: body.data.taskIds.length, added, skipped } })
+    if (added > 0) await notifyBoard(c.env, sprint.id)
     return c.json({ added, skipped })
   })
 
@@ -332,6 +335,7 @@ export const sprintRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('taskId'))).limit(1))[0]
     if (!task || task.sprintId !== sprint.id) return c.json({ error: 'not_found' }, 404)
     const updated = await db.update(tasks).set({ sprintId: null, sprintStatus: null }).where(eq(tasks.id, task.id)).returning()
+    await notifyBoard(c.env, sprint.id)
     return c.json(updated[0])
   })
 
