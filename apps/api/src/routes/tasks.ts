@@ -485,7 +485,16 @@ export const taskRoutes = new Hono<AppEnv>()
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .where(eq(tasks.assignedBy, me.id))
       .orderBy(asc(tasks.dueDate))
-    return c.json(rows.map((r) => ({ ...r.task, projectName: r.projectName, assigneeName: r.assigneeName })))
+    const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
+    return c.json(
+      rows.map((r) => ({
+        ...r.task,
+        projectName: r.projectName,
+        assigneeName: r.assigneeName,
+        checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
+        checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
+      })),
+    )
   })
 
   .patch('/tasks/:id', teamOnly, async (c) => {

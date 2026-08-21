@@ -17,6 +17,7 @@ import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { TASK_STATUS_BADGE, TASK_STATUS_DOT, TASK_STATUS_LABEL } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
@@ -112,14 +113,23 @@ function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[
 }
 
 /** Pronista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
-function DispatchedByMeTab({ tasks, onOpenTask }: { tasks: DispatchedRow[]; onOpenTask: (id: string) => void }) {
+function DispatchedByMeTab({ tasks, onOpenTask, soonDays }: { tasks: DispatchedRow[]; onOpenTask: (id: string) => void; soonDays?: number }) {
   if (tasks.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีงานที่จ่ายให้คนอื่น</div>
   return (
-    <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
+    <div className="bg-white rounded-lg shadow-xs divide-y divide-divider overflow-hidden">
       {tasks.map((t) => (
-        <button key={t.id} onClick={() => onOpenTask(t.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-hover text-left">
+        <button
+          key={t.id}
+          onClick={() => onOpenTask(t.id)}
+          className={`w-full flex items-center gap-3 px-4 py-3 text-left ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
+        >
           <div className="min-w-0 flex-1">
-            <div className="text-sm text-body truncate">{t.title}</div>
+            <div className="text-sm text-body truncate">
+              {t.title}
+              {checklistLabel(t.checklistDone, t.checklistTotal) && (
+                <span className="ml-2 text-[11px] text-dim">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>
+              )}
+            </div>
             <div className="text-[11px] text-muted mt-0.5">{t.projectName}{t.assigneeName ? ` · ${t.assigneeName}` : ''}</div>
           </div>
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
@@ -172,7 +182,7 @@ function StatStrip({ stats }: { stats: { label: string; value: number; tone?: 'd
 }
 
 /** Pronista §My Work UX — มุมมองตาราง (List View) ทางเลือกของ Board ใช้ตอนมี subtask เยอะ scan ทีละบรรทัดง่ายกว่า */
-function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id: string) => void }) {
+function TaskListView({ tasks, onOpenTask, soonDays }: { tasks: MyTask[]; onOpenTask: (id: string) => void; soonDays?: number }) {
   if (tasks.length === 0) return <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-10">ไม่พบงานตามตัวกรองนี้</div>
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden">
@@ -196,9 +206,18 @@ function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id:
         </thead>
         <tbody className="divide-y divide-divider">
           {tasks.map((t) => (
-            <tr key={t.id} onClick={() => onOpenTask(t.id)} className="cursor-pointer hover:bg-hover">
+            <tr
+              key={t.id}
+              onClick={() => onOpenTask(t.id)}
+              className={`cursor-pointer ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
+            >
               <td className="px-3 py-2.5 text-[11px] font-mono text-muted truncate">{t.code ?? '—'}</td>
-              <td className="px-3 py-2.5 text-body truncate">{t.title}</td>
+              <td className="px-3 py-2.5 text-body truncate">
+                <span className="truncate">{t.title}</span>
+                {checklistLabel(t.checklistDone, t.checklistTotal) && (
+                  <span className="ml-2 text-[11px] text-dim">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>
+                )}
+              </td>
               <td className="px-3 py-2.5 text-muted truncate">{t.projectName}</td>
               <td className="px-3 py-2.5 text-muted truncate">{taskTypeLabel(t)}</td>
               <td className="px-3 py-2.5">
@@ -213,7 +232,11 @@ function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id:
       </table>
       <div className="sm:hidden divide-y divide-divider">
         {tasks.map((t) => (
-          <button key={t.id} onClick={() => onOpenTask(t.id)} className="w-full text-left px-4 py-3 hover:bg-hover">
+          <button
+            key={t.id}
+            onClick={() => onOpenTask(t.id)}
+            className={`w-full text-left px-4 py-3 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
+          >
             <div className="flex items-center gap-2">
               {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <span className="text-sm text-body truncate">{t.title}</span>
@@ -222,6 +245,7 @@ function TaskListView({ tasks, onOpenTask }: { tasks: MyTask[]; onOpenTask: (id:
               <span className="truncate">{t.projectName}</span>
               <span>·</span>
               <span className="truncate">{taskTypeLabel(t)}</span>
+              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-dim">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
               <span className="inline-flex items-center gap-1 ml-auto shrink-0">
                 <span className={`w-1.5 h-1.5 rounded-full ${TASK_STATUS_DOT[t.status]}`} />
                 {TASK_STATUS_LABEL[t.status]}
@@ -471,7 +495,7 @@ export function MyTasksPage() {
 
           {/* Pronista §Mobile responsive — ลาก drag-and-drop ใช้กับสัมผัสไม่ได้ บนมือถือบังคับเห็น List เสมอไม่ว่า view state จะเป็นอะไร */}
           <div className="sm:hidden">
-            <TaskListView tasks={filteredTasks} onOpenTask={openTask} />
+            <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
           </div>
           <div className="hidden sm:block">
             {view === 'board' ? (
@@ -484,12 +508,12 @@ export function MyTasksPage() {
                 soonDays={cfg?.dueSoonDays}
               />
             ) : (
-              <TaskListView tasks={filteredTasks} onOpenTask={openTask} />
+              <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
             )}
           </div>
         </>
       ) : tab === 'dispatched' ? (
-        <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} />
+        <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
       ) : (
         <NotificationsTab notifications={notifications} onRead={markRead} />
       )}
