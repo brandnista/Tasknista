@@ -15,11 +15,18 @@ export function dueUrgency(dueDate: string | null | undefined, isDone: boolean):
   return 'normal'
 }
 
-/** แถบสีขอบซ้ายของการ์ด/แถว — โชว์ระดับความเร่งด่วนโดยไม่ต้องอ่านวันที่ */
+/** แถบสีขอบซ้ายของแถว (มุมมองตาราง/Backlog) — โชว์ระดับความเร่งด่วนโดยไม่ต้องอ่านวันที่ */
 export const URGENCY_BORDER_CLASS: Record<DueUrgency, string> = {
   normal: 'border-l-4 border-l-transparent',
   soon: 'border-l-4 border-l-warning-400',
   overdue: 'border-l-4 border-l-danger-500',
+}
+
+/** พื้นหลังทั้งการ์ด (มุมมอง Kanban) — เข้มกว่าขอบเฉยๆ เห็นชัดกว่าตอนดูทีละหลายใบพร้อมกัน */
+export const URGENCY_CARD_CLASS: Record<DueUrgency, string> = {
+  normal: 'bg-white',
+  soon: 'bg-warning-50',
+  overdue: 'bg-danger-50',
 }
 
 export function checklistLabel(done: number | null | undefined, total: number | null | undefined): string | null {

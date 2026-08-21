@@ -1,6 +1,6 @@
 import { minutesToHoursLabel } from '@seedoffice/core'
 import { type DragEvent, useState } from 'react'
-import { dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
+import { dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { TASK_STATUS_DOT, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { Avatar } from './Avatar'
 import { taskTypeLabel } from './MyWorkSummary'
@@ -36,9 +36,9 @@ const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(
 function dueBadge(dueDate: string | null, status: TaskStatus) {
   if (!dueDate || status === 'done') return null
   const diffDays = Math.round((Date.parse(`${dueDate}T00:00:00+07:00`) - Date.parse(`${bkkToday()}T00:00:00+07:00`)) / 86_400_000)
-  if (diffDays < 0) return { text: `เลยกำหนด ${-diffDays} วัน`, cls: 'bg-danger-50 text-danger-600' }
-  // Pronista §Card glance-at-a-glance — เหลือ ≤3 วัน เตือนสีเหลืองอำพัน (เหมือนแถบขอบซ้ายของการ์ด)
-  if (diffDays <= 3) return { text: `อีก ${diffDays} วัน`, cls: 'bg-warning-50 text-warning-700' }
+  // Pronista §Card glance-at-a-glance — สีเข้มกว่าพื้นการ์ด (-100 ไม่ใช่ -50) กันกลืนกับพื้นหลังการ์ดที่ทาสีทั้งใบแล้ว
+  if (diffDays < 0) return { text: `เลยกำหนด ${-diffDays} วัน`, cls: 'bg-danger-100 text-danger-700' }
+  if (diffDays <= 3) return { text: `อีก ${diffDays} วัน`, cls: 'bg-warning-100 text-warning-700' }
   return { text: `อีก ${diffDays} วัน`, cls: 'bg-divider text-dim' }
 }
 
@@ -85,7 +85,7 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
                     onDragStart={() => setDragId(t.id)}
                     onClick={() => onOpenTask(t.id)}
                     title={editable ? undefined : 'ต้องมีสิทธิ์แก้ไข (editor) ในโปรเจกต์นี้'}
-                    className={`bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.status === 'done')]} ${editable ? '' : 'opacity-80'}`}
+                    className={`rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done')]} ${editable ? '' : 'opacity-80'}`}
                   >
                     <div className="text-sm text-body mb-1.5">{t.title}</div>
                     {t.projectName && <div className="text-[11px] text-muted mb-1.5">{t.projectName}</div>}

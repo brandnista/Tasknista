@@ -6,7 +6,7 @@ import { Avatar } from '../components/Avatar'
 import { LabelChips } from '../components/LabelChips'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
+import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, STATUS_SWATCH, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
@@ -374,7 +374,7 @@ export function BoardPage() {
       draggable={t.canEdit}
       onDragStart={() => setDragId(t.id)}
       onClick={() => openTask(t.id)}
-      className={`group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_BORDER_CLASS[urgency]}`}
+      className={`group rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[urgency]}`}
     >
       <div className="flex items-start gap-1.5">
         {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
@@ -392,7 +392,7 @@ export function BoardPage() {
       <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
         <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[t.priority]}`} />
         {t.dueDate && (
-          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${urgency === 'overdue' ? 'bg-danger-50 text-danger-600' : urgency === 'soon' ? 'bg-warning-50 text-warning-700' : 'bg-divider text-dim'}`}>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${urgency === 'overdue' ? 'bg-danger-100 text-danger-700' : urgency === 'soon' ? 'bg-warning-100 text-warning-700' : 'bg-divider text-dim'}`}>
             {fmtThaiDate(t.dueDate)}
           </span>
         )}

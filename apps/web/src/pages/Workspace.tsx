@@ -19,7 +19,7 @@ import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBul
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
+import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate } from '../lib/project-ui'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
@@ -28,8 +28,6 @@ import { avatarColor, SprintStartModal } from './ProjectDetail'
 import { Avatar } from '../components/Avatar'
 
 type WorkspaceType = 'business' | 'developer'
-
-const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 interface AccessibleProject { id: string; code: string | null; name: string }
 interface WsTask {
@@ -98,7 +96,6 @@ const WORKTYPE_BADGE: Record<WorkType, string> = {
   cr: 'bg-warning-50 text-warning-700',
 }
 const selectCls = 'text-sm bg-white border border-border rounded-lg px-2.5 py-1.5'
-const isOverdue = (dueDate: string | null, status: TaskStatus | null) => !!dueDate && dueDate < bkkToday() && status !== 'done'
 
 // Pronista §System Requirements Update — แถวคีย์งานใหม่ 1 จุดใน Backlog Grid เลือกประเภทได้ (Backlog/Epic/Story/Task/Subtask/Defect) กรอบสีซ้ายเปลี่ยนตามประเภทที่เลือกทันที
 // "Backlog" = ค่าเริ่มต้น คีย์ลอยเป็นของห้องเองได้เลย ไม่ต้องเลือกโปรเจกต์จริง — ที่เหลือยังต้องผูกโปรเจกต์จริงในห้องเหมือนเดิม
@@ -124,10 +121,12 @@ function ProjectChip({ code, name }: { code: string | null; name: string | null 
 
 function DueDateChip({ dueDate, status }: { dueDate: string | null; status: TaskStatus | null }) {
   if (!dueDate) return null
-  const overdue = isOverdue(dueDate, status)
+  const urgency = dueUrgency(dueDate, status === 'done')
+  // Pronista §Card glance-at-a-glance — สีเข้มกว่าพื้นการ์ด (-100 ไม่ใช่ -50) กันกลืนกับพื้นหลังการ์ดที่ทาสีทั้งใบแล้ว
+  const cls = urgency === 'overdue' ? 'bg-danger-100 text-danger-700' : urgency === 'soon' ? 'bg-warning-100 text-warning-700' : 'text-muted'
   return (
-    <span className={`text-[11px] px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1 ${overdue ? 'bg-danger-50 text-danger-600 border border-danger-200' : 'text-muted'}`}>
-      {overdue && <AlertTriangle className="w-3 h-3" />} {fmtThaiDate(dueDate)}
+    <span className={`text-[11px] px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1 ${cls}`}>
+      {urgency === 'overdue' && <AlertTriangle className="w-3 h-3" />} {fmtThaiDate(dueDate)}
     </span>
   )
 }
@@ -707,7 +706,7 @@ export function WorkspacePage() {
                                   onDragStart={(e: DragEvent) => { e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
                                   onDragEnd={() => setDragTaskId(null)}
                                   onClick={() => navigate(`/tasks/${it.id}`)}
-                                  className={`bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_BORDER_CLASS[dueUrgency(it.dueDate, it.status === 'done')]} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                                  className={`rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done')]} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                                 >
                                   <div className="flex items-start gap-1.5 flex-wrap">
                                     <ProjectChip code={it.projectCode} name={it.projectName} />
