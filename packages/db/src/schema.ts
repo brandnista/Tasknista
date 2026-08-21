@@ -44,6 +44,8 @@ export const users = sqliteTable('users', {
   contactType: text('contact_type', { enum: ['juristic', 'individual'] }),
   businessName: text('business_name'),
   phone: text('phone'),
+  // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้ (null = ยังไม่ได้ตั้ง, Admin ตั้ง/เปลี่ยนได้ต่อคนที่ตั้งค่าผู้ใช้งาน) ไม่ผูกกับ Project Lead/ตำแหน่งสิทธิ์ใดๆ
+  managerId: text('manager_id').references((): AnySQLiteColumn => users.id),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -1097,6 +1099,99 @@ export const changelogItemLinks = sqliteTable(
   ],
 )
 
+// Pronista §Daily Report — รายงานประจำวัน 1 ใบต่อ (คน, วัน) ส่งให้ "หัวหน้าโดยตรง" (users.managerId) แทนการเขียนอีเมล
+// recipientId = snapshot จาก users.managerId ตอนสร้างรายงาน (ไม่ dynamic ตาม managerId ปัจจุบัน) กันรายงานเก่าเปลี่ยนผู้รับย้อนหลังถ้า Admin แก้ทีหลัง
+export const DAILY_REPORT_STATUSES = ['draft', 'submitted', 'reviewed'] as const
+
+export const dailyReports = sqliteTable(
+  'daily_reports',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    reportDate: text('report_date').notNull(), // YYYY-MM-DD (Asia/Bangkok)
+    recipientId: text('recipient_id')
+      .notNull()
+      .references(() => users.id),
+    status: text('status', { enum: DAILY_REPORT_STATUSES }).notNull().default('draft'),
+    notes: text('notes'),
+    blockerHasIssue: integer('blocker_has_issue', { mode: 'boolean' }).notNull().default(false),
+    blockerDetail: text('blocker_detail'),
+    blockerNeedHelpFrom: text('blocker_need_help_from'),
+    submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
+    reviewedAt: integer('reviewed_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index('daily_reports_user_idx').on(t.userId, t.reportDate),
+    index('daily_reports_recipient_idx').on(t.recipientId),
+    uniqueIndex('daily_reports_user_date_uq_idx').on(t.userId, t.reportDate),
+  ],
+)
+
+// รายการงานที่ทำวันนี้ 1 แถว = 1 task จริง + บันทึกสั้นๆ ("สิ่งที่ทำวันนี้") — ไม่ copy ข้อมูล task มา อ้างอิงอย่างเดียว (ดึง title/status/project สดตอนแสดงผล)
+export const dailyReportItems = sqliteTable(
+  'daily_report_items',
+  {
+    id: id(),
+    reportId: text('report_id')
+      .notNull()
+      .references(() => dailyReports.id),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    note: text('note'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index('daily_report_items_report_idx').on(t.reportId),
+    uniqueIndex('daily_report_items_uq_idx').on(t.reportId, t.taskId),
+  ],
+)
+
+// แผนงานพรุ่งนี้ — taskId ผูกได้ (เลือกจากงานจริง) หรือปล่อยว่าง (เพิ่มแผนเองแบบ freeform)
+export const dailyReportPlanItems = sqliteTable(
+  'daily_report_plan_items',
+  {
+    id: id(),
+    reportId: text('report_id')
+      .notNull()
+      .references(() => dailyReports.id),
+    taskId: text('task_id').references(() => tasks.id),
+    note: text('note').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('daily_report_plan_items_report_idx').on(t.reportId)],
+)
+
+// คอมเมนต์บน Daily Report — มิเรอร์ taskComments (เจ้าของรายงาน ↔ หัวหน้า คุยกันได้)
+export const dailyReportComments = sqliteTable(
+  'daily_report_comments',
+  {
+    id: id(),
+    reportId: text('report_id')
+      .notNull()
+      .references(() => dailyReports.id),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    body: text('body').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('daily_report_comments_report_idx').on(t.reportId)],
+)
+
 /** Pronista §Project Estimate v2 — Tab "Task Group": ค่าใช้จ่ายนอกระบบต่อโปรเจกต์ แยกหัวข้อหลัก AEX/OPEX
  * netCostSatang = PM กรอกเอง (ยอดฐานก่อนกำไร) · marginSatang/estimateCostSatang คำนวณจาก company margin% (ไม่เก็บ derive สด)
  * quotationSatang = PM กรอกทับเองได้แยกจาก estimateCostSatang (null = ยังไม่กรอก ใช้ estimateCostSatang แทนตอนรวมยอด) */
@@ -1533,6 +1628,10 @@ export const NOTIFICATION_TYPES = [
   'expiry_reminder',
   // Pronista §Guest Backlog — แจ้งสมาชิกโปรเจกต์ทุกคนเมื่อลูกค้า (guest) คีย์ Backlog/Defect เอง
   'guest_item_created',
+  // Pronista §Daily Report — ส่งรายงาน (ไปหา recipientId), คอมเมนต์ (ไปหาอีกฝ่ายในเธรด), หัวหน้าเปิดอ่านรายงานที่ submitted แล้ว (ไปหาเจ้าของรายงาน)
+  'daily_report_submitted',
+  'daily_report_commented',
+  'daily_report_reviewed',
 ] as const
 
 export const notifications = sqliteTable(
@@ -1545,6 +1644,8 @@ export const notifications = sqliteTable(
     type: text('type', { enum: NOTIFICATION_TYPES }).notNull(),
     taskId: text('task_id').references((): AnySQLiteColumn => tasks.id),
     projectId: text('project_id').references(() => projects.id),
+    // Pronista §Daily Report — deep-link ไปยัง Daily Report ที่เกี่ยวข้อง (คนละ entity จาก task/project เดิม)
+    dailyReportId: text('daily_report_id').references((): AnySQLiteColumn => dailyReports.id),
     message: text('message').notNull(),
     isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1561,6 +1662,10 @@ export type Rate = typeof rates.$inferSelect
 export type CompanyConfig = typeof companyConfig.$inferSelect
 export type AuditLog = typeof auditLogs.$inferSelect
 export type Notification = typeof notifications.$inferSelect
+export type DailyReport = typeof dailyReports.$inferSelect
+export type DailyReportItem = typeof dailyReportItems.$inferSelect
+export type DailyReportPlanItem = typeof dailyReportPlanItems.$inferSelect
+export type DailyReportComment = typeof dailyReportComments.$inferSelect
 export type Client = typeof clients.$inferSelect
 export type Project = typeof projects.$inferSelect
 export type TaskGroup = typeof taskGroups.$inferSelect

@@ -22,6 +22,7 @@ import { payrollAdminRoutes } from './routes/payroll-admin'
 import { payrollRoutes } from './routes/payroll'
 import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
+import { dailyReportRoutes } from './routes/daily-reports'
 import { projectReleaseRoutes } from './routes/project-releases'
 import { projectChangelogRoutes } from './routes/project-changelogs'
 import { projectRoutes } from './routes/projects'
@@ -144,6 +145,10 @@ app.route('/api', projectReleaseRoutes)
 // Pronista §Change Log (Internal) — /api/projects/:id/changelogs อยู่ใต้ /api/projects/* (requireAuth ด้านบน) แต่ /api/changelogs/:id แยก path
 app.use('/api/changelogs/*', requireAuth)
 app.route('/api', projectChangelogRoutes)
+// Pronista §Daily Report
+app.use('/api/daily-reports', requireAuth)
+app.use('/api/daily-reports/*', requireAuth)
+app.route('/api', dailyReportRoutes)
 // เงินสดย่อย: owner+member (vendor ❌ — SPEC §2)
 app.use('/api/expenses', requireAuth, teamOnly)
 app.use('/api/expenses/*', requireAuth, teamOnly)

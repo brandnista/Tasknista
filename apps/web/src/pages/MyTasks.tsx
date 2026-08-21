@@ -11,7 +11,8 @@ import {
   Zap,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
+import { DailyReportTab } from '../components/DailyReportTab'
 import { MyWorkSummary, taskTypeLabel } from '../components/MyWorkSummary'
 import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
@@ -40,9 +41,21 @@ interface DispatchedRow extends KanbanTask {
 }
 interface NotificationRow {
   id: string
-  type: 'subtask_assigned' | 'subtask_completed' | 'task_dispatched' | 'task_submitted' | 'task_approved' | 'task_bounced' | 'expiry_reminder'
+  type:
+    | 'subtask_assigned'
+    | 'subtask_completed'
+    | 'task_dispatched'
+    | 'task_submitted'
+    | 'task_approved'
+    | 'task_bounced'
+    | 'expiry_reminder'
+    | 'daily_report_submitted'
+    | 'daily_report_commented'
+    | 'daily_report_reviewed'
   taskId: string | null
   projectId: string | null
+  // Pronista §Daily Report — deep-link ไปยัง Daily Report ที่เกี่ยวข้อง (ว่างสำหรับ notification type อื่น)
+  dailyReportId: string | null
   message: string
   isRead: boolean
   createdAt: number
@@ -145,7 +158,11 @@ function NotificationsTab({ notifications, onRead }: { notifications: Notificati
   return (
     <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
       {notifications.map((n) => {
-        const href = n.projectId ? (n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`) : undefined
+        const href = n.dailyReportId
+          ? `/my-tasks?tab=dailyReport&report=${n.dailyReportId}`
+          : n.projectId
+            ? (n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`)
+            : undefined
         return (
           <a
             key={n.id}
@@ -346,7 +363,9 @@ export function MyTasksPage() {
   const notifications = notifData ?? []
   const dispatchedByMe = dispatchedData ?? []
   const unreadCount = notifications.filter((n) => !n.isRead).length
-  const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched'>('work')
+  const [searchParams] = useSearchParams()
+  const deepLinkReportId = searchParams.get('report')
+  const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched' | 'dailyReport'>(deepLinkReportId ? 'dailyReport' : 'work')
 
   // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
   const [search, setSearch] = useState('')
@@ -439,6 +458,9 @@ export function MyTasksPage() {
           <Bell className="w-3.5 h-3.5" /> แจ้งเตือน
           {unreadCount > 0 && <span className="text-[10px] bg-danger-500 text-white rounded-full w-4 h-4 grid place-items-center">{unreadCount}</span>}
         </button>
+        <button onClick={() => setTab('dailyReport')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'dailyReport' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <ClipboardList className="w-3.5 h-3.5" /> Daily Report
+        </button>
       </div>
 
       {tab === 'work' ? (
@@ -514,6 +536,8 @@ export function MyTasksPage() {
         </>
       ) : tab === 'dispatched' ? (
         <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
+      ) : tab === 'dailyReport' ? (
+        <DailyReportTab initialReportId={deepLinkReportId} />
       ) : (
         <NotificationsTab notifications={notifications} onRead={markRead} />
       )}

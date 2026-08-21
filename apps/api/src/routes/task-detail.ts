@@ -241,6 +241,10 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     // Pronista §Back to Basic (ต่อยอด) — assignee ติ๊ก done ได้อย่างเดียว แก้ข้อความเกณฑ์เองไม่ได้ (เป็นของผู้จ่ายงาน)
     if (task && 'text' in body.data && (await isAssigneeOnlyEditor(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     const updated = await db.update(taskChecklistItems).set(body.data).where(eq(taskChecklistItems.id, item.id)).returning()
+    // Pronista §Daily Report — บันทึกไว้ให้ดึงเป็นสัญญาณ "มีการทำ Checklist วันนี้" ได้ (เดิมไม่มี audit จุดนี้)
+    if (task && 'done' in body.data && body.data.done !== item.done) {
+      await writeAudit(c.env, { actorId: me.id, action: 'task.checklist', entity: 'task', entityId: task.id, meta: { checklistItemId: item.id, done: body.data.done } })
+    }
     return c.json(updated[0])
   })
 

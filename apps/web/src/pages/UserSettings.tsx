@@ -25,6 +25,8 @@ interface AdminUser {
   businessName: string | null
   phone: string | null
   projectIds: string[]
+  // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้
+  managerId: string | null
 }
 interface ProjectOpt { id: string; code: string | null; name: string }
 
@@ -203,6 +205,12 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
     await api.patch(`/api/admin/users/${u.id}`, { role })
     await reload()
   }
+  const saveManager = async (u: AdminUser, managerId: string) => {
+    const next = managerId || null
+    if (next === u.managerId) return
+    await api.patch(`/api/admin/users/${u.id}`, { managerId: next })
+    await reload()
+  }
   const saveEmail = async (u: AdminUser, email: string) => {
     const next = email.trim().toLowerCase()
     if (next === u.email) return
@@ -318,12 +326,13 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                       <th className="text-left font-medium px-3 py-3">อีเมล</th>
                       <th className="text-left font-medium px-3 py-3">สิทธิ์ระบบ</th>
                       <th className="text-left font-medium px-3 py-3">ทีม</th>
+                      {tab === 'staff' && <th className="text-left font-medium px-3 py-3">หัวหน้าโดยตรง</th>}
                       <th className="text-right font-medium px-5 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-divider">
                     {visibleUsers.length === 0 && (
-                      <tr><td colSpan={5} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
+                      <tr><td colSpan={tab === 'staff' ? 6 : 5} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
                     )}
                     {visibleUsers.map((u) => (
                       <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
@@ -341,6 +350,16 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                           </select>
                         </td>
                         <td className="px-3 text-muted">{u.teamName ?? '—'}</td>
+                        {tab === 'staff' && (
+                          <td className="px-3">
+                            <select value={u.managerId ?? ''} onChange={(e) => void saveManager(u, e.target.value)} className="text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-muted max-w-40">
+                              <option value="">— ยังไม่ตั้ง —</option>
+                              {staffUsers.filter((s) => s.id !== u.id).map((s) => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                         <td className="text-right px-5">
                           <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
                             {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}

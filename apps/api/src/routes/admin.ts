@@ -163,6 +163,8 @@ export const adminRoutes = new Hono<AppEnv>()
         contactType: z.enum(['juristic', 'individual']).nullable().optional(),
         businessName: z.string().max(120).nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
+        // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้
+        managerId: z.string().nullable().optional(),
         // Pronista §System Requirements Update — แก้รายการโปรเจกต์ที่ลูกค้าผูกอยู่ (ส่งมา = แทนที่ทั้งชุด)
         projectIds: z.array(z.string()).optional(),
       })
