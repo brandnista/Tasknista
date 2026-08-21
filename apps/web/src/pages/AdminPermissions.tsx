@@ -2,14 +2,12 @@
 import { PageHeader } from '../components/PageHeader'
 import { PermissionCeilingSettings } from '../components/PermissionCeilingSettings'
 import { PositionSettings } from '../components/PositionSettings'
-import { SettingsSubNav } from '../components/SettingsSubNav'
 
 export function AdminPermissionsPage() {
   return (
     <>
       <PageHeader title="ตั้งค่าสิทธิ์ผู้ใช้งาน" />
       <div className="p-3 sm:p-6 space-y-4">
-        <SettingsSubNav />
         <PermissionCeilingSettings />
         <PositionSettings />
       </div>

@@ -9,7 +9,6 @@ import { ProductTypeSettings } from '../components/ProductTypeSettings'
 import { TaskTypeSettings } from '../components/TaskTypeSettings'
 import { LabelSettings } from '../components/LabelSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
-import { SettingsSubNav } from '../components/SettingsSubNav'
 import { api } from '../lib/api'
 import { useDialog } from '../components/Dialog'
 import { useLoad } from '../lib/useLoad'
@@ -127,7 +126,6 @@ export function AdminPage() {
     <>
       <PageHeader title="ตั้งค่า" />
       <div className="p-3 sm:p-6 space-y-5">
-        <SettingsSubNav />
         <div className="bg-white rounded-lg shadow-xs p-5 max-w-md">
           <div className="font-semibold text-ink mb-3">ค่าบริษัท</div>
           {cfg && (

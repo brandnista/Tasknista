@@ -6,7 +6,6 @@ import { Plus, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
-import { SettingsSubNav } from '../components/SettingsSubNav'
 import { api, ApiError } from '../lib/api'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
@@ -248,7 +247,6 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
         }
       />
       <div className="p-3 sm:p-6 space-y-4">
-        <SettingsSubNav />
         <div className="flex bg-divider rounded-lg p-0.5 w-fit">
           {tabLink('staff', '/admin/users', 'พนักงานในระบบ', staffUsers.length)}
           {tabLink('outsource', '/admin/users/outsource', 'พนักงาน Outsource', outsourceUsers.length)}

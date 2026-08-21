@@ -4,7 +4,6 @@
  */
 import { CostRoleSettings } from '../components/CostRoleSettings'
 import { PageHeader } from '../components/PageHeader'
-import { SettingsSubNav } from '../components/SettingsSubNav'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
@@ -25,8 +24,6 @@ export function AdminCostPage() {
     <>
       <PageHeader title="กำหนดต้นทุน" />
       <div className="p-3 sm:p-6 space-y-4">
-        <SettingsSubNav />
-
         <div className="bg-white rounded-lg shadow-xs p-5 max-w-md">
           <div className="font-semibold text-ink mb-1">ค่าเริ่มต้นของการคำนวณ</div>
           <p className="text-[11px] text-muted mb-3">ใช้เป็นค่าเริ่มต้นของทุก Task ใน Tab "Project Estimate" (แก้เฉพาะ Task ได้ทีหลัง)</p>

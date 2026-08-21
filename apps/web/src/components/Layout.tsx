@@ -38,7 +38,7 @@ function CapBanner() {
 type Role = Me['role']
 
 // Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
-const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[]; menuKey?: MenuKey }[] = [
+const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[]; menuKey?: MenuKey; children?: { to: string; label: string }[] }[] = [
   { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'dashboard' },
   { to: '/my-tasks', label: 'งานของฉัน', icon: ClipboardList, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'myTasks' },
   // Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ (สิทธิ์เห็นเนื้อหาจริงคุมด้วย tabs.sprint ต่อโปรเจกต์อยู่แล้ว เหมือนแท็บ Sprint เดิม)
@@ -46,7 +46,19 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'projects' },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docs' },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docsHistory' },
-  { to: '/admin', label: 'ตั้งค่า', icon: Settings, roles: ['owner'] },
+  // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
+  {
+    to: '/admin',
+    label: 'ตั้งค่า',
+    icon: Settings,
+    roles: ['owner'],
+    children: [
+      { to: '/admin', label: 'ตั้งค่าทั่วไป' },
+      { to: '/admin/users', label: 'ตั้งค่าผู้ใช้งาน' },
+      { to: '/admin/permissions', label: 'ตั้งค่าสิทธิ์ผู้ใช้งาน' },
+      { to: '/admin/cost', label: 'กำหนดต้นทุน' },
+    ],
+  },
 ]
 
 interface DevInfo {
@@ -147,20 +159,40 @@ export function Layout() {
         </button>
       </div>
       <nav className="flex-1 p-3 space-y-0.5 text-sm">
-        {items.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            onClick={() => setNavOpen(false)}
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
-              to === activeTo
-                ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
-                : 'text-soft hover:bg-hover'
-            }`}
-          >
-            <Icon className="w-[18px] h-[18px]" /> {label}
-            {to === '/my-tasks' && <NotificationBell />}
-          </NavLink>
+        {items.map(({ to, label, icon: Icon, children }) => (
+          <div key={to}>
+            <NavLink
+              to={to}
+              onClick={() => setNavOpen(false)}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
+                to === activeTo
+                  ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
+                  : 'text-soft hover:bg-hover'
+              }`}
+            >
+              <Icon className="w-[18px] h-[18px]" /> {label}
+              {to === '/my-tasks' && <NotificationBell />}
+            </NavLink>
+            {children && (
+              <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
+                {children.map((c) => (
+                  <NavLink
+                    key={c.to}
+                    to={c.to}
+                    end={c.to === '/admin'}
+                    onClick={() => setNavOpen(false)}
+                    className={({ isActive }) =>
+                      `block px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                        isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
+                      }`
+                    }
+                  >
+                    {c.label}
+                  </NavLink>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </nav>
       <div className="p-3 border-t border-border-subtle">
