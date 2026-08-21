@@ -1,5 +1,5 @@
 import { CheckCircle2, ChevronLeft, X } from 'lucide-react'
-import { type DragEvent, useEffect, useRef, useState } from 'react'
+import { type DragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
@@ -247,7 +247,11 @@ export function BoardPage() {
 
   // Pronista §Board Presence — WebSocket เข้า DO ราย sprint: ใครกำลังเปิดบอร์ดนี้อยู่ (pattern เดียวกับ Inbox.tsx)
   const [viewers, setViewers] = useState<{ userId: string; name: string }[]>([])
+  // Pronista §Live Cursor — ตำแหน่งเมาส์ของคนอื่นที่กำลังเปิดบอร์ดเดียวกัน (x/y เป็นสัดส่วน 0-1 ของพื้นที่บอร์ด)
+  const [cursors, setCursors] = useState<Record<string, { name: string; x: number; y: number; updatedAt: number }>>({})
   const wsRef = useRef<WebSocket | null>(null)
+  const boardAreaRef = useRef<HTMLDivElement>(null)
+  const lastCursorSentRef = useRef(0)
   useEffect(() => {
     if (!sprintId) return
     let stopped = false
@@ -259,10 +263,13 @@ export function BoardPage() {
       ws.onmessage = (e) => {
         if (e.data === 'pong') return
         try {
-          const msg = JSON.parse(String(e.data)) as { type?: string; viewers?: typeof viewers }
+          const msg = JSON.parse(String(e.data)) as { type?: string; viewers?: typeof viewers; userId?: string; name?: string; x?: number; y?: number }
           if (msg.type === 'roster' && msg.viewers) setViewers(msg.viewers)
           // Pronista §Board Live Update — งานในบอร์ดนี้ขยับที่เครื่องคนอื่น (ลาก/เพิ่ม/เอาออกจาก sprint) → reload สด ไม่ต้อง refresh เอง
           if (msg.type === 'board_changed') void reload()
+          if (msg.type === 'cursor' && msg.userId && msg.name && typeof msg.x === 'number' && typeof msg.y === 'number') {
+            setCursors((prev) => ({ ...prev, [msg.userId!]: { name: msg.name!, x: msg.x!, y: msg.y!, updatedAt: Date.now() } }))
+          }
         } catch {
           // ข้อความนอกรูปแบบ
         }
@@ -275,13 +282,34 @@ export function BoardPage() {
     const ping = window.setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send('ping')
     }, 30_000)
+    // เคอร์เซอร์ที่ไม่ขยับเกิน 4 วิ (คนนั้นน่าจะเลื่อนเมาส์ออกจากบอร์ดไปแล้ว) — เอาออกกันค้าง
+    const sweep = window.setInterval(() => {
+      const cutoff = Date.now() - 4000
+      setCursors((prev) => {
+        const next = Object.fromEntries(Object.entries(prev).filter(([, v]) => v.updatedAt > cutoff))
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next
+      })
+    }, 2000)
     return () => {
       stopped = true
       if (retry) window.clearTimeout(retry)
       window.clearInterval(ping)
+      window.clearInterval(sweep)
       wsRef.current?.close()
     }
   }, [sprintId])
+
+  // Pronista §Live Cursor — ส่งตำแหน่งเมาส์ (throttle ~60ms กันยิงถี่เกินไป) เป็นสัดส่วนของพื้นที่บอร์ด
+  const onBoardMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const now = Date.now()
+    if (now - lastCursorSentRef.current < 60) return
+    lastCursorSentRef.current = now
+    const rect = boardAreaRef.current?.getBoundingClientRect()
+    if (!rect || rect.width === 0 || rect.height === 0) return
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'cursor', x, y }))
+  }
 
   const sprint = data?.sprint
   const preset = data?.preset
@@ -374,7 +402,7 @@ export function BoardPage() {
   )
 
   return (
-    <div className="p-3 sm:p-6">
+    <div ref={boardAreaRef} onMouseMove={onBoardMouseMove} className="relative p-3 sm:p-6">
       <Link to={`/projects/${projectId}`} className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
         <ChevronLeft className="w-4 h-4" /> กลับไปหน้าโปรเจกต์
       </Link>
@@ -484,6 +512,28 @@ export function BoardPage() {
         </>
       )}
 
+      {/* Pronista §Live Cursor — เมาส์คนอื่นที่เปิดบอร์ดเดียวกันอยู่ ลอยทับเนื้อหา ไม่รับ pointer event เอง */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden z-30">
+        {Object.entries(cursors).map(([userId, c]) => {
+          const parts = (avatarColor(c.name) ?? '').split(' ')
+          const bgClass = parts[0] ?? ''
+          const textClass = parts[1] ?? ''
+          return (
+            <div
+              key={userId}
+              className="absolute transition-[left,top] duration-100 ease-linear"
+              style={{ left: `${c.x * 100}%`, top: `${c.y * 100}%` }}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" className={`drop-shadow-sm ${textClass}`}>
+                <path d="M1 1l6.5 15.5 2.2-6.3L16 8 1 1z" fill="currentColor" stroke="white" strokeWidth="1" strokeLinejoin="round" />
+              </svg>
+              <span className={`ml-3 -mt-1 inline-block text-[11px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${bgClass} ${textClass}`}>
+                {c.name}
+              </span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

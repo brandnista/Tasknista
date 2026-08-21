@@ -59,7 +59,26 @@ export class BoardPresenceHub extends DurableObject<Env> {
   }
 
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    if (message === 'ping') ws.send('pong') // keepalive จาก client
+    if (message === 'ping') return void ws.send('pong') // keepalive จาก client
+    // ตำแหน่งเมาส์ลอย — relay สดให้ทุกคนยกเว้นคนส่งเอง ไม่เก็บ state ฝั่ง server (client ไหนหลุดก็หายเงียบๆ เอง)
+    try {
+      const msg = JSON.parse(String(message)) as { type?: string; x?: number; y?: number }
+      if (msg.type === 'cursor' && typeof msg.x === 'number' && typeof msg.y === 'number') {
+        const v = ws.deserializeAttachment() as Viewer | null
+        if (!v?.userId) return
+        const data = JSON.stringify({ type: 'cursor', userId: v.userId, name: v.name, x: msg.x, y: msg.y })
+        for (const other of this.ctx.getWebSockets()) {
+          if (other === ws) continue
+          try {
+            other.send(data)
+          } catch {
+            // socket ตายระหว่างส่ง — hibernation API เก็บกวาดเอง
+          }
+        }
+      }
+    } catch {
+      // ข้อความนอกรูปแบบ — เมิน
+    }
   }
 
   webSocketClose(ws: WebSocket): void {
