@@ -17,6 +17,7 @@ interface Config {
   cutoffDay: number
   workHourCapMinutes: number
   memberDomain: string
+  dueSoonDays: number
 }
 
 /** ลิงก์ subscribe ปฏิทินทีมเป็น ICS feed (SPEC §4.14 · E6) — owner สร้าง/รีเซ็ต/ปิด */
@@ -160,6 +161,20 @@ export function AdminPage() {
                 />
               </label>
               <label className="flex items-center justify-between gap-3">
+                <span className="text-soft">เตือนสีเหลือง (soon) ก่อนถึงกำหนดส่งกี่วัน</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  defaultValue={cfg.dueSoonDays}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value)
+                    if (v !== cfg.dueSoonDays) void saveCfg({ dueSoonDays: v })
+                  }}
+                  className="w-20 text-sm shadow-xs bg-white rounded-lg px-3 py-2 text-right tabular-nums"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3">
                 <span className="text-soft">โดเมน auto-provision member (ว่าง = ปิด)</span>
                 <input
                   type="text"
@@ -174,7 +189,8 @@ export function AdminPage() {
               </label>
               <p className="text-[11px] text-muted">
                 ตอนนี้: งวด {cfg.cutoffDay} → {cfg.cutoffDay - 1} · เพดาน{' '}
-                {(cfg.workHourCapMinutes / 60).toFixed(1)} ชม./วัน (ชนเพดาน = timer หยุด + บล็อก)
+                {(cfg.workHourCapMinutes / 60).toFixed(1)} ชม./วัน (ชนเพดาน = timer หยุด + บล็อก) ·
+                เตือนสีเหลืองก่อนกำหนดส่ง {cfg.dueSoonDays} วัน
                 {cfg.memberDomain
                   ? ` · อีเมล ${cfg.memberDomain} login ได้เองเป็น member`
                   : ' · auto-provision member ปิดอยู่ — เพิ่มผู้ใช้งานเองเท่านั้น'}

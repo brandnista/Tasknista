@@ -244,7 +244,7 @@ export function BoardPage() {
   // Pronista §System Requirements Update — ส่ง projectId เสมอ กัน Sprint ห้อง Workspace ที่มีงานข้ามโปรเจกต์โผล่มาปนบอร์ดของโปรเจกต์นี้ (ต่างจาก WorkspaceBoard.tsx ที่ไม่ส่ง เห็นทุกโปรเจกต์)
   const { data, reload } = useLoad<BoardData>(() => api.get(`/api/sprints/${sprintId}/board?projectId=${projectId}`), [sprintId, projectId])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนการ์ด
-  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
+  const { data: cfg } = useLoad<{ labels: Label[]; dueSoonDays: number }>(() => api.get('/api/config'))
   const [dragId, setDragId] = useState<string | null>(null)
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const [tab, setTab] = useState<'kanban' | 'timeline'>('kanban')
@@ -368,7 +368,7 @@ export function BoardPage() {
 
   // Pronista §Sprint & Board fix — การ์ด task/subtask เดี่ยว ใช้ร่วมกันทั้ง Sub-task View (แบนราบ) และ Mixed View (จัดกลุ่มใต้ parent)
   const renderCard = (t: BoardTask) => {
-    const urgency = dueUrgency(t.dueDate, isDoneColumn(t))
+    const urgency = dueUrgency(t.dueDate, isDoneColumn(t), cfg?.dueSoonDays)
     const checklist = checklistLabel(t.checklistDone, t.checklistTotal)
     return (
     <div

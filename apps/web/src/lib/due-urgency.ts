@@ -6,11 +6,12 @@ export type DueUrgency = 'normal' | 'soon' | 'overdue'
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
-export function dueUrgency(dueDate: string | null | undefined, isDone: boolean): DueUrgency {
+// Pronista §Card glance-at-a-glance — soonDays ปรับได้ที่ตั้งค่าทั่วไป (company_config.dueSoonDays, ไม่ระบุ/undefined = ใช้ default 3)
+export function dueUrgency(dueDate: string | null | undefined, isDone: boolean, soonDays = 3): DueUrgency {
   if (!dueDate || isDone) return 'normal'
   const today = bkkToday()
   if (dueDate < today) return 'overdue'
-  const soonBy = new Date(Date.now() + 7 * 3_600_000 + 3 * 86_400_000).toISOString().slice(0, 10)
+  const soonBy = new Date(Date.now() + 7 * 3_600_000 + soonDays * 86_400_000).toISOString().slice(0, 10)
   if (dueDate <= soonBy) return 'soon'
   return 'normal'
 }

@@ -314,6 +314,8 @@ export function MyTasksPage() {
   const navigate = useNavigate()
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const { data, reload } = useLoad<MyTask[]>(() => api.get('/api/tasks/mine'))
+  // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
+  const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
   const { data: notifData, reload: reloadNotifications } = useLoad<NotificationRow[]>(() => api.get('/api/notifications'))
   const { data: dispatchedData, reload: reloadDispatched } = useLoad<DispatchedRow[]>(() => api.get('/api/tasks/dispatched-by-me'))
   const tasks = data ?? []
@@ -479,6 +481,7 @@ export function MyTasksPage() {
                 onOpenTask={openTask}
                 onStatusChange={changeStatus}
                 bouncedTaskIds={bouncedTaskIds}
+                soonDays={cfg?.dueSoonDays}
               />
             ) : (
               <TaskListView tasks={filteredTasks} onOpenTask={openTask} />

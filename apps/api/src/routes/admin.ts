@@ -288,6 +288,8 @@ export const adminRoutes = new Hono<AppEnv>()
       .object({
         cutoffDay: z.number().int().min(1).max(28).optional(),
         workHourCapMinutes: z.number().int().min(60).max(1440).optional(),
+        // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่การ์ด/แถวเริ่มเตือนสีเหลือง
+        dueSoonDays: z.number().int().min(0).max(30).optional(),
         // โดเมน auto-provision member — ต้องขึ้นต้น @ มีจุดอย่างน้อย 1 จุด · '' = ปิด auto-provision
         memberDomain: z
           .string()

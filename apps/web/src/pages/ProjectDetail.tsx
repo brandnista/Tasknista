@@ -19,7 +19,7 @@ import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
+import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
@@ -103,7 +103,7 @@ function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
 }
 
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
-function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog, showCode }: {
+function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog, showCode, soonDays }: {
   t: ProjectBacklogTask
   onOpenTask: (id: string) => void
   labelCatalog?: Label[]
@@ -111,6 +111,8 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   onDragStart?: (e: DragEvent) => void
   onDragEnd?: () => void
   dragging?: boolean
+  // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป, ไม่ระบุ = 3)
+  soonDays?: number
   selected?: boolean
   onToggleSelect?: () => void
   // Pronista §Project Refactor — เมนู "จัดการ": Epic/Story/CR ทำทันที · Task/Subtask ต้องเลือก parent ก่อน (เปิด picker ที่ parent component)
@@ -125,7 +127,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`flex items-center gap-3 py-2.5 pl-2 ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.status === 'done')]} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
+      className={`flex items-center gap-3 py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
     >
       {onToggleSelect && (
         <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
@@ -202,7 +204,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   const canEdit = canEditProp && !readOnly
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog · §System Requirements Update — แคตตาล็อก Task Type ใช้ filter
-  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
   // Pronista §System Requirements Update — Sprint ที่เปิดอยู่ของโปรเจกต์นี้ (รวมที่มาจากห้อง Workspace) ใช้เป็นตัวเลือกปลายทางตอน "โยนเข้า Sprint" จาก Backlog panel นี้
   const { data: sprintData } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
   const [taskTypeFilter, setTaskTypeFilter] = useState('all')
@@ -513,6 +515,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
                   selected={selected.has(parent.id)}
                   onToggleSelect={canEdit ? () => toggleSelect(parent.id) : undefined}
                   showCode={showCode}
+                  soonDays={cfg?.dueSoonDays}
                   {...rowManageProps(parent.id)}
                 />
                 <div className="pl-6 border-l-2 border-border-subtle ml-1.5">
@@ -540,6 +543,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
                               selected={selected.has(child.id)}
                               onToggleSelect={canEdit ? () => toggleSelect(child.id) : undefined}
                               showCode={showCode}
+                              soonDays={cfg?.dueSoonDays}
                               {...rowManageProps(child.id)}
                             />
                           </div>
@@ -559,6 +563,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
                                 selected={selected.has(gk.id)}
                                 onToggleSelect={canEdit ? () => toggleSelect(gk.id) : undefined}
                                 showCode={showCode}
+                                soonDays={cfg?.dueSoonDays}
                                 {...rowManageProps(gk.id)}
                               />
                             ))}
@@ -612,6 +617,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
               selected={selected.has(t.id)}
               onToggleSelect={canEdit ? () => toggleSelect(t.id) : undefined}
               showCode={showCode}
+              soonDays={cfg?.dueSoonDays}
               {...rowManageProps(t.id)}
             />
           ))}
@@ -1160,7 +1166,7 @@ const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warni
 function useBacklogSprintSelect<
   T extends { id: string; taskType: string | null; subTaskType: string | null; estimateMinutes: number | null; assigneeName?: string | null; dispatcherName?: string | null },
 >(projectId: string, items: T[], reload: () => void, onSprintChanged?: () => void) {
-  const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  const { data: cfg } = useLoad<{ taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
   const { data: sprintData } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId])
   const [taskTypeFilter, setTaskTypeFilter] = useState('all')
   const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
@@ -1200,6 +1206,7 @@ function useBacklogSprintSelect<
   }
   return {
     taskTypeCatalog: resolveTaskTypes(cfg?.taskTypes),
+    dueSoonDays: cfg?.dueSoonDays,
     taskTypeFilter,
     setTaskTypeFilter,
     subTaskTypeFilter,
@@ -1313,7 +1320,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       ) : (
         <div className="divide-y divide-divider">
           {sel.filtered.map((t) => (
-            <div key={t.id} className={`flex items-center gap-3 py-2.5 pl-2 ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.defectStatus === 'closed')]}`}>
+            <div key={t.id} className={`flex items-center gap-3 py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.defectStatus === 'closed', sel.dueSoonDays)]}`}>
               {canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
@@ -1388,6 +1395,7 @@ function ProjectSummaryTab({ projectId, onOpenTask, showCode }: { projectId: str
           )}
           {showCode && t.code && <span className="font-mono text-muted shrink-0">{t.code}</span>}
           <button onClick={() => onOpenTask(t.id)} className="flex-1 truncate text-left hover:underline">{t.title}</button>
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
         </div>
@@ -1397,6 +1405,7 @@ function ProjectSummaryTab({ projectId, onOpenTask, showCode }: { projectId: str
               <div key={gk.id} className="flex items-center gap-2 text-xs text-body py-0.5">
                 {showCode && gk.code && <span className="font-mono text-muted shrink-0">{gk.code}</span>}
                 <button onClick={() => onOpenTask(gk.id)} className="flex-1 truncate text-left hover:underline">{gk.title}</button>
+                {checklistLabel(gk.checklistDone, gk.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(gk.checklistDone, gk.checklistTotal)}</span>}
                 {gk.assigneeName && <span className="text-[11px] text-muted shrink-0">{gk.assigneeName}</span>}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[gk.status]}`}>{TASK_STATUS_LABEL[gk.status]}</span>
               </div>
@@ -1414,6 +1423,7 @@ function ProjectSummaryTab({ projectId, onOpenTask, showCode }: { projectId: str
         <div className="flex items-center gap-2 text-xs font-medium text-body">
           {showCode && story.code && <span className="font-mono text-muted shrink-0">{story.code}</span>}
           <button onClick={() => onOpenTask(story.id)} className="flex-1 truncate text-left hover:underline">{story.title}</button>
+          {checklistLabel(story.checklistDone, story.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(story.checklistDone, story.checklistTotal)}</span>}
           {story.assigneeName && <span className="text-[11px] text-muted shrink-0">{story.assigneeName}</span>}
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[story.status]}`}>{TASK_STATUS_LABEL[story.status]}</span>
         </div>
@@ -1761,7 +1771,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
               draggable={level === 'task' && canEdit}
               onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
-              className={`flex items-center gap-3 py-2.5 pl-2 ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.status === 'done')]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
+              className={`flex items-center gap-3 py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
             >
               {selectable && canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />

@@ -28,6 +28,7 @@ export const userRoutes = new Hono<AppEnv>()
           id: companyConfig.id,
           cutoffDay: companyConfig.cutoffDay,
           workHourCapMinutes: companyConfig.workHourCapMinutes,
+          dueSoonDays: companyConfig.dueSoonDays,
           memberDomain: companyConfig.memberDomain,
           projectStatuses: companyConfig.projectStatuses,
           productStatuses: companyConfig.productStatuses,

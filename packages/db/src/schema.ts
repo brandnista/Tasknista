@@ -182,6 +182,8 @@ export const companyConfig = sqliteTable('company_config', {
   id: integer('id').primaryKey().default(1),
   cutoffDay: integer('cutoff_day').notNull().default(25), // งวด 25→24 จ่าย 26
   workHourCapMinutes: integer('work_hour_cap_minutes').notNull().default(480), // 8 ชม./วัน
+  // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่การ์ด/แถวเริ่มเตือนสีเหลือง (soon) — ปรับได้ที่ตั้งค่าทั่วไป
+  dueSoonDays: integer('due_soon_days').notNull().default(3),
   // โดเมน auto-provision member (SPEC §4.1) — '' = ปิด · default ตอน migrate กัน production เดิมพัง
   memberDomain: text('member_domain').notNull().default('@seedwebs.com'),
   // token ลับสำหรับ ICS feed สาธารณะ (SPEC §4.14 · E6) — null = ปิดลิงก์ · owner สร้าง/รีเซ็ต

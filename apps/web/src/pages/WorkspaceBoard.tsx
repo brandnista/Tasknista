@@ -56,7 +56,7 @@ export function WorkspaceBoardPage() {
   const { confirmDialog } = useDialog()
   const { data: room } = useLoad<RoomDetail>(() => api.get(`/api/workspaces/${workspaceId}`), [workspaceId])
   const { data, reload } = useLoad<BoardData>(() => api.get(`/api/sprints/${sprintId}/board`), [sprintId])
-  const { data: cfg } = useLoad<{ labels: Label[] }>(() => api.get('/api/config'))
+  const { data: cfg } = useLoad<{ labels: Label[]; dueSoonDays: number }>(() => api.get('/api/config'))
   const [dragId, setDragId] = useState<string | null>(null)
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const [busy, setBusy] = useState(false)
@@ -173,7 +173,7 @@ export function WorkspaceBoardPage() {
 
   const renderCard = (t: BoardTask) => {
     const proj = projectOf(t.projectId)
-    const urgency = dueUrgency(t.dueDate, isDoneColumn(t))
+    const urgency = dueUrgency(t.dueDate, isDoneColumn(t), cfg?.dueSoonDays)
     const checklist = checklistLabel(t.checklistDone, t.checklistTotal)
     return (
       <div

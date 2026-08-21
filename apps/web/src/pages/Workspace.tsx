@@ -19,7 +19,7 @@ import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBul
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS, URGENCY_CARD_CLASS } from '../lib/due-urgency'
+import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate } from '../lib/project-ui'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
@@ -120,9 +120,9 @@ function ProjectChip({ code, name }: { code: string | null; name: string | null 
   return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-brand-50 text-brand-700 shrink-0">{code || name}</span>
 }
 
-function DueDateChip({ dueDate, status }: { dueDate: string | null; status: TaskStatus | null }) {
+function DueDateChip({ dueDate, status, soonDays }: { dueDate: string | null; status: TaskStatus | null; soonDays?: number }) {
   if (!dueDate) return null
-  const urgency = dueUrgency(dueDate, status === 'done')
+  const urgency = dueUrgency(dueDate, status === 'done', soonDays)
   // Pronista §Card glance-at-a-glance — สีเข้มกว่าพื้นการ์ด (-100 ไม่ใช่ -50) กันกลืนกับพื้นหลังการ์ดที่ทาสีทั้งใบแล้ว
   const cls = urgency === 'overdue' ? 'bg-danger-100 text-danger-700' : urgency === 'soon' ? 'bg-warning-100 text-warning-700' : 'text-muted'
   return (
@@ -294,7 +294,7 @@ export function WorkspacePage() {
   )
 
   const { data: projects } = useLoad<AccessibleProject[]>(() => api.get(`/api/workspace/accessible-projects?workspaceId=${workspaceId}`), [workspaceId])
-  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
   const [projectFilter, setProjectFilter] = useState('all')
   const queryIds = projectFilter === 'all' ? '' : projectFilter
 
@@ -707,7 +707,7 @@ export function WorkspacePage() {
                                   onDragStart={(e: DragEvent) => { e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
                                   onDragEnd={() => setDragTaskId(null)}
                                   onClick={() => navigate(`/tasks/${it.id}`)}
-                                  className={`rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done')]} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                                  className={`rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                                 >
                                   <div className="flex items-start gap-1.5 flex-wrap">
                                     <ProjectChip code={it.projectCode} name={it.projectName} />
@@ -720,7 +720,7 @@ export function WorkspacePage() {
                                   <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
                                     <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
-                                    <DueDateChip dueDate={it.dueDate} status={it.status} />
+                                    <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
                                     {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
                                     {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] ml-auto shrink-0" colorClass={avatarColor(it.assigneeName)} />}
                                   </div>
@@ -743,7 +743,7 @@ export function WorkspacePage() {
                         draggable={it.kind !== 'epic'}
                         onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
                         onDragEnd={() => setDragTaskId(null)}
-                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_BORDER_CLASS[dueUrgency(it.dueDate, it.status === 'done')]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                       >
                         {room.type === 'developer' && it.kind !== 'epic' && (
                           <input
@@ -847,7 +847,7 @@ export function WorkspacePage() {
                             {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                           </select>
                         )}
-                        <DueDateChip dueDate={it.dueDate} status={it.status} />
+                        <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
                         {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
                         {it.kind !== 'epic' && (
                           <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
@@ -1030,7 +1030,7 @@ export function WorkspacePage() {
                                   >
                                     {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                                   </select>
-                                  <DueDateChip dueDate={t.dueDate} status={t.status} />
+                                  <DueDateChip dueDate={t.dueDate} status={t.status} soonDays={cfg?.dueSoonDays} />
                                   {t.assigneeName && (
                                     <Avatar name={t.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(t.assigneeName)} />
                                   )}

@@ -1,0 +1,1 @@
+ALTER TABLE `company_config` ADD `due_soon_days` integer DEFAULT 3 NOT NULL;
