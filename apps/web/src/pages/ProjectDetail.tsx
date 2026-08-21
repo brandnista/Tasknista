@@ -97,7 +97,7 @@ function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
 }
 
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
-function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog }: {
+function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog, showCode }: {
   t: ProjectBacklogTask
   onOpenTask: (id: string) => void
   labelCatalog?: Label[]
@@ -111,6 +111,8 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   // Pronista §Back to Basic (ต่อยอด) — Defect ย้ายมาทำทันทีเหมือนกัน (ผูกกับ Epic/Story/Task แบบอ้างอิงทีหลังผ่านปุ่ม 🔗 ไม่ใช่เลือก parent ตอนแปลง)
   onConvertDirect?: (to: 'epic' | 'story' | 'cr' | 'defect') => void
   onConvertPick?: (to: 'task' | 'subtask') => void
+  // Pronista §System Requirements Update — ซ่อนรหัสงานเป็นค่าเริ่มต้น กดปุ่ม "แสดงรหัสงาน" ที่ header ของ Backlog panel ถึงจะโชว์
+  showCode?: boolean
 }) {
   return (
     <div
@@ -124,7 +126,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       )}
       {draggable && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
       <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
-      {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+      {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
       {t.originRefCode && t.originDocId ? (
         <a
           href={`/docs/${t.originDocId}`}
@@ -215,6 +217,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   const [tab, setTab] = useState<BacklogTab>('regular')
   // Pronista §Back to Basic (ต่อยอด) — Epic/Story ซ่อนเป็นค่าเริ่มต้น (เก็บที่ localStorage ต่อเครื่อง)
   const [showEpicStory, setShowEpicStory] = useState(() => localStorage.getItem('tasknista_show_epic_story') === '1')
+  // Pronista §System Requirements Update — รหัสงานซ่อนเป็นค่าเริ่มต้นทุกแท็บย่อยของ Backlog กดปุ่มถึงจะโชว์ (เก็บที่ localStorage ต่อเครื่อง เหมือน showEpicStory)
+  const [showCode, setShowCode] = useState(() => localStorage.getItem('tasknista_show_task_code') === '1')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // Pronista §Epic Layer — Epic ที่พับเก็บอยู่ (ค่าเริ่มต้น = กางทั้งหมด, กดครั้งแรกถึงจะพับ)
   const [closedEpics, setClosedEpics] = useState<Set<string>>(new Set())
@@ -358,12 +362,22 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         >
           {showEpicStory ? 'ซ่อน Epic/Story' : 'แสดง Epic/Story'}
         </button>
+        <button
+          onClick={() => {
+            const next = !showCode
+            setShowCode(next)
+            localStorage.setItem('tasknista_show_task_code', next ? '1' : '0')
+          }}
+          className="text-[11px] text-muted hover:text-brand-600 underline decoration-dotted"
+        >
+          {showCode ? 'ซ่อนรหัสงาน' : 'แสดงรหัสงาน'}
+        </button>
       </div>
 
       {(FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
         <>
-          {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} />}
-          {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} />}
+          {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} showCode={showCode} />}
+          {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} showCode={showCode} />}
           {tab === 'task' && (
             <ProjectHierarchyTab
               projectId={projectId}
@@ -375,11 +389,12 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
               // Pronista §System Requirements Update (ต่อยอด) — เปิด checkbox+filter+โยนเข้า Sprint แบบ batch ในแท็บ Task ด้วย (เหมือนแท็บ "ทั่วไป")
               selectable
               onSprintChanged={onSprintChanged}
+              showCode={showCode}
             />
           )}
-          {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} selectable onSprintChanged={onSprintChanged} />}
-          {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} onSprintChanged={onSprintChanged} />}
-          {tab === 'summary' && <ProjectSummaryTab projectId={projectId} onOpenTask={onOpenTask} />}
+          {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} selectable onSprintChanged={onSprintChanged} showCode={showCode} />}
+          {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} onSprintChanged={onSprintChanged} showCode={showCode} />}
+          {tab === 'summary' && <ProjectSummaryTab projectId={projectId} onOpenTask={onOpenTask} showCode={showCode} />}
         </>
       ) : (
       <>
@@ -490,6 +505,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
                   dragging={dragTaskId === parent.id}
                   selected={selected.has(parent.id)}
                   onToggleSelect={canEdit ? () => toggleSelect(parent.id) : undefined}
+                  showCode={showCode}
                   {...rowManageProps(parent.id)}
                 />
                 <div className="pl-6 border-l-2 border-border-subtle ml-1.5">
@@ -516,6 +532,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
                               dragging={dragTaskId === child.id}
                               selected={selected.has(child.id)}
                               onToggleSelect={canEdit ? () => toggleSelect(child.id) : undefined}
+                              showCode={showCode}
                               {...rowManageProps(child.id)}
                             />
                           </div>
@@ -534,6 +551,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
                                 dragging={dragTaskId === gk.id}
                                 selected={selected.has(gk.id)}
                                 onToggleSelect={canEdit ? () => toggleSelect(gk.id) : undefined}
+                                showCode={showCode}
                                 {...rowManageProps(gk.id)}
                               />
                             ))}
@@ -586,6 +604,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
               dragging={dragTaskId === t.id}
               selected={selected.has(t.id)}
               onToggleSelect={canEdit ? () => toggleSelect(t.id) : undefined}
+              showCode={showCode}
               {...rowManageProps(t.id)}
             />
           ))}
@@ -1193,12 +1212,13 @@ function useBacklogSprintSelect<
 
 /** Pronista §Project Refactor — แท็บ "Defect" รวม Defect ทั้งหมดของโปรเจกต์ (รวมที่แปลงมาจาก Backlog ผ่านเมนู "จัดการ")
  * Pronista §Back to Basic — ปุ่ม "🔗 เชื่อมโยง" ต่อแถว: ผูก Defect กับ Epic/Story/Task ใดก็ได้แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ */
-function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged }: {
+function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged, showCode }: {
   projectId: string
   canEdit: boolean
   onOpenTask: (id: string) => void
   // Pronista §System Requirements Update (ต่อยอด) — บอก SprintSection (sibling) ให้รีโหลดหลังโยนงานเข้า Sprint จาก checkbox bulk-add ตรงนี้
   onSprintChanged?: () => void
+  showCode?: boolean
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const defects = (data ?? []).filter((t) => t.kind === 'defect')
@@ -1286,7 +1306,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged 
               {canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
-              {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
               {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
@@ -1320,7 +1340,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged 
 }
 
 /** Pronista §Back to Basic (ต่อยอด) — แท็บ "ภาพรวมโครงสร้าง": Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) มุมมองดูอย่างเดียว ไม่มี checkbox/drag เสมอ (สรุปภาพรวม ไม่ใช่ที่คีย์งาน) */
-function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpenTask: (id: string) => void }) {
+function ProjectSummaryTab({ projectId, onOpenTask, showCode }: { projectId: string; onOpenTask: (id: string) => void; showCode?: boolean }) {
   const { data: epicsList } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const { data } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const all = (data ?? []).filter((t) => t.kind === 'task')
@@ -1354,7 +1374,7 @@ function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpe
           ) : (
             <span className="w-3 shrink-0" />
           )}
-          {t.code && <span className="font-mono text-muted shrink-0">{t.code}</span>}
+          {showCode && t.code && <span className="font-mono text-muted shrink-0">{t.code}</span>}
           <button onClick={() => onOpenTask(t.id)} className="flex-1 truncate text-left hover:underline">{t.title}</button>
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
@@ -1363,7 +1383,7 @@ function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpe
           <div className="pl-6 border-l-2 border-border-subtle ml-2 space-y-0.5 mb-1">
             {grandkids.map((gk) => (
               <div key={gk.id} className="flex items-center gap-2 text-xs text-body py-0.5">
-                {gk.code && <span className="font-mono text-muted shrink-0">{gk.code}</span>}
+                {showCode && gk.code && <span className="font-mono text-muted shrink-0">{gk.code}</span>}
                 <button onClick={() => onOpenTask(gk.id)} className="flex-1 truncate text-left hover:underline">{gk.title}</button>
                 {gk.assigneeName && <span className="text-[11px] text-muted shrink-0">{gk.assigneeName}</span>}
                 <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[gk.status]}`}>{TASK_STATUS_LABEL[gk.status]}</span>
@@ -1380,7 +1400,7 @@ function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpe
     return (
       <div key={story.id} className="py-1.5">
         <div className="flex items-center gap-2 text-xs font-medium text-body">
-          {story.code && <span className="font-mono text-muted shrink-0">{story.code}</span>}
+          {showCode && story.code && <span className="font-mono text-muted shrink-0">{story.code}</span>}
           <button onClick={() => onOpenTask(story.id)} className="flex-1 truncate text-left hover:underline">{story.title}</button>
           {story.assigneeName && <span className="text-[11px] text-muted shrink-0">{story.assigneeName}</span>}
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[story.status]}`}>{TASK_STATUS_LABEL[story.status]}</span>
@@ -1407,7 +1427,7 @@ function ProjectSummaryTab({ projectId, onOpenTask }: { projectId: string; onOpe
               <div key={epic.id} className="border border-teal-200 rounded-lg overflow-hidden bg-white">
                 <div className="w-full flex items-center gap-2 px-3 py-2 bg-teal-50">
                   <span className="text-xs font-semibold text-teal-700 truncate">Epic · {epic.title}</span>
-                  {epic.code && <span className="text-[10px] text-teal-600 shrink-0">{epic.code}</span>}
+                  {showCode && epic.code && <span className="text-[10px] text-teal-600 shrink-0">{epic.code}</span>}
                   <div className="ml-auto flex items-center gap-2 w-36 shrink-0">
                     <div className="flex-1 h-1.5 rounded-full bg-teal-100 overflow-hidden">
                       <div className="h-full bg-teal-500 rounded-full" style={{ width: `${pct}%` }} />
@@ -1435,7 +1455,7 @@ interface ProjectEpic { id: string; title: string; code: string | null; doneCoun
 
 /** Pronista §Project Refactor — แท็บ "EPIC": list Epic ทั้งหมดของโปรเจกต์ + สร้างใหม่ตรงๆ ได้ (ต่างจาก "ย้ายเป็น Epic" ใน Backlog ที่ยกระดับจาก task ที่มีอยู่)
  * Pronista §Back to Basic — เพิ่มเมนู "..." ต่อแถว: "เชื่อมกับ Story" เปิด LinkOrCreateModal (สร้าง Story ใหม่ หรือเลือก Story ที่มีอยู่มาผูก epicId) */
-function ProjectEpicTab({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
+function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; canEdit: boolean; showCode?: boolean }) {
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
   const [menuFor, setMenuFor] = useState<string | null>(null)
@@ -1488,7 +1508,7 @@ function ProjectEpicTab({ projectId, canEdit }: { projectId: string; canEdit: bo
             const pct = e.totalCount > 0 ? Math.round((e.doneCount / e.totalCount) * 100) : 0
             return (
               <div key={e.id} className="flex items-center gap-3 py-2.5">
-                {e.code && <span className="text-[11px] font-mono text-muted shrink-0">{e.code}</span>}
+                {showCode && e.code && <span className="text-[11px] font-mono text-muted shrink-0">{e.code}</span>}
                 <span className="flex-1 text-sm text-body truncate">{e.title}</span>
                 <div className="flex items-center gap-2 w-36 shrink-0">
                   <div className="flex-1 h-1.5 rounded-full bg-teal-100 overflow-hidden">
@@ -1543,7 +1563,7 @@ const HIERARCHY_TAB_META = {
 } as const
 
 /** Pronista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
-function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask, selectable, onSprintChanged }: {
+function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask, selectable, onSprintChanged, showCode }: {
   projectId: string
   level: 'story' | 'task' | 'cr'
   canEdit: boolean
@@ -1553,6 +1573,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   // Pronista §System Requirements Update (ต่อยอด) — เปิด checkbox+filter+โยนเข้า Sprint แบบ batch เฉพาะแท็บ Task/CR (ไม่ใช้กับ Story)
   selectable?: boolean
   onSprintChanged?: () => void
+  showCode?: boolean
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const all = data ?? []
@@ -1734,7 +1755,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
               {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
-              {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
               <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
               {t.parentTitle && level === 'task' && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}

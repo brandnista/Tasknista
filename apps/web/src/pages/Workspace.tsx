@@ -325,6 +325,8 @@ export function WorkspacePage() {
   const [editingRoom, setEditingRoom] = useState(false)
   // Pronista §System Requirements Update — ห้อง Business: มุมมอง Backlog List/Kanban สลับได้ + นำเข้างาน (ไม่มี Sprint)
   const [backlogView, setBacklogView] = useState<'list' | 'kanban'>('list')
+  // Pronista §System Requirements Update — รหัสงานซ่อนเป็นค่าเริ่มต้น กดปุ่มถึงจะโชว์ (ใช้ localStorage key เดียวกับหน้ารายละเอียดโปรเจกต์)
+  const [showCode, setShowCode] = useState(() => localStorage.getItem('tasknista_show_task_code') === '1')
   const [importProjectId, setImportProjectId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
 
@@ -644,7 +646,19 @@ export function WorkspacePage() {
               {/* Backlog Grid — ตารางแบนรวมทุก work item ข้ามโปรเจกต์ในห้อง */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                    <button
+                      onClick={() => {
+                        const next = !showCode
+                        setShowCode(next)
+                        localStorage.setItem('tasknista_show_task_code', next ? '1' : '0')
+                      }}
+                      className="text-[11px] text-muted hover:text-brand-600 underline decoration-dotted"
+                    >
+                      {showCode ? 'ซ่อนรหัสงาน' : 'แสดงรหัสงาน'}
+                    </button>
+                  </div>
                   {/* Pronista §Mobile responsive — Kanban ลากเปลี่ยนสถานะใช้กับสัมผัสไม่ได้ ซ่อนปุ่มสลับบนมือถือ (backlogView เริ่มต้นเป็น 'list' อยู่แล้วซึ่งมี select เปลี่ยนสถานะ) */}
                   {room.type === 'business' && (
                     <div className="hidden sm:flex bg-divider rounded-lg p-0.5 text-xs font-medium">
@@ -663,7 +677,7 @@ export function WorkspacePage() {
                     {filteredItems.some((i) => i.kind === 'epic') && (
                       <div className="bg-white rounded-lg shadow-xs p-2.5 flex flex-wrap gap-2">
                         {filteredItems.filter((i) => i.kind === 'epic').map((it) => (
-                          <span key={it.id} className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${WORKTYPE_BADGE.epic}`}>{it.code ? `${it.code} — ` : ''}{it.title}</span>
+                          <span key={it.id} className={`text-xs font-medium px-2 py-1 rounded shrink-0 ${WORKTYPE_BADGE.epic}`}>{showCode && it.code ? `${it.code} — ` : ''}{it.title}</span>
                         ))}
                       </div>
                     )}
@@ -693,7 +707,7 @@ export function WorkspacePage() {
                                 >
                                   <div className="flex items-start gap-1.5 flex-wrap">
                                     <ProjectChip code={it.projectCode} name={it.projectName} />
-                                    {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
+                                    {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
                                   </div>
                                   <div className="text-sm text-body mt-1">{it.title}</div>
                                   <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
@@ -806,7 +820,7 @@ export function WorkspacePage() {
                             )}
                           </div>
                         )}
-                        {it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
+                        {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
                         {it.kind === 'epic' ? (
                           <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
                         ) : (

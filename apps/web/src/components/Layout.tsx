@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   ClipboardList,
   FolderKanban,
   History,
@@ -100,6 +101,39 @@ export function Layout() {
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
+  // Pronista §System Requirements Update — sub-menu ของเมนูที่มี children (เช่น "ตั้งค่า") พับเก็บเป็นค่าเริ่มต้น กดที่เมนูแม่ถึงจะกาง
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
+    const s = new Set<string>()
+    for (const n of NAV) {
+      if (n.children?.some((c) => location.pathname === c.to || (c.to !== '/admin' && location.pathname.startsWith(`${c.to}/`)))) s.add(n.to)
+    }
+    return s
+  })
+  const toggleGroup = (to: string) =>
+    setOpenGroups((s) => {
+      const next = new Set(s)
+      if (next.has(to)) next.delete(to)
+      else next.add(to)
+      return next
+    })
+  // เปลี่ยนหน้าไปยัง route ที่อยู่ใต้เมนูแม่ตัวไหน (เช่น ลิงก์ตรงจากที่อื่นในแอป) ให้กาง sub-menu นั้นให้อัตโนมัติ
+  useEffect(() => {
+    const matches = NAV.filter((n) =>
+      n.children?.some((c) => location.pathname === c.to || (c.to !== '/admin' && location.pathname.startsWith(`${c.to}/`))),
+    )
+    if (matches.length === 0) return
+    setOpenGroups((s) => {
+      const next = new Set(s)
+      let changed = false
+      for (const m of matches) {
+        if (!next.has(m.to)) {
+          next.add(m.to)
+          changed = true
+        }
+      }
+      return changed ? next : s
+    })
+  }, [location.pathname])
 
   // Quick Add (N) จากทุกหน้า — เช็คจาก e.code กันแป้นไทย (SPEC §9)
   useEffect(() => {
@@ -159,41 +193,52 @@ export function Layout() {
         </button>
       </div>
       <nav className="flex-1 p-3 space-y-0.5 text-sm">
-        {items.map(({ to, label, icon: Icon, children }) => (
-          <div key={to}>
-            <NavLink
-              to={to}
-              onClick={() => setNavOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
-                to === activeTo
-                  ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
-                  : 'text-soft hover:bg-hover'
-              }`}
-            >
-              <Icon className="w-[18px] h-[18px]" /> {label}
-              {to === '/my-tasks' && <NotificationBell />}
-            </NavLink>
-            {children && (
-              <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
-                {children.map((c) => (
-                  <NavLink
-                    key={c.to}
-                    to={c.to}
-                    end={c.to === '/admin'}
-                    onClick={() => setNavOpen(false)}
-                    className={({ isActive }) =>
-                      `block px-2.5 py-1.5 rounded-lg cursor-pointer ${
-                        isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
-                      }`
-                    }
-                  >
-                    {c.label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+        {items.map(({ to, label, icon: Icon, children }) => {
+          const isOpen = !!children && openGroups.has(to)
+          return (
+            <div key={to}>
+              <NavLink
+                to={to}
+                onClick={(e) => {
+                  if (children) {
+                    e.preventDefault()
+                    toggleGroup(to)
+                  } else {
+                    setNavOpen(false)
+                  }
+                }}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
+                  to === activeTo
+                    ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
+                    : 'text-soft hover:bg-hover'
+                }`}
+              >
+                <Icon className="w-[18px] h-[18px]" /> {label}
+                {to === '/my-tasks' && <NotificationBell />}
+                {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+              </NavLink>
+              {children && isOpen && (
+                <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
+                  {children.map((c) => (
+                    <NavLink
+                      key={c.to}
+                      to={c.to}
+                      end={c.to === '/admin'}
+                      onClick={() => setNavOpen(false)}
+                      className={({ isActive }) =>
+                        `block px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                          isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
+                        }`
+                      }
+                    >
+                      {c.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </nav>
       <div className="p-3 border-t border-border-subtle">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
