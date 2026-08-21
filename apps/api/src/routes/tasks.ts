@@ -30,7 +30,7 @@ import { notifyProjectPmAndBa } from '../lib/notify'
 import { notifyBoard } from '../lib/presence-notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
-import { loadProjectBacklog } from '../lib/workspace-query'
+import { checklistCountsFor, loadProjectBacklog } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -278,6 +278,8 @@ export const taskRoutes = new Hono<AppEnv>()
         // Pronista §System Requirements Update — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint (ProjectDetail Sprint tab)
         taskType: tasks.taskType,
         subTaskType: tasks.subTaskType,
+        // Pronista §Card glance-at-a-glance — วันครบกำหนด ใช้คำนวณสีเตือนความเร่งด่วนบนการ์ด/แถว
+        dueDate: tasks.dueDate,
       })
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
@@ -285,7 +287,16 @@ export const taskRoutes = new Hono<AppEnv>()
       .where(eq(tasks.projectId, c.req.param('id')))
       .orderBy(asc(tasks.createdAt))
     const titleOf = new Map(rows.map((r) => [r.id, r.title]))
-    return c.json(rows.map((r) => ({ ...r, parentTitle: r.parentId ? (titleOf.get(r.parentId) ?? null) : null })))
+    // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์ "☑ x/y" บนแถว Epic/Story/Task/Defect/CR tab (pattern เดียวกับ GET /tasks/mine)
+    const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.id))
+    return c.json(
+      rows.map((r) => ({
+        ...r,
+        parentTitle: r.parentId ? (titleOf.get(r.parentId) ?? null) : null,
+        checklistDone: checklistCounts.get(r.id)?.done ?? null,
+        checklistTotal: checklistCounts.get(r.id)?.total ?? null,
+      })),
+    )
   })
 
   // Pronista §Project Refactor — แท็บ EPIC: list ทุก Epic ของโปรเจกต์ (ไม่ใช่แค่ที่มี parent เหลือใน backlog เหมือน /backlog เดิม) + % ความคืบหน้ารวม

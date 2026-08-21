@@ -19,6 +19,7 @@ import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBul
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate } from '../lib/project-ui'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
@@ -65,6 +66,9 @@ interface WsBacklogItem {
   projectId: string | null
   projectCode: string | null
   projectName: string | null
+  // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์ โชว์ "☑ x/y" บนแถวโดยไม่ต้องเปิด
+  checklistDone: number | null
+  checklistTotal: number | null
 }
 interface WsSprint {
   id: string
@@ -703,7 +707,7 @@ export function WorkspacePage() {
                                   onDragStart={(e: DragEvent) => { e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
                                   onDragEnd={() => setDragTaskId(null)}
                                   onClick={() => navigate(`/tasks/${it.id}`)}
-                                  className={`bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                                  className={`bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_BORDER_CLASS[dueUrgency(it.dueDate, it.status === 'done')]} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                                 >
                                   <div className="flex items-start gap-1.5 flex-wrap">
                                     <ProjectChip code={it.projectCode} name={it.projectName} />
@@ -714,6 +718,7 @@ export function WorkspacePage() {
                                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
                                     <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
                                     <DueDateChip dueDate={it.dueDate} status={it.status} />
+                                    {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
                                     {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] ml-auto shrink-0" colorClass={avatarColor(it.assigneeName)} />}
                                   </div>
                                 </div>
@@ -735,7 +740,7 @@ export function WorkspacePage() {
                         draggable={it.kind !== 'epic'}
                         onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
                         onDragEnd={() => setDragTaskId(null)}
-                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
+                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_BORDER_CLASS[dueUrgency(it.dueDate, it.status === 'done')]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
                       >
                         {room.type === 'developer' && it.kind !== 'epic' && (
                           <input
@@ -828,6 +833,7 @@ export function WorkspacePage() {
                         )}
                         {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
                         {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
+                        {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
                         <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
                         {it.status && (
                           <select

@@ -6,6 +6,7 @@ import { Avatar } from '../components/Avatar'
 import { LabelChips } from '../components/LabelChips'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, STATUS_SWATCH, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
@@ -42,6 +43,9 @@ interface BoardTask {
   labelIds: string[] | null
   // Pronista §System Requirements Update — สิทธิ์แก้ไขจริงต่อการ์ด (เช็คจาก backend canEditTask — แม่นกว่าเช็คแค่ role กว้างๆ)
   canEdit: boolean
+  // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์ โชว์ "☑ x/y" บนการ์ดโดยไม่ต้องเปิด
+  checklistDone: number | null
+  checklistTotal: number | null
 }
 interface BoardParent { id: string; code: string | null; title: string }
 interface BoardEpic { id: string; title: string; code: string | null }
@@ -357,14 +361,20 @@ export function BoardPage() {
 
   const over = (e: DragEvent) => e.preventDefault()
 
+  // Pronista §Card glance-at-a-glance — "เสร็จแล้ว" ของการ์ด Kanban อิงคอลัมน์สุดท้ายของ preset (ธรรมเนียมตั้งชื่อ "Done" เป็นคอลัมน์ท้ายสุดเสมอ ไม่มี TaskStatus ตายตัวให้เทียบตรงๆ เพราะคอลัมน์ปรับเองได้)
+  const isDoneColumn = (t: BoardTask) => !!columns.length && t.sprintStatus === columns[columns.length - 1]!.id
+
   // Pronista §Sprint & Board fix — การ์ด task/subtask เดี่ยว ใช้ร่วมกันทั้ง Sub-task View (แบนราบ) และ Mixed View (จัดกลุ่มใต้ parent)
-  const renderCard = (t: BoardTask) => (
+  const renderCard = (t: BoardTask) => {
+    const urgency = dueUrgency(t.dueDate, isDoneColumn(t))
+    const checklist = checklistLabel(t.checklistDone, t.checklistTotal)
+    return (
     <div
       key={t.id}
       draggable={t.canEdit}
       onDragStart={() => setDragId(t.id)}
       onClick={() => openTask(t.id)}
-      className="group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm"
+      className={`group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_BORDER_CLASS[urgency]}`}
     >
       <div className="flex items-start gap-1.5">
         {t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
@@ -381,6 +391,12 @@ export function BoardPage() {
       </div>
       <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
         <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[t.priority]}`} />
+        {t.dueDate && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${urgency === 'overdue' ? 'bg-danger-50 text-danger-600' : urgency === 'soon' ? 'bg-warning-50 text-warning-700' : 'bg-divider text-dim'}`}>
+            {fmtThaiDate(t.dueDate)}
+          </span>
+        )}
+        {checklist && <span className="text-[11px] text-dim">{checklist}</span>}
         {t.srsRefCode && t.srsDocId && (
           <a
             href={`/api/docs/${t.srsDocId}/raw`}
@@ -399,7 +415,8 @@ export function BoardPage() {
         )}
       </div>
     </div>
-  )
+    )
+  }
 
   return (
     <div ref={boardAreaRef} onMouseMove={onBoardMouseMove} className="relative p-3 sm:p-6">

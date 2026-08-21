@@ -11,7 +11,8 @@ import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { statusChip } from '../lib/project-ui'
+import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
+import { fmtThaiDate, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
 
@@ -30,6 +31,10 @@ interface BoardTask {
   labelIds: string[] | null
   // Pronista §System Requirements Update — สิทธิ์แก้ไขจริงต่อการ์ด (เช็คจาก backend canEditTask — แม่นกว่าเช็คแค่ role กว้างๆ)
   canEdit: boolean
+  // Pronista §Card glance-at-a-glance — วันครบกำหนด + ความคืบหน้าเช็กลิสต์ โชว์บนการ์ดโดยไม่ต้องเปิด
+  dueDate: string | null
+  checklistDone: number | null
+  checklistTotal: number | null
 }
 interface BoardData { sprint: BoardSprint | null; preset?: BoardPreset | null; tasks?: BoardTask[] }
 interface RoomProject { id: string; code: string | null; name: string }
@@ -161,15 +166,20 @@ export function WorkspaceBoardPage() {
 
   const over = (e: DragEvent) => e.preventDefault()
 
+  // Pronista §Card glance-at-a-glance — "เสร็จแล้ว" อิงคอลัมน์สุดท้ายของ preset (เหมือน Board.tsx)
+  const isDoneColumn = (t: BoardTask) => !!columns.length && t.sprintStatus === columns[columns.length - 1]!.id
+
   const renderCard = (t: BoardTask) => {
     const proj = projectOf(t.projectId)
+    const urgency = dueUrgency(t.dueDate, isDoneColumn(t))
+    const checklist = checklistLabel(t.checklistDone, t.checklistTotal)
     return (
       <div
         key={t.id}
         draggable={t.canEdit}
         onDragStart={() => setDragId(t.id)}
         onClick={() => openTask(t.id)}
-        className="group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm"
+        className={`group bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_BORDER_CLASS[urgency]}`}
       >
         <div className="flex items-start gap-1.5 flex-wrap">
           {proj && <ProjectChip code={proj.code} name={proj.name} />}
@@ -187,6 +197,12 @@ export function WorkspaceBoardPage() {
         </div>
         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
           <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[t.priority]}`} />
+          {t.dueDate && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${urgency === 'overdue' ? 'bg-danger-50 text-danger-600' : urgency === 'soon' ? 'bg-warning-50 text-warning-700' : 'bg-divider text-dim'}`}>
+              {fmtThaiDate(t.dueDate)}
+            </span>
+          )}
+          {checklist && <span className="text-[11px] text-dim">{checklist}</span>}
           <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
           {t.assigneeName && (
             <Avatar name={t.assigneeName} avatarUrl={t.assigneeAvatarUrl} className="w-5 h-5 text-[9px] ml-auto" colorClass={avatarColor(t.assigneeName)} />

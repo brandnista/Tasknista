@@ -19,6 +19,7 @@ import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { checklistLabel, dueUrgency, URGENCY_BORDER_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
@@ -58,6 +59,7 @@ interface ProjectBacklogTask {
   code: string | null
   priority: 'low' | 'normal' | 'high'
   kind: 'task' | 'defect'
+  status?: TaskStatus
   assigneeName: string | null
   // Pronista §System Requirements Update (ต่อยอด) — ผู้จ่ายงาน ใช้ filter ในแท็บ "ทั่วไป"/เอกสาร
   dispatcherName?: string | null
@@ -80,6 +82,10 @@ interface ProjectBacklogTask {
   estimateMinutes?: number | null
   taskType?: string | null
   subTaskType?: string | null
+  // Pronista §Card glance-at-a-glance — วันครบกำหนด + ความคืบหน้าเช็กลิสต์ โชว์บนแถวโดยไม่ต้องเปิด
+  dueDate?: string | null
+  checklistDone?: number | null
+  checklistTotal?: number | null
 }
 interface BacklogEpic { id: string; title: string; code: string | null; doneCount: number; totalCount: number }
 interface BacklogResponse { tasks: ProjectBacklogTask[]; epics: BacklogEpic[] }
@@ -119,7 +125,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`flex items-center gap-3 py-2.5 ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
+      className={`flex items-center gap-3 py-2.5 pl-2 ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.status === 'done')]} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
     >
       {onToggleSelect && (
         <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
@@ -153,6 +159,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       <button onClick={() => onOpenTask(t.id)} className="flex-1 text-sm text-body truncate text-left hover:underline">{t.title}</button>
       {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
       {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
+      {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
       <LabelChips catalog={labelCatalog} ids={t.labelIds} />
       {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
       <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
@@ -1140,6 +1147,10 @@ interface ProjectAllTask {
   // Pronista §System Requirements Update (ต่อยอด) — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint ในแท็บ Task/Defect/CR (เหมือนแท็บ "ทั่วไป")
   taskType: string | null
   subTaskType: string | null
+  // Pronista §Card glance-at-a-glance — วันครบกำหนด + ความคืบหน้าเช็กลิสต์ โชว์บนแถวโดยไม่ต้องเปิด
+  dueDate: string | null
+  checklistDone: number | null
+  checklistTotal: number | null
 }
 const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
 const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
@@ -1302,7 +1313,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       ) : (
         <div className="divide-y divide-divider">
           {sel.filtered.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 py-2.5">
+            <div key={t.id} className={`flex items-center gap-3 py-2.5 pl-2 ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.defectStatus === 'closed')]}`}>
               {canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
@@ -1311,6 +1322,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
               {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
               <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
+              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
               {t.defectStatus && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
               )}
@@ -1749,7 +1761,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
               draggable={level === 'task' && canEdit}
               onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
-              className={`flex items-center gap-3 py-2.5 ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
+              className={`flex items-center gap-3 py-2.5 pl-2 ${URGENCY_BORDER_CLASS[dueUrgency(t.dueDate, t.status === 'done')]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
             >
               {selectable && canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
@@ -1760,6 +1772,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               {t.parentTitle && level === 'task' && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
               <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
+              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
               <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
               {level === 'story' && canEdit && (
                 <div className="relative shrink-0">

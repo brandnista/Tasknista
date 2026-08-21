@@ -5,10 +5,24 @@
  * pure extraction — พฤติกรรมของ endpoint เดิมต้องเหมือนเดิม 100%
  */
 import { presetById, resolvePresets } from '@seedoffice/core'
-import { companyConfig, createDb, epics, sprints, tasks, users, workspaceMembers, workspaceProjects } from '@seedoffice/db'
+import { companyConfig, createDb, epics, sprints, taskChecklistItems, tasks, users, workspaceMembers, workspaceProjects } from '@seedoffice/db'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { canEditProject, type EffectiveProjectRole } from './project-role'
+
+// Pronista §Card glance-at-a-glance — เช็กลิสต์แบบ "☑ x/y" บนการ์ด/แถว (ไม่ต้องเปิด TaskDetail) ใช้ pattern เดียวกับ GET /tasks/mine (EE1): batch select ครั้งเดียว + นับใน memory
+export async function checklistCountsFor(db: ReturnType<typeof createDb>, taskIds: string[]) {
+  const map = new Map<string, { done: number; total: number }>()
+  if (taskIds.length === 0) return map
+  const rows = await db.select({ taskId: taskChecklistItems.taskId, done: taskChecklistItems.done }).from(taskChecklistItems).where(inArray(taskChecklistItems.taskId, taskIds))
+  for (const r of rows) {
+    const cur = map.get(r.taskId) ?? { done: 0, total: 0 }
+    cur.total += 1
+    if (r.done) cur.done += 1
+    map.set(r.taskId, cur)
+  }
+  return map
+}
 
 /** Pronista §Workspace Sprint (ต่อยอด) — สมาชิกห้องนี้หรือ owner บริษัท (ใช้คุมสิทธิ์แก้ไข Sprint ที่ผูกห้อง แทน getProjectRole ที่ใช้กับ Sprint ผูกโปรเจกต์) */
 export async function isWorkspaceMember(db: ReturnType<typeof createDb>, workspaceId: string, me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' }) {
@@ -44,6 +58,9 @@ export interface WorkspaceBacklogItem {
   // Pronista §System Requirements Update — ใช้ filter ตอนเลือกงานแบบ checkbox โยนเข้า Sprint
   taskType: string | null
   subTaskType: string | null
+  // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์ โชว์ "☑ x/y" บนการ์ดโดยไม่ต้องเปิด (null = ไม่มี checklist หรือเป็นแถว Epic)
+  checklistDone: number | null
+  checklistTotal: number | null
 }
 
 export async function loadPreset(db: ReturnType<typeof createDb>, boardPresetId: string | null) {
@@ -86,10 +103,18 @@ export async function loadSprintBoard(db: ReturnType<typeof createDb>, sprint: t
           .leftJoin(users, eq(tasks.assigneeId, users.id))
           .where(inArray(tasks.parentId, taskIds))
       : []
+  // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์บนการ์ด Kanban (Board.tsx/WorkspaceBoard.tsx)
+  const checklistCounts = await checklistCountsFor(db, taskIds)
   return {
     sprint,
     preset: preset ?? null,
-    tasks: rows.map((r) => ({ ...r.task, assigneeName: r.assigneeName, assigneeAvatarUrl: r.assigneeAvatarUrl })),
+    tasks: rows.map((r) => ({
+      ...r.task,
+      assigneeName: r.assigneeName,
+      assigneeAvatarUrl: r.assigneeAvatarUrl,
+      checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
+      checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
+    })),
     subtasks: grandchildRows.map((r) => ({ ...r.task, assigneeName: r.assigneeName })),
     parents: await loadParents(db, rows.map((r) => r.task)),
     epics: await loadEpics(db, rows.map((r) => r.task)),
@@ -205,10 +230,19 @@ export async function loadProjectBacklog(
     }))
   }
 
+  // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์บนแถว Backlog (แท็บ "ทั่วไป")
+  const visibleRows = rows.filter((r) => !hiddenParentIds.has(r.task.id))
+  const checklistCounts = await checklistCountsFor(db, visibleRows.map((r) => r.task.id))
   return {
-    tasks: rows
-      .filter((r) => !hiddenParentIds.has(r.task.id))
-      .map((r) => ({ ...r.task, assigneeName: r.assigneeName, dispatcherName: r.dispatcherName, epicTitle: r.epicTitle, epicCode: r.epicCode })),
+    tasks: visibleRows.map((r) => ({
+      ...r.task,
+      assigneeName: r.assigneeName,
+      dispatcherName: r.dispatcherName,
+      epicTitle: r.epicTitle,
+      epicCode: r.epicCode,
+      checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
+      checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
+    })),
     epics: epicList,
   }
 }
@@ -234,6 +268,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
     .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog', 'defect', 'cr'])))
     .orderBy(asc(tasks.createdAt))
+  const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
 
   // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที) · Defect/Backlog/CR = ตรงตัวจาก kind
   const classify = (t: typeof tasks.$inferSelect): 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr' => {
@@ -263,6 +298,8 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     estimateMinutes: null,
     taskType: null,
     subTaskType: null,
+    checklistDone: null,
+    checklistTotal: null,
   }))
 
   const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
@@ -284,6 +321,8 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     estimateMinutes: r.task.estimateMinutes,
     taskType: r.task.taskType,
     subTaskType: r.task.subTaskType,
+    checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
+    checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
   }))
 
   return [...epicItems, ...taskItems]
@@ -314,6 +353,8 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     estimateMinutes: null,
     taskType: null,
     subTaskType: null,
+    checklistDone: null,
+    checklistTotal: null,
   }))
 
   // หา parent ของทุก task ที่ผูกห้องนี้ (ไม่กรอง sprint/project) แค่พอรู้ depth ของ chain (Story→Task→Subtask) เผื่อ parent เองก็เป็น workspace-native เหมือนกัน
@@ -345,6 +386,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
       ),
     )
     .orderBy(asc(tasks.createdAt))
+  const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
   const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
     id: r.task.id,
     code: r.task.code,
@@ -364,6 +406,8 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
     estimateMinutes: r.task.estimateMinutes,
     taskType: r.task.taskType,
     subTaskType: r.task.subTaskType,
+    checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
+    checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
   }))
 
   return [...epicItems, ...taskItems]
