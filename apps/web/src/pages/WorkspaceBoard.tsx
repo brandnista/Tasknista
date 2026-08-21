@@ -3,7 +3,7 @@
  * ใช้ endpoint เดิม GET /api/sprints/:id/board (project-agnostic อยู่แล้ว) ต่างจาก Board.tsx แค่: back-link ไปห้อง + แสดง ProjectChip ต่อการ์ด (เพราะงานมาจากหลายโปรเจกต์ในห้องเดียวกัน)
  */
 import { CheckCircle2, ChevronLeft, X } from 'lucide-react'
-import { type DragEvent, useState } from 'react'
+import { type DragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
@@ -62,6 +62,68 @@ export function WorkspaceBoardPage() {
   // Pronista §System Requirements Update — "ปิด Sprint" เป็นแอ็กชันระดับ Sprint (ไม่ใช่ต่อการ์ด) ยังเช็คแค่ role กว้างๆ ได้ · การ์ดแต่ละใบใช้ t.canEdit จาก backend แทน (ตรงกับ canEditTask จริง)
   const canEditSprint = user?.role !== 'vendor' && user?.role !== 'guest'
   const projectOf = (id: string) => room?.projects.find((p) => p.id === id)
+
+  // Pronista §Board Presence + Live Update + Live Cursor — เหมือน Board.tsx ทุกอย่าง (DO ตัวเดียวกัน คีย์ด้วย sprintId เหมือนกัน)
+  const [viewers, setViewers] = useState<{ userId: string; name: string }[]>([])
+  const [cursors, setCursors] = useState<Record<string, { name: string; x: number; y: number; updatedAt: number }>>({})
+  const wsRef = useRef<WebSocket | null>(null)
+  const boardAreaRef = useRef<HTMLDivElement>(null)
+  const lastCursorSentRef = useRef(0)
+  useEffect(() => {
+    if (!sprintId) return
+    let stopped = false
+    let retry: number | null = null
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const ws = new WebSocket(`${proto}://${location.host}/api/sprints/${sprintId}/board/ws`)
+      wsRef.current = ws
+      ws.onmessage = (e) => {
+        if (e.data === 'pong') return
+        try {
+          const msg = JSON.parse(String(e.data)) as { type?: string; viewers?: typeof viewers; userId?: string; name?: string; x?: number; y?: number }
+          if (msg.type === 'roster' && msg.viewers) setViewers(msg.viewers)
+          if (msg.type === 'board_changed') void reload()
+          if (msg.type === 'cursor' && msg.userId && msg.name && typeof msg.x === 'number' && typeof msg.y === 'number') {
+            setCursors((prev) => ({ ...prev, [msg.userId!]: { name: msg.name!, x: msg.x!, y: msg.y!, updatedAt: Date.now() } }))
+          }
+        } catch {
+          // ข้อความนอกรูปแบบ
+        }
+      }
+      ws.onclose = () => {
+        if (!stopped) retry = window.setTimeout(connect, 2000)
+      }
+    }
+    connect()
+    const ping = window.setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send('ping')
+    }, 30_000)
+    const sweep = window.setInterval(() => {
+      const cutoff = Date.now() - 4000
+      setCursors((prev) => {
+        const next = Object.fromEntries(Object.entries(prev).filter(([, v]) => v.updatedAt > cutoff))
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next
+      })
+    }, 2000)
+    return () => {
+      stopped = true
+      if (retry) window.clearTimeout(retry)
+      window.clearInterval(ping)
+      window.clearInterval(sweep)
+      wsRef.current?.close()
+    }
+  }, [sprintId])
+
+  const onBoardMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const now = Date.now()
+    if (now - lastCursorSentRef.current < 60) return
+    lastCursorSentRef.current = now
+    const rect = boardAreaRef.current?.getBoundingClientRect()
+    if (!rect || rect.width === 0 || rect.height === 0) return
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'cursor', x, y }))
+  }
 
   const changeStatus = async (taskId: string, sprintStatus: string) => {
     await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
@@ -135,7 +197,7 @@ export function WorkspaceBoardPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6">
+    <div ref={boardAreaRef} onMouseMove={onBoardMouseMove} className="relative p-3 sm:p-6">
       <Link to={`/workspace/${workspaceId}`} className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
         <ChevronLeft className="w-4 h-4" /> กลับไปห้อง {room?.name ?? 'Workspace'}
       </Link>
@@ -150,6 +212,16 @@ export function WorkspaceBoardPage() {
       <div className="bg-white rounded-lg shadow-xs p-4 mb-4 flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-bold text-ink">{sprint.name || 'Sprint'}</h2>
         <span className="text-xs px-2 py-0.5 rounded-full bg-info-50 text-info-700 ml-2">{preset.name}</span>
+        {viewers.length > 0 && (
+          <div className="flex items-center -space-x-1.5 ml-2" title={`${viewers.length} คนกำลังดูบอร์ดนี้: ${viewers.map((v) => v.name).join(', ')}`}>
+            {viewers.slice(0, 5).map((v) => (
+              <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
+            ))}
+            {viewers.length > 5 && (
+              <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
+            )}
+          </div>
+        )}
         {canEditSprint && (
           <button
             onClick={() => void completeSprint()}
@@ -174,6 +246,29 @@ export function WorkspaceBoardPage() {
                 {colTasks.map((t) => renderCard(t))}
                 {colTasks.length === 0 && <div className="text-center text-[11px] text-border py-3">ไม่มีงาน</div>}
               </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Pronista §Live Cursor — เมาส์คนอื่นที่เปิดบอร์ดเดียวกันอยู่ ลอยทับเนื้อหา ไม่รับ pointer event เอง */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden z-30">
+        {Object.entries(cursors).map(([userId, c]) => {
+          const parts = (avatarColor(c.name) ?? '').split(' ')
+          const bgClass = parts[0] ?? ''
+          const textClass = parts[1] ?? ''
+          return (
+            <div
+              key={userId}
+              className="absolute transition-[left,top] duration-100 ease-linear"
+              style={{ left: `${c.x * 100}%`, top: `${c.y * 100}%` }}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" className={`drop-shadow-sm ${textClass}`}>
+                <path d="M1 1l6.5 15.5 2.2-6.3L16 8 1 1z" fill="currentColor" stroke="white" strokeWidth="1" strokeLinejoin="round" />
+              </svg>
+              <span className={`ml-3 -mt-1 inline-block text-[11px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${bgClass} ${textClass}`}>
+                {c.name}
+              </span>
             </div>
           )
         })}
