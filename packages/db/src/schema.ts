@@ -1099,8 +1099,9 @@ export const changelogItemLinks = sqliteTable(
   ],
 )
 
-// Pronista §Daily Report — รายงานประจำวัน 1 ใบต่อ (คน, วัน) ส่งให้ "หัวหน้าโดยตรง" (users.managerId) แทนการเขียนอีเมล
-// recipientId = snapshot จาก users.managerId ตอนสร้างรายงาน (ไม่ dynamic ตาม managerId ปัจจุบัน) กันรายงานเก่าเปลี่ยนผู้รับย้อนหลังถ้า Admin แก้ทีหลัง
+// Pronista §Daily Report — รายงานประจำวัน 1 ใบต่อ (คน, วัน) ส่งให้หัวหน้าที่เลือกทุกครั้งตอนกดส่ง (แทนการเขียนอีเมล)
+// recipientId = ผู้รับที่เลือกจริงตอนกดส่ง (null = ยังไม่ส่ง/ยังไม่เลือก) เริ่มต้น default จาก users.managerId ให้ตอนสร้าง แต่เปลี่ยนได้ทุกครั้งตอนส่ง
+// แก้ไขได้ตลอดตราบใดที่ status ยังไม่ถึง 'reviewed' (หัวหน้าเปิดอ่านแล้ว) — submit ไม่ได้ล็อกการแก้ไข แค่เป็นตัวจุด notification
 export const DAILY_REPORT_STATUSES = ['draft', 'submitted', 'reviewed'] as const
 
 export const dailyReports = sqliteTable(
@@ -1111,9 +1112,7 @@ export const dailyReports = sqliteTable(
       .notNull()
       .references(() => users.id),
     reportDate: text('report_date').notNull(), // YYYY-MM-DD (Asia/Bangkok)
-    recipientId: text('recipient_id')
-      .notNull()
-      .references(() => users.id),
+    recipientId: text('recipient_id').references(() => users.id),
     status: text('status', { enum: DAILY_REPORT_STATUSES }).notNull().default('draft'),
     notes: text('notes'),
     blockerHasIssue: integer('blocker_has_issue', { mode: 'boolean' }).notNull().default(false),
@@ -1132,7 +1131,8 @@ export const dailyReports = sqliteTable(
   ],
 )
 
-// รายการงานที่ทำวันนี้ 1 แถว = 1 task จริง + บันทึกสั้นๆ ("สิ่งที่ทำวันนี้") — ไม่ copy ข้อมูล task มา อ้างอิงอย่างเดียว (ดึง title/status/project สดตอนแสดงผล)
+// รายการงานที่ทำวันนี้ — ผูกกับ task จริงก็ได้ (taskId มีค่า, ดึง title/status/project สดตอนแสดงผล ไม่ copy มา)
+// หรือคีย์เองแบบ freeform ก็ได้ (taskId=null, ต้องมี manualTitle+manualMinutes เช่น "ประชุมลูกค้า 2ชม.") — สองแบบแยกกันเด็ดขาดที่ระดับ API
 export const dailyReportItems = sqliteTable(
   'daily_report_items',
   {
@@ -1140,9 +1140,10 @@ export const dailyReportItems = sqliteTable(
     reportId: text('report_id')
       .notNull()
       .references(() => dailyReports.id),
-    taskId: text('task_id')
-      .notNull()
-      .references(() => tasks.id),
+    taskId: text('task_id').references(() => tasks.id),
+    // Pronista §Daily Report (ต่อยอด) — รายการที่คีย์เอง ไม่ผูก task จริง (เช่น "ประชุมลูกค้า") — null ถ้า taskId มีค่า
+    manualTitle: text('manual_title'),
+    manualMinutes: integer('manual_minutes'),
     note: text('note'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })

@@ -1,6 +1,7 @@
 /**
- * Pronista §Daily Report — แท็บที่ 4 ของ "งานของฉัน" ให้พนักงานรวบรวมงานที่ทำวันนี้ (ดึงจาก activity จริง)
- * ส่งให้หัวหน้าโดยตรง (users.managerId) แทนอีเมล — Draft → Submitted → Reviewed (auto flip ตอนหัวหน้าเปิดอ่าน)
+ * Pronista §Daily Report — แท็บที่ 4 ของ "งานของฉัน" ให้พนักงานรวบรวมงานที่ทำวันนี้ (ดึงจาก activity จริง หรือคีย์เอง)
+ * ส่งให้หัวหน้าที่เลือกทุกครั้งตอนกดส่ง แทนอีเมล — Draft → Submitted → Reviewed (auto flip ตอนหัวหน้าเปิดอ่าน)
+ * แก้ไขได้ตลอดจนกว่าจะ Reviewed (submit ไม่ล็อกการแก้ไข แค่แจ้งเตือน+ให้หัวหน้าเห็น)
  * มี 2 โหมดภายในแท็บ: "วันนี้/แก้ไข" (แก้รายงานของตัวเอง) กับ "ประวัติ" (ดูย้อนหลัง ทั้งของฉัน/ที่ได้รับ)
  */
 import { AlertTriangle, Calendar, CheckCircle2, History as HistoryIcon, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
@@ -29,9 +30,15 @@ const STATUS_BADGE: Record<'draft' | 'submitted' | 'reviewed', string> = {
 }
 
 interface SuggestedTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null; minutes: number; inReport: boolean }
-interface PlanSuggestedTask { id: string; code: string | null; title: string; status: string; dueDate: string | null; projectId: string | null; projectName: string | null; dueTomorrow: boolean }
-interface ReportItem { id: string; taskId: string; note: string | null; minutes: number; task: { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null } }
-interface PlanItem { id: string; taskId: string | null; note: string; task: { id: string; code: string | null; title: string } | null }
+interface ReportItem {
+  id: string
+  taskId: string | null
+  note: string | null
+  manualTitle: string | null
+  manualMinutes: number | null
+  minutes: number
+  task: { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null } | null
+}
 interface ReportComment { id: string; userId: string; userName: string | null; avatarUrl: string | null; body: string; createdAt: number }
 interface ReportDetail {
   id: string
@@ -39,7 +46,7 @@ interface ReportDetail {
   userName: string | null
   userAvatarUrl: string | null
   reportDate: string
-  recipientId: string
+  recipientId: string | null
   recipientName: string | null
   status: 'draft' | 'submitted' | 'reviewed'
   notes: string | null
@@ -49,10 +56,10 @@ interface ReportDetail {
   submittedAt: number | null
   reviewedAt: number | null
   items: ReportItem[]
-  planItems: PlanItem[]
   comments: ReportComment[]
 }
 interface HistoryRow { id: string; reportDate: string; status: 'draft' | 'submitted' | 'reviewed'; userName: string | null; recipientName: string | null; itemCount: number; submittedAt: number | null }
+interface Recipient { id: string; name: string }
 
 function TaskLink({ projectId, taskId, code, title }: { projectId: string | null; taskId: string; code: string | null; title: string }) {
   if (!projectId) return <span className="truncate">{code ?? title}</span>
@@ -70,8 +77,11 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [openId, setOpenId] = useState<string | null>(initialReportId ?? null)
   const [historyScope, setHistoryScope] = useState<'mine' | 'received'>('mine')
   const [confirmSubmit, setConfirmSubmit] = useState(false)
+  const [submitRecipientId, setSubmitRecipientId] = useState('')
   const [commentBody, setCommentBody] = useState('')
   const [error, setError] = useState('')
+  const [manualTitle, setManualTitle] = useState('')
+  const [manualHours, setManualHours] = useState('')
 
   const { data: report, reload: reloadReport } = useLoad<ReportDetail | null>(async () => {
     if (openId) return api.get<ReportDetail>(`/api/daily-reports/${openId}`)
@@ -80,21 +90,19 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   }, [openId, date])
 
   const isOwner = !!report && report.userId === user?.id
-  const isDraftOwnedByMe = !!report && isOwner && report.status === 'draft'
-  const canEditNow = !report || isDraftOwnedByMe
+  // แก้ไขได้ตลอด ตราบใดที่ยังไม่ถึง reviewed (หัวหน้าเปิดอ่านแล้ว) — submit ไม่ล็อก
+  const canEditNow = !report || (isOwner && report.status !== 'reviewed')
+  const isLocked = !!report && report.status === 'reviewed'
 
   const { data: suggested, reload: reloadSuggested } = useLoad<{ date: string; tasks: SuggestedTask[] }>(
     () => (canEditNow ? api.get(`/api/daily-reports/suggested?date=${report?.reportDate ?? date}`) : Promise.resolve({ date, tasks: [] })),
-    [report?.reportDate, date, canEditNow],
-  )
-  const { data: planSuggested } = useLoad<{ date: string; tasks: PlanSuggestedTask[] }>(
-    () => (canEditNow ? api.get(`/api/daily-reports/plan-suggested?date=${report?.reportDate ?? date}`) : Promise.resolve({ date, tasks: [] })),
     [report?.reportDate, date, canEditNow],
   )
   const { data: historyData, reload: reloadHistory } = useLoad<{ reports: HistoryRow[] }>(
     () => (mode === 'history' ? api.get(`/api/daily-reports/history?scope=${historyScope}`) : Promise.resolve({ reports: [] })),
     [mode, historyScope],
   )
+  const { data: recipients } = useLoad<{ recipients: Recipient[] }>(() => api.get('/api/daily-reports/recipients'), [])
 
   const ensureReport = async (): Promise<ReportDetail> => {
     if (report) return report
@@ -119,6 +127,17 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     const todo = (suggested?.tasks ?? []).filter((t) => !t.inReport)
     for (const t of todo) await addItem(t.id)
   }
+  const addManualItem = async () => {
+    if (!manualTitle.trim()) return
+    setError('')
+    const r = await ensureReport().catch(() => null)
+    if (!r) return
+    const hours = Number(manualHours)
+    await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0 })
+    setManualTitle('')
+    setManualHours('')
+    await reloadReport()
+  }
   const updateItemNote = async (itemId: string, note: string) => {
     if (!report) return
     await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, { note: note || null })
@@ -128,26 +147,19 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
     await Promise.all([reloadReport(), reloadSuggested()])
   }
-  const addPlanItem = async (taskId: string | null, note: string) => {
-    const r = await ensureReport().catch(() => null)
-    if (!r || !note.trim()) return
-    await api.post(`/api/daily-reports/${r.id}/plan-items`, { taskId, note: note.trim() })
-    await reloadReport()
-  }
-  const removePlanItem = async (id: string) => {
-    if (!report) return
-    await api.delete(`/api/daily-reports/${report.id}/plan-items/${id}`)
-    await reloadReport()
-  }
   const saveMeta = async (patch: Partial<Pick<ReportDetail, 'notes' | 'blockerHasIssue' | 'blockerDetail' | 'blockerNeedHelpFrom'>>) => {
     const r = await ensureReport().catch(() => null)
     if (!r) return
     await api.patch(`/api/daily-reports/${r.id}`, patch)
     await reloadReport()
   }
+  const openSubmitModal = () => {
+    setSubmitRecipientId(report?.recipientId ?? recipients?.recipients[0]?.id ?? '')
+    setConfirmSubmit(true)
+  }
   const doSubmit = async () => {
-    if (!report) return
-    await api.post(`/api/daily-reports/${report.id}/submit`, {})
+    if (!report || !submitRecipientId) return
+    await api.post(`/api/daily-reports/${report.id}/submit`, { recipientId: submitRecipientId })
     setConfirmSubmit(false)
     await reloadReport()
   }
@@ -173,6 +185,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   }
 
   const totalMinutes = (report?.items ?? []).reduce((s, it) => s + it.minutes, 0)
+  const recipientName = recipients?.recipients.find((r) => r.id === submitRecipientId)?.name
 
   return (
     <div className="space-y-4">
@@ -213,7 +226,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                       <td className="px-4 py-2.5">{fmtDateTH(r.reportDate)}</td>
                       <td className="px-3"><span className={`text-[11px] px-2 py-0.5 rounded-full ${STATUS_BADGE[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
                       <td className="px-3 text-right tabular-nums">{r.itemCount}</td>
-                      <td className="px-3 text-muted">{historyScope === 'mine' ? r.recipientName : r.userName}</td>
+                      <td className="px-3 text-muted">{(historyScope === 'mine' ? r.recipientName : r.userName) ?? '—'}</td>
                       <td className="px-4 text-right text-brand-700 text-xs">เปิดดู →</td>
                     </tr>
                   ))}
@@ -230,7 +243,11 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
               <Calendar className="w-5 h-5 text-dim" />
               <div>
                 <div className="font-semibold text-strong">Daily Report — {fmtDateTH(report?.reportDate ?? date)}</div>
-                {report && <div className="text-xs text-muted mt-0.5">{isOwner ? `ส่งถึง ${report.recipientName ?? '—'}` : `จาก ${report.userName ?? '—'}`}</div>}
+                {report && (
+                  <div className="text-xs text-muted mt-0.5">
+                    {isOwner ? (report.recipientName ? `ส่งถึง ${report.recipientName}` : 'ยังไม่ได้เลือกผู้รับ') : `จาก ${report.userName ?? '—'}`}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -247,7 +264,11 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
             </div>
           </div>
 
-          {/* Summary cards — "งานที่แนะนำ" สื่อความหมายเฉพาะตอนแก้ไขรายงานของตัวเอง (ไม่งั้นจะเป็นตัวเลขงานแนะนำของ "ผู้ดู" ไม่ใช่เจ้าของรายงาน สับสน) */}
+          {isOwner && report?.status === 'submitted' && (
+            <div className="bg-info-50 text-info-700 text-xs px-4 py-2.5 rounded-lg">ส่งแล้ว — ยังแก้ไขต่อได้จนกว่า {report.recipientName ?? 'หัวหน้า'} จะเปิดอ่าน</div>
+          )}
+
+          {/* Summary cards — "งานที่แนะนำ" สื่อความหมายเฉพาะตอนแก้ไขรายงานของตัวเอง */}
           <div className="flex bg-white rounded-lg shadow-xs border border-border-subtle overflow-x-auto divide-x divide-divider">
             {[
               ...(canEditNow ? [{ label: 'งานที่แนะนำ', value: (suggested?.tasks ?? []).length }] : []),
@@ -297,33 +318,62 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                 )}
               </div>
 
-              {/* งานที่ทำวันนี้ */}
+              {/* งานที่ทำวันนี้ (จาก task จริง + คีย์เอง) */}
               <div className="bg-white rounded-lg shadow-xs overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-divider text-sm font-medium text-strong">งานที่ทำวันนี้</div>
                 {(report?.items ?? []).length === 0 ? (
-                  <div className="text-center text-sm text-muted py-6">ยังไม่มีงานในรายงาน — เลือกจากรายการแนะนำด้านบน</div>
+                  <div className="text-center text-sm text-muted py-6">ยังไม่มีงานในรายงาน — เลือกจากรายการแนะนำด้านบน หรือเพิ่มเองด้านล่าง</div>
                 ) : (
                   <div className="divide-y divide-divider">
                     {report!.items.map((it) => (
                       <div key={it.id} className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="min-w-0 flex-1">
-                            <TaskLink projectId={it.task.projectId} taskId={it.taskId} code={it.task.code} title={it.task.title} />
-                            <div className="text-[11px] text-muted mt-0.5">{it.task.projectName ?? '—'} · {fmtMinutes(it.minutes)} · <span className={`px-1 py-0.5 rounded ${TASK_STATUS_BADGE[it.task.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[it.task.status as keyof typeof TASK_STATUS_LABEL] ?? it.task.status}</span></div>
+                            {it.task ? (
+                              <>
+                                <TaskLink projectId={it.task.projectId} taskId={it.taskId!} code={it.task.code} title={it.task.title} />
+                                <div className="text-[11px] text-muted mt-0.5">{it.task.projectName ?? '—'} · {fmtMinutes(it.minutes)} · <span className={`px-1 py-0.5 rounded ${TASK_STATUS_BADGE[it.task.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[it.task.status as keyof typeof TASK_STATUS_LABEL] ?? it.task.status}</span></div>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm text-strong font-medium">{it.manualTitle}</span>
+                                <div className="text-[11px] text-muted mt-0.5">คีย์เอง · {fmtMinutes(it.minutes)}</div>
+                              </>
+                            )}
                           </div>
                           <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
-                        <textarea
-                          defaultValue={it.note ?? ''}
-                          onBlur={(e) => void updateItemNote(it.id, e.target.value)}
-                          placeholder="สิ่งที่ทำวันนี้..."
-                          rows={2}
-                          className="mt-2 w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
-                        />
+                        {it.task && (
+                          <textarea
+                            defaultValue={it.note ?? ''}
+                            onBlur={(e) => void updateItemNote(it.id, e.target.value)}
+                            placeholder="สิ่งที่ทำวันนี้..."
+                            rows={2}
+                            className="mt-2 w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
+                <div className="flex gap-2 px-4 py-2.5 border-t border-divider flex-wrap">
+                  <input
+                    value={manualTitle}
+                    onChange={(e) => setManualTitle(e.target.value)}
+                    placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
+                    className="flex-1 min-w-[160px] text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
+                  />
+                  <input
+                    value={manualHours}
+                    onChange={(e) => setManualHours(e.target.value)}
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    placeholder="ชม."
+                    className="w-20 text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
+                  />
+                  <button onClick={() => void addManualItem()} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle hover:bg-hover flex items-center gap-1 shrink-0"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
+                </div>
               </div>
 
               {/* Blocker */}
@@ -341,42 +391,16 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                 )}
               </div>
 
-              {/* แผนพรุ่งนี้ */}
-              <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-divider text-sm font-medium text-strong">แผนงานพรุ่งนี้</div>
-                <div className="divide-y divide-divider">
-                  {(report?.planItems ?? []).map((p) => (
-                    <div key={p.id} className="flex items-center gap-2 px-4 py-2 text-sm">
-                      <div className="min-w-0 flex-1">
-                        {p.task ? <TaskLink projectId={null} taskId={p.task.id} code={p.task.code} title={p.task.title} /> : null}
-                        <div className="text-body">{p.note}</div>
-                      </div>
-                      <button onClick={() => void removePlanItem(p.id)} className="text-border hover:text-danger-600 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ))}
-                  {(planSuggested?.tasks ?? []).filter((t) => !(report?.planItems ?? []).some((p) => p.taskId === t.id)).map((t) => (
-                    <div key={t.id} className="flex items-center gap-3 px-4 py-2 text-sm">
-                      <div className="min-w-0 flex-1">
-                        <TaskLink projectId={t.projectId} taskId={t.id} code={t.code} title={t.title} />
-                        <div className="text-[11px] text-muted mt-0.5">{t.projectName ?? '—'}{t.dueTomorrow ? ' · ครบกำหนดพรุ่งนี้' : ''}</div>
-                      </div>
-                      <button onClick={() => void addPlanItem(t.id, t.code ?? t.title)} className="text-xs px-2.5 py-1 rounded-lg border border-border-subtle hover:bg-hover shrink-0">+ เพิ่ม</button>
-                    </div>
-                  ))}
-                </div>
-                <PlanFreeAdd onAdd={(note) => void addPlanItem(null, note)} />
-              </div>
-
               {/* หมายเหตุ */}
               <div className="bg-white rounded-lg shadow-xs px-4 py-4">
                 <div className="text-sm font-medium text-strong mb-2">หมายเหตุเพิ่มเติม</div>
                 <textarea defaultValue={report?.notes ?? ''} onBlur={(e) => void saveMeta({ notes: e.target.value || null })} rows={2} placeholder="(ไม่บังคับ)" className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden" />
               </div>
 
-              {/* บันทึก/ส่ง */}
-              {report && (
+              {/* ส่ง — เฉพาะตอนยังเป็น draft (ส่งแล้วแก้ไขต่อได้เลย ไม่ต้องส่งซ้ำ) */}
+              {report && report.status === 'draft' && (
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setConfirmSubmit(true)} disabled={report.items.length === 0} className="flex items-center gap-1.5 text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg">
+                  <button onClick={openSubmitModal} disabled={report.items.length === 0} className="flex items-center gap-1.5 text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg">
                     <Send className="w-4 h-4" /> ส่งรายงาน
                   </button>
                 </div>
@@ -384,40 +408,41 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
             </>
           )}
 
-          {report && !canEditNow && report.status !== 'draft' && (
+          {isLocked && (
             <>
-              {/* มุมมองอ่านอย่างเดียว/หัวหน้า — รายการงาน */}
+              {/* มุมมองอ่านอย่างเดียว — หัวหน้าเปิดอ่านแล้ว */}
               <div className="bg-white rounded-lg shadow-xs overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-divider text-sm font-medium text-strong">งานในรายงาน</div>
                 <div className="divide-y divide-divider">
-                  {report.items.map((it) => (
+                  {report!.items.map((it) => (
                     <div key={it.id} className="px-4 py-3 text-sm">
-                      <TaskLink projectId={it.task.projectId} taskId={it.taskId} code={it.task.code} title={it.task.title} />
-                      <div className="text-[11px] text-muted mt-0.5">{it.task.projectName ?? '—'} · {fmtMinutes(it.minutes)}</div>
+                      {it.task ? (
+                        <>
+                          <TaskLink projectId={it.task.projectId} taskId={it.taskId!} code={it.task.code} title={it.task.title} />
+                          <div className="text-[11px] text-muted mt-0.5">{it.task.projectName ?? '—'} · {fmtMinutes(it.minutes)}</div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-medium text-strong">{it.manualTitle}</span>
+                          <div className="text-[11px] text-muted mt-0.5">คีย์เอง · {fmtMinutes(it.minutes)}</div>
+                        </>
+                      )}
                       {it.note && <div className="text-body mt-1">{it.note}</div>}
                     </div>
                   ))}
                 </div>
               </div>
-              {report.blockerHasIssue && (
+              {report!.blockerHasIssue && (
                 <div className="bg-danger-50 rounded-lg px-4 py-3 text-sm text-danger-800">
                   <div className="font-medium flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> มีปัญหา / Blocker</div>
-                  <div className="mt-1">{report.blockerDetail}</div>
-                  {report.blockerNeedHelpFrom && <div className="text-xs mt-1">ต้องการความช่วยเหลือจาก: {report.blockerNeedHelpFrom}</div>}
+                  <div className="mt-1">{report!.blockerDetail}</div>
+                  {report!.blockerNeedHelpFrom && <div className="text-xs mt-1">ต้องการความช่วยเหลือจาก: {report!.blockerNeedHelpFrom}</div>}
                 </div>
               )}
-              {report.planItems.length > 0 && (
-                <div className="bg-white rounded-lg shadow-xs px-4 py-4">
-                  <div className="text-sm font-medium text-strong mb-2">แผนงานพรุ่งนี้</div>
-                  <ul className="text-sm text-body list-disc pl-5 space-y-1">
-                    {report.planItems.map((p) => <li key={p.id}>{p.note}</li>)}
-                  </ul>
-                </div>
-              )}
-              {report.notes && (
+              {report!.notes && (
                 <div className="bg-white rounded-lg shadow-xs px-4 py-4">
                   <div className="text-sm font-medium text-strong mb-1">หมายเหตุ</div>
-                  <div className="text-sm text-body">{report.notes}</div>
+                  <div className="text-sm text-body">{report!.notes}</div>
                 </div>
               )}
               {isOwner && (
@@ -464,7 +489,12 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
       {confirmSubmit && report && (
         <div className="fixed inset-0 bg-ink/40 z-50 grid place-items-center p-4" onClick={() => setConfirmSubmit(false)}>
           <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="font-semibold text-strong mb-2">คุณกำลังจะส่ง Daily Report ให้ {report.recipientName}</div>
+            <div className="font-semibold text-strong mb-3">ส่ง Daily Report</div>
+            <label className="block text-xs font-medium text-dim mb-1">ส่งถึง</label>
+            <select value={submitRecipientId} onChange={(e) => setSubmitRecipientId(e.target.value)} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white mb-4">
+              <option value="" disabled>เลือกผู้รับ...</option>
+              {(recipients?.recipients ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
             <div className="text-sm text-body space-y-0.5 mb-4">
               <div>วันที่: {fmtDateTH(report.reportDate)}</div>
               <div>งานในรายงาน: {report.items.length} งาน</div>
@@ -473,27 +503,13 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => setConfirmSubmit(false)} className="text-sm px-3 py-1.5 rounded-lg border border-border text-body hover:bg-hover">ยกเลิก</button>
-              <button onClick={() => void doSubmit()} className="text-sm px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium flex items-center gap-1.5"><Send className="w-3.5 h-3.5" /> ส่งรายงาน</button>
+              <button onClick={() => void doSubmit()} disabled={!submitRecipientId} className="text-sm px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-medium flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5" /> ส่งถึง{recipientName ? ` ${recipientName}` : ''}
+              </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function PlanFreeAdd({ onAdd }: { onAdd: (note: string) => void }) {
-  const [text, setText] = useState('')
-  return (
-    <div className="flex gap-2 px-4 py-2.5 border-t border-divider">
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { onAdd(text.trim()); setText('') } }}
-        placeholder="เพิ่มแผนงานอื่นเอง..."
-        className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
-      />
-      <button onClick={() => { if (text.trim()) { onAdd(text.trim()); setText('') } }} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle hover:bg-hover flex items-center gap-1 shrink-0"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
     </div>
   )
 }
