@@ -51,6 +51,12 @@ export const users = sqliteTable('users', {
   }),
   // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้ (null = ยังไม่ได้ตั้ง, Admin ตั้ง/เปลี่ยนได้ต่อคนที่ตั้งค่าผู้ใช้งาน) ไม่ผูกกับ Project Lead/ตำแหน่งสิทธิ์ใดๆ
   managerId: text('manager_id').references((): AnySQLiteColumn => users.id),
+  // Pronista §Employee/Partner Detail — ฟิลด์มาตรฐาน HR เพิ่มเติม (ใช้กับ role='member'/'owner' เป็นหลัก แต่เปิดให้ role อื่นใช้ได้ตามจำเป็น — ไม่บังคับ)
+  startDate: text('start_date'), // วันเริ่มงาน YYYY-MM-DD
+  address: text('address'),
+  idCardNumber: text('id_card_number'),
+  emergencyContactName: text('emergency_contact_name'),
+  emergencyContactPhone: text('emergency_contact_phone'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

@@ -72,7 +72,7 @@ export function UserSettingsCustomerDetailPage() {
         }
       />
       <div className="p-3 sm:p-6 max-w-2xl space-y-4">
-        <Link to="/admin/users/customers" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> ทุกลูกค้า</Link>
+        <Link to="/customers" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> ทุกลูกค้า</Link>
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
         {c.status === 'disabled' && <div className="bg-warning-50 text-warning-700 text-sm rounded-lg px-3 py-2">ลูกค้ารายนี้ถูกปิดการใช้งานอยู่</div>}
 

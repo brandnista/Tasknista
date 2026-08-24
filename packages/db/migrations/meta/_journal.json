@@ -624,6 +624,13 @@
       "when": 1787563967100,
       "tag": "0088_bright_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "6",
+      "when": 1787564405021,
+      "tag": "0089_known_power_man",
+      "breakpoints": true
     }
   ]
 }

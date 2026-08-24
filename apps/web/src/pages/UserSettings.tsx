@@ -1,10 +1,12 @@
 /**
- * Pronista §System Requirements Update — "ตั้งค่าผู้ใช้งาน" เมนูย่อยของ ตั้งค่า
- * แบ่งเป็น 3 เมนูย่อยจริง (คนละ route ใต้ /admin/users): พนักงานในระบบ / พนักงาน Outsource / ลูกค้า (ลูกค้า = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า UserSettingsCustomerDetail)
+ * Pronista §Menu Restructure — โครง list ที่ใช้ร่วมกัน 3 เมนูหลัก (จัดการพนักงาน/จัดการพาร์ทเนอร์/จัดการลูกค้า)
+ * เดิมเป็น 3 แท็บในหน้า "ตั้งค่าผู้ใช้งาน" หน้าเดียว — ตอนนี้แยก route คนละเมนูแล้ว (ไม่มี tab-switcher ในหน้าอีกต่อไป)
+ * ลูกค้า = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า UserSettingsCustomerDetail (/customers/:id)
+ * พนักงาน = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า EmployeeDetail (/employees/:id)
  */
-import { Plus, UserPlus, Users } from 'lucide-react'
+import { Plus, SquarePen, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
@@ -227,20 +229,12 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const customerUsers = (usersList ?? []).filter((u) => u.role === 'guest')
   const projectName = (id: string) => (projects ?? []).find((p) => p.id === id)
   const visibleUsers = tab === 'staff' ? staffUsers : outsourceUsers
-
-  const tabLink = (t: UserTab, to: string, label: string, count: number) => (
-    <Link
-      to={to}
-      className={`px-3 py-1.5 rounded-md whitespace-nowrap text-sm font-medium ${tab === t ? 'bg-white shadow-xs text-ink' : 'text-dim hover:text-body'}`}
-    >
-      {label} <span className="text-[11px] tabular-nums text-muted">{count}</span>
-    </Link>
-  )
+  const pageTitle = tab === 'staff' ? 'จัดการพนักงาน' : tab === 'outsource' ? 'จัดการพาร์ทเนอร์' : 'จัดการลูกค้า'
 
   return (
     <>
       <PageHeader
-        title="ตั้งค่าผู้ใช้งาน"
+        title={pageTitle}
         action={
           <div className="flex items-center gap-2">
             {tab !== 'customer' && (
@@ -255,12 +249,6 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
         }
       />
       <div className="p-3 sm:p-6 space-y-4">
-        <div className="flex bg-divider rounded-lg p-0.5 w-fit">
-          {tabLink('staff', '/admin/users', 'พนักงานในระบบ', staffUsers.length)}
-          {tabLink('outsource', '/admin/users/outsource', 'พนักงาน Outsource', outsourceUsers.length)}
-          {tabLink('customer', '/admin/users/customers', 'ลูกค้า', customerUsers.length)}
-        </div>
-
         {addingTeam && tab !== 'customer' && (
           <AddTeamForm onDone={() => { setAddingTeam(false); void reloadTeams() }} />
         )}
@@ -271,7 +259,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
           <AddCustomerForm
             projects={projects ?? []}
             onClose={() => setAdding(false)}
-            onCreated={(id) => { setAdding(false); void reload(); navigate(`/admin/users/customers/${id}`) }}
+            onCreated={(id) => { setAdding(false); void reload(); navigate(`/customers/${id}`) }}
           />
         )}
 
@@ -288,7 +276,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
               customerUsers.map((u) => (
                 <button
                   key={u.id}
-                  onClick={() => navigate(`/admin/users/customers/${u.id}`)}
+                  onClick={() => navigate(`/customers/${u.id}`)}
                   className={`w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-hover ${u.status === 'disabled' ? 'opacity-40' : ''}`}
                 >
                   <div className="min-w-0 flex-1">
@@ -361,9 +349,16 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                           </td>
                         )}
                         <td className="text-right px-5">
-                          <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
-                            {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
-                          </button>
+                          <div className="flex items-center justify-end gap-3">
+                            {tab === 'staff' && (
+                              <button onClick={() => navigate(`/employees/${u.id}`)} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
+                                <SquarePen className="w-3 h-3" /> แก้ไขข้อมูล
+                              </button>
+                            )}
+                            <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
+                              {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

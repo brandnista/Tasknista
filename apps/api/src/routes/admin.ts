@@ -103,6 +103,14 @@ export const adminRoutes = new Hono<AppEnv>()
         contactType: z.enum(['juristic', 'individual']).nullable().optional(),
         businessName: z.string().max(120).nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
+        // Pronista §Partner/Client Classification — role='vendor'/'guest'
+        classificationType: z.enum(['ordinary_individual', 'ordinary_juristic', 'extraordinary_individual', 'extraordinary_juristic']).nullable().optional(),
+        // Pronista §Employee/Partner Detail — ฟิลด์มาตรฐาน HR เพิ่มเติม
+        startDate: z.string().nullable().optional(),
+        address: z.string().max(500).nullable().optional(),
+        idCardNumber: z.string().max(30).nullable().optional(),
+        emergencyContactName: z.string().max(120).nullable().optional(),
+        emergencyContactPhone: z.string().max(30).nullable().optional(),
         // Pronista §System Requirements Update — ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์ (บังคับเลือก) เลือกได้หลายโปรเจกต์
         projectIds: z.array(z.string()).optional(),
       })
@@ -127,6 +135,12 @@ export const adminRoutes = new Hono<AppEnv>()
         contactType: body.data.contactType ?? null,
         businessName: body.data.businessName ?? null,
         phone: body.data.phone ?? null,
+        classificationType: body.data.classificationType ?? null,
+        startDate: body.data.startDate ?? null,
+        address: body.data.address ?? null,
+        idCardNumber: body.data.idCardNumber ?? null,
+        emergencyContactName: body.data.emergencyContactName ?? null,
+        emergencyContactPhone: body.data.emergencyContactPhone ?? null,
       })
       .returning()
     const user = inserted[0]
@@ -163,6 +177,14 @@ export const adminRoutes = new Hono<AppEnv>()
         contactType: z.enum(['juristic', 'individual']).nullable().optional(),
         businessName: z.string().max(120).nullable().optional(),
         phone: z.string().max(30).nullable().optional(),
+        // Pronista §Partner/Client Classification — role='vendor'/'guest'
+        classificationType: z.enum(['ordinary_individual', 'ordinary_juristic', 'extraordinary_individual', 'extraordinary_juristic']).nullable().optional(),
+        // Pronista §Employee/Partner Detail — ฟิลด์มาตรฐาน HR เพิ่มเติม
+        startDate: z.string().nullable().optional(),
+        address: z.string().max(500).nullable().optional(),
+        idCardNumber: z.string().max(30).nullable().optional(),
+        emergencyContactName: z.string().max(120).nullable().optional(),
+        emergencyContactPhone: z.string().max(30).nullable().optional(),
         // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้
         managerId: z.string().nullable().optional(),
         // Pronista §System Requirements Update — แก้รายการโปรเจกต์ที่ลูกค้าผูกอยู่ (ส่งมา = แทนที่ทั้งชุด)

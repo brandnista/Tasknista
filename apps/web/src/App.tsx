@@ -14,6 +14,7 @@ import { DocsPage } from './pages/Docs'
 import { DocumentComparePage } from './pages/DocumentCompare'
 import { DocumentHistoryPage } from './pages/DocumentHistory'
 import { DocViewerPage } from './pages/DocViewer'
+import { EmployeeDetailPage } from './pages/EmployeeDetail'
 import { ExpensesPage } from './pages/Expenses'
 import { InboxPage } from './pages/Inbox'
 import { Login } from './pages/Login'
@@ -175,6 +176,14 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="staff" />
+          </Protected>
+        ),
+      },
+      {
+        path: 'employees/:id',
+        element: (
+          <Protected roles={['owner']}>
+            <EmployeeDetailPage />
           </Protected>
         ),
       },
