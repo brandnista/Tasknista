@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
-import { CLASSIFICATION_TYPE_LABEL, type ClassificationType } from './UserSettings'
+import { CLASSIFICATION_TYPE_LABEL, fieldInput, fieldLabel, ModalShell, type ClassificationType } from './UserSettings'
 
 interface Member {
   id: string
@@ -24,8 +24,13 @@ interface Member {
 }
 interface OrgSizeTier { id: string; name: string; feeSatang: number; sortOrder: number }
 
+/** เพิ่มสมาชิกใหม่ — ฟิลด์เท่ากับหน้าแก้ไข MemberDetail ทุกฟิลด์ (รวมช่วงวันที่ ถ้าเลือก "มีอายุ" — ใช้ได้ทุกประเภท ไม่ผูกกับ classificationType) */
 function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; onClose: () => void; onCreated: (id: string) => void }) {
-  const [form, setForm] = useState({ name: '', classificationType: 'ordinary_individual' as ClassificationType, orgSizeTierId: '', membershipMode: 'lifetime' as 'lifetime' | 'dated' })
+  const [form, setForm] = useState({
+    name: '', classificationType: 'ordinary_individual' as ClassificationType, orgSizeTierId: '',
+    businessName: '', phone: '', email: '',
+    membershipMode: 'lifetime' as 'lifetime' | 'dated', startDate: '', endDate: '', notifyBeforeDays: '',
+  })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const submit = async () => {
@@ -36,7 +41,13 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
         name: form.name,
         classificationType: form.classificationType,
         orgSizeTierId: form.classificationType === 'extraordinary_juristic' ? form.orgSizeTierId || null : null,
+        businessName: form.businessName || null,
+        phone: form.phone || null,
+        email: form.email || null,
         membershipMode: form.membershipMode,
+        startDate: form.membershipMode === 'dated' ? form.startDate || null : null,
+        endDate: form.membershipMode === 'dated' ? form.endDate || null : null,
+        notifyBeforeDays: form.membershipMode === 'dated' && form.notifyBeforeDays ? Number(form.notifyBeforeDays) : null,
       })
       onCreated(created.id)
     } catch (e) {
@@ -45,33 +56,60 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
       setBusy(false)
     }
   }
-  const input = 'text-sm bg-white shadow-xs rounded-lg px-3 py-2'
   return (
-    <div className="p-4 bg-hover rounded-lg space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <input placeholder="ชื่อสมาชิก *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
-        <select value={form.classificationType} onChange={(e) => setForm({ ...form, classificationType: e.target.value as ClassificationType })} className={input}>
-          {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => <option key={t} value={t}>{CLASSIFICATION_TYPE_LABEL[t]}</option>)}
-        </select>
-        {form.classificationType === 'extraordinary_juristic' && (
-          <select value={form.orgSizeTierId} onChange={(e) => setForm({ ...form, orgSizeTierId: e.target.value })} className={input}>
+    <ModalShell title="เพิ่มสมาชิก" onClose={onClose}>
+      <div>
+        <label className={fieldLabel}>ประเภท</label>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
+            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="classificationType" checked={form.classificationType === t} onChange={() => setForm({ ...form, classificationType: t })} />
+              {CLASSIFICATION_TYPE_LABEL[t]}
+            </label>
+          ))}
+        </div>
+      </div>
+      {form.classificationType === 'extraordinary_juristic' && (
+        <div>
+          <label className={fieldLabel}>ขนาดองค์กร</label>
+          <select value={form.orgSizeTierId} onChange={(e) => setForm({ ...form, orgSizeTierId: e.target.value })} className={fieldInput}>
             <option value="">— เลือกขนาดองค์กร —</option>
             {tiers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-        )}
-        <select value={form.membershipMode} onChange={(e) => setForm({ ...form, membershipMode: e.target.value as 'lifetime' | 'dated' })} className={input}>
-          <option value="lifetime">ตลอดชีพ (Lifetime)</option>
-          <option value="dated">มีอายุ (กำหนดวันที่)</option>
-        </select>
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label className={fieldLabel}>ชื่อธุรกิจ</label><input value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ชื่อผู้ติดต่อ *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>อีเมล</label><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>เบอร์มือถือ</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
       </div>
+      <div>
+        <label className={fieldLabel}>อายุสมาชิก</label>
+        <div className="flex items-center gap-4 text-sm">
+          {(['lifetime', 'dated'] as const).map((mode) => (
+            <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="membershipMode" checked={form.membershipMode === mode} onChange={() => setForm({ ...form, membershipMode: mode })} />
+              {mode === 'lifetime' ? 'ตลอดชีพ (Lifetime)' : 'มีอายุ (กำหนดวันที่)'}
+            </label>
+          ))}
+        </div>
+      </div>
+      {form.membershipMode === 'dated' && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div><label className={fieldLabel}>วันเริ่มต้น</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={fieldInput} /></div>
+          <div><label className={fieldLabel}>วันหมดอายุ</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className={fieldInput} /></div>
+          <div><label className={fieldLabel}>แจ้งเตือนล่วงหน้า (วัน)</label><input type="number" min={0} value={form.notifyBeforeDays} onChange={(e) => setForm({ ...form, notifyBeforeDays: e.target.value })} className={fieldInput} /></div>
+        </div>
+      )}
       {error && <div className="text-xs text-danger-600">{error}</div>}
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg border border-border text-body hover:bg-hover">ยกเลิก</button>
         <button onClick={() => void submit()} disabled={!form.name || busy} className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg">
           เพิ่มสมาชิก
         </button>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 

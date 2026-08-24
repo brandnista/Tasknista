@@ -80,57 +80,158 @@ function AddTeamForm({ onDone }: { onDone: () => void }) {
   )
 }
 
-function AddUserForm({ role, memberDomain, teamsList, onDone }: { role: 'staff' | 'outsource'; memberDomain?: string; teamsList: Team[]; onDone: () => void }) {
-  const [form, setForm] = useState({ email: '', name: '', role: role === 'staff' ? 'member' : 'vendor', teamId: '' })
-  const [error, setError] = useState('')
-  const submit = async () => {
-    try {
-      await api.post('/api/admin/users', { email: form.email, name: form.name, role: form.role, teamId: form.teamId || null })
-      onDone()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'ผิดพลาด')
-    }
-  }
+/** popup กลาง — pattern เดียวกับที่ใช้ทั่วแอป (fixed inset-0 bg-ink/40 + card กลางจอ, คลิก backdrop ปิด) — export ให้ Members.tsx ใช้ร่วมด้วย */
+export function ModalShell({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className="p-4 bg-hover rounded-lg space-y-2">
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-        <input placeholder="ชื่อ" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2" />
-        <input placeholder="อีเมล" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2" />
-        <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2">
-          {role === 'staff' ? (
-            <>
-              <option value="member">พนักงาน</option>
-              <option value="owner">Admin</option>
-            </>
-          ) : (
-            <option value="vendor">ผู้รับจ้าง</option>
-          )}
-        </select>
-        <select value={form.teamId} onChange={(e) => setForm({ ...form, teamId: e.target.value })} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2">
-          <option value="">— ไม่ระบุทีม —</option>
-          {teamsList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
+    <div className="fixed inset-0 bg-ink/40 z-50 flex items-start justify-center p-4 sm:pt-[8vh]" onClick={onClose}>
+      <div className={`bg-white rounded-xl shadow-lg w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[85vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-3.5 border-b border-divider flex items-center justify-between shrink-0">
+          <div className="font-semibold text-strong">{title}</div>
+          <button onClick={onClose} className="text-muted hover:text-body text-xl leading-none">&times;</button>
+        </div>
+        <div className="p-5 overflow-y-auto space-y-3">{children}</div>
       </div>
-      {error && <div className="text-xs text-danger-600">{error}</div>}
-      <div className="flex justify-end gap-2">
-        <button onClick={() => void submit()} disabled={!form.email || !form.name} className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg">
-          เพิ่มผู้ใช้งาน
-        </button>
-      </div>
-      {role === 'staff' && (
-        <p className="text-[11px] text-muted">
-          {memberDomain ? `พนักงาน = โดเมน ${memberDomain} (login ได้เองอยู่แล้ว)` : 'พนักงาน = ยังไม่ตั้งโดเมน auto-provision (ตั้งได้ที่ ค่าบริษัท)'}
-        </p>
-      )}
-      {role === 'outsource' && <p className="text-[11px] text-muted">ผู้รับจ้าง = allowlist อีเมลภายนอก</p>}
     </div>
   )
 }
 
-/** เพิ่มลูกค้าใหม่ (role='guest') — ต้องเลือกโปรเจกต์อย่างน้อย 1 (บังคับ) */
+export const fieldInput = 'w-full text-sm bg-white shadow-xs border border-border-subtle rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
+export const fieldLabel = 'text-xs font-medium text-muted mb-1 block'
+
+/** เพิ่มพนักงานใหม่ (role='member'/'owner') — ฟิลด์เท่ากับหน้าแก้ไข EmployeeDetail ทุกฟิลด์ */
+function AddStaffForm({ memberDomain, teamsList, staffOpts, onClose, onCreated }: { memberDomain?: string; teamsList: Team[]; staffOpts: AdminUser[]; onClose: () => void; onCreated: (id: string) => void }) {
+  const [form, setForm] = useState({
+    name: '', email: '', role: 'member' as 'member' | 'owner', teamId: '', managerId: '', phone: '', jobTitle: '',
+    startDate: '', address: '', idCardNumber: '', emergencyContactName: '', emergencyContactPhone: '',
+  })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const created = await api.post<{ id: string }>('/api/admin/users', {
+        email: form.email, name: form.name, role: form.role,
+        teamId: form.teamId || null, managerId: form.managerId || null, phone: form.phone || null, jobTitle: form.jobTitle || null,
+        startDate: form.startDate || null, address: form.address || null, idCardNumber: form.idCardNumber || null,
+        emergencyContactName: form.emergencyContactName || null, emergencyContactPhone: form.emergencyContactPhone || null,
+      })
+      onCreated(created.id)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'ผิดพลาด')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <ModalShell title="เพิ่มพนักงาน" onClose={onClose}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label className={fieldLabel}>ชื่อ *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>อีเมล *</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fieldInput} /></div>
+        <div>
+          <label className={fieldLabel}>สิทธิ์ระบบ</label>
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'member' | 'owner' })} className={fieldInput}>
+            <option value="member">พนักงาน</option>
+            <option value="owner">Admin</option>
+          </select>
+        </div>
+        <div><label className={fieldLabel}>เบอร์โทร</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ตำแหน่ง</label><input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} className={fieldInput} /></div>
+        <div>
+          <label className={fieldLabel}>ทีม</label>
+          <select value={form.teamId} onChange={(e) => setForm({ ...form, teamId: e.target.value })} className={fieldInput}>
+            <option value="">— ไม่ระบุทีม —</option>
+            {teamsList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={fieldLabel}>หัวหน้าโดยตรง</label>
+          <select value={form.managerId} onChange={(e) => setForm({ ...form, managerId: e.target.value })} className={fieldInput}>
+            <option value="">— ยังไม่ตั้ง —</option>
+            {staffOpts.map((s) => <option key={s.id} value={s.id}>{s.name} ({ROLE_LABEL[s.role]})</option>)}
+          </select>
+        </div>
+        <div><label className={fieldLabel}>วันเริ่มงาน</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>เลขบัตรประชาชน</label><input value={form.idCardNumber} onChange={(e) => setForm({ ...form, idCardNumber: e.target.value })} className={fieldInput} /></div>
+        <div className="sm:col-span-2"><label className={fieldLabel}>ที่อยู่</label><textarea rows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ผู้ติดต่อฉุกเฉิน (ชื่อ)</label><input value={form.emergencyContactName} onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ผู้ติดต่อฉุกเฉิน (เบอร์โทร)</label><input value={form.emergencyContactPhone} onChange={(e) => setForm({ ...form, emergencyContactPhone: e.target.value })} className={fieldInput} /></div>
+      </div>
+      <p className="text-[11px] text-muted">
+        {memberDomain ? `พนักงาน = โดเมน ${memberDomain} (login ได้เองอยู่แล้ว)` : 'พนักงาน = ยังไม่ตั้งโดเมน auto-provision (ตั้งได้ที่ ค่าบริษัท)'}
+      </p>
+      {error && <div className="text-xs text-danger-600">{error}</div>}
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg border border-border text-body hover:bg-hover">ยกเลิก</button>
+        <button onClick={() => void submit()} disabled={!form.email || !form.name || busy} className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg">
+          เพิ่มพนักงาน
+        </button>
+      </div>
+    </ModalShell>
+  )
+}
+
+/** เพิ่มพาร์ทเนอร์ใหม่ (role='vendor') — ฟิลด์เท่ากับหน้าแก้ไข PartnerDetail ทุกฟิลด์ */
+function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [form, setForm] = useState({
+    name: '', email: '', businessName: '', phone: '', classificationType: 'ordinary_individual' as ClassificationType, specialty: '', bankAccount: '',
+  })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const created = await api.post<{ id: string }>('/api/admin/users', {
+        email: form.email, name: form.name, role: 'vendor',
+        businessName: form.businessName || null, phone: form.phone || null, classificationType: form.classificationType,
+        specialty: form.specialty || null, bankAccount: form.bankAccount || null,
+      })
+      onCreated(created.id)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'ผิดพลาด')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <ModalShell title="เพิ่มพาร์ทเนอร์" onClose={onClose}>
+      <div>
+        <label className={fieldLabel}>ประเภท</label>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
+            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="classificationType" checked={form.classificationType === t} onChange={() => setForm({ ...form, classificationType: t })} />
+              {CLASSIFICATION_TYPE_LABEL[t]}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label className={fieldLabel}>ชื่อธุรกิจ</label><input value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ชื่อผู้ติดต่อ *</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>อีเมล *</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>เบอร์มือถือ</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ความเชี่ยวชาญ</label><input value={form.specialty} onChange={(e) => setForm({ ...form, specialty: e.target.value })} placeholder="เช่น Frontend, UI/UX" className={fieldInput} /></div>
+        <div><label className={fieldLabel}>บัญชีธนาคาร (สำหรับจ่ายเงิน)</label><input value={form.bankAccount} onChange={(e) => setForm({ ...form, bankAccount: e.target.value })} placeholder="ธนาคาร + เลขบัญชี" className={fieldInput} /></div>
+      </div>
+      <p className="text-[11px] text-muted">ผู้รับจ้าง = allowlist อีเมลภายนอก</p>
+      {error && <div className="text-xs text-danger-600">{error}</div>}
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg border border-border text-body hover:bg-hover">ยกเลิก</button>
+        <button onClick={() => void submit()} disabled={!form.email || !form.name || busy} className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg">
+          เพิ่มพาร์ทเนอร์
+        </button>
+      </div>
+    </ModalShell>
+  )
+}
+
+/** เพิ่มลูกค้าใหม่ (role='guest') — ต้องเลือกโปรเจกต์อย่างน้อย 1 (บังคับ) — ฟิลด์เท่ากับหน้าแก้ไข UserSettingsCustomerDetail ทุกฟิลด์ */
 function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOpt[]; onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState({
-    name: '', email: '', businessName: '', phone: '', contactType: 'juristic' as 'juristic' | 'individual', projectIds: [] as string[],
+    name: '', email: '', businessName: '', phone: '', contactType: 'juristic' as 'juristic' | 'individual',
+    classificationType: 'ordinary_individual' as ClassificationType, projectIds: [] as string[],
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -147,6 +248,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
         businessName: form.businessName || null,
         phone: form.phone || null,
         contactType: form.contactType,
+        classificationType: form.classificationType,
         projectIds: form.projectIds,
       })
       onCreated(created.id)
@@ -156,26 +258,38 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
       setBusy(false)
     }
   }
-  const input = 'text-sm bg-white shadow-xs rounded-lg px-3 py-2'
   return (
-    <div className="p-4 bg-hover rounded-lg space-y-3">
-      <div className="flex items-center gap-4 text-sm">
-        <span className="text-muted">ประเภทผู้ติดต่อ</span>
-        {(['juristic', 'individual'] as const).map((t) => (
-          <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-            <input type="radio" name="contactType" checked={form.contactType === t} onChange={() => setForm({ ...form, contactType: t })} />
-            {CONTACT_TYPE_LABEL[t]}
-          </label>
-        ))}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <input placeholder="ชื่อธุรกิจ" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} className={input} />
-        <input placeholder="ชื่อผู้ติดต่อ" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
-        <input placeholder="อีเมล *" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
-        <input placeholder="เบอร์มือถือ" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={input} />
+    <ModalShell title="เพิ่มลูกค้า" onClose={onClose}>
+      <div>
+        <label className={fieldLabel}>ประเภทผู้ติดต่อ</label>
+        <div className="flex items-center gap-4 text-sm">
+          {(['juristic', 'individual'] as const).map((t) => (
+            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="contactType" checked={form.contactType === t} onChange={() => setForm({ ...form, contactType: t })} />
+              {CONTACT_TYPE_LABEL[t]}
+            </label>
+          ))}
+        </div>
       </div>
       <div>
-        <label className="text-xs font-medium text-muted mb-1 block">โปรเจกต์ * (บังคับเลือก อย่างน้อย 1)</label>
+        <label className={fieldLabel}>ประเภท</label>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
+            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="classificationType" checked={form.classificationType === t} onChange={() => setForm({ ...form, classificationType: t })} />
+              {CLASSIFICATION_TYPE_LABEL[t]}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label className={fieldLabel}>ชื่อธุรกิจ</label><input value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>ชื่อผู้ติดต่อ</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>อีเมล *</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>เบอร์มือถือ</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
+      </div>
+      <div>
+        <label className={fieldLabel}>โปรเจกต์ * (บังคับเลือก อย่างน้อย 1)</label>
         <div className="border border-border-subtle rounded-lg max-h-40 overflow-y-auto divide-y divide-divider bg-white">
           {projects.length === 0 && <div className="text-xs text-muted px-3 py-3 text-center">ยังไม่มีโปรเจกต์ในระบบ</div>}
           {projects.map((p) => (
@@ -188,13 +302,13 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
         </div>
       </div>
       {error && <div className="text-xs text-danger-600">{error}</div>}
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onClose} className="text-sm px-3 py-1.5 rounded-lg border border-border text-body hover:bg-hover">ยกเลิก</button>
         <button onClick={() => void submit()} disabled={!form.email || !form.name || busy} className="text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-1.5 rounded-lg">
           เพิ่มลูกค้า
         </button>
       </div>
-    </div>
+    </ModalShell>
   )
 }
 
@@ -262,8 +376,20 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
         {addingTeam && tab !== 'customer' && (
           <AddTeamForm onDone={() => { setAddingTeam(false); void reloadTeams() }} />
         )}
-        {adding && tab !== 'customer' && (
-          <AddUserForm role={tab} memberDomain={cfg?.memberDomain} teamsList={teamsList ?? []} onDone={() => { setAdding(false); void reload() }} />
+        {adding && tab === 'staff' && (
+          <AddStaffForm
+            memberDomain={cfg?.memberDomain}
+            teamsList={teamsList ?? []}
+            staffOpts={staffUsers}
+            onClose={() => setAdding(false)}
+            onCreated={(id) => { setAdding(false); void reload(); navigate(`/employees/${id}`) }}
+          />
+        )}
+        {adding && tab === 'outsource' && (
+          <AddOutsourceForm
+            onClose={() => setAdding(false)}
+            onCreated={(id) => { setAdding(false); void reload(); navigate(`/partners/${id}`) }}
+          />
         )}
         {adding && tab === 'customer' && (
           <AddCustomerForm
