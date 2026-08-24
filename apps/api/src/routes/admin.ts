@@ -111,6 +111,9 @@ export const adminRoutes = new Hono<AppEnv>()
         idCardNumber: z.string().max(30).nullable().optional(),
         emergencyContactName: z.string().max(120).nullable().optional(),
         emergencyContactPhone: z.string().max(30).nullable().optional(),
+        // Pronista §Partner Detail — role='vendor'
+        specialty: z.string().max(200).nullable().optional(),
+        bankAccount: z.string().max(200).nullable().optional(),
         // Pronista §System Requirements Update — ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์ (บังคับเลือก) เลือกได้หลายโปรเจกต์
         projectIds: z.array(z.string()).optional(),
       })
@@ -141,6 +144,8 @@ export const adminRoutes = new Hono<AppEnv>()
         idCardNumber: body.data.idCardNumber ?? null,
         emergencyContactName: body.data.emergencyContactName ?? null,
         emergencyContactPhone: body.data.emergencyContactPhone ?? null,
+        specialty: body.data.specialty ?? null,
+        bankAccount: body.data.bankAccount ?? null,
       })
       .returning()
     const user = inserted[0]
@@ -185,6 +190,9 @@ export const adminRoutes = new Hono<AppEnv>()
         idCardNumber: z.string().max(30).nullable().optional(),
         emergencyContactName: z.string().max(120).nullable().optional(),
         emergencyContactPhone: z.string().max(30).nullable().optional(),
+        // Pronista §Partner Detail — role='vendor'
+        specialty: z.string().max(200).nullable().optional(),
+        bankAccount: z.string().max(200).nullable().optional(),
         // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้
         managerId: z.string().nullable().optional(),
         // Pronista §System Requirements Update — แก้รายการโปรเจกต์ที่ลูกค้าผูกอยู่ (ส่งมา = แทนที่ทั้งชุด)

@@ -29,10 +29,20 @@ interface AdminUser {
   projectIds: string[]
   // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้
   managerId: string | null
+  // Pronista §Partner/Client Classification — role='vendor'/'guest'
+  classificationType: ClassificationType | null
 }
 interface ProjectOpt { id: string; code: string | null; name: string }
 
 export const CONTACT_TYPE_LABEL: Record<'juristic' | 'individual', string> = { juristic: 'นิติบุคคล', individual: 'บุคคลธรรมดา' }
+export type ClassificationType = 'ordinary_individual' | 'ordinary_juristic' | 'extraordinary_individual' | 'extraordinary_juristic'
+// Pronista §Partner/Client/Member Classification — ชุดนิยามเดียวกันใช้ซ้ำทั้งพาร์ทเนอร์/ลูกค้า/สมาชิก (เกณฑ์แยกยังไม่นิ่ง — radio ให้เลือกไปก่อน)
+export const CLASSIFICATION_TYPE_LABEL: Record<ClassificationType, string> = {
+  ordinary_individual: 'สามัญบุคคล',
+  ordinary_juristic: 'สามัญนิติบุคคล',
+  extraordinary_individual: 'วิสามัญบุคคล',
+  extraordinary_juristic: 'วิสามัญนิติบุคคล',
+}
 type UserTab = 'staff' | 'outsource' | 'customer'
 
 function AddTeamForm({ onDone }: { onDone: () => void }) {
@@ -315,12 +325,13 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                       <th className="text-left font-medium px-3 py-3">สิทธิ์ระบบ</th>
                       <th className="text-left font-medium px-3 py-3">ทีม</th>
                       {tab === 'staff' && <th className="text-left font-medium px-3 py-3">หัวหน้าโดยตรง</th>}
+                      {tab === 'outsource' && <th className="text-left font-medium px-3 py-3">ประเภท</th>}
                       <th className="text-right font-medium px-5 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-divider">
                     {visibleUsers.length === 0 && (
-                      <tr><td colSpan={tab === 'staff' ? 6 : 5} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
+                      <tr><td colSpan={6} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
                     )}
                     {visibleUsers.map((u) => (
                       <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
@@ -348,10 +359,22 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                             </select>
                           </td>
                         )}
+                        {tab === 'outsource' && (
+                          <td className="px-3">
+                            {u.classificationType ? (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-info-50 text-info-700 whitespace-nowrap">{CLASSIFICATION_TYPE_LABEL[u.classificationType]}</span>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                        )}
                         <td className="text-right px-5">
                           <div className="flex items-center justify-end gap-3">
-                            {tab === 'staff' && (
-                              <button onClick={() => navigate(`/employees/${u.id}`)} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
+                            {(tab === 'staff' || tab === 'outsource') && (
+                              <button
+                                onClick={() => navigate(`/${tab === 'staff' ? 'employees' : 'partners'}/${u.id}`)}
+                                className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline"
+                              >
                                 <SquarePen className="w-3 h-3" /> แก้ไขข้อมูล
                               </button>
                             )}

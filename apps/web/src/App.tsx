@@ -28,6 +28,7 @@ import { ProjectEditPage } from './pages/ProjectEdit'
 import { PayrollPage } from './pages/Payroll'
 import { ProfilePage } from './pages/Profile'
 import { ProjectsPage } from './pages/Projects'
+import { PartnerDetailPage } from './pages/PartnerDetail'
 import { SprintSnapshotPage } from './pages/SprintSnapshot'
 import { TaskDetailPage } from './pages/TaskDetail'
 import { UserSettingsPage } from './pages/UserSettings'
@@ -193,6 +194,14 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="outsource" />
+          </Protected>
+        ),
+      },
+      {
+        path: 'partners/:id',
+        element: (
+          <Protected roles={['owner']}>
+            <PartnerDetailPage />
           </Protected>
         ),
       },

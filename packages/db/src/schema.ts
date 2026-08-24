@@ -57,6 +57,9 @@ export const users = sqliteTable('users', {
   idCardNumber: text('id_card_number'),
   emergencyContactName: text('emergency_contact_name'),
   emergencyContactPhone: text('emergency_contact_phone'),
+  // Pronista §Partner Detail — ใช้กับ role='vendor' (พาร์ทเนอร์/Outsource) เป็นหลัก
+  specialty: text('specialty'), // ความเชี่ยวชาญ/สายงานที่รับ
+  bankAccount: text('bank_account'), // เลขบัญชี+ธนาคารสำหรับจ่ายเงิน (free text รอบแรก)
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
