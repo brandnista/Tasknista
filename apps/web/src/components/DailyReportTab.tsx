@@ -2,9 +2,9 @@
  * Pronista §Daily Report — แท็บที่ 4 ของ "งานของฉัน" ให้พนักงานรวบรวมงานที่ทำวันนี้ (ดึงจาก activity จริง หรือคีย์เอง)
  * ส่งให้หัวหน้าที่เลือกทุกครั้งตอนกดส่ง แทนอีเมล — Draft → Submitted → Reviewed (auto flip ตอนหัวหน้าเปิดอ่าน)
  * แก้ไขได้ตลอดจนกว่าจะ Reviewed (submit ไม่ล็อกการแก้ไข แค่แจ้งเตือน+ให้หัวหน้าเห็น)
- * มี 2 โหมดภายในแท็บ: "วันนี้/แก้ไข" (แก้รายงานของตัวเอง) กับ "ประวัติ" (ดูย้อนหลัง ทั้งของฉัน/ที่ได้รับ)
+ * มี 2 โหมดภายในแท็บ: "วันนี้/แก้ไข" (แก้รายงานของตัวเอง — งานแนะนำ+คีย์เองรวมลิสต์เดียว) กับ "ประวัติ" (ดูย้อนหลัง ทั้งของฉัน/ที่ได้รับ)
  */
-import { AlertTriangle, Calendar, CheckCircle2, History as HistoryIcon, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { AlertTriangle, Calendar, Check, History as HistoryIcon, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Avatar } from './Avatar'
 import { DateInputTH } from './DateInputTH'
@@ -15,18 +15,19 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABEL } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
+const MONTHS = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
+const MONTHS_SHORT = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const fmtDateTH = (d: string) => {
   const [y, m, day] = d.split('-')
-  const MONTHS = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
   return `${Number(day)} ${MONTHS[Number(m)]} ${Number(y) + 543}`
 }
 const fmtMinutes = (min: number) => (min <= 0 ? '—' : min < 60 ? `${min} น.` : `${Math.floor(min / 60)}ชม. ${min % 60 ? `${min % 60}น.` : ''}`.trim())
 
 const STATUS_LABEL: Record<'draft' | 'submitted' | 'reviewed', string> = { draft: 'Draft', submitted: 'Submitted', reviewed: 'Reviewed' }
 const STATUS_BADGE: Record<'draft' | 'submitted' | 'reviewed', string> = {
-  draft: 'bg-hover text-dim',
+  draft: 'bg-divider text-dim',
   submitted: 'bg-info-50 text-info-700',
-  reviewed: 'bg-success-50 text-success-700',
+  reviewed: 'bg-success-100 text-success-700',
 }
 
 interface SuggestedTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null; minutes: number; inReport: boolean }
@@ -62,9 +63,16 @@ interface HistoryRow { id: string; reportDate: string; status: 'draft' | 'submit
 interface Recipient { id: string; name: string }
 
 function TaskLink({ projectId, taskId, code, title }: { projectId: string | null; taskId: string; code: string | null; title: string }) {
-  if (!projectId) return <span className="truncate">{code ?? title}</span>
+  if (!projectId) return <span className="text-[13.5px] text-strong font-medium truncate">{code ?? title}</span>
   return (
-    <a href={`/projects/${projectId}?task=${taskId}`} target="_blank" rel="noreferrer" className="truncate hover:underline text-brand-700" title={title}>
+    <a
+      href={`/projects/${projectId}?task=${taskId}`}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="text-[13.5px] text-strong font-medium truncate hover:text-brand-700 hover:underline"
+      title={title}
+    >
       {code ?? title}
     </a>
   )
@@ -147,6 +155,10 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
     await Promise.all([reloadReport(), reloadSuggested()])
   }
+  const removeItemByTaskId = async (taskId: string) => {
+    const it = (report?.items ?? []).find((x) => x.taskId === taskId)
+    if (it) await removeItem(it.id)
+  }
   const saveMeta = async (patch: Partial<Pick<ReportDetail, 'notes' | 'blockerHasIssue' | 'blockerDetail' | 'blockerNeedHelpFrom'>>) => {
     const r = await ensureReport().catch(() => null)
     if (!r) return
@@ -183,9 +195,19 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     setOpenId(null)
     setDate(bkkToday())
   }
+  const scrollToStage = (id: string) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const totalMinutes = (report?.items ?? []).reduce((s, it) => s + it.minutes, 0)
   const recipientName = recipients?.recipients.find((r) => r.id === submitRecipientId)?.name
+  const itemByTaskId = new Map<string, ReportItem>()
+  for (const it of report?.items ?? []) if (it.taskId) itemByTaskId.set(it.taskId, it)
+  const manualItems = (report?.items ?? []).filter((it) => !it.taskId)
+  const suggestedCount = suggested?.tasks.length ?? 0
+  const checkedSuggestedCount = (suggested?.tasks ?? []).filter((t) => t.inReport).length
+  const hasUnaddedSuggested = (suggested?.tasks ?? []).some((t) => !t.inReport)
 
   return (
     <div className="space-y-4">
@@ -206,34 +228,27 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
             <button onClick={() => setHistoryScope('mine')} className={`px-3 py-1.5 rounded-md ${historyScope === 'mine' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานของฉัน</button>
             <button onClick={() => setHistoryScope('received')} className={`px-3 py-1.5 rounded-md ${historyScope === 'received' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานที่ได้รับ</button>
           </div>
-          <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-            {(historyData?.reports ?? []).length === 0 ? (
-              <div className="text-center text-sm text-muted py-10">ไม่พบรายงาน</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-hover text-xs text-muted">
-                  <tr>
-                    <th className="text-left font-medium px-4 py-2.5">วันที่</th>
-                    <th className="text-left font-medium px-3 py-2.5">สถานะ</th>
-                    <th className="text-right font-medium px-3 py-2.5">งาน</th>
-                    <th className="text-left font-medium px-3 py-2.5">{historyScope === 'mine' ? 'ผู้รับ' : 'ผู้ส่ง'}</th>
-                    <th className="text-right font-medium px-4 py-2.5"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-divider">
-                  {(historyData?.reports ?? []).map((r) => (
-                    <tr key={r.id} className="hover:bg-hover cursor-pointer" onClick={() => openFromHistory(r.id)}>
-                      <td className="px-4 py-2.5">{fmtDateTH(r.reportDate)}</td>
-                      <td className="px-3"><span className={`text-[11px] px-2 py-0.5 rounded-full ${STATUS_BADGE[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
-                      <td className="px-3 text-right tabular-nums">{r.itemCount}</td>
-                      <td className="px-3 text-muted">{(historyScope === 'mine' ? r.recipientName : r.userName) ?? '—'}</td>
-                      <td className="px-4 text-right text-brand-700 text-xs">เปิดดู →</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+          {(historyData?.reports ?? []).length === 0 ? (
+            <div className="bg-white border border-border-subtle rounded-xl text-center text-sm text-muted py-10">ไม่พบรายงาน</div>
+          ) : (
+            <div className="space-y-2">
+              {historyData!.reports.map((r) => {
+                const [, m, d] = r.reportDate.split('-')
+                const weekday = new Date(`${r.reportDate}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'long' })
+                return (
+                  <div key={r.id} onClick={() => openFromHistory(r.id)} className="flex items-center gap-4 bg-white border border-border-subtle rounded-xl px-4 py-3.5 cursor-pointer hover:border-border hover:shadow-xs transition-shadow">
+                    <div className="w-20 shrink-0">
+                      <div className="text-sm font-bold text-strong">{Number(d)} {MONTHS_SHORT[Number(m)]}</div>
+                      <div className="text-[11px] text-muted">{weekday}</div>
+                    </div>
+                    <div className="flex-1 min-w-0 text-xs text-dim tabular-nums">{r.itemCount} งาน</div>
+                    <div className="w-28 shrink-0 text-[12.5px] text-soft truncate">→ {(historyScope === 'mine' ? r.recipientName : r.userName) ?? '—'}</div>
+                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS_BADGE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -242,7 +257,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
             <div className="flex items-center gap-3">
               <Calendar className="w-5 h-5 text-dim" />
               <div>
-                <div className="font-semibold text-strong">Daily Report — {fmtDateTH(report?.reportDate ?? date)}</div>
+                <div className="font-bold text-ink text-[15px]">Daily Report — {fmtDateTH(report?.reportDate ?? date)}</div>
                 {report && (
                   <div className="text-xs text-muted mt-0.5">
                     {isOwner ? (report.recipientName ? `ส่งถึง ${report.recipientName}` : 'ยังไม่ได้เลือกผู้รับ') : `จาก ${report.userName ?? '—'}`}
@@ -251,7 +266,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {report && <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_BADGE[report.status]}`}>{STATUS_LABEL[report.status]}</span>}
+              {report && <span className={`text-[11px] px-2.5 py-1 rounded-full font-bold ${STATUS_BADGE[report.status]}`}>{STATUS_LABEL[report.status]}</span>}
               {openId && (
                 <button onClick={backToToday} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle hover:bg-hover">สร้างรายงานใหม่ / วันนี้</button>
               )}
@@ -268,217 +283,325 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
             <div className="bg-info-50 text-info-700 text-xs px-4 py-2.5 rounded-lg">ส่งแล้ว — ยังแก้ไขต่อได้จนกว่า {report.recipientName ?? 'หัวหน้า'} จะเปิดอ่าน</div>
           )}
 
-          {/* Summary cards — "งานที่แนะนำ" สื่อความหมายเฉพาะตอนแก้ไขรายงานของตัวเอง */}
+          {/* Summary strip */}
           <div className="flex bg-white rounded-lg shadow-xs border border-border-subtle overflow-x-auto divide-x divide-divider">
             {[
-              ...(canEditNow ? [{ label: 'งานที่แนะนำ', value: (suggested?.tasks ?? []).length }] : []),
+              ...(canEditNow ? [{ label: 'งานที่แนะนำ', value: suggestedCount }] : []),
               { label: 'เพิ่มในรายงาน', value: report?.items.length ?? 0 },
               { label: 'เวลารวม', value: fmtMinutes(totalMinutes), raw: true },
               { label: 'สถานะ', value: report ? STATUS_LABEL[report.status] : 'ยังไม่สร้าง', raw: true },
             ].map((s) => (
               <div key={s.label} className="flex-1 min-w-[110px] px-3.5 py-2.5">
                 <div className="text-[11px] text-muted whitespace-nowrap">{s.label}</div>
-                <div className="text-lg font-bold leading-tight mt-0.5 text-ink">{s.value}</div>
+                <div className="text-lg font-bold leading-tight mt-0.5 text-ink tabular-nums">{s.value}</div>
               </div>
             ))}
           </div>
 
           {canEditNow && (
-            <>
-              {/* งานที่ระบบแนะนำ */}
-              <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-divider">
-                  <div className="text-sm font-medium text-strong">งานที่ระบบแนะนำ (มี activity วันนี้)</div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => void reloadSuggested()} className="text-xs flex items-center gap-1 text-dim hover:text-body"><RefreshCw className="w-3 h-3" /> รีเฟรช</button>
-                    {(suggested?.tasks ?? []).some((t) => !t.inReport) && (
-                      <button onClick={() => void addAllSuggested()} className="text-xs px-2.5 py-1 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100">เพิ่มทั้งหมด</button>
+            <div className="grid grid-cols-1 md:grid-cols-[168px_1fr] gap-x-9 items-start">
+              {/* Progress rail */}
+              <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-3 md:pb-1 mb-3 md:mb-0 border-b md:border-b-0 border-divider md:sticky md:top-4">
+                {[
+                  { id: 'stage-tasks', label: 'งานวันนี้', state: (report?.items.length ?? 0) > 0 ? 'filled' : 'empty' },
+                  { id: 'stage-blocker', label: 'ปัญหา/Blocker', state: report?.blockerHasIssue ? 'warn' : 'filled' },
+                  { id: 'stage-notes', label: 'หมายเหตุ', state: report?.notes ? 'filled' : 'empty' },
+                ].map((s) => (
+                  <a
+                    key={s.id}
+                    href={`#${s.id}`}
+                    onClick={scrollToStage(s.id)}
+                    className="flex items-center gap-2.5 text-[13px] font-medium text-dim hover:text-body hover:bg-hover px-2.5 py-2 rounded-lg shrink-0 focus-visible:outline-2 focus-visible:outline-brand-500"
+                  >
+                    <span className={`w-[7px] h-[7px] rounded-full border-[1.5px] shrink-0 ${s.state === 'filled' ? 'bg-brand-600 border-brand-600' : s.state === 'warn' ? 'bg-danger-600 border-danger-600' : 'border-border'}`} />
+                    {s.label}
+                  </a>
+                ))}
+                <div className="hidden md:block mt-4 pt-3.5 border-t border-divider text-[11.5px] text-muted leading-relaxed">
+                  {!report || report.status === 'draft' ? 'ยังไม่ส่ง — แก้ไขได้อิสระ' : 'ส่งแล้ว — แก้ไขต่อได้จนกว่าจะถูกเปิดอ่าน'}
+                </div>
+              </nav>
+
+              <div>
+                {/* Stage 1 — งานวันนี้ */}
+                <section id="stage-tasks" className="pb-6 border-b border-divider scroll-mt-4">
+                  <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-[22px] h-[22px] rounded-full bg-ink text-white text-[11px] font-bold grid place-items-center shrink-0">1</span>
+                      <h2 className="text-[15px] font-bold text-ink">วันนี้ทำอะไรไปบ้าง</h2>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {suggestedCount > 0 && <span className="text-xs text-dim tabular-nums">เลือกแล้ว <b className="text-strong">{checkedSuggestedCount}</b> จาก {suggestedCount} งานที่ระบบเจอ activity</span>}
+                      <button onClick={() => void reloadSuggested()} className="text-xs flex items-center gap-1 text-dim hover:text-body shrink-0"><RefreshCw className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                  <p className="text-[12.5px] text-muted ml-[32px] mb-1">ระบบดึงจากงานที่คุณแตะวันนี้มาให้แล้ว — ติ๊กงานที่จะรวมในรายงาน แล้วเติมสั้นๆ ว่าทำอะไรไป</p>
+                  {hasUnaddedSuggested && (
+                    <button onClick={() => void addAllSuggested()} className="block text-xs text-brand-700 hover:underline ml-[32px] mb-3">+ เพิ่มทั้งหมดที่เหลือ</button>
+                  )}
+                  {!hasUnaddedSuggested && <div className="mb-3" />}
+
+                  <div className="flex flex-col gap-px bg-border-subtle border border-border-subtle rounded-xl overflow-hidden">
+                    {suggestedCount === 0 && manualItems.length === 0 && (
+                      <div className="text-center text-sm text-muted py-8 bg-white">ยังไม่พบ Task ที่มี activity ในวันนี้ — เพิ่มงานเองด้านล่างได้เลย</div>
                     )}
-                  </div>
-                </div>
-                {(suggested?.tasks ?? []).length === 0 ? (
-                  <div className="text-center text-sm text-muted py-6">ยังไม่พบ Task ที่มี activity ในวันนี้</div>
-                ) : (
-                  <div className="divide-y divide-divider">
-                    {suggested!.tasks.map((t) => (
-                      <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                        <div className="min-w-0 flex-1">
-                          <TaskLink projectId={t.projectId} taskId={t.id} code={t.code} title={t.title} />
-                          <div className="text-[11px] text-muted mt-0.5">{t.projectName ?? '—'} · {fmtMinutes(t.minutes)}</div>
-                        </div>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
-                        {t.inReport ? (
-                          <span className="text-xs text-success-600 flex items-center gap-1 shrink-0"><CheckCircle2 className="w-3.5 h-3.5" /> อยู่ในรายงาน</span>
-                        ) : (
-                          <button onClick={() => void addItem(t.id)} className="text-xs px-2.5 py-1 rounded-lg border border-border-subtle hover:bg-hover shrink-0">+ เพิ่มในรายงาน</button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* งานที่ทำวันนี้ (จาก task จริง + คีย์เอง) */}
-              <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-divider text-sm font-medium text-strong">งานที่ทำวันนี้</div>
-                {(report?.items ?? []).length === 0 ? (
-                  <div className="text-center text-sm text-muted py-6">ยังไม่มีงานในรายงาน — เลือกจากรายการแนะนำด้านบน หรือเพิ่มเองด้านล่าง</div>
-                ) : (
-                  <div className="divide-y divide-divider">
-                    {report!.items.map((it) => (
-                      <div key={it.id} className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="min-w-0 flex-1">
-                            {it.task ? (
-                              <>
-                                <TaskLink projectId={it.task.projectId} taskId={it.taskId!} code={it.task.code} title={it.task.title} />
-                                <div className="text-[11px] text-muted mt-0.5">{it.task.projectName ?? '—'} · {fmtMinutes(it.minutes)} · <span className={`px-1 py-0.5 rounded ${TASK_STATUS_BADGE[it.task.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[it.task.status as keyof typeof TASK_STATUS_LABEL] ?? it.task.status}</span></div>
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-sm text-strong font-medium">{it.manualTitle}</span>
-                                <div className="text-[11px] text-muted mt-0.5">คีย์เอง · {fmtMinutes(it.minutes)}</div>
-                              </>
-                            )}
+                    {(suggested?.tasks ?? []).map((t) => {
+                      const item = itemByTaskId.get(t.id)
+                      return (
+                        <div key={t.id} className="bg-white">
+                          <div className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover">
+                            <button
+                              type="button"
+                              aria-pressed={t.inReport}
+                              aria-label={t.inReport ? 'เอาออกจากรายงาน' : 'เพิ่มในรายงาน'}
+                              onClick={() => (t.inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}
+                              className={`mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 ${t.inReport ? 'bg-brand-600 border-brand-600' : 'border-border bg-white hover:border-dim'}`}
+                            >
+                              {t.inReport && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                            </button>
+                            <div className="min-w-0 flex-1 cursor-pointer" onClick={() => (t.inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {t.code && <span className="font-mono text-[11px] text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded font-semibold shrink-0">{t.code}</span>}
+                                <TaskLink projectId={t.projectId} taskId={t.id} code={null} title={t.title} />
+                              </div>
+                              <div className="text-[11.5px] text-muted mt-0.5">
+                                {t.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10.5px] font-semibold ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
+                              </div>
+                            </div>
+                            <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(t.minutes)}</span>
                           </div>
-                          <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
+                          {t.inReport && item && (
+                            <div className="px-3.5 pb-3.5 pl-[46px]">
+                              <textarea
+                                defaultValue={item.note ?? ''}
+                                onBlur={(e) => void updateItemNote(item.id, e.target.value)}
+                                placeholder="สิ่งที่ทำวันนี้..."
+                                rows={2}
+                                className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:bg-white"
+                              />
+                            </div>
+                          )}
                         </div>
-                        {it.task && (
-                          <textarea
-                            defaultValue={it.note ?? ''}
-                            onBlur={(e) => void updateItemNote(it.id, e.target.value)}
-                            placeholder="สิ่งที่ทำวันนี้..."
-                            rows={2}
-                            className="mt-2 w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
-                          />
-                        )}
+                      )
+                    })}
+                    {manualItems.map((it) => (
+                      <div key={it.id} className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
+                        <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
+                          <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13.5px] text-strong font-medium">{it.manualTitle}</div>
+                          <div className="text-[11.5px] text-muted mt-0.5">คีย์เอง</div>
+                        </div>
+                        <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
+                        <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     ))}
+                    <div className="flex gap-2 p-3 bg-white">
+                      <input
+                        value={manualTitle}
+                        onChange={(e) => setManualTitle(e.target.value)}
+                        placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
+                        className="flex-1 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
+                      />
+                      <input
+                        value={manualHours}
+                        onChange={(e) => setManualHours(e.target.value)}
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        placeholder="ชม."
+                        className="w-20 border border-border-subtle rounded-lg px-3 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                      />
+                      <button onClick={() => void addManualItem()} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
+                    </div>
                   </div>
-                )}
-                <div className="flex gap-2 px-4 py-2.5 border-t border-divider flex-wrap">
-                  <input
-                    value={manualTitle}
-                    onChange={(e) => setManualTitle(e.target.value)}
-                    placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
-                    className="flex-1 min-w-[160px] text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
-                  />
-                  <input
-                    value={manualHours}
-                    onChange={(e) => setManualHours(e.target.value)}
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    placeholder="ชม."
-                    className="w-20 text-sm bg-hover rounded-lg px-3 py-2 outline-hidden"
-                  />
-                  <button onClick={() => void addManualItem()} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle hover:bg-hover flex items-center gap-1 shrink-0"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
-                </div>
-              </div>
+                </section>
 
-              {/* Blocker */}
-              <div className="bg-white rounded-lg shadow-xs px-4 py-4 space-y-3">
-                <div className="text-sm font-medium text-strong flex items-center gap-1.5"><AlertTriangle className="w-4 h-4 text-warning-500" /> ปัญหา / Blocker</div>
-                <div className="flex gap-4 text-sm">
-                  <label className="flex items-center gap-1.5"><input type="radio" checked={!report?.blockerHasIssue} onChange={() => void saveMeta({ blockerHasIssue: false })} /> ไม่มีปัญหา</label>
-                  <label className="flex items-center gap-1.5"><input type="radio" checked={!!report?.blockerHasIssue} onChange={() => void saveMeta({ blockerHasIssue: true })} /> มีปัญหา / ติด Blocker</label>
-                </div>
-                {report?.blockerHasIssue && (
-                  <div className="space-y-2">
-                    <textarea defaultValue={report.blockerDetail ?? ''} onBlur={(e) => void saveMeta({ blockerDetail: e.target.value })} placeholder="รายละเอียดปัญหา" rows={2} className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden" />
-                    <input defaultValue={report.blockerNeedHelpFrom ?? ''} onBlur={(e) => void saveMeta({ blockerNeedHelpFrom: e.target.value })} placeholder="ต้องการความช่วยเหลือจากใคร (เช่น PM / หัวหน้า / ทีม Backend)" className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden" />
+                {/* Stage 2 — Blocker */}
+                <section id="stage-blocker" className="py-6 border-b border-divider scroll-mt-4">
+                  <div className="flex items-center gap-2.5 mb-1">
+                    <span className="w-[22px] h-[22px] rounded-full bg-ink text-white text-[11px] font-bold grid place-items-center shrink-0">2</span>
+                    <h2 className="text-[15px] font-bold text-ink">ติดขัดอะไรไหม</h2>
                   </div>
-                )}
-              </div>
+                  <p className="text-[12.5px] text-muted ml-[32px] mb-3">บอกตรงๆ ได้ — ไม่ต้องรอถึงประชุม</p>
+                  <div className="bg-white border border-border-subtle rounded-xl px-4 py-3.5 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2.5 text-[13.5px] text-strong font-medium">
+                      <AlertTriangle className="w-[17px] h-[17px] text-warning-500 shrink-0" />
+                      มีปัญหา / ติด Blocker วันนี้
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!!report?.blockerHasIssue}
+                      onClick={() => void saveMeta({ blockerHasIssue: !(report?.blockerHasIssue ?? false) })}
+                      className={`relative w-[38px] h-[22px] rounded-full shrink-0 transition-colors focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 ${report?.blockerHasIssue ? 'bg-danger-600' : 'bg-border'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] rounded-full bg-white shadow-xs transition-transform ${report?.blockerHasIssue ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                  {report?.blockerHasIssue && (
+                    <div className="mt-3 bg-danger-50 border border-danger-100 rounded-xl px-4 py-3.5 space-y-2.5">
+                      <div>
+                        <div className="text-[11.5px] font-semibold text-danger-700 uppercase tracking-wide mb-1">รายละเอียด</div>
+                        <textarea
+                          defaultValue={report.blockerDetail ?? ''}
+                          onBlur={(e) => void saveMeta({ blockerDetail: e.target.value })}
+                          rows={2}
+                          className="w-full text-[13.5px] border border-border-subtle bg-white rounded-lg px-2.5 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[11.5px] font-semibold text-danger-700 uppercase tracking-wide mb-1">ต้องการความช่วยเหลือจาก</div>
+                        <input
+                          defaultValue={report.blockerNeedHelpFrom ?? ''}
+                          onBlur={(e) => void saveMeta({ blockerNeedHelpFrom: e.target.value })}
+                          placeholder="เช่น PM / หัวหน้า / ทีม Backend"
+                          className="w-full text-[13.5px] border border-border-subtle bg-white rounded-lg px-2.5 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </section>
 
-              {/* หมายเหตุ */}
-              <div className="bg-white rounded-lg shadow-xs px-4 py-4">
-                <div className="text-sm font-medium text-strong mb-2">หมายเหตุเพิ่มเติม</div>
-                <textarea defaultValue={report?.notes ?? ''} onBlur={(e) => void saveMeta({ notes: e.target.value || null })} rows={2} placeholder="(ไม่บังคับ)" className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden" />
-              </div>
+                {/* Stage 3 — หมายเหตุ */}
+                <section id="stage-notes" className="py-6 scroll-mt-4">
+                  <div className="flex items-center gap-2.5 mb-1">
+                    <span className="w-[22px] h-[22px] rounded-full bg-ink text-white text-[11px] font-bold grid place-items-center shrink-0">3</span>
+                    <h2 className="text-[15px] font-bold text-ink">หมายเหตุเพิ่มเติม</h2>
+                  </div>
+                  <p className="text-[12.5px] text-muted ml-[32px] mb-3">ไม่บังคับ</p>
+                  <textarea
+                    defaultValue={report?.notes ?? ''}
+                    onBlur={(e) => void saveMeta({ notes: e.target.value || null })}
+                    rows={3}
+                    placeholder="อะไรก็ได้ที่อยากบอกเพิ่มเติม..."
+                    className="w-full text-[13.5px] border border-border-subtle bg-white rounded-xl px-4 py-3.5 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 resize-y"
+                  />
+                </section>
 
-              {/* ส่ง — เฉพาะตอนยังเป็น draft (ส่งแล้วแก้ไขต่อได้เลย ไม่ต้องส่งซ้ำ) */}
-              {report && report.status === 'draft' && (
-                <div className="flex justify-end gap-2">
-                  <button onClick={openSubmitModal} disabled={report.items.length === 0} className="flex items-center gap-1.5 text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg">
-                    <Send className="w-4 h-4" /> ส่งรายงาน
-                  </button>
+                {/* Sticky footer */}
+                <div className="sticky bottom-4 mt-2 bg-white border border-border-subtle rounded-2xl shadow-md px-4.5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="text-sm text-dim">
+                    <b className="text-strong tabular-nums">{report?.items.length ?? 0}</b> งาน · <b className="text-strong tabular-nums">{fmtMinutes(totalMinutes)}</b>
+                    {report?.blockerHasIssue && <> · Blocker <b className="text-danger-600">1</b> รายการ</>}
+                  </div>
+                  {report && report.status === 'draft' && (
+                    <button
+                      onClick={openSubmitModal}
+                      disabled={report.items.length === 0}
+                      className="flex items-center gap-1.5 text-sm font-bold bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl transition-colors"
+                    >
+                      <Send className="w-4 h-4" /> ส่งรายงาน
+                    </button>
+                  )}
                 </div>
-              )}
-            </>
+              </div>
+            </div>
           )}
 
           {isLocked && (
-            <>
-              {/* มุมมองอ่านอย่างเดียว — หัวหน้าเปิดอ่านแล้ว */}
-              <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-divider text-sm font-medium text-strong">งานในรายงาน</div>
-                <div className="divide-y divide-divider">
+            <div className="space-y-4">
+              <div className="bg-white border border-border-subtle rounded-2xl shadow-xs px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <Avatar name={report!.userName ?? '—'} avatarUrl={report!.userAvatarUrl} className="w-9 h-9 text-sm" colorClass={avatarColor(report!.userName ?? '—')} />
+                  <div>
+                    <div className="text-[15px] font-bold text-ink">Daily Report — {fmtDateTH(report!.reportDate)}</div>
+                    <div className="text-xs text-dim mt-0.5">
+                      จาก {report!.userName ?? '—'}
+                      {report!.submittedAt ? ` · ส่งเมื่อ ${new Date(report!.submittedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                      {' · '}
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${STATUS_BADGE.reviewed}`}>{STATUS_LABEL.reviewed}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-6 mt-4 pt-4 border-t border-divider flex-wrap">
+                  <div className="text-xs text-dim">งานที่ทำ<b className="block text-[15px] text-strong tabular-nums mt-0.5">{report!.items.length}</b></div>
+                  <div className="text-xs text-dim">เวลารวม<b className="block text-[15px] text-strong tabular-nums mt-0.5">{fmtMinutes(totalMinutes)}</b></div>
+                  <div className="text-xs text-dim">Blocker<b className={`block text-[15px] tabular-nums mt-0.5 ${report!.blockerHasIssue ? 'text-danger-600' : 'text-strong'}`}>{report!.blockerHasIssue ? 1 : 0}</b></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[11.5px] font-bold text-muted uppercase tracking-wide mb-2 ml-0.5">งานวันนี้</div>
+                <div className="bg-white border border-border-subtle rounded-xl overflow-hidden divide-y divide-divider">
                   {report!.items.map((it) => (
-                    <div key={it.id} className="px-4 py-3 text-sm">
-                      {it.task ? (
-                        <>
-                          <TaskLink projectId={it.task.projectId} taskId={it.taskId!} code={it.task.code} title={it.task.title} />
-                          <div className="text-[11px] text-muted mt-0.5">{it.task.projectName ?? '—'} · {fmtMinutes(it.minutes)}</div>
-                        </>
-                      ) : (
-                        <>
-                          <span className="font-medium text-strong">{it.manualTitle}</span>
-                          <div className="text-[11px] text-muted mt-0.5">คีย์เอง · {fmtMinutes(it.minutes)}</div>
-                        </>
-                      )}
-                      {it.note && <div className="text-body mt-1">{it.note}</div>}
+                    <div key={it.id} className="flex items-center gap-3 px-4 py-3 text-sm">
+                      <div className="min-w-0 flex-1">
+                        {it.task ? (
+                          <>
+                            <TaskLink projectId={it.task.projectId} taskId={it.taskId!} code={it.task.code} title={it.task.title} />
+                            {it.note && <div className="text-[12.5px] text-soft mt-0.5">{it.note}</div>}
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-medium text-strong">{it.manualTitle}</span>
+                            <div className="text-[11px] text-muted mt-0.5">คีย์เอง</div>
+                          </>
+                        )}
+                      </div>
+                      <span className="text-xs text-dim tabular-nums shrink-0">{fmtMinutes(it.minutes)}</span>
                     </div>
                   ))}
                 </div>
               </div>
+
               {report!.blockerHasIssue && (
-                <div className="bg-danger-50 rounded-lg px-4 py-3 text-sm text-danger-800">
-                  <div className="font-medium flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> มีปัญหา / Blocker</div>
-                  <div className="mt-1">{report!.blockerDetail}</div>
-                  {report!.blockerNeedHelpFrom && <div className="text-xs mt-1">ต้องการความช่วยเหลือจาก: {report!.blockerNeedHelpFrom}</div>}
+                <div>
+                  <div className="text-[11.5px] font-bold text-muted uppercase tracking-wide mb-2 ml-0.5">ปัญหา / Blocker</div>
+                  <div className="bg-danger-50 border border-danger-100 rounded-xl px-4 py-3.5 flex gap-2.5">
+                    <AlertTriangle className="w-[18px] h-[18px] text-danger-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-[13px] font-bold text-danger-800">{report!.blockerDetail}</div>
+                      {report!.blockerNeedHelpFrom && <div className="text-xs text-danger-700 mt-1">ต้องการความช่วยเหลือจาก: {report!.blockerNeedHelpFrom}</div>}
+                    </div>
+                  </div>
                 </div>
               )}
+
               {report!.notes && (
-                <div className="bg-white rounded-lg shadow-xs px-4 py-4">
-                  <div className="text-sm font-medium text-strong mb-1">หมายเหตุ</div>
-                  <div className="text-sm text-body">{report!.notes}</div>
+                <div>
+                  <div className="text-[11.5px] font-bold text-muted uppercase tracking-wide mb-2 ml-0.5">หมายเหตุ</div>
+                  <div className="bg-white border border-border-subtle rounded-xl px-4 py-3.5 text-sm text-body">{report!.notes}</div>
                 </div>
               )}
+
               {isOwner && (
                 <div className="flex justify-end">
-                  <button onClick={() => void requestEdit()} className="text-xs px-3 py-1.5 rounded-lg border border-border-subtle hover:bg-hover">ขอแก้ไขรายงาน</button>
+                  <button onClick={() => void requestEdit()} className="text-xs font-semibold px-3.5 py-2 rounded-lg border border-border-subtle bg-white hover:bg-hover text-soft">ขอแก้ไขรายงาน</button>
                 </div>
               )}
-            </>
+            </div>
           )}
 
           {/* Comment thread */}
           {report && (
-            <div className="bg-white rounded-lg shadow-xs px-4 py-4 space-y-3">
-              <div className="text-sm font-medium text-strong">ความเห็น</div>
-              {report.comments.length === 0 && <div className="text-sm text-muted">ยังไม่มีความเห็น</div>}
-              {report.comments.map((c) => (
-                <div key={c.id} className="flex gap-2">
-                  <Avatar name={c.userName ?? '—'} avatarUrl={c.avatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(c.userName ?? '—')} />
-                  <div className="min-w-0">
-                    <div className="rounded-xl px-3 py-2 text-sm bg-hover text-soft">
-                      <b className="text-body">{c.userName}</b> · {c.body}
+            <div className="bg-white border border-border-subtle rounded-xl px-4 py-4">
+              <div className="text-[11.5px] font-bold text-muted uppercase tracking-wide mb-3">ความเห็น</div>
+              {report.comments.length === 0 && <div className="text-sm text-muted mb-1">ยังไม่มีความเห็น</div>}
+              <div className="space-y-3.5">
+                {report.comments.map((c) => (
+                  <div key={c.id} className="flex gap-2.5">
+                    <Avatar name={c.userName ?? '—'} avatarUrl={c.avatarUrl} className="w-7 h-7 text-[10px] shrink-0" colorClass={avatarColor(c.userName ?? '—')} />
+                    <div className="min-w-0">
+                      <div className="rounded-2xl rounded-tl-sm px-3.5 py-2 text-[13px] bg-hover text-body inline-block max-w-full">
+                        <b className="text-strong">{c.userName}</b> · {c.body}
+                      </div>
+                      <div className="text-[10.5px] text-muted mt-1 ml-1">{new Date(c.createdAt).toLocaleString('th-TH')}</div>
                     </div>
-                    <div className="text-[10px] text-muted mt-0.5">{new Date(c.createdAt).toLocaleString('th-TH')}</div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
               {(report.userId === user?.id || report.recipientId === user?.id) && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 mt-3.5 pt-3.5 border-t border-divider">
                   <input
                     value={commentBody}
                     onChange={(e) => setCommentBody(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }}
                     placeholder="เพิ่มความเห็น..."
-                    className="flex-1 text-sm bg-white shadow-xs border border-border rounded-lg px-3 py-2 outline-hidden"
+                    className="flex-1 text-sm bg-hover rounded-lg px-3.5 py-2.5 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:bg-white"
                   />
-                  <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0"><Send className="w-4 h-4" /></button>
+                  <button onClick={() => void postComment()} className="w-10 h-10 shrink-0 rounded-lg bg-brand-600 hover:bg-brand-700 text-white grid place-items-center"><Send className="w-4 h-4" /></button>
                 </div>
               )}
             </div>
@@ -488,22 +611,27 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
 
       {confirmSubmit && report && (
         <div className="fixed inset-0 bg-ink/40 z-50 grid place-items-center p-4" onClick={() => setConfirmSubmit(false)}>
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="font-semibold text-strong mb-3">ส่ง Daily Report</div>
-            <label className="block text-xs font-medium text-dim mb-1">ส่งถึง</label>
-            <select value={submitRecipientId} onChange={(e) => setSubmitRecipientId(e.target.value)} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-white mb-4">
+          <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 grid place-items-center mb-3.5"><Send className="w-5 h-5" /></div>
+            <div className="text-base font-bold text-ink mb-1">ส่งรายงานนี้เลยไหม</div>
+            <div className="text-[13px] text-dim mb-4">แก้ไขต่อได้จนกว่าผู้รับจะเปิดอ่าน หลังจากนั้นต้องกด &ldquo;ขอแก้ไขรายงาน&rdquo; ถ้าอยากแก้ทีหลัง</div>
+
+            <label className="block text-[11.5px] font-semibold text-dim mb-1.5">ส่งถึง</label>
+            <select value={submitRecipientId} onChange={(e) => setSubmitRecipientId(e.target.value)} className="w-full text-sm border border-border rounded-lg px-3 py-2.5 bg-white mb-4 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500">
               <option value="" disabled>เลือกผู้รับ...</option>
               {(recipients?.recipients ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
-            <div className="text-sm text-body space-y-0.5 mb-4">
-              <div>วันที่: {fmtDateTH(report.reportDate)}</div>
-              <div>งานในรายงาน: {report.items.length} งาน</div>
-              <div>เวลารวม: {fmtMinutes(totalMinutes)}</div>
-              <div>Blocker: {report.blockerHasIssue ? '1 รายการ' : 'ไม่มี'}</div>
+
+            <div className="bg-hover rounded-xl px-4 py-3.5 space-y-2 mb-5">
+              <div className="flex justify-between text-[13px]"><span className="text-dim">วันที่</span><span className="text-strong font-semibold">{fmtDateTH(report.reportDate)}</span></div>
+              <div className="flex justify-between text-[13px]"><span className="text-dim">งานในรายงาน</span><span className="text-strong font-semibold tabular-nums">{report.items.length} งาน</span></div>
+              <div className="flex justify-between text-[13px]"><span className="text-dim">เวลารวม</span><span className="text-strong font-semibold tabular-nums">{fmtMinutes(totalMinutes)}</span></div>
+              <div className="flex justify-between text-[13px]"><span className="text-dim">Blocker</span><span className={`font-semibold ${report.blockerHasIssue ? 'text-danger-600' : 'text-strong'}`}>{report.blockerHasIssue ? '1 รายการ' : 'ไม่มี'}</span></div>
             </div>
+
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmSubmit(false)} className="text-sm px-3 py-1.5 rounded-lg border border-border text-body hover:bg-hover">ยกเลิก</button>
-              <button onClick={() => void doSubmit()} disabled={!submitRecipientId} className="text-sm px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white font-medium flex items-center gap-1.5">
+              <button onClick={() => setConfirmSubmit(false)} className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-body hover:bg-hover">กลับไปแก้</button>
+              <button onClick={() => void doSubmit()} disabled={!submitRecipientId} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
                 <Send className="w-3.5 h-3.5" /> ส่งถึง{recipientName ? ` ${recipientName}` : ''}
               </button>
             </div>
