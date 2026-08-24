@@ -18,6 +18,11 @@ interface CustomerDetail {
   phone: string | null
   projectIds: string[]
   classificationType: ClassificationType | null
+  prefix: string | null
+  idCardNumber: string | null
+  branchType: 'hq' | 'branch' | null
+  branchCode: string | null
+  specialNote: string | null
 }
 interface ProjectOpt { id: string; code: string | null; name: string }
 
@@ -27,10 +32,13 @@ export function UserSettingsCustomerDetailPage() {
   const { data: c, reload } = useLoad<CustomerDetail>(() => api.get(`/api/admin/users/${id}`), [id])
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const [error, setError] = useState('')
+  const [idCardError, setIdCardError] = useState('')
 
   if (!c) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
-  const save = async (patch: Partial<Pick<CustomerDetail, 'name' | 'businessName' | 'phone' | 'email' | 'contactType' | 'classificationType'>>) => {
+  const save = async (
+    patch: Partial<Pick<CustomerDetail, 'name' | 'businessName' | 'phone' | 'email' | 'contactType' | 'classificationType' | 'prefix' | 'idCardNumber' | 'branchType' | 'branchCode' | 'specialNote'>>,
+  ) => {
     setError('')
     try {
       await api.patch(`/api/admin/users/${c.id}`, patch)
@@ -61,6 +69,19 @@ export function UserSettingsCustomerDetailPage() {
 
   const label = 'text-xs font-medium text-muted mb-1 block'
   const input = 'w-full text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
+  const isJuristic = c.classificationType === 'ordinary_juristic' || c.classificationType === 'extraordinary_juristic'
+  const isExtraIndividual = c.classificationType === 'extraordinary_individual'
+  const onBlurIdCard = (ev: React.FocusEvent<HTMLInputElement>) => {
+    const v = ev.target.value.trim()
+    if (v && !/^\d{13}$/.test(v)) { setIdCardError('ต้องเป็นตัวเลข 13 หลัก'); return }
+    setIdCardError('')
+    if (v !== (c.idCardNumber ?? '')) void save({ idCardNumber: v || null })
+  }
+  const onBlurBranchCode = (ev: React.FocusEvent<HTMLInputElement>) => {
+    const v = ev.target.value.trim()
+    if (v && !/^\d{5}$/.test(v)) return
+    if (v !== (c.branchCode ?? '')) void save({ branchCode: v || null })
+  }
 
   return (
     <>
@@ -117,6 +138,50 @@ export function UserSettingsCustomerDetailPage() {
               <label className={label}>เบอร์มือถือ</label>
               <input defaultValue={c.phone ?? ''} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.phone ?? '')) void save({ phone: v || null }) }} className={input} />
             </div>
+            {!isJuristic && (
+              <div>
+                <label className={label}>คำนำหน้า</label>
+                <input defaultValue={c.prefix ?? ''} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.prefix ?? '')) void save({ prefix: v || null }) }} className={input} placeholder="นาย/นาง/นางสาว" />
+              </div>
+            )}
+            <div className={isJuristic ? 'sm:col-span-2' : ''}>
+              <label className={label}>{isJuristic ? 'เลขทะเบียนนิติบุคคล (Tax ID)' : 'เลขบัตรประชาชน'}</label>
+              <input defaultValue={c.idCardNumber ?? ''} onBlur={onBlurIdCard} maxLength={13} className={input} placeholder="ตัวเลข 13 หลัก" />
+              {idCardError && <div className="text-[11px] text-danger-600 mt-1">{idCardError}</div>}
+            </div>
+            {isJuristic && (
+              <>
+                <div>
+                  <label className={label}>ประเภทสาขา</label>
+                  <select
+                    defaultValue={c.branchType ?? ''}
+                    onChange={(ev) => void save({ branchType: (ev.target.value || null) as CustomerDetail['branchType'], branchCode: ev.target.value === 'branch' ? c.branchCode : null })}
+                    className={input}
+                  >
+                    <option value="">— ไม่ระบุ —</option>
+                    <option value="hq">สำนักงานใหญ่</option>
+                    <option value="branch">สาขา</option>
+                  </select>
+                </div>
+                {c.branchType === 'branch' && (
+                  <div>
+                    <label className={label}>รหัสสาขา</label>
+                    <input defaultValue={c.branchCode ?? ''} onBlur={onBlurBranchCode} maxLength={5} className={input} placeholder="ตัวเลข 5 หลัก" />
+                  </div>
+                )}
+              </>
+            )}
+            {isExtraIndividual && (
+              <div className="sm:col-span-2">
+                <label className={label}>สังกัดเดิม / ความเชี่ยวชาญพิเศษ / ข้อตกลงพิเศษ</label>
+                <textarea
+                  rows={2}
+                  defaultValue={c.specialNote ?? ''}
+                  onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.specialNote ?? '')) void save({ specialNote: v || null }) }}
+                  className={input}
+                />
+              </div>
+            )}
           </div>
         </div>
 

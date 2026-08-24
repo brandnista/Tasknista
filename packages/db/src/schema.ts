@@ -60,6 +60,16 @@ export const users = sqliteTable('users', {
   // Pronista §Partner Detail — ใช้กับ role='vendor' (พาร์ทเนอร์/Outsource) เป็นหลัก
   specialty: text('specialty'), // ความเชี่ยวชาญ/สายงานที่รับ
   bankAccount: text('bank_account'), // เลขบัญชี+ธนาคารสำหรับจ่ายเงิน (free text รอบแรก)
+  // Pronista §Partner Detail — เงื่อนไขสัญญา (เฉพาะ role='vendor')
+  contractType: text('contract_type'),
+  contractExpiryDate: text('contract_expiry_date'), // YYYY-MM-DD
+  // Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล ใช้ร่วมกับ classificationType/contactType (partner/customer) — ชุดเดียวกับตาราง members
+  prefix: text('prefix'), // คำนำหน้า — เฉพาะกลุ่มบุคคลธรรมดา
+  branchType: text('branch_type', { enum: ['hq', 'branch'] }), // สำนักงานใหญ่/สาขา — เฉพาะกลุ่มนิติบุคคล
+  branchCode: text('branch_code'), // รหัสสาขา 5 หลัก — เฉพาะ branchType='branch'
+  specialNote: text('special_note'), // สังกัดเดิม/ความเชี่ยวชาญพิเศษ/ข้อตกลงพิเศษ — เฉพาะประเภทวิสามัญบุคคล
+  // Pronista §Employee Detail — รหัสพนักงาน auto-gen ตอนสร้าง (เฉพาะ role='owner'/'member')
+  employeeCode: text('employee_code'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -1695,6 +1705,12 @@ export const members = sqliteTable(
     businessName: text('business_name'),
     phone: text('phone'),
     email: text('email'),
+    idCardNumber: text('id_card_number'), // เลขบัตร ปชช./เลขทะเบียนนิติบุคคล 13 หลัก (ความหมายขึ้นกับ classificationType)
+    // Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล ชุดเดียวกับ users (partner/customer)
+    prefix: text('prefix'),
+    branchType: text('branch_type', { enum: ['hq', 'branch'] }),
+    branchCode: text('branch_code'),
+    specialNote: text('special_note'),
     membershipMode: text('membership_mode', { enum: ['lifetime', 'dated'] }).notNull().default('lifetime'),
     startDate: text('start_date'), // YYYY-MM-DD
     endDate: text('end_date'), // YYYY-MM-DD, null = lifetime

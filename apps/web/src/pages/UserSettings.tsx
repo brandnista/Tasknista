@@ -31,6 +31,15 @@ interface AdminUser {
   managerId: string | null
   // Pronista §Partner/Client Classification — role='vendor'/'guest'
   classificationType: ClassificationType | null
+  // Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล + เฉพาะทาง
+  prefix: string | null
+  idCardNumber: string | null
+  branchType: 'hq' | 'branch' | null
+  branchCode: string | null
+  specialNote: string | null
+  contractType: string | null
+  contractExpiryDate: string | null
+  employeeCode: string | null
 }
 interface ProjectOpt { id: string; code: string | null; name: string }
 
@@ -171,10 +180,81 @@ function AddStaffForm({ memberDomain, teamsList, staffOpts, onClose, onCreated }
   )
 }
 
+export interface ClassificationFieldValues {
+  prefix: string
+  idCardNumber: string
+  branchType: '' | 'hq' | 'branch'
+  branchCode: string
+  specialNote: string
+}
+
+/**
+ * Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล ใช้ร่วมกัน พาร์ทเนอร์/ลูกค้า/สมาชิก
+ * บุคคล (สามัญ/วิสามัญบุคคล) = คำนำหน้า + เลขบัตรประชาชน 13 หลัก
+ * นิติบุคคล (สามัญ/วิสามัญนิติบุคคล) = เลขทะเบียนนิติบุคคล 13 หลัก + ประเภทสาขา (+รหัสสาขา 5 หลัก ถ้าเป็นสาขา)
+ * วิสามัญบุคคล = เพิ่มฟิลด์สังกัดเดิม/ความเชี่ยวชาญพิเศษ/ข้อตกลงพิเศษ
+ */
+export function ClassificationFields({
+  classificationType,
+  values,
+  onChange,
+}: {
+  classificationType: ClassificationType
+  values: ClassificationFieldValues
+  onChange: (patch: Partial<ClassificationFieldValues>) => void
+}) {
+  const isJuristic = classificationType === 'ordinary_juristic' || classificationType === 'extraordinary_juristic'
+  const isExtraIndividual = classificationType === 'extraordinary_individual'
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {!isJuristic && (
+        <div>
+          <label className={fieldLabel}>คำนำหน้า</label>
+          <input value={values.prefix} onChange={(e) => onChange({ prefix: e.target.value })} placeholder="นาย/นาง/นางสาว" className={fieldInput} />
+        </div>
+      )}
+      <div className={isJuristic ? 'sm:col-span-2' : ''}>
+        <label className={fieldLabel}>{isJuristic ? 'เลขทะเบียนนิติบุคคล (Tax ID)' : 'เลขบัตรประชาชน'}</label>
+        <input value={values.idCardNumber} onChange={(e) => onChange({ idCardNumber: e.target.value })} maxLength={13} placeholder="ตัวเลข 13 หลัก" className={fieldInput} />
+      </div>
+      {isJuristic && (
+        <>
+          <div>
+            <label className={fieldLabel}>ประเภทสาขา</label>
+            <select
+              value={values.branchType}
+              onChange={(e) => onChange({ branchType: e.target.value as ClassificationFieldValues['branchType'], branchCode: e.target.value === 'branch' ? values.branchCode : '' })}
+              className={fieldInput}
+            >
+              <option value="">— ไม่ระบุ —</option>
+              <option value="hq">สำนักงานใหญ่</option>
+              <option value="branch">สาขา</option>
+            </select>
+          </div>
+          {values.branchType === 'branch' && (
+            <div>
+              <label className={fieldLabel}>รหัสสาขา</label>
+              <input value={values.branchCode} onChange={(e) => onChange({ branchCode: e.target.value })} maxLength={5} placeholder="ตัวเลข 5 หลัก" className={fieldInput} />
+            </div>
+          )}
+        </>
+      )}
+      {isExtraIndividual && (
+        <div className="sm:col-span-2">
+          <label className={fieldLabel}>สังกัดเดิม / ความเชี่ยวชาญพิเศษ / ข้อตกลงพิเศษ</label>
+          <textarea rows={2} value={values.specialNote} onChange={(e) => onChange({ specialNote: e.target.value })} className={fieldInput} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** เพิ่มพาร์ทเนอร์ใหม่ (role='vendor') — ฟิลด์เท่ากับหน้าแก้ไข PartnerDetail ทุกฟิลด์ */
 function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState({
     name: '', email: '', businessName: '', phone: '', classificationType: 'ordinary_individual' as ClassificationType, specialty: '', bankAccount: '',
+    contractType: '', contractExpiryDate: '',
+    prefix: '', idCardNumber: '', branchType: '' as ClassificationFieldValues['branchType'], branchCode: '', specialNote: '',
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -186,6 +266,9 @@ function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreat
         email: form.email, name: form.name, role: 'vendor',
         businessName: form.businessName || null, phone: form.phone || null, classificationType: form.classificationType,
         specialty: form.specialty || null, bankAccount: form.bankAccount || null,
+        contractType: form.contractType || null, contractExpiryDate: form.contractExpiryDate || null,
+        prefix: form.prefix || null, idCardNumber: form.idCardNumber || null,
+        branchType: form.branchType || null, branchCode: form.branchCode || null, specialNote: form.specialNote || null,
       })
       onCreated(created.id)
     } catch (e) {
@@ -195,7 +278,7 @@ function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreat
     }
   }
   return (
-    <ModalShell title="เพิ่มพาร์ทเนอร์" onClose={onClose}>
+    <ModalShell title="เพิ่มพาร์ทเนอร์" onClose={onClose} wide>
       <div>
         <label className={fieldLabel}>ประเภท</label>
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -214,7 +297,10 @@ function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreat
         <div><label className={fieldLabel}>เบอร์มือถือ</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
         <div><label className={fieldLabel}>ความเชี่ยวชาญ</label><input value={form.specialty} onChange={(e) => setForm({ ...form, specialty: e.target.value })} placeholder="เช่น Frontend, UI/UX" className={fieldInput} /></div>
         <div><label className={fieldLabel}>บัญชีธนาคาร (สำหรับจ่ายเงิน)</label><input value={form.bankAccount} onChange={(e) => setForm({ ...form, bankAccount: e.target.value })} placeholder="ธนาคาร + เลขบัญชี" className={fieldInput} /></div>
+        <div><label className={fieldLabel}>เงื่อนไขสัญญาจ้าง</label><input value={form.contractType} onChange={(e) => setForm({ ...form, contractType: e.target.value })} placeholder="เช่น รายโปรเจกต์, รายเดือน" className={fieldInput} /></div>
+        <div><label className={fieldLabel}>วันหมดสัญญา</label><input type="date" value={form.contractExpiryDate} onChange={(e) => setForm({ ...form, contractExpiryDate: e.target.value })} className={fieldInput} /></div>
       </div>
+      <ClassificationFields classificationType={form.classificationType} values={form} onChange={(patch) => setForm({ ...form, ...patch })} />
       <p className="text-[11px] text-muted">ผู้รับจ้าง = allowlist อีเมลภายนอก</p>
       {error && <div className="text-xs text-danger-600">{error}</div>}
       <div className="flex justify-end gap-2 pt-1">
@@ -232,6 +318,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
   const [form, setForm] = useState({
     name: '', email: '', businessName: '', phone: '', contactType: 'juristic' as 'juristic' | 'individual',
     classificationType: 'ordinary_individual' as ClassificationType, projectIds: [] as string[],
+    prefix: '', idCardNumber: '', branchType: '' as ClassificationFieldValues['branchType'], branchCode: '', specialNote: '',
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -250,6 +337,8 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
         contactType: form.contactType,
         classificationType: form.classificationType,
         projectIds: form.projectIds,
+        prefix: form.prefix || null, idCardNumber: form.idCardNumber || null,
+        branchType: form.branchType || null, branchCode: form.branchCode || null, specialNote: form.specialNote || null,
       })
       onCreated(created.id)
     } catch (e) {
@@ -259,7 +348,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
     }
   }
   return (
-    <ModalShell title="เพิ่มลูกค้า" onClose={onClose}>
+    <ModalShell title="เพิ่มลูกค้า" onClose={onClose} wide>
       <div>
         <label className={fieldLabel}>ประเภทผู้ติดต่อ</label>
         <div className="flex items-center gap-4 text-sm">
@@ -288,6 +377,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
         <div><label className={fieldLabel}>อีเมล *</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fieldInput} /></div>
         <div><label className={fieldLabel}>เบอร์มือถือ</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
       </div>
+      <ClassificationFields classificationType={form.classificationType} values={form} onChange={(patch) => setForm({ ...form, ...patch })} />
       <div>
         <label className={fieldLabel}>โปรเจกต์ * (บังคับเลือก อย่างน้อย 1)</label>
         <div className="border border-border-subtle rounded-lg max-h-40 overflow-y-auto divide-y divide-divider bg-white">
@@ -447,6 +537,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                 <table className="w-full text-sm min-w-[560px]">
                   <thead className="bg-hover text-dim text-xs">
                     <tr>
+                      {tab === 'staff' && <th className="text-left font-medium px-5 py-3">รหัสพนักงาน</th>}
                       <th className="text-left font-medium px-5 py-3">ชื่อ</th>
                       <th className="text-left font-medium px-3 py-3">อีเมล</th>
                       <th className="text-left font-medium px-3 py-3">สิทธิ์ระบบ</th>
@@ -458,10 +549,11 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                   </thead>
                   <tbody className="divide-y divide-divider">
                     {visibleUsers.length === 0 && (
-                      <tr><td colSpan={6} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
+                      <tr><td colSpan={7} className="text-center text-muted py-8">ยังไม่มีผู้ใช้งานในกลุ่มนี้</td></tr>
                     )}
                     {visibleUsers.map((u) => (
                       <tr key={u.id} className={u.status === 'disabled' ? 'opacity-40' : ''}>
+                        {tab === 'staff' && <td className="px-5 py-3 text-xs font-mono text-muted">{u.employeeCode ?? '—'}</td>}
                         <td className="px-5 py-3">{u.name}</td>
                         <td className="px-3">
                           <input type="email" defaultValue={u.email} onBlur={(e) => void saveEmail(u, e.target.value)} className="w-44 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-muted" />

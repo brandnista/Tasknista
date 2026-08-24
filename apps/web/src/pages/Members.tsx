@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
-import { CLASSIFICATION_TYPE_LABEL, fieldInput, fieldLabel, ModalShell, type ClassificationType } from './UserSettings'
+import { CLASSIFICATION_TYPE_LABEL, ClassificationFields, fieldInput, fieldLabel, ModalShell, type ClassificationFieldValues, type ClassificationType } from './UserSettings'
 
 interface Member {
   id: string
@@ -30,6 +30,7 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
     name: '', classificationType: 'ordinary_individual' as ClassificationType, orgSizeTierId: '',
     businessName: '', phone: '', email: '',
     membershipMode: 'lifetime' as 'lifetime' | 'dated', startDate: '', endDate: '', notifyBeforeDays: '',
+    prefix: '', idCardNumber: '', branchType: '' as ClassificationFieldValues['branchType'], branchCode: '', specialNote: '',
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -48,6 +49,8 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
         startDate: form.membershipMode === 'dated' ? form.startDate || null : null,
         endDate: form.membershipMode === 'dated' ? form.endDate || null : null,
         notifyBeforeDays: form.membershipMode === 'dated' && form.notifyBeforeDays ? Number(form.notifyBeforeDays) : null,
+        prefix: form.prefix || null, idCardNumber: form.idCardNumber || null,
+        branchType: form.branchType || null, branchCode: form.branchCode || null, specialNote: form.specialNote || null,
       })
       onCreated(created.id)
     } catch (e) {
@@ -57,7 +60,7 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
     }
   }
   return (
-    <ModalShell title="เพิ่มสมาชิก" onClose={onClose}>
+    <ModalShell title="เพิ่มสมาชิก" onClose={onClose} wide>
       <div>
         <label className={fieldLabel}>ประเภท</label>
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -84,6 +87,7 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
         <div><label className={fieldLabel}>อีเมล</label><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={fieldInput} /></div>
         <div><label className={fieldLabel}>เบอร์มือถือ</label><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={fieldInput} /></div>
       </div>
+      <ClassificationFields classificationType={form.classificationType} values={form} onChange={(patch) => setForm({ ...form, ...patch })} />
       <div>
         <label className={fieldLabel}>อายุสมาชิก</label>
         <div className="flex items-center gap-4 text-sm">

@@ -25,6 +25,7 @@ interface EmployeeDetail {
   idCardNumber: string | null
   emergencyContactName: string | null
   emergencyContactPhone: string | null
+  employeeCode: string | null
 }
 interface Team { id: string; name: string }
 interface StaffOpt { id: string; name: string; role: 'owner' | 'member' }
@@ -36,6 +37,7 @@ export function EmployeeDetailPage() {
   const { data: teams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
   const { data: allUsers } = useLoad<StaffOpt[]>(() => api.get('/api/admin/users'))
   const [error, setError] = useState('')
+  const [idCardError, setIdCardError] = useState('')
 
   if (!e) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
@@ -65,6 +67,12 @@ export function EmployeeDetailPage() {
   const onBlurText = (field: keyof EmployeeDetail, current: string | null) => (ev: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const v = ev.target.value.trim()
     if (v !== (current ?? '')) void save({ [field]: v || null })
+  }
+  const onBlurIdCard = (ev: React.FocusEvent<HTMLInputElement>) => {
+    const v = ev.target.value.trim()
+    if (v && !/^\d{13}$/.test(v)) { setIdCardError('ต้องเป็นตัวเลข 13 หลัก'); return }
+    setIdCardError('')
+    if (v !== (e.idCardNumber ?? '')) void save({ idCardNumber: v || null })
   }
 
   return (
@@ -127,7 +135,12 @@ export function EmployeeDetailPage() {
             </div>
             <div>
               <label className={label}>เลขบัตรประชาชน</label>
-              <input defaultValue={e.idCardNumber ?? ''} onBlur={onBlurText('idCardNumber', e.idCardNumber)} className={input} />
+              <input defaultValue={e.idCardNumber ?? ''} onBlur={onBlurIdCard} maxLength={13} className={input} placeholder="ตัวเลข 13 หลัก" />
+              {idCardError && <div className="text-[11px] text-danger-600 mt-1">{idCardError}</div>}
+            </div>
+            <div>
+              <label className={label}>รหัสพนักงาน</label>
+              <input value={e.employeeCode ?? '—'} readOnly className={`${input} bg-hover text-muted cursor-not-allowed`} />
             </div>
             <div className="sm:col-span-2">
               <label className={label}>ที่อยู่</label>

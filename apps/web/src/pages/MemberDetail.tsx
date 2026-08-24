@@ -23,6 +23,11 @@ interface MemberDetail {
   endDate: string | null
   notifyBeforeDays: number | null
   status: 'active' | 'disabled'
+  prefix: string | null
+  idCardNumber: string | null
+  branchType: 'hq' | 'branch' | null
+  branchCode: string | null
+  specialNote: string | null
 }
 interface OrgSizeTier { id: string; name: string; feeSatang: number }
 interface MemberOrder { id: string; memberId: string; feeSatang: number; orderedAt: number; status: 'pending' | 'paid' | 'cancelled' }
@@ -36,6 +41,7 @@ export function MemberDetailPage() {
   const { data: settings } = useLoad<{ memberOrgSizeTiers: OrgSizeTier[]; membershipFees: { classificationType: ClassificationType; feeSatang: number }[] }>(() => api.get('/api/members/settings'))
   const { data: orders, reload: reloadOrders } = useLoad<MemberOrder[]>(() => api.get('/api/member-orders'), [])
   const [error, setError] = useState('')
+  const [idCardError, setIdCardError] = useState('')
 
   if (!m) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
@@ -72,9 +78,22 @@ export function MemberDetailPage() {
 
   const label = 'text-xs font-medium text-muted mb-1 block'
   const input = 'w-full text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
-  const onBlurText = (field: keyof MemberDetail, current: string | null) => (ev: React.FocusEvent<HTMLInputElement>) => {
+  const onBlurText = (field: keyof MemberDetail, current: string | null) => (ev: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const v = ev.target.value.trim()
     if (v !== (current ?? '')) void save({ [field]: v || null })
+  }
+  const isJuristic = m.classificationType === 'ordinary_juristic' || m.classificationType === 'extraordinary_juristic'
+  const isExtraIndividual = m.classificationType === 'extraordinary_individual'
+  const onBlurIdCard = (ev: React.FocusEvent<HTMLInputElement>) => {
+    const v = ev.target.value.trim()
+    if (v && !/^\d{13}$/.test(v)) { setIdCardError('ต้องเป็นตัวเลข 13 หลัก'); return }
+    setIdCardError('')
+    if (v !== (m.idCardNumber ?? '')) void save({ idCardNumber: v || null })
+  }
+  const onBlurBranchCode = (ev: React.FocusEvent<HTMLInputElement>) => {
+    const v = ev.target.value.trim()
+    if (v && !/^\d{5}$/.test(v)) return
+    if (v !== (m.branchCode ?? '')) void save({ branchCode: v || null })
   }
 
   return (
@@ -130,6 +149,45 @@ export function MemberDetailPage() {
               <label className={label}>เบอร์มือถือ</label>
               <input defaultValue={m.phone ?? ''} onBlur={onBlurText('phone', m.phone)} className={input} />
             </div>
+            {!isJuristic && (
+              <div>
+                <label className={label}>คำนำหน้า</label>
+                <input defaultValue={m.prefix ?? ''} onBlur={onBlurText('prefix', m.prefix)} className={input} placeholder="นาย/นาง/นางสาว" />
+              </div>
+            )}
+            <div className={isJuristic ? 'sm:col-span-2' : ''}>
+              <label className={label}>{isJuristic ? 'เลขทะเบียนนิติบุคคล (Tax ID)' : 'เลขบัตรประชาชน'}</label>
+              <input defaultValue={m.idCardNumber ?? ''} onBlur={onBlurIdCard} maxLength={13} className={input} placeholder="ตัวเลข 13 หลัก" />
+              {idCardError && <div className="text-[11px] text-danger-600 mt-1">{idCardError}</div>}
+            </div>
+            {isJuristic && (
+              <>
+                <div>
+                  <label className={label}>ประเภทสาขา</label>
+                  <select
+                    defaultValue={m.branchType ?? ''}
+                    onChange={(ev) => void save({ branchType: (ev.target.value || null) as MemberDetail['branchType'], branchCode: ev.target.value === 'branch' ? m.branchCode : null })}
+                    className={input}
+                  >
+                    <option value="">— ไม่ระบุ —</option>
+                    <option value="hq">สำนักงานใหญ่</option>
+                    <option value="branch">สาขา</option>
+                  </select>
+                </div>
+                {m.branchType === 'branch' && (
+                  <div>
+                    <label className={label}>รหัสสาขา</label>
+                    <input defaultValue={m.branchCode ?? ''} onBlur={onBlurBranchCode} maxLength={5} className={input} placeholder="ตัวเลข 5 หลัก" />
+                  </div>
+                )}
+              </>
+            )}
+            {isExtraIndividual && (
+              <div className="sm:col-span-2">
+                <label className={label}>สังกัดเดิม / ความเชี่ยวชาญพิเศษ / ข้อตกลงพิเศษ</label>
+                <textarea rows={2} defaultValue={m.specialNote ?? ''} onBlur={onBlurText('specialNote', m.specialNote)} className={input} />
+              </div>
+            )}
           </div>
         </div>
 

@@ -39,7 +39,7 @@ import {
   type TaskType,
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
-import { asc, eq, isNotNull } from 'drizzle-orm'
+import { asc, desc, eq, isNotNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -47,6 +47,18 @@ import { newToken } from '../lib/session'
 import type { AppEnv } from '../types'
 
 const icsUrl = (appUrl: string, token: string) => `${appUrl}/api/calendar/feed/${token}`
+
+// Pronista §Entity Types Alignment — เลขบัตร ปชช./ทะเบียนนิติบุคคล 13 หลัก, รหัสสาขา 5 หลัก
+const ID_CARD_SCHEMA = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((v) => !v || /^\d{13}$/.test(v), { message: 'เลขบัตรประชาชน/ทะเบียนนิติบุคคลต้องเป็นตัวเลข 13 หลัก' })
+const BRANCH_CODE_SCHEMA = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((v) => !v || /^\d{5}$/.test(v), { message: 'รหัสสาขาต้องเป็นตัวเลข 5 หลัก' })
 
 /** owner เท่านั้น (ติด requireAuth + ownerOnly ตอน mount) — provision user / จัดการทีม / config */
 export const adminRoutes = new Hono<AppEnv>()
@@ -108,12 +120,19 @@ export const adminRoutes = new Hono<AppEnv>()
         // Pronista §Employee/Partner Detail — ฟิลด์มาตรฐาน HR เพิ่มเติม
         startDate: z.string().nullable().optional(),
         address: z.string().max(500).nullable().optional(),
-        idCardNumber: z.string().max(30).nullable().optional(),
+        idCardNumber: ID_CARD_SCHEMA,
         emergencyContactName: z.string().max(120).nullable().optional(),
         emergencyContactPhone: z.string().max(30).nullable().optional(),
         // Pronista §Partner Detail — role='vendor'
         specialty: z.string().max(200).nullable().optional(),
         bankAccount: z.string().max(200).nullable().optional(),
+        contractType: z.string().max(120).nullable().optional(),
+        contractExpiryDate: z.string().nullable().optional(),
+        // Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล
+        prefix: z.string().max(30).nullable().optional(),
+        branchType: z.enum(['hq', 'branch']).nullable().optional(),
+        branchCode: BRANCH_CODE_SCHEMA,
+        specialNote: z.string().max(1000).nullable().optional(),
         // Pronista §System Requirements Update — ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์ (บังคับเลือก) เลือกได้หลายโปรเจกต์
         projectIds: z.array(z.string()).optional(),
       })
@@ -125,6 +144,16 @@ export const adminRoutes = new Hono<AppEnv>()
     const db = createDb(c.env.DB)
     const dup = (await db.select().from(users).where(eq(users.email, body.data.email)).limit(1))[0]
     if (dup) return c.json({ error: 'email_exists' }, 409)
+
+    // Pronista §Employee Detail — รหัสพนักงาน auto-gen "EMP-0001" ต่อจากคนล่าสุด (เฉพาะ owner/member)
+    let employeeCode: string | null = null
+    if (body.data.role === 'owner' || body.data.role === 'member') {
+      const last = (
+        await db.select({ employeeCode: users.employeeCode }).from(users).where(isNotNull(users.employeeCode)).orderBy(desc(users.employeeCode)).limit(1)
+      )[0]
+      const nextNum = last?.employeeCode ? Number(last.employeeCode.replace('EMP-', '')) + 1 : 1
+      employeeCode = `EMP-${String(nextNum).padStart(4, '0')}`
+    }
 
     const inserted = await db
       .insert(users)
@@ -146,6 +175,13 @@ export const adminRoutes = new Hono<AppEnv>()
         emergencyContactPhone: body.data.emergencyContactPhone ?? null,
         specialty: body.data.specialty ?? null,
         bankAccount: body.data.bankAccount ?? null,
+        contractType: body.data.contractType ?? null,
+        contractExpiryDate: body.data.contractExpiryDate ?? null,
+        prefix: body.data.prefix ?? null,
+        branchType: body.data.branchType ?? null,
+        branchCode: body.data.branchCode ?? null,
+        specialNote: body.data.specialNote ?? null,
+        employeeCode,
       })
       .returning()
     const user = inserted[0]
@@ -187,12 +223,19 @@ export const adminRoutes = new Hono<AppEnv>()
         // Pronista §Employee/Partner Detail — ฟิลด์มาตรฐาน HR เพิ่มเติม
         startDate: z.string().nullable().optional(),
         address: z.string().max(500).nullable().optional(),
-        idCardNumber: z.string().max(30).nullable().optional(),
+        idCardNumber: ID_CARD_SCHEMA,
         emergencyContactName: z.string().max(120).nullable().optional(),
         emergencyContactPhone: z.string().max(30).nullable().optional(),
         // Pronista §Partner Detail — role='vendor'
         specialty: z.string().max(200).nullable().optional(),
         bankAccount: z.string().max(200).nullable().optional(),
+        contractType: z.string().max(120).nullable().optional(),
+        contractExpiryDate: z.string().nullable().optional(),
+        // Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล
+        prefix: z.string().max(30).nullable().optional(),
+        branchType: z.enum(['hq', 'branch']).nullable().optional(),
+        branchCode: BRANCH_CODE_SCHEMA,
+        specialNote: z.string().max(1000).nullable().optional(),
         // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้
         managerId: z.string().nullable().optional(),
         // Pronista §System Requirements Update — แก้รายการโปรเจกต์ที่ลูกค้าผูกอยู่ (ส่งมา = แทนที่ทั้งชุด)

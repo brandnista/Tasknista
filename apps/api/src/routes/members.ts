@@ -14,6 +14,18 @@ export const memberRoutes = new Hono<AppEnv>()
 
 const CLASSIFICATION_TYPES = ['ordinary_individual', 'ordinary_juristic', 'extraordinary_individual', 'extraordinary_juristic'] as const
 
+// Pronista §Entity Types Alignment — เลขบัตร ปชช./ทะเบียนนิติบุคคล 13 หลัก, รหัสสาขา 5 หลัก
+const ID_CARD_SCHEMA = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((v) => !v || /^\d{13}$/.test(v), { message: 'เลขบัตรประชาชน/ทะเบียนนิติบุคคลต้องเป็นตัวเลข 13 หลัก' })
+const BRANCH_CODE_SCHEMA = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((v) => !v || /^\d{5}$/.test(v), { message: 'รหัสสาขาต้องเป็นตัวเลข 5 หลัก' })
+
 const memberInput = z.object({
   name: z.string().min(1).max(200),
   classificationType: z.enum(CLASSIFICATION_TYPES),
@@ -26,6 +38,12 @@ const memberInput = z.object({
   endDate: z.string().nullable().optional(),
   notifyBeforeDays: z.number().int().nonnegative().nullable().optional(),
   status: z.enum(['active', 'disabled']).optional(),
+  // Pronista §Entity Types Alignment — ฟิลด์ dynamic ตาม บุคคล/นิติบุคคล
+  idCardNumber: ID_CARD_SCHEMA,
+  prefix: z.string().max(30).nullable().optional(),
+  branchType: z.enum(['hq', 'branch']).nullable().optional(),
+  branchCode: BRANCH_CODE_SCHEMA,
+  specialNote: z.string().max(1000).nullable().optional(),
 })
 
 memberRoutes
@@ -93,6 +111,11 @@ memberRoutes
           startDate: body.data.startDate ?? null,
           endDate: body.data.membershipMode === 'dated' ? (body.data.endDate ?? null) : null,
           notifyBeforeDays: body.data.notifyBeforeDays ?? null,
+          idCardNumber: body.data.idCardNumber ?? null,
+          prefix: body.data.prefix ?? null,
+          branchType: body.data.branchType ?? null,
+          branchCode: body.data.branchCode ?? null,
+          specialNote: body.data.specialNote ?? null,
         })
         .returning()
     )[0]!
