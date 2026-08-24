@@ -17,6 +17,10 @@ import { DocViewerPage } from './pages/DocViewer'
 import { ExpensesPage } from './pages/Expenses'
 import { InboxPage } from './pages/Inbox'
 import { Login } from './pages/Login'
+import { MemberOrdersPage } from './pages/MemberOrders'
+import { MemberPaymentsPage } from './pages/MemberPayments'
+import { MemberSettingsPage } from './pages/MemberSettings'
+import { MembersPage } from './pages/Members'
 import { MyTasksPage } from './pages/MyTasks'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { ProjectEditPage } from './pages/ProjectEdit'
@@ -166,7 +170,8 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'admin/users',
+        // Pronista §Menu Restructure — ย้ายจาก admin/users (แท็บ "พนักงานในระบบ") ขึ้นเป็นเมนูหลัก
+        path: 'employees',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="staff" />
@@ -174,7 +179,8 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'admin/users/outsource',
+        // Pronista §Menu Restructure — ย้ายจาก admin/users/outsource ขึ้นเป็นเมนูหลัก
+        path: 'partners',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="outsource" />
@@ -182,7 +188,8 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'admin/users/customers',
+        // Pronista §Menu Restructure — ย้ายจาก admin/users/customers ขึ้นเป็นเมนูหลัก
+        path: 'customers',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsPage tab="customer" />
@@ -190,10 +197,42 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: 'admin/users/customers/:id',
+        path: 'customers/:id',
         element: (
           <Protected roles={['owner']}>
             <UserSettingsCustomerDetailPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'members',
+        element: (
+          <Protected roles={['owner']}>
+            <MembersPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'members/orders',
+        element: (
+          <Protected roles={['owner']}>
+            <MemberOrdersPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'members/payments',
+        element: (
+          <Protected roles={['owner']}>
+            <MemberPaymentsPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'members/settings',
+        element: (
+          <Protected roles={['owner']}>
+            <MemberSettingsPage />
           </Protected>
         ),
       },

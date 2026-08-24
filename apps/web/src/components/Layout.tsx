@@ -2,7 +2,9 @@ import {
   ChevronDown,
   ClipboardList,
   FolderKanban,
+  Handshake,
   History,
+  IdCard,
   Layers,
   LayoutDashboard,
   ListChecks,
@@ -10,6 +12,8 @@ import {
   Menu,
   NotebookText,
   Settings,
+  UserCheck,
+  Users,
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -55,9 +59,24 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     roles: ['owner'],
     children: [
       { to: '/admin', label: 'ตั้งค่าทั่วไป' },
-      { to: '/admin/users', label: 'ตั้งค่าผู้ใช้งาน' },
       { to: '/admin/permissions', label: 'ตั้งค่าสิทธิ์ผู้ใช้งาน' },
       { to: '/admin/cost', label: 'กำหนดต้นทุน' },
+    ],
+  },
+  // Pronista §Menu Restructure — แยกออกจาก "ตั้งค่าผู้ใช้งาน" เดิม (เคยเป็น 3 แท็บในหน้าเดียว) เป็นเมนูหลักคนละอันตามสเปก
+  { to: '/employees', label: 'จัดการพนักงาน', icon: Users, roles: ['owner'] },
+  { to: '/partners', label: 'จัดการพาร์ทเนอร์', icon: Handshake, roles: ['owner'] },
+  { to: '/customers', label: 'จัดการลูกค้า', icon: UserCheck, roles: ['owner'] },
+  {
+    to: '/members',
+    label: 'จัดการสมาชิก',
+    icon: IdCard,
+    roles: ['owner'],
+    children: [
+      { to: '/members', label: 'สมาชิกทั้งหมด' },
+      { to: '/members/orders', label: 'รายการสั่งซื้อ' },
+      { to: '/members/payments', label: 'รายการชำระเงิน' },
+      { to: '/members/settings', label: 'ตั้งค่า' },
     ],
   },
 ]
@@ -223,7 +242,7 @@ export function Layout() {
                     <NavLink
                       key={c.to}
                       to={c.to}
-                      end={c.to === '/admin'}
+                      end={c.to === '/admin' || c.to === '/members'}
                       onClick={() => setNavOpen(false)}
                       className={({ isActive }) =>
                         `block px-2.5 py-1.5 rounded-lg cursor-pointer ${
