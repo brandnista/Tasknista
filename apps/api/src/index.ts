@@ -24,6 +24,7 @@ import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
 import { dailyReportRoutes } from './routes/daily-reports'
 import { memberRoutes } from './routes/members'
+import { myNoteRoutes } from './routes/my-notes'
 import { projectReleaseRoutes } from './routes/project-releases'
 import { projectChangelogRoutes } from './routes/project-changelogs'
 import { projectRoutes } from './routes/projects'
@@ -157,6 +158,10 @@ app.route('/api', projectChangelogRoutes)
 app.use('/api/daily-reports', requireAuth)
 app.use('/api/daily-reports/*', requireAuth)
 app.route('/api', dailyReportRoutes)
+// Pronista §My Note
+app.use('/api/my-notes', requireAuth)
+app.use('/api/my-notes/*', requireAuth)
+app.route('/api', myNoteRoutes)
 // เงินสดย่อย: owner+member (vendor ❌ — SPEC §2)
 app.use('/api/expenses', requireAuth, teamOnly)
 app.use('/api/expenses/*', requireAuth, teamOnly)

@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Copy,
   LayoutGrid,
+  NotebookPen,
   Rows3,
   Search,
   Send,
@@ -13,6 +14,7 @@ import {
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { DailyReportTab } from '../components/DailyReportTab'
+import { MyNoteTab } from '../components/MyNoteTab'
 import { MyWorkSummary, taskTypeLabel } from '../components/MyWorkSummary'
 import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
@@ -365,7 +367,7 @@ export function MyTasksPage() {
   const unreadCount = notifications.filter((n) => !n.isRead).length
   const [searchParams] = useSearchParams()
   const deepLinkReportId = searchParams.get('report')
-  const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched' | 'dailyReport'>(deepLinkReportId ? 'dailyReport' : 'work')
+  const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched' | 'dailyReport' | 'myNote'>(deepLinkReportId ? 'dailyReport' : 'work')
 
   // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
   const [search, setSearch] = useState('')
@@ -461,6 +463,9 @@ export function MyTasksPage() {
         <button onClick={() => setTab('dailyReport')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'dailyReport' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
           <ClipboardList className="w-3.5 h-3.5" /> Daily Report
         </button>
+        <button onClick={() => setTab('myNote')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'myNote' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <NotebookPen className="w-3.5 h-3.5" /> My Note
+        </button>
       </div>
 
       {tab === 'work' ? (
@@ -538,6 +543,8 @@ export function MyTasksPage() {
         <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
       ) : tab === 'dailyReport' ? (
         <DailyReportTab initialReportId={deepLinkReportId} />
+      ) : tab === 'myNote' ? (
+        <MyNoteTab />
       ) : (
         <NotificationsTab notifications={notifications} onRead={markRead} />
       )}
