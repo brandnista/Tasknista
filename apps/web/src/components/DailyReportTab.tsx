@@ -205,6 +205,9 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const itemByTaskId = new Map<string, ReportItem>()
   for (const it of report?.items ?? []) if (it.taskId) itemByTaskId.set(it.taskId, it)
   const manualItems = (report?.items ?? []).filter((it) => !it.taskId)
+  const suggestedTaskIds = new Set((suggested?.tasks ?? []).map((t) => t.id))
+  // งานที่อยู่ในรายงานแล้วแต่หลุดจากลิสต์แนะนำวันนี้ (เช่น activity เกิดคนละวันกับตอนเปิดดู) — ยังต้องโชว์ใน editable view
+  const extraTaskItems = (report?.items ?? []).filter((it) => it.taskId && it.task && !suggestedTaskIds.has(it.taskId))
   const suggestedCount = suggested?.tasks.length ?? 0
   const checkedSuggestedCount = (suggested?.tasks ?? []).filter((t) => t.inReport).length
   const hasUnaddedSuggested = (suggested?.tasks ?? []).some((t) => !t.inReport)
@@ -342,7 +345,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                   {!hasUnaddedSuggested && <div className="mb-3" />}
 
                   <div className="flex flex-col gap-px bg-border-subtle border border-border-subtle rounded-xl overflow-hidden">
-                    {suggestedCount === 0 && manualItems.length === 0 && (
+                    {suggestedCount === 0 && manualItems.length === 0 && extraTaskItems.length === 0 && (
                       <div className="text-center text-sm text-muted py-8 bg-white">ยังไม่พบ Task ที่มี activity ในวันนี้ — เพิ่มงานเองด้านล่างได้เลย</div>
                     )}
                     {(suggested?.tasks ?? []).map((t) => {
@@ -384,6 +387,40 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                         </div>
                       )
                     })}
+                    {extraTaskItems.map((it) => (
+                      <div key={it.id} className="bg-white">
+                        <div className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover">
+                          <button
+                            type="button"
+                            aria-pressed
+                            aria-label="เอาออกจากรายงาน"
+                            onClick={() => void removeItem(it.id)}
+                            className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 bg-brand-600 border-brand-600"
+                          >
+                            <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                          </button>
+                          <div className="min-w-0 flex-1 cursor-pointer" onClick={() => void removeItem(it.id)}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {it.task!.code && <span className="font-mono text-[11px] text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded font-semibold shrink-0">{it.task!.code}</span>}
+                              <TaskLink projectId={it.task!.projectId} taskId={it.taskId!} code={null} title={it.task!.title} />
+                            </div>
+                            <div className="text-[11.5px] text-muted mt-0.5">
+                              {it.task!.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10.5px] font-semibold ${TASK_STATUS_BADGE[it.task!.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[it.task!.status as keyof typeof TASK_STATUS_LABEL] ?? it.task!.status}</span>
+                            </div>
+                          </div>
+                          <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
+                        </div>
+                        <div className="px-3.5 pb-3.5 pl-[46px]">
+                          <textarea
+                            defaultValue={it.note ?? ''}
+                            onBlur={(e) => void updateItemNote(it.id, e.target.value)}
+                            placeholder="สิ่งที่ทำวันนี้..."
+                            rows={2}
+                            className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:bg-white"
+                          />
+                        </div>
+                      </div>
+                    ))}
                     {manualItems.map((it) => (
                       <div key={it.id} className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
                         <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
