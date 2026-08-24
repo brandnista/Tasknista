@@ -30,7 +30,7 @@ const STATUS_BADGE: Record<'draft' | 'submitted' | 'reviewed', string> = {
   reviewed: 'bg-success-100 text-success-700',
 }
 
-interface SuggestedTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null; minutes: number; inReport: boolean }
+interface MyTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null }
 interface ReportItem {
   id: string
   taskId: string | null
@@ -102,9 +102,10 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const canEditNow = !report || (isOwner && report.status !== 'reviewed')
   const isLocked = !!report && report.status === 'reviewed'
 
-  const { data: suggested, reload: reloadSuggested } = useLoad<{ date: string; tasks: SuggestedTask[] }>(
-    () => (canEditNow ? api.get(`/api/daily-reports/suggested?date=${report?.reportDate ?? date}`) : Promise.resolve({ date, tasks: [] })),
-    [report?.reportDate, date, canEditNow],
+  // Pronista §Daily Report (ต่อยอด) — ฝั่งซ้ายดึง "งานทั้งหมด" ของตัวเองมาให้เลือก ไม่จำกัดแค่ activity วันนี้เหมือนเดิม
+  const { data: myTasks, reload: reloadMyTasks } = useLoad<MyTask[]>(
+    () => (canEditNow ? api.get('/api/tasks/mine') : Promise.resolve([])),
+    [canEditNow],
   )
   const { data: historyData, reload: reloadHistory } = useLoad<{ reports: HistoryRow[] }>(
     () => (mode === 'history' ? api.get(`/api/daily-reports/history?scope=${historyScope}`) : Promise.resolve({ reports: [] })),
@@ -129,11 +130,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     const r = await ensureReport().catch(() => null)
     if (!r) return
     await api.post(`/api/daily-reports/${r.id}/items`, { taskId })
-    await Promise.all([reloadReport(), reloadSuggested()])
-  }
-  const addAllSuggested = async () => {
-    const todo = (suggested?.tasks ?? []).filter((t) => !t.inReport)
-    for (const t of todo) await addItem(t.id)
+    await reloadReport()
   }
   const addManualItem = async () => {
     if (!manualTitle.trim()) return
@@ -153,7 +150,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const removeItem = async (itemId: string) => {
     if (!report) return
     await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
-    await Promise.all([reloadReport(), reloadSuggested()])
+    await reloadReport()
   }
   const removeItemByTaskId = async (taskId: string) => {
     const it = (report?.items ?? []).find((x) => x.taskId === taskId)
@@ -205,12 +202,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const itemByTaskId = new Map<string, ReportItem>()
   for (const it of report?.items ?? []) if (it.taskId) itemByTaskId.set(it.taskId, it)
   const manualItems = (report?.items ?? []).filter((it) => !it.taskId)
-  const suggestedTaskIds = new Set((suggested?.tasks ?? []).map((t) => t.id))
-  // งานที่อยู่ในรายงานแล้วแต่หลุดจากลิสต์แนะนำวันนี้ (เช่น activity เกิดคนละวันกับตอนเปิดดู) — ยังต้องโชว์ใน editable view
-  const extraTaskItems = (report?.items ?? []).filter((it) => it.taskId && it.task && !suggestedTaskIds.has(it.taskId))
-  const suggestedCount = suggested?.tasks.length ?? 0
-  const checkedSuggestedCount = (suggested?.tasks ?? []).filter((t) => t.inReport).length
-  const hasUnaddedSuggested = (suggested?.tasks ?? []).some((t) => !t.inReport)
+  const taskItems = (report?.items ?? []).filter((it) => it.taskId && it.task)
+  const myTaskCount = myTasks?.length ?? 0
 
   return (
     <div className="space-y-4">
@@ -289,7 +282,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
           {/* Summary strip */}
           <div className="flex bg-white rounded-lg shadow-xs border border-border-subtle overflow-x-auto divide-x divide-divider">
             {[
-              ...(canEditNow ? [{ label: 'งานที่แนะนำ', value: suggestedCount }] : []),
+              ...(canEditNow ? [{ label: 'งานทั้งหมดของฉัน', value: myTaskCount }] : []),
               { label: 'เพิ่มในรายงาน', value: report?.items.length ?? 0 },
               { label: 'เวลารวม', value: fmtMinutes(totalMinutes), raw: true },
               { label: 'สถานะ', value: report ? STATUS_LABEL[report.status] : 'ยังไม่สร้าง', raw: true },
@@ -333,124 +326,118 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                       <span className="w-[22px] h-[22px] rounded-full bg-ink text-white text-[11px] font-bold grid place-items-center shrink-0">1</span>
                       <h2 className="text-[15px] font-bold text-ink">วันนี้ทำอะไรไปบ้าง</h2>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {suggestedCount > 0 && <span className="text-xs text-dim tabular-nums">เลือกแล้ว <b className="text-strong">{checkedSuggestedCount}</b> จาก {suggestedCount} งานที่ระบบเจอ activity</span>}
-                      <button onClick={() => void reloadSuggested()} className="text-xs flex items-center gap-1 text-dim hover:text-body shrink-0"><RefreshCw className="w-3 h-3" /></button>
-                    </div>
+                    <button onClick={() => void reloadMyTasks()} className="text-xs flex items-center gap-1 text-dim hover:text-body shrink-0"><RefreshCw className="w-3 h-3" /></button>
                   </div>
-                  <p className="text-[12.5px] text-muted ml-[32px] mb-1">ระบบดึงจากงานที่คุณแตะวันนี้มาให้แล้ว — ติ๊กงานที่จะรวมในรายงาน แล้วเติมสั้นๆ ว่าทำอะไรไป</p>
-                  {hasUnaddedSuggested && (
-                    <button onClick={() => void addAllSuggested()} className="block text-xs text-brand-700 hover:underline ml-[32px] mb-3">+ เพิ่มทั้งหมดที่เหลือ</button>
-                  )}
-                  {!hasUnaddedSuggested && <div className="mb-3" />}
+                  <p className="text-[12.5px] text-muted ml-[32px] mb-3">เลือกจากงานทั้งหมดของคุณทางซ้าย แล้วเติมสั้นๆ ว่าทำอะไรไปวันนี้</p>
 
-                  <div className="flex flex-col gap-px bg-border-subtle border border-border-subtle rounded-xl overflow-hidden">
-                    {suggestedCount === 0 && manualItems.length === 0 && extraTaskItems.length === 0 && (
-                      <div className="text-center text-sm text-muted py-8 bg-white">ยังไม่พบ Task ที่มี activity ในวันนี้ — เพิ่มงานเองด้านล่างได้เลย</div>
-                    )}
-                    {(suggested?.tasks ?? []).map((t) => {
-                      const item = itemByTaskId.get(t.id)
-                      return (
-                        <div key={t.id} className="bg-white">
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_1fr] gap-4 items-start">
+                    {/* ซ้าย — งานทั้งหมดของฉัน (ไม่จำกัดแค่วันนี้) */}
+                    <div className="border border-border-subtle rounded-xl overflow-hidden bg-white">
+                      <div className="px-3.5 py-2.5 border-b border-divider flex items-center justify-between">
+                        <span className="text-xs font-semibold text-strong">งานทั้งหมดของฉัน</span>
+                        <span className="text-[11px] text-muted tabular-nums">{myTaskCount}</span>
+                      </div>
+                      <div className="max-h-[420px] overflow-y-auto divide-y divide-divider">
+                        {myTaskCount === 0 && (
+                          <div className="text-center text-xs text-muted py-8 px-3">ยังไม่มีงานที่ได้รับมอบหมาย — เพิ่มงานเองทางขวาได้เลย</div>
+                        )}
+                        {(myTasks ?? []).map((t) => {
+                          const inReport = itemByTaskId.has(t.id)
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              aria-pressed={inReport}
+                              onClick={() => (inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}
+                              className="w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:-outline-offset-2"
+                            >
+                              <span className={`mt-0.5 w-[17px] h-[17px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors ${inReport ? 'bg-brand-600 border-brand-600' : 'border-border bg-white'}`}>
+                                {inReport && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3.5} />}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {t.code && <span className="font-mono text-[10px] text-brand-700 bg-brand-50 px-1 py-0.5 rounded font-semibold shrink-0">{t.code}</span>}
+                                  <span className="text-[12.5px] text-strong font-medium truncate">{t.title}</span>
+                                </div>
+                                <div className="text-[10.5px] text-muted mt-0.5 truncate">
+                                  {t.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* ขวา — งานที่เพิ่มในรายงานแล้ว (ผูก task จริง + คีย์เอง) */}
+                    <div className="flex flex-col gap-px bg-border-subtle border border-border-subtle rounded-xl overflow-hidden">
+                      {taskItems.length === 0 && manualItems.length === 0 && (
+                        <div className="text-center text-sm text-muted py-8 bg-white">ยังไม่มีงานในรายงาน — ติ๊กจากซ้าย หรือเพิ่มเองด้านล่าง</div>
+                      )}
+                      {taskItems.map((it) => (
+                        <div key={it.id} className="bg-white">
                           <div className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover">
                             <button
                               type="button"
-                              aria-pressed={t.inReport}
-                              aria-label={t.inReport ? 'เอาออกจากรายงาน' : 'เพิ่มในรายงาน'}
-                              onClick={() => (t.inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}
-                              className={`mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 ${t.inReport ? 'bg-brand-600 border-brand-600' : 'border-border bg-white hover:border-dim'}`}
+                              aria-label="เอาออกจากรายงาน"
+                              onClick={() => void removeItem(it.id)}
+                              className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 bg-brand-600 border-brand-600"
                             >
-                              {t.inReport && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                              <Check className="w-3 h-3 text-white" strokeWidth={3} />
                             </button>
-                            <div className="min-w-0 flex-1 cursor-pointer" onClick={() => (t.inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}>
+                            <div className="min-w-0 flex-1 cursor-pointer" onClick={() => void removeItem(it.id)}>
                               <div className="flex items-center gap-2 flex-wrap">
-                                {t.code && <span className="font-mono text-[11px] text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded font-semibold shrink-0">{t.code}</span>}
-                                <TaskLink projectId={t.projectId} taskId={t.id} code={null} title={t.title} />
+                                {it.task!.code && <span className="font-mono text-[11px] text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded font-semibold shrink-0">{it.task!.code}</span>}
+                                <TaskLink projectId={it.task!.projectId} taskId={it.taskId!} code={null} title={it.task!.title} />
                               </div>
                               <div className="text-[11.5px] text-muted mt-0.5">
-                                {t.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10.5px] font-semibold ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
+                                {it.task!.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10.5px] font-semibold ${TASK_STATUS_BADGE[it.task!.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[it.task!.status as keyof typeof TASK_STATUS_LABEL] ?? it.task!.status}</span>
                               </div>
                             </div>
-                            <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(t.minutes)}</span>
+                            <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
                           </div>
-                          {t.inReport && item && (
-                            <div className="px-3.5 pb-3.5 pl-[46px]">
-                              <textarea
-                                defaultValue={item.note ?? ''}
-                                onBlur={(e) => void updateItemNote(item.id, e.target.value)}
-                                placeholder="สิ่งที่ทำวันนี้..."
-                                rows={2}
-                                className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:bg-white"
-                              />
-                            </div>
-                          )}
+                          <div className="px-3.5 pb-3.5 pl-[46px]">
+                            <textarea
+                              defaultValue={it.note ?? ''}
+                              onBlur={(e) => void updateItemNote(it.id, e.target.value)}
+                              placeholder="สิ่งที่ทำวันนี้..."
+                              rows={2}
+                              className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:bg-white"
+                            />
+                          </div>
                         </div>
-                      )
-                    })}
-                    {extraTaskItems.map((it) => (
-                      <div key={it.id} className="bg-white">
-                        <div className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover">
-                          <button
-                            type="button"
-                            aria-pressed
-                            aria-label="เอาออกจากรายงาน"
-                            onClick={() => void removeItem(it.id)}
-                            className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 bg-brand-600 border-brand-600"
-                          >
+                      ))}
+                      {manualItems.map((it) => (
+                        <div key={it.id} className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
+                          <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
                             <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                          </button>
-                          <div className="min-w-0 flex-1 cursor-pointer" onClick={() => void removeItem(it.id)}>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {it.task!.code && <span className="font-mono text-[11px] text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded font-semibold shrink-0">{it.task!.code}</span>}
-                              <TaskLink projectId={it.task!.projectId} taskId={it.taskId!} code={null} title={it.task!.title} />
-                            </div>
-                            <div className="text-[11.5px] text-muted mt-0.5">
-                              {it.task!.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10.5px] font-semibold ${TASK_STATUS_BADGE[it.task!.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[it.task!.status as keyof typeof TASK_STATUS_LABEL] ?? it.task!.status}</span>
-                            </div>
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13.5px] text-strong font-medium">{it.manualTitle}</div>
+                            <div className="text-[11.5px] text-muted mt-0.5">คีย์เอง</div>
                           </div>
                           <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
+                          <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
-                        <div className="px-3.5 pb-3.5 pl-[46px]">
-                          <textarea
-                            defaultValue={it.note ?? ''}
-                            onBlur={(e) => void updateItemNote(it.id, e.target.value)}
-                            placeholder="สิ่งที่ทำวันนี้..."
-                            rows={2}
-                            className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:bg-white"
-                          />
-                        </div>
+                      ))}
+                      <div className="flex gap-2 p-3 bg-white">
+                        <input
+                          value={manualTitle}
+                          onChange={(e) => setManualTitle(e.target.value)}
+                          placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
+                          className="flex-1 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
+                        />
+                        <input
+                          value={manualHours}
+                          onChange={(e) => setManualHours(e.target.value)}
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="ชม."
+                          className="w-20 border border-border-subtle rounded-lg px-3 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                        />
+                        <button onClick={() => void addManualItem()} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
                       </div>
-                    ))}
-                    {manualItems.map((it) => (
-                      <div key={it.id} className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
-                        <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
-                          <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[13.5px] text-strong font-medium">{it.manualTitle}</div>
-                          <div className="text-[11.5px] text-muted mt-0.5">คีย์เอง</div>
-                        </div>
-                        <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
-                        <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
-                    ))}
-                    <div className="flex gap-2 p-3 bg-white">
-                      <input
-                        value={manualTitle}
-                        onChange={(e) => setManualTitle(e.target.value)}
-                        placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
-                        className="flex-1 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
-                      />
-                      <input
-                        value={manualHours}
-                        onChange={(e) => setManualHours(e.target.value)}
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        placeholder="ชม."
-                        className="w-20 border border-border-subtle rounded-lg px-3 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
-                      />
-                      <button onClick={() => void addManualItem()} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
                     </div>
                   </div>
                 </section>
