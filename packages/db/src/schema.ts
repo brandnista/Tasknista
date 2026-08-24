@@ -44,6 +44,11 @@ export const users = sqliteTable('users', {
   contactType: text('contact_type', { enum: ['juristic', 'individual'] }),
   businessName: text('business_name'),
   phone: text('phone'),
+  // Pronista §Partner/Client Classification — ใช้กับ role='vendor'(พาร์ทเนอร์) และ role='guest'(ลูกค้า) เท่านั้น
+  // ชุดนิยามเดียวกับที่ใช้ในตาราง members — คนละแกนกับ contactType เดิม (contactType ใช้แค่ juristic/individual, ตัวนี้แยกสามัญ/วิสามัญเพิ่ม)
+  classificationType: text('classification_type', {
+    enum: ['ordinary_individual', 'ordinary_juristic', 'extraordinary_individual', 'extraordinary_juristic'],
+  }),
   // Pronista §Daily Report — "หัวหน้าโดยตรง" ผู้รับ Daily Report ของคนนี้ (null = ยังไม่ได้ตั้ง, Admin ตั้ง/เปลี่ยนได้ต่อคนที่ตั้งค่าผู้ใช้งาน) ไม่ผูกกับ Project Lead/ตำแหน่งสิทธิ์ใดๆ
   managerId: text('manager_id').references((): AnySQLiteColumn => users.id),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -245,6 +250,13 @@ export const companyConfig = sqliteTable('company_config', {
       actions: Record<string, { create: boolean; edit: boolean; delete: boolean }>
     }>
   >(),
+  // Pronista §Membership — ค่าธรรมเนียมตามประเภทสมาชิก (4 ประเภทคงที่) แก้ไขได้ที่ Submenu ตั้งค่าใน "จัดการสมาชิก" (null = ยังไม่ตั้งค่า)
+  membershipFees: text('membership_fees', { mode: 'json' }).$type<
+    { classificationType: 'ordinary_individual' | 'ordinary_juristic' | 'extraordinary_individual' | 'extraordinary_juristic'; feeSatang: number; sortOrder: number }[]
+  >(),
+  // Pronista §Membership — ระดับ "ขนาดองค์กร" + ค่าธรรมเนียมต่อระดับ ใช้เฉพาะสมาชิกประเภท extraordinary_juristic (null = ยังไม่ตั้งค่า)
+  // members.orgSizeTierId อ้าง id ที่นี่ (ไม่มี DB-level FK — เหมือน positions/serviceTypes)
+  memberOrgSizeTiers: text('member_org_size_tiers', { mode: 'json' }).$type<{ id: string; name: string; feeSatang: number; sortOrder: number }[]>(),
 })
 
 /** ลูกค้า (CRM §4.17 — entity จริงตั้งแต่ T08 เลี่ยง refactor) */
@@ -1633,6 +1645,8 @@ export const NOTIFICATION_TYPES = [
   'daily_report_submitted',
   'daily_report_commented',
   'daily_report_reviewed',
+  // Pronista §Membership — เตือนก่อนสมาชิกใกล้หมดอายุ (มิเรอร์ expiry_reminder ของ Subscription Notify)
+  'member_expiry_reminder',
 ] as const
 
 export const notifications = sqliteTable(
@@ -1647,6 +1661,8 @@ export const notifications = sqliteTable(
     projectId: text('project_id').references(() => projects.id),
     // Pronista §Daily Report — deep-link ไปยัง Daily Report ที่เกี่ยวข้อง (คนละ entity จาก task/project เดิม)
     dailyReportId: text('daily_report_id').references((): AnySQLiteColumn => dailyReports.id),
+    // Pronista §Membership — deep-link ไปยังสมาชิกที่ใกล้หมดอายุ
+    memberId: text('member_id').references((): AnySQLiteColumn => members.id),
     message: text('message').notNull(),
     isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1654,6 +1670,92 @@ export const notifications = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [index('notifications_user_idx').on(t.userId, t.isRead, t.createdAt)],
+)
+
+// Pronista §Membership — สมาชิก (ธุรกิจใหม่แยกจากงานโปรเจกต์ลูกค้าเดิม) — ยังไม่ผูกกับ users เพราะสมาชิกยังไม่ login เข้า Pronista ในเฟสนี้
+export const members = sqliteTable(
+  'members',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    classificationType: text('classification_type', {
+      enum: ['ordinary_individual', 'ordinary_juristic', 'extraordinary_individual', 'extraordinary_juristic'],
+    }).notNull(),
+    // อ้าง company_config.memberOrgSizeTiers.id (ไม่มี DB-level FK) — มีค่าเฉพาะ classificationType='extraordinary_juristic'
+    orgSizeTierId: text('org_size_tier_id'),
+    businessName: text('business_name'),
+    phone: text('phone'),
+    email: text('email'),
+    membershipMode: text('membership_mode', { enum: ['lifetime', 'dated'] }).notNull().default('lifetime'),
+    startDate: text('start_date'), // YYYY-MM-DD
+    endDate: text('end_date'), // YYYY-MM-DD, null = lifetime
+    notifyBeforeDays: integer('notify_before_days'),
+    expiryNotifiedAt: integer('expiry_notified_at', { mode: 'timestamp_ms' }),
+    status: text('status', { enum: ['active', 'disabled'] }).notNull().default('active'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('members_status_idx').on(t.status)],
+)
+
+// Pronista §Membership — รายการสั่งซื้อค่าสมาชิก
+export const memberOrders = sqliteTable(
+  'member_orders',
+  {
+    id: id(),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => members.id),
+    feeSatang: integer('fee_satang').notNull(),
+    orderedAt: integer('ordered_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    status: text('status', { enum: ['pending', 'paid', 'cancelled'] }).notNull().default('pending'),
+  },
+  (t) => [index('member_orders_member_idx').on(t.memberId)],
+)
+
+// Pronista §Membership — ประวัติการชำระเงินค่าสมาชิก
+export const memberPayments = sqliteTable(
+  'member_payments',
+  {
+    id: id(),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => members.id),
+    orderId: text('order_id')
+      .notNull()
+      .references(() => memberOrders.id),
+    amountSatang: integer('amount_satang').notNull(),
+    paidAt: integer('paid_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    method: text('method'),
+    status: text('status', { enum: ['success', 'failed', 'refunded'] }).notNull().default('success'),
+  },
+  (t) => [index('member_payments_member_idx').on(t.memberId)],
+)
+
+// Pronista §My Note — บันทึกอิสระของแต่ละคนในแท็บ "My Note" (งานของฉัน) — แยกจาก note ที่ผูก entity เฉพาะ (clientNotes/payNotes)
+export const notes = sqliteTable(
+  'notes',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    title: text('title'),
+    // เก็บ plain text หรือ checklist ตาม format: JSON string { mode: 'text'|'checklist', text?, items?: {id,text,done}[] }
+    body: text('body').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('notes_user_idx').on(t.userId)],
 )
 
 export type User = typeof users.$inferSelect
@@ -1699,3 +1801,7 @@ export type GmailSyncState = typeof gmailSyncState.$inferSelect
 export type CalendarConnection = typeof calendarConnections.$inferSelect
 export type DocMember = typeof docMembers.$inferSelect
 export type DocLink = typeof docLinks.$inferSelect
+export type Member = typeof members.$inferSelect
+export type MemberOrder = typeof memberOrders.$inferSelect
+export type MemberPayment = typeof memberPayments.$inferSelect
+export type Note = typeof notes.$inferSelect
