@@ -23,6 +23,7 @@ import { payrollRoutes } from './routes/payroll'
 import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
 import { dailyReportRoutes } from './routes/daily-reports'
+import { memberRoutes } from './routes/members'
 import { projectReleaseRoutes } from './routes/project-releases'
 import { projectChangelogRoutes } from './routes/project-changelogs'
 import { projectRoutes } from './routes/projects'
@@ -57,6 +58,13 @@ app.route('/api/auth', authRoutes)
 app.use('/api/admin/*', requireAuth, ownerOnly)
 app.route('/api/admin', adminRoutes)
 app.route('/api/admin', payrollAdminRoutes)
+// Pronista §Membership — จัดการสมาชิก (owner-only)
+app.use('/api/members', requireAuth, ownerOnly)
+app.use('/api/members/*', requireAuth, ownerOnly)
+app.use('/api/member-orders', requireAuth, ownerOnly)
+app.use('/api/member-orders/*', requireAuth, ownerOnly)
+app.use('/api/member-payments', requireAuth, ownerOnly)
+app.route('/api', memberRoutes)
 app.use('/api/users/*', requireAuth)
 app.use('/api/users', requireAuth)
 app.use('/api/config', requireAuth)

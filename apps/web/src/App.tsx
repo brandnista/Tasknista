@@ -18,6 +18,7 @@ import { EmployeeDetailPage } from './pages/EmployeeDetail'
 import { ExpensesPage } from './pages/Expenses'
 import { InboxPage } from './pages/Inbox'
 import { Login } from './pages/Login'
+import { MemberDetailPage } from './pages/MemberDetail'
 import { MemberOrdersPage } from './pages/MemberOrders'
 import { MemberPaymentsPage } from './pages/MemberPayments'
 import { MemberSettingsPage } from './pages/MemberSettings'
@@ -227,6 +228,14 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <MembersPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'members/:id',
+        element: (
+          <Protected roles={['owner']}>
+            <MemberDetailPage />
           </Protected>
         ),
       },

@@ -7,6 +7,7 @@ import { syncAllMailboxes, wakeSnoozedThreads } from './lib/inbox-sync'
 import { purgeExpiredSessions } from './lib/session'
 import { completeSprint } from './lib/sprint'
 import { closeSession, getCapMinutes } from './lib/time-core'
+import { notifyExpiringMembers } from './routes/members'
 
 const BACKUP_CRON = '0 20 * * *' // 03:00 BKK รายวัน
 const INBOX_SYNC_CRON = '* * * * *'
@@ -43,6 +44,7 @@ export async function runScheduled(env: Env, cron: string): Promise<void> {
 
   if (cron === BACKUP_CRON) {
     await notifyExpiringProjects(db, today)
+    await notifyExpiringMembers(db, today)
     await runBackup(env)
   }
 }
