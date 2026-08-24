@@ -293,6 +293,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-strong truncate">{u.businessName || u.name}</span>
                       {u.contactType && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-info-50 text-info-700 shrink-0">{CONTACT_TYPE_LABEL[u.contactType]}</span>}
+                      {u.classificationType && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-hover text-soft shrink-0">{CLASSIFICATION_TYPE_LABEL[u.classificationType]}</span>}
                     </div>
                     <div className="text-[11px] text-muted truncate mt-0.5">{u.name} · {u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
                   </div>

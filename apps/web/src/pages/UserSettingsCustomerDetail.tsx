@@ -6,7 +6,7 @@ import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
-import { CONTACT_TYPE_LABEL } from './UserSettings'
+import { CLASSIFICATION_TYPE_LABEL, CONTACT_TYPE_LABEL, type ClassificationType } from './UserSettings'
 
 interface CustomerDetail {
   id: string
@@ -17,6 +17,7 @@ interface CustomerDetail {
   businessName: string | null
   phone: string | null
   projectIds: string[]
+  classificationType: ClassificationType | null
 }
 interface ProjectOpt { id: string; code: string | null; name: string }
 
@@ -29,7 +30,7 @@ export function UserSettingsCustomerDetailPage() {
 
   if (!c) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
-  const save = async (patch: Partial<Pick<CustomerDetail, 'name' | 'businessName' | 'phone' | 'email' | 'contactType'>>) => {
+  const save = async (patch: Partial<Pick<CustomerDetail, 'name' | 'businessName' | 'phone' | 'email' | 'contactType' | 'classificationType'>>) => {
     setError('')
     try {
       await api.patch(`/api/admin/users/${c.id}`, patch)
@@ -84,6 +85,17 @@ export function UserSettingsCustomerDetailPage() {
                 <label key={t} className="flex items-center gap-1.5 cursor-pointer">
                   <input type="radio" name="contactType" checked={(c.contactType ?? 'juristic') === t} onChange={() => void save({ contactType: t })} />
                   {CONTACT_TYPE_LABEL[t]}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={label}>ประเภท</label>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
+                <label key={t} className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" name="classificationType" checked={c.classificationType === t} onChange={() => void save({ classificationType: t })} />
+                  {CLASSIFICATION_TYPE_LABEL[t]}
                 </label>
               ))}
             </div>
