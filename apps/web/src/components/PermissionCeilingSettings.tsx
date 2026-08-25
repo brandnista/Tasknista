@@ -42,6 +42,9 @@ const CATEGORY_DESC: Record<PermissionCategory, string> = {
   outsource: 'ไม่มีตำแหน่งของตัวเอง — เพดานนี้คือสิทธิ์จริงที่ใช้ (คุมเมนู/แท็บที่มองเห็นเป็นหลัก)',
   customer: 'ไม่มีตำแหน่งของตัวเอง — เพดานนี้คือสิทธิ์จริงที่ใช้ (คุมเมนู/แท็บที่มองเห็นเป็นหลัก)',
 }
+// Pronista §Menu Restructure — แยกกลุ่มเมนู "จัดการข้อมูล" (พนักงาน/พาร์ทเนอร์/ลูกค้า/สมาชิก) ออกจากเมนูใช้งานทั่วไป ให้เห็นชัดเจน ไม่ปนกันเป็นแถวเดียว
+const ADMIN_MENU_KEYS: PermissionMenuKey[] = ['employees', 'partners', 'customers', 'members']
+const GENERAL_MENU_KEYS = PERMISSION_MENU_KEYS.filter((k) => !ADMIN_MENU_KEYS.includes(k))
 
 function CeilingCard({ category, permissions, onChange }: { category: PermissionCategory; permissions: CeilingPermissions; onChange: (p: CeilingPermissions) => void }) {
   const toggleMenu = (k: PermissionMenuKey) => onChange({ ...permissions, menus: { ...permissions.menus, [k]: !permissions.menus[k] } })
@@ -53,10 +56,21 @@ function CeilingCard({ category, permissions, onChange }: { category: Permission
     <div className="border border-border-subtle rounded-lg p-4">
       <div className="font-semibold text-sm text-ink mb-0.5">{PERMISSION_CATEGORY_LABEL[category]}</div>
       <div className="text-[11px] text-muted mb-3">{CATEGORY_DESC[category]}</div>
-      <div className="mb-4">
+      <div className="mb-3">
         <div className="text-xs font-medium text-dim mb-1.5">มองเห็นเมนูหลัก (sidebar)</div>
         <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {PERMISSION_MENU_KEYS.map((k) => (
+          {GENERAL_MENU_KEYS.map((k) => (
+            <label key={k} className="flex items-center gap-2 text-sm text-body cursor-pointer">
+              <input type="checkbox" checked={permissions.menus[k]} onChange={() => toggleMenu(k)} className="rounded" />
+              {PERMISSION_MENU_LABEL[k]}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="mb-4">
+        <div className="text-xs font-medium text-dim mb-1.5">เมนูจัดการข้อมูล (พนักงาน/พาร์ทเนอร์/ลูกค้า/สมาชิก)</div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {ADMIN_MENU_KEYS.map((k) => (
             <label key={k} className="flex items-center gap-2 text-sm text-body cursor-pointer">
               <input type="checkbox" checked={permissions.menus[k]} onChange={() => toggleMenu(k)} className="rounded" />
               {PERMISSION_MENU_LABEL[k]}

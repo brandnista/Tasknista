@@ -101,7 +101,7 @@ export const PERMISSION_CATEGORIES = ['staff', 'outsource', 'customer'] as const
 export type PermissionCategory = (typeof PERMISSION_CATEGORIES)[number]
 
 export const PERMISSION_CATEGORY_LABEL: Record<PermissionCategory, string> = {
-  staff: 'พนักงานในระบบ',
+  staff: 'พนักงาน',
   outsource: 'พาร์ทเนอร์',
   customer: 'ลูกค้า',
 }
