@@ -615,7 +615,7 @@ export function TaskDetailPage() {
             ))}
           </div>
         ) : (
-        <div className="grid md:grid-cols-[1fr_300px]">
+        <div className="grid md:grid-cols-[minmax(0,1fr)_300px]">
           <div className="p-5 space-y-6 border-b md:border-b-0 md:border-r border-border-subtle min-w-0">
 
             <div>
@@ -923,7 +923,7 @@ export function TaskDetailPage() {
               {/* Pronista §Meta panel redesign — จัดเป็นกริด label/ช่องกรอกคงที่แทน flex justify-between ที่แนวไม่ตรงกัน + เพิ่ม border ให้ทุกช่องกรอกได้ (เดิม bg-white ล้วนกลืนกับพื้นหลัง bg-hover/40 แยกไม่ออกว่ากรอกตรงไหนได้) */}
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
-                <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 items-center text-sm">
+                <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
                   <span className="text-dim">สถานะ</span>
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น */}
                   {canEdit && !isAssignee ? (
@@ -977,7 +977,7 @@ export function TaskDetailPage() {
                   <div className="border-t border-border-subtle" />
                   <div>
                     <div className="text-[11px] font-medium text-muted tracking-wide mb-2">การจัดหมวด</div>
-                    <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 items-start text-sm">
+                    <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-start text-sm">
                       <span className="text-dim pt-1.5">Labels</span>
                       <div className="flex flex-col items-start gap-1.5">
                         <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
@@ -1054,7 +1054,7 @@ export function TaskDetailPage() {
               <div className="border-t border-border-subtle" />
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">กำหนดการ</div>
-                <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-2.5 items-center text-sm">
+                <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
                   <span className="text-dim">กำหนดส่ง</span>
                   {canEdit && !isAssignee ? (
                     <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />

@@ -295,7 +295,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
           </div>
 
           {canEditNow && (
-            <div className="grid grid-cols-1 md:grid-cols-[168px_1fr] gap-x-9 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-[168px_minmax(0,1fr)] gap-x-9 items-start">
               {/* Progress rail */}
               <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-3 md:pb-1 mb-3 md:mb-0 border-b md:border-b-0 border-divider md:sticky md:top-4">
                 {[
@@ -330,7 +330,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                   </div>
                   <p className="text-[12.5px] text-muted ml-[32px] mb-3">เลือกจากงานทั้งหมดของคุณทางซ้าย แล้วเติมสั้นๆ ว่าทำอะไรไปวันนี้</p>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_1fr] gap-4 items-start">
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] gap-4 items-start">
                     {/* ซ้าย — งานทั้งหมดของฉัน (ไม่จำกัดแค่วันนี้) */}
                     <div className="border border-border-subtle rounded-xl overflow-hidden bg-white">
                       <div className="px-3.5 py-2.5 border-b border-divider flex items-center justify-between">
