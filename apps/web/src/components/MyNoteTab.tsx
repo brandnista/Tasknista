@@ -212,7 +212,8 @@ function PostIt({ note, isNew, onOpenConvert, onDelete }: { note: Note; isNew: b
       className={`postit-note group relative w-56 shrink-0 rounded-sm ${palette.bg} shadow-md p-4 pt-5 ${isNew ? 'so-postit-drop' : ''}`}
     >
       <span className={`absolute -top-2 left-1/2 -translate-x-1/2 w-10 h-4 rounded-xs rotate-1 ${palette.tape}`} />
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* ปุ่ม Convert/ลบ — โชว์ตลอดบนมือถือ (ไม่มี hover) ซ่อนไว้จนโฮเวอร์เฉพาะจอที่มีเมาส์จริง (sm ขึ้นไป) */}
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
         <button onClick={onOpenConvert} title="Convert เป็นงาน" className="text-ink/35 hover:text-brand-700 p-0.5"><Repeat className="w-3.5 h-3.5" /></button>
         <button onClick={onDelete} title="ลบ" className="text-ink/35 hover:text-danger-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
       </div>
