@@ -1,10 +1,12 @@
 import {
+  adminUsersMenuKeyForCategory,
   bkkDateOf,
   BOARD_COLOR_KEYS,
   PERMISSION_CATEGORIES,
   PERMISSION_MENU_KEYS,
   PERMISSION_RESOURCE_KEYS,
   PERMISSION_TAB_KEYS,
+  permissionCategoryOfRole,
   resolveCostRoles,
   resolveLabels,
   resolveParameterRoles,
@@ -40,7 +42,7 @@ import {
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
 import { asc, desc, eq, isNotNull } from 'drizzle-orm'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { newToken } from '../lib/session'
@@ -60,28 +62,61 @@ const BRANCH_CODE_SCHEMA = z
   .optional()
   .refine((v) => !v || /^\d{5}$/.test(v), { message: 'รหัสสาขาต้องเป็นตัวเลข 5 หลัก' })
 
-/** owner เท่านั้น (ติด requireAuth + ownerOnly ตอน mount) — provision user / จัดการทีม / config */
+// Pronista §Menu Restructure — /admin/users* เปิดให้ non-owner (staff/outsource/customer) เข้าถึงได้แบบ scope เฉพาะหมวดตัวเอง
+// ถ้าเพดานเมนู (employees/partners/customers) ของหมวดนั้นอนุญาต — คนละกรณีกับ ownerOnly endpoint อื่นใต้ /api/admin (ดู index.ts การ mount)
+const categoryOfUserRole = (role: 'owner' | 'member' | 'vendor' | 'guest'): PermissionCategory =>
+  role === 'owner' || role === 'member' ? 'staff' : role === 'vendor' ? 'outsource' : 'customer'
+
+/** คืน 'owner' = ไม่จำกัด, PermissionCategory = non-owner ที่เพดานอนุญาตแล้ว (จำกัดเห็น/แก้ได้แค่ record ในหมวดเดียวกัน), null = ไม่มีสิทธิ์ */
+async function resolveUsersAccess(c: Context<AppEnv>): Promise<'owner' | PermissionCategory | null> {
+  const caller = c.get('user')
+  if (caller.role === 'owner') return 'owner'
+  const category = permissionCategoryOfRole(caller.role)
+  if (!category) return null
+  const db = createDb(c.env.DB)
+  const cfg = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+  const menuKey = adminUsersMenuKeyForCategory(category)
+  return resolvePermissionCeilings(cfg?.permissionCeilings)[category].menus[menuKey] ? category : null
+}
+
+// ฟิลด์ที่ non-owner (staff/outsource/customer ที่เพดานอนุญาตให้เข้าเมนูนี้) แก้ได้ — ห้ามแตะ role/status/email เด็ดขาด
+// (เปลี่ยน role = privilege escalation ได้ทันที, status/email = ทางเข้าเปิด-ปิดการใช้งาน/เปลี่ยนบัญชีคนอื่น) endpoint สร้าง/ลบบัญชียังคง owner-only ล้วนๆ
+const STAFF_EDITABLE_FIELDS = new Set([
+  'name', 'phone', 'jobTitle', 'costPerDaySatang', 'teamId', 'managerId', 'contactType', 'businessName', 'classificationType',
+  'startDate', 'address', 'idCardNumber', 'emergencyContactName', 'emergencyContactPhone', 'specialty', 'bankAccount',
+  'contractType', 'contractExpiryDate', 'prefix', 'branchType', 'branchCode', 'specialNote', 'projectIds',
+])
+
+/** owner เห็น/แก้ได้ทุกอย่างเสมอ · non-owner เข้าได้เฉพาะ endpoint ที่เพดานเมนูของหมวดตัวเองอนุญาต (ดู resolveUsersAccess ด้านบน + index.ts การ mount) */
 export const adminRoutes = new Hono<AppEnv>()
 
   // ตารางผู้ใช้เต็ม (email/status/ทีม) — role='guest' (ลูกค้า) ติด projectIds ที่ผูกไว้มาด้วย
+  // non-owner ที่เพดานอนุญาต เห็นเฉพาะ record ในหมวดตัวเอง (staff เห็นแค่ staff, ไม่เห็น partner/customer ข้ามหมวด)
   .get('/users', async (c) => {
+    const access = await resolveUsersAccess(c)
+    if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
     const all = await db.select().from(users).orderBy(asc(users.role), asc(users.name))
+    const scoped = access === 'owner' ? all : all.filter((u) => categoryOfUserRole(u.role) === access)
     const allTeams = await db.select().from(teams)
     const teamName = new Map(allTeams.map((t) => [t.id, t.name]))
     const links = await db.select({ userId: customerProjects.userId, projectId: customerProjects.projectId }).from(customerProjects)
     const projectIdsByUser = new Map<string, string[]>()
     for (const l of links) projectIdsByUser.set(l.userId, [...(projectIdsByUser.get(l.userId) ?? []), l.projectId])
     return c.json(
-      all.map((u) => ({ ...u, teamName: u.teamId ? (teamName.get(u.teamId) ?? null) : null, projectIds: projectIdsByUser.get(u.id) ?? [] })),
+      scoped.map((u) => ({ ...u, teamName: u.teamId ? (teamName.get(u.teamId) ?? null) : null, projectIds: projectIdsByUser.get(u.id) ?? [] })),
     )
   })
 
   // Pronista §System Requirements Update — รายละเอียดผู้ใช้คนเดียว (ใช้กับหน้ารายละเอียดลูกค้า) ติด projectIds ที่ผูกไว้
+  // non-owner ที่เพดานอนุญาต เปิดได้เฉพาะ record ในหมวดตัวเอง (กันเดา id ข้ามหมวด)
   .get('/users/:id', async (c) => {
+    const access = await resolveUsersAccess(c)
+    if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
     const user = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!user) return c.json({ error: 'not_found' }, 404)
+    if (access !== 'owner' && categoryOfUserRole(user.role) !== access) return c.json({ error: 'forbidden' }, 403)
     const links = await db.select({ projectId: customerProjects.projectId }).from(customerProjects).where(eq(customerProjects.userId, user.id))
     return c.json({ ...user, projectIds: links.map((l) => l.projectId) })
   })
@@ -100,8 +135,9 @@ export const adminRoutes = new Hono<AppEnv>()
     return c.json(inserted[0], 201)
   })
 
-  // provision user ใหม่ (member ในโดเมน หรือ vendor allowlist อีเมลภายนอก)
+  // provision user ใหม่ (member ในโดเมน หรือ vendor allowlist อีเมลภายนอก) — owner-only เสมอ ไม่ผ่านเพดาน (สร้างบัญชีใหม่ = ความเสี่ยงสูงกว่าดู/แก้ record เดิม)
   .post('/users', async (c) => {
+    if (c.get('user').role !== 'owner') return c.json({ error: 'forbidden' }, 403)
     const body = z
       .object({
         email: z.string().email().toLowerCase(),
@@ -243,9 +279,17 @@ export const adminRoutes = new Hono<AppEnv>()
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
+    const access = await resolveUsersAccess(c)
+    if (!access) return c.json({ error: 'forbidden' }, 403)
+    if (access !== 'owner') {
+      // non-owner แก้ role/status/email ไม่ได้เด็ดขาด (privilege escalation / เปิด-ปิดบัญชี / เปลี่ยนบัญชีคนอื่น)
+      const disallowed = Object.keys(body.data).filter((k) => !STAFF_EDITABLE_FIELDS.has(k))
+      if (disallowed.length > 0) return c.json({ error: 'forbidden', message: `แก้ไขฟิลด์ ${disallowed.join(', ')} ไม่ได้` }, 403)
+    }
     const db = createDb(c.env.DB)
     const before = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
+    if (access !== 'owner' && categoryOfUserRole(before.role) !== access) return c.json({ error: 'forbidden' }, 403)
     const nextRole = body.data.role ?? before.role
     if (nextRole === 'guest' && body.data.projectIds && body.data.projectIds.length === 0)
       return c.json({ error: 'project_required', message: 'ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์' }, 400)

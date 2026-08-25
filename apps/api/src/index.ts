@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth, requireAuthOrToken } from './middleware/auth'
-import { ownerOnly, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
+import { ceilingMenu, ownerOnly, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
 import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
@@ -56,15 +56,23 @@ app.get('/api/health', (c) => c.json({ ok: true }))
 app.route('/api/calendar/feed', icsFeedRoutes)
 
 app.route('/api/auth', authRoutes)
-app.use('/api/admin/*', requireAuth, ownerOnly)
+// Pronista §Menu Restructure — /admin/users* และ GET /admin/teams เปิดให้ non-owner เข้าได้ถ้าเพดานเมนูของหมวดตัวเองอนุญาต
+// (เช็คจริงในแต่ละ route handler ของ adminRoutes เอง — ที่นี่แค่เว้น ownerOnly ให้ผ่านไปถึง handler) endpoint อื่นทั้งหมดใต้ /api/admin ยังคง owner-only เสมอ
+app.use('/api/admin/*', requireAuth, async (c, next) => {
+  const path = c.req.path
+  const isUsersPath = path === '/api/admin/users' || path.startsWith('/api/admin/users/')
+  const isTeamsRead = path === '/api/admin/teams' && c.req.method === 'GET'
+  if (isUsersPath || isTeamsRead) return next()
+  return ownerOnly(c, next)
+})
 app.route('/api/admin', adminRoutes)
 app.route('/api/admin', payrollAdminRoutes)
-// Pronista §Membership — จัดการสมาชิก (owner-only)
-app.use('/api/members', requireAuth, ownerOnly)
-app.use('/api/members/*', requireAuth, ownerOnly)
-app.use('/api/member-orders', requireAuth, ownerOnly)
-app.use('/api/member-orders/*', requireAuth, ownerOnly)
-app.use('/api/member-payments', requireAuth, ownerOnly)
+// Pronista §Menu Restructure — จัดการสมาชิก เปิดให้ non-owner เข้าได้ถ้าเพดานเมนู "members" ของหมวดตัวเองอนุญาต (เดิม owner-only ล้วนๆ)
+app.use('/api/members', requireAuth, ceilingMenu('members'))
+app.use('/api/members/*', requireAuth, ceilingMenu('members'))
+app.use('/api/member-orders', requireAuth, ceilingMenu('members'))
+app.use('/api/member-orders/*', requireAuth, ceilingMenu('members'))
+app.use('/api/member-payments', requireAuth, ceilingMenu('members'))
 app.route('/api', memberRoutes)
 app.use('/api/users/*', requireAuth)
 app.use('/api/users', requireAuth)

@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
@@ -395,6 +396,8 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
 
 export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const navigate = useNavigate()
+  const { user: me } = useAuth()
+  const isOwner = me?.role === 'owner'
   const { data: usersList, loading, reload } = useLoad<AdminUser[]>(() => api.get('/api/admin/users'))
   const { data: teamsList, reload: reloadTeams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
   const { data: cfg } = useLoad<{ memberDomain: string }>(() => api.get('/api/config'))
@@ -441,16 +444,19 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
       <PageHeader
         title={pageTitle}
         action={
-          <div className="flex items-center gap-2">
-            {tab !== 'customer' && (
-              <button onClick={() => setAddingTeam((v) => !v)} className="flex items-center gap-2 border border-border-subtle hover:bg-hover text-sm font-medium px-3.5 py-2 rounded-lg">
-                <Plus className="w-4 h-4" /> เพิ่มทีม
+          // Pronista §Menu Restructure — สร้างบัญชีใหม่ยังเป็น owner-only เสมอ (ต่างจากดู/แก้ที่เปิดผ่านเพดานได้แล้ว) กันปุ่มค้างเวลา staff เข้าเมนูนี้ผ่านเพดาน
+          isOwner && (
+            <div className="flex items-center gap-2">
+              {tab !== 'customer' && (
+                <button onClick={() => setAddingTeam((v) => !v)} className="flex items-center gap-2 border border-border-subtle hover:bg-hover text-sm font-medium px-3.5 py-2 rounded-lg">
+                  <Plus className="w-4 h-4" /> เพิ่มทีม
+                </button>
+              )}
+              <button onClick={() => setAdding((v) => !v)} className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
+                <UserPlus className="w-4 h-4" /> {tab === 'customer' ? 'เพิ่มลูกค้า' : 'เพิ่มผู้ใช้งาน'}
               </button>
-            )}
-            <button onClick={() => setAdding((v) => !v)} className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3.5 py-2 rounded-lg">
-              <UserPlus className="w-4 h-4" /> {tab === 'customer' ? 'เพิ่มลูกค้า' : 'เพิ่มผู้ใช้งาน'}
-            </button>
-          </div>
+            </div>
+          )
         }
       />
       <div className="p-3 sm:p-6 space-y-4">
@@ -546,16 +552,26 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                         {tab === 'staff' && <td className="px-5 py-3 text-xs font-mono text-muted">{u.employeeCode ?? '—'}</td>}
                         <td className="px-5 py-3">{u.name}</td>
                         <td className="px-3">
-                          <input type="email" defaultValue={u.email} onBlur={(e) => void saveEmail(u, e.target.value)} className="w-44 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-muted" />
-                          {emailErrors[u.id] && <div className="text-[10px] text-danger-600 mt-0.5">{emailErrors[u.id]}</div>}
+                          {isOwner ? (
+                            <>
+                              <input type="email" defaultValue={u.email} onBlur={(e) => void saveEmail(u, e.target.value)} className="w-44 text-xs shadow-xs bg-white rounded-lg px-2 py-1.5 text-muted" />
+                              {emailErrors[u.id] && <div className="text-[10px] text-danger-600 mt-0.5">{emailErrors[u.id]}</div>}
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted">{u.email}</span>
+                          )}
                         </td>
                         <td className="px-3">
-                          <select value={u.role} onChange={(e) => void saveUserRole(u, e.target.value as AdminUser['role'])} className={`text-[11px] px-2 py-1 rounded-full border-0 ${ROLE_BADGE[u.role]}`}>
-                            <option value="member">{ROLE_LABEL.member}</option>
-                            <option value="vendor">{ROLE_LABEL.vendor}</option>
-                            <option value="guest">{ROLE_LABEL.guest}</option>
-                            <option value="owner">{ROLE_LABEL.owner}</option>
-                          </select>
+                          {isOwner ? (
+                            <select value={u.role} onChange={(e) => void saveUserRole(u, e.target.value as AdminUser['role'])} className={`text-[11px] px-2 py-1 rounded-full border-0 ${ROLE_BADGE[u.role]}`}>
+                              <option value="member">{ROLE_LABEL.member}</option>
+                              <option value="vendor">{ROLE_LABEL.vendor}</option>
+                              <option value="guest">{ROLE_LABEL.guest}</option>
+                              <option value="owner">{ROLE_LABEL.owner}</option>
+                            </select>
+                          ) : (
+                            <span className={`text-[11px] px-2 py-1 rounded-full ${ROLE_BADGE[u.role]}`}>{ROLE_LABEL[u.role]}</span>
+                          )}
                         </td>
                         <td className="px-3 text-muted">{u.teamName ?? '—'}</td>
                         {tab === 'staff' && (
@@ -587,9 +603,11 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                                 <SquarePen className="w-3 h-3" /> แก้ไขข้อมูล
                               </button>
                             )}
-                            <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
-                              {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
-                            </button>
+                            {isOwner && (
+                              <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
+                                {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

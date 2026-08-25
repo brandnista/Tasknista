@@ -102,7 +102,7 @@ export type PermissionCategory = (typeof PERMISSION_CATEGORIES)[number]
 
 export const PERMISSION_CATEGORY_LABEL: Record<PermissionCategory, string> = {
   staff: 'พนักงานในระบบ',
-  outsource: 'พนักงาน Outsource',
+  outsource: 'พาร์ทเนอร์',
   customer: 'ลูกค้า',
 }
 
@@ -114,8 +114,15 @@ export function permissionCategoryOfRole(role: 'owner' | 'member' | 'vendor' | '
   return 'customer'
 }
 
-/** เมนูหลักฝั่ง sidebar ที่คุมได้ต่อประเภทผู้ใช้งาน — ตรงกับ NAV ใน Layout.tsx (ไม่รวม "ตั้งค่า"/"ตั้งค่าผู้ใช้งาน" ซึ่ง owner-only เสมอ ไม่ผ่านเพดานนี้) */
-export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'workspace', 'projects', 'docs', 'docsHistory'] as const
+/** หมวดผู้ใช้งาน → เมนูจัดการบัญชีของหมวดนั้น — ใช้เช็คเพดานตอนเปิด /api/admin/users ให้ non-owner เข้าถึงแบบ scope ตาม category ของตัวเอง */
+export function adminUsersMenuKeyForCategory(category: PermissionCategory): PermissionMenuKey {
+  return category === 'staff' ? 'employees' : category === 'outsource' ? 'partners' : 'customers'
+}
+
+/** เมนูหลักฝั่ง sidebar ที่คุมได้ต่อประเภทผู้ใช้งาน — ตรงกับ NAV ใน Layout.tsx (ไม่รวม "ตั้งค่า"/"ตั้งค่าผู้ใช้งาน" ซึ่ง owner-only เสมอ ไม่ผ่านเพดานนี้)
+ * Pronista §Menu Restructure — employees/partners/customers/members เพิ่มเข้ามาทีหลัง (แยกจาก "ตั้งค่าผู้ใช้งาน" เดิมเป็นเมนูหลัก) ต้อง sync ไว้ที่นี่ด้วย
+ * ให้เพดานคุมได้ (ค่า default ปิดหมดกัน privilege escalation โดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ครั้งแรก — ดู DEFAULT_PERMISSION_CEILINGS) */
+export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'workspace', 'projects', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members'] as const
 export type PermissionMenuKey = (typeof PERMISSION_MENU_KEYS)[number]
 export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   dashboard: 'ภาพรวม',
@@ -124,6 +131,10 @@ export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   projects: 'โปรเจกต์',
   docs: 'เอกสาร',
   docsHistory: 'ประวัติเอกสาร',
+  employees: 'จัดการพนักงาน',
+  partners: 'จัดการพาร์ทเนอร์',
+  customers: 'จัดการลูกค้า',
+  members: 'จัดการสมาชิก',
 }
 
 /** เพดานสิทธิ์ต่อหมวด = สิทธิ์ตำแหน่ง (tabs/actions ระดับโปรเจกต์) + เมนูหลักที่มองเห็นได้ (ระดับ sidebar) */
@@ -139,10 +150,15 @@ function allMenus(value: boolean): Record<PermissionMenuKey, boolean> {
  * staff = เข้าถึงเต็ม ทุกเมนู (คุมสิทธิ์จริงด้วยตำแหน่งต่อโปรเจกต์อยู่แล้ว)
  * outsource = เห็นภาพรวม/งานของฉัน/Workspace/โปรเจกต์ ไม่เห็นเอกสาร/ประวัติเอกสาร (เอกสารภายในไม่ใช่ของผู้รับจ้างภายนอก)
  * customer = เห็นเฉพาะโปรเจกต์ + เอกสาร (ตามตัวอย่างที่ขอ) — ไม่เห็น Workspace/ภาพรวม/งานของฉัน/ประวัติเอกสาร
- *            เข้า Workspace ไม่ได้ แต่ต้องคีย์ Backlog/Defect ให้โปรเจกต์ของตัวเองได้ตรงจากแท็บ Sprint ในหน้าโปรเจกต์ (ที่เหลือยังดูอย่างเดียว) */
+ *            เข้า Workspace ไม่ได้ แต่ต้องคีย์ Backlog/Defect ให้โปรเจกต์ของตัวเองได้ตรงจากแท็บ Sprint ในหน้าโปรเจกต์ (ที่เหลือยังดูอย่างเดียว)
+ * Pronista §Menu Restructure — employees/partners/customers/members ปิดไว้เป็นค่าเริ่มต้นทั้ง 3 หมวด (แม้แต่ staff)
+ * เพราะเป็นเมนูจัดการข้อมูลคนละหมวด/บัญชี (เดิม owner-only แบบ hardcode) เปิดให้ตั้งใจกดเปิดเองใน "เพดานสิทธิ์" กันสิทธิ์หลุดโดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ */
 export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, CeilingPermissions> = {
-  staff: { ...FULL_ACCESS_PERMISSIONS, menus: allMenus(true) },
-  outsource: { ...VIEW_ONLY_PERMISSIONS, menus: { ...allMenus(true), docs: false, docsHistory: false } },
+  staff: { ...FULL_ACCESS_PERMISSIONS, menus: { ...allMenus(true), employees: false, partners: false, customers: false, members: false } },
+  outsource: {
+    ...VIEW_ONLY_PERMISSIONS,
+    menus: { ...allMenus(true), docs: false, docsHistory: false, employees: false, partners: false, customers: false, members: false },
+  },
   customer: {
     ...VIEW_ONLY_PERMISSIONS,
     actions: { ...VIEW_ONLY_PERMISSIONS.actions, task: { ...VIEW_ONLY_PERMISSIONS.actions.task, create: true }, defect: { ...VIEW_ONLY_PERMISSIONS.actions.defect, create: true } },

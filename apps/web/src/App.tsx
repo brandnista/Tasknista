@@ -174,9 +174,10 @@ const router = createBrowserRouter([
       },
       {
         // Pronista §Menu Restructure — ย้ายจาก admin/users (แท็บ "พนักงานในระบบ") ขึ้นเป็นเมนูหลัก
+        // เดิม owner-only hardcode — ตอนนี้คุมผ่านเพดานเมนู "employees" ได้ (default ปิด, API ฝั่ง server ก็ scope ตามหมวดเดียวกัน)
         path: 'employees',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="employees">
             <UserSettingsPage tab="staff" />
           </Protected>
         ),
@@ -184,7 +185,7 @@ const router = createBrowserRouter([
       {
         path: 'employees/:id',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="employees">
             <EmployeeDetailPage />
           </Protected>
         ),
@@ -193,7 +194,7 @@ const router = createBrowserRouter([
         // Pronista §Menu Restructure — ย้ายจาก admin/users/outsource ขึ้นเป็นเมนูหลัก
         path: 'partners',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="partners">
             <UserSettingsPage tab="outsource" />
           </Protected>
         ),
@@ -201,7 +202,7 @@ const router = createBrowserRouter([
       {
         path: 'partners/:id',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="partners">
             <PartnerDetailPage />
           </Protected>
         ),
@@ -210,7 +211,7 @@ const router = createBrowserRouter([
         // Pronista §Menu Restructure — ย้ายจาก admin/users/customers ขึ้นเป็นเมนูหลัก
         path: 'customers',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="customers">
             <UserSettingsPage tab="customer" />
           </Protected>
         ),
@@ -218,7 +219,7 @@ const router = createBrowserRouter([
       {
         path: 'customers/:id',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="customers">
             <UserSettingsCustomerDetailPage />
           </Protected>
         ),
@@ -226,7 +227,7 @@ const router = createBrowserRouter([
       {
         path: 'members',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="members">
             <MembersPage />
           </Protected>
         ),
@@ -234,7 +235,7 @@ const router = createBrowserRouter([
       {
         path: 'members/:id',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="members">
             <MemberDetailPage />
           </Protected>
         ),
@@ -242,7 +243,7 @@ const router = createBrowserRouter([
       {
         path: 'members/orders',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="members">
             <MemberOrdersPage />
           </Protected>
         ),
@@ -250,7 +251,7 @@ const router = createBrowserRouter([
       {
         path: 'members/payments',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="members">
             <MemberPaymentsPage />
           </Protected>
         ),
@@ -258,7 +259,7 @@ const router = createBrowserRouter([
       {
         path: 'members/settings',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="members">
             <MemberSettingsPage />
           </Protected>
         ),

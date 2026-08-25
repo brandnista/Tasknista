@@ -7,6 +7,7 @@ import { Link, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
@@ -33,6 +34,8 @@ interface StaffOpt { id: string; name: string; role: 'owner' | 'member' }
 export function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { confirmDialog } = useDialog()
+  const { user: me } = useAuth()
+  const isOwner = me?.role === 'owner'
   const { data: e, reload } = useLoad<EmployeeDetail>(() => api.get(`/api/admin/users/${id}`), [id])
   const { data: teams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
   const { data: allUsers } = useLoad<StaffOpt[]>(() => api.get('/api/admin/users'))
@@ -80,9 +83,11 @@ export function EmployeeDetailPage() {
       <PageHeader
         title={e.name}
         action={
-          <button onClick={() => void disable()} className="inline-flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700 border border-border-subtle rounded-lg px-3 py-1.5">
-            <Trash2 className="w-3.5 h-3.5" /> {e.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งานแล้ว'}
-          </button>
+          isOwner && (
+            <button onClick={() => void disable()} className="inline-flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700 border border-border-subtle rounded-lg px-3 py-1.5">
+              <Trash2 className="w-3.5 h-3.5" /> {e.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งานแล้ว'}
+            </button>
+          )
         }
       />
       <div className="p-3 sm:p-6 max-w-2xl space-y-4">
@@ -99,7 +104,11 @@ export function EmployeeDetailPage() {
             </div>
             <div>
               <label className={label}>อีเมล</label>
-              <input type="email" defaultValue={e.email} onBlur={(ev) => void save({ email: ev.target.value.trim().toLowerCase() })} className={input} />
+              {isOwner ? (
+                <input type="email" defaultValue={e.email} onBlur={(ev) => void save({ email: ev.target.value.trim().toLowerCase() })} className={input} />
+              ) : (
+                <input value={e.email} readOnly className={`${input} bg-hover text-muted cursor-not-allowed`} />
+              )}
             </div>
             <div>
               <label className={label}>เบอร์โทร</label>

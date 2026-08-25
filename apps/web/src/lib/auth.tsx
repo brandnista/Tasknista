@@ -1,7 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api, ApiError } from './api'
 
-export type MenuKey = 'dashboard' | 'myTasks' | 'workspace' | 'projects' | 'docs' | 'docsHistory'
+export type MenuKey =
+  | 'dashboard'
+  | 'myTasks'
+  | 'workspace'
+  | 'projects'
+  | 'docs'
+  | 'docsHistory'
+  | 'employees'
+  | 'partners'
+  | 'customers'
+  | 'members'
 
 export interface Me {
   id: string

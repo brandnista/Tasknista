@@ -64,14 +64,16 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     ],
   },
   // Pronista §Menu Restructure — แยกออกจาก "ตั้งค่าผู้ใช้งาน" เดิม (เคยเป็น 3 แท็บในหน้าเดียว) เป็นเมนูหลักคนละอันตามสเปก
-  { to: '/employees', label: 'จัดการพนักงาน', icon: Users, roles: ['owner'] },
-  { to: '/partners', label: 'จัดการพาร์ทเนอร์', icon: Handshake, roles: ['owner'] },
-  { to: '/customers', label: 'จัดการลูกค้า', icon: UserCheck, roles: ['owner'] },
+  // เดิม owner-only แบบ hardcode — ตอนนี้คุมผ่านเพดานสิทธิ์ต่อประเภทผู้ใช้งานได้แล้ว (default ปิดหมด ต้องเปิดเองที่ "ตั้งค่าสิทธิ์ผู้ใช้งาน")
+  { to: '/employees', label: 'จัดการพนักงาน', icon: Users, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'employees' },
+  { to: '/partners', label: 'จัดการพาร์ทเนอร์', icon: Handshake, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'partners' },
+  { to: '/customers', label: 'จัดการลูกค้า', icon: UserCheck, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'customers' },
   {
     to: '/members',
     label: 'จัดการสมาชิก',
     icon: IdCard,
-    roles: ['owner'],
+    roles: ['owner', 'member', 'vendor', 'guest'],
+    menuKey: 'members',
     children: [
       { to: '/members', label: 'สมาชิกทั้งหมด' },
       { to: '/members/orders', label: 'รายการสั่งซื้อ' },

@@ -43,6 +43,25 @@ export function teamOrMenu(menuKey: PermissionMenuKey) {
 }
 
 /**
+ * Pronista §Menu Restructure — เหมือน teamOrMenu แต่เช็คเพดานกับ "ทุก" role ที่ไม่ใช่ owner (รวม member/staff ด้วย ไม่ auto-pass เหมือน teamOrMenu)
+ * ใช้กับเมนูจัดการบัญชีคนอื่น (employees/partners/customers/members) ที่แต่เดิม owner-only ล้วนๆ — staff ต้องถูกเพดานกันจริงๆ ไม่ใช่ผ่านฟรีเหมือนเมนูงานทั่วไป
+ */
+export function ceilingMenu(menuKey: PermissionMenuKey) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const user = c.get('user')
+    if (!user) return c.json({ error: 'unauthorized' }, 401)
+    if (user.role === 'owner') return next()
+    const category = permissionCategoryOfRole(user.role)
+    if (category) {
+      const db = createDb(c.env.DB)
+      const cfg = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
+      if (resolvePermissionCeilings(cfg?.permissionCeilings)[category].menus[menuKey]) return next()
+    }
+    return c.json({ error: 'forbidden' }, 403)
+  })
+}
+
+/**
  * จำกัด PAT ตาม scope (SPEC §4.18) — ใช้ต่อจาก requireAuthOrToken
  * มาทาง PAT (มี c.var.tokenScopes) → ต้องมีครบทุก scope ที่ต้องการ ไม่งั้น 403
  * มาทาง session cookie (ไม่มี tokenScopes = คนจริง) → ผ่านเสมอ (role gate เดิมคุมสิทธิ์อยู่แล้ว)
