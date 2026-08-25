@@ -6,7 +6,7 @@ import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
-import { CLASSIFICATION_TYPE_LABEL, CONTACT_TYPE_LABEL, type ClassificationType } from './UserSettings'
+import { CLASSIFICATION_TYPE_LABEL, contactTypeFor, type ClassificationType } from './UserSettings'
 
 interface CustomerDetail {
   id: string
@@ -100,22 +100,11 @@ export function UserSettingsCustomerDetailPage() {
 
         <div className="bg-white rounded-lg shadow-xs p-5 space-y-3">
           <div>
-            <label className={label}>ประเภทผู้ติดต่อ</label>
-            <div className="flex items-center gap-4 text-sm">
-              {(['juristic', 'individual'] as const).map((t) => (
-                <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="radio" name="contactType" checked={(c.contactType ?? 'juristic') === t} onChange={() => void save({ contactType: t })} />
-                  {CONTACT_TYPE_LABEL[t]}
-                </label>
-              ))}
-            </div>
-          </div>
-          <div>
             <label className={label}>ประเภท</label>
             <div className="grid grid-cols-2 gap-2 text-sm">
               {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
                 <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="radio" name="classificationType" checked={c.classificationType === t} onChange={() => void save({ classificationType: t })} />
+                  <input type="radio" name="classificationType" checked={c.classificationType === t} onChange={() => void save({ classificationType: t, contactType: contactTypeFor(t) })} />
                   {CLASSIFICATION_TYPE_LABEL[t]}
                 </label>
               ))}

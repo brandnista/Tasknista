@@ -43,8 +43,10 @@ interface AdminUser {
 }
 interface ProjectOpt { id: string; code: string | null; name: string }
 
-export const CONTACT_TYPE_LABEL: Record<'juristic' | 'individual', string> = { juristic: 'นิติบุคคล', individual: 'บุคคลธรรมดา' }
 export type ClassificationType = 'ordinary_individual' | 'ordinary_juristic' | 'extraordinary_individual' | 'extraordinary_juristic'
+// Pronista §Client Menu Cleanup — contactType (นิติบุคคล/บุคคลธรรมดา) ซ้ำซ้อนกับแกน individual/juristic ใน classificationType
+// เลิกให้เลือกแยก แต่ยัง derive ส่งไป backend อัตโนมัติเพื่อให้ contactType เดิม (ที่ยังมีอยู่ใน schema) sync ตามอยู่เสมอ
+export const contactTypeFor = (t: ClassificationType): 'individual' | 'juristic' => (t === 'ordinary_individual' || t === 'extraordinary_individual' ? 'individual' : 'juristic')
 // Pronista §Partner/Client/Member Classification — ชุดนิยามเดียวกันใช้ซ้ำทั้งพาร์ทเนอร์/ลูกค้า/สมาชิก (เกณฑ์แยกยังไม่นิ่ง — radio ให้เลือกไปก่อน)
 export const CLASSIFICATION_TYPE_LABEL: Record<ClassificationType, string> = {
   ordinary_individual: 'สามัญบุคคล',
@@ -316,7 +318,7 @@ function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreat
 /** เพิ่มลูกค้าใหม่ (role='guest') — ต้องเลือกโปรเจกต์อย่างน้อย 1 (บังคับ) — ฟิลด์เท่ากับหน้าแก้ไข UserSettingsCustomerDetail ทุกฟิลด์ */
 function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOpt[]; onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState({
-    name: '', email: '', businessName: '', phone: '', contactType: 'juristic' as 'juristic' | 'individual',
+    name: '', email: '', businessName: '', phone: '',
     classificationType: 'ordinary_individual' as ClassificationType, projectIds: [] as string[],
     prefix: '', idCardNumber: '', branchType: '' as ClassificationFieldValues['branchType'], branchCode: '', specialNote: '',
   })
@@ -334,7 +336,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
         role: 'guest',
         businessName: form.businessName || null,
         phone: form.phone || null,
-        contactType: form.contactType,
+        contactType: contactTypeFor(form.classificationType),
         classificationType: form.classificationType,
         projectIds: form.projectIds,
         prefix: form.prefix || null, idCardNumber: form.idCardNumber || null,
@@ -349,17 +351,6 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
   }
   return (
     <ModalShell title="เพิ่มลูกค้า" onClose={onClose} wide>
-      <div>
-        <label className={fieldLabel}>ประเภทผู้ติดต่อ</label>
-        <div className="flex items-center gap-4 text-sm">
-          {(['juristic', 'individual'] as const).map((t) => (
-            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" name="contactType" checked={form.contactType === t} onChange={() => setForm({ ...form, contactType: t })} />
-              {CONTACT_TYPE_LABEL[t]}
-            </label>
-          ))}
-        </div>
-      </div>
       <div>
         <label className={fieldLabel}>ประเภท</label>
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -508,7 +499,6 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-strong truncate">{u.businessName || u.name}</span>
-                      {u.contactType && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-info-50 text-info-700 shrink-0">{CONTACT_TYPE_LABEL[u.contactType]}</span>}
                       {u.classificationType && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-hover text-soft shrink-0">{CLASSIFICATION_TYPE_LABEL[u.classificationType]}</span>}
                     </div>
                     <div className="text-[11px] text-muted truncate mt-0.5">{u.name} · {u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
