@@ -58,28 +58,22 @@ export function ProfilePage() {
     <>
       <PageHeader title="โปรไฟล์" />
       <div className="max-w-3xl space-y-6 p-3 sm:p-6">
-        {/* ส่วนเปิด — cover band + avatar ใหญ่ทับขอบ (แพทเทิร์นหน้าโปรไฟล์ทั่วไป) ใช้ gradient brand เดียวกับโลโก้ sidebar เพื่อความสม่ำเสมอ */}
-        <div className="so-fade-in bg-white rounded-lg shadow-xs overflow-hidden">
-          <div className="relative h-24 sm:h-28 bg-linear-to-br from-brand-500 via-brand-600 to-brand-700 overflow-hidden">
-            <div className="absolute -right-6 -top-10 w-36 h-36 rounded-full bg-white/10" aria-hidden />
-            <div className="absolute right-20 -bottom-16 w-28 h-28 rounded-full bg-white/10" aria-hidden />
-          </div>
-          <div className="px-5 sm:px-6 pb-5">
-            <div className="flex items-end gap-4 -mt-10 sm:-mt-12">
-              <Avatar
-                name={user.name}
-                avatarUrl={user.avatarUrl}
-                className="w-20 h-20 sm:w-24 sm:h-24 text-2xl ring-4 ring-white shadow-sm"
-                colorClass="bg-brand-100 text-brand-700"
-              />
-              <div className="min-w-0 pb-1">
-                <div className="text-xl sm:text-2xl font-bold text-ink truncate">{user.name}</div>
-                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">
-                    {ROLE_LABEL[user.role]}
-                  </span>
-                  <span className="text-xs text-muted truncate">{user.email}</span>
-                </div>
+        {/* ส่วนเปิด — avatar + ชื่อ + role (เอา cover band gradient ออกแล้ว บังเนื้อหา) */}
+        <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6">
+          <div className="flex items-center gap-4">
+            <Avatar
+              name={user.name}
+              avatarUrl={user.avatarUrl}
+              className="w-16 h-16 sm:w-20 sm:h-20 text-xl shrink-0"
+              colorClass="bg-brand-100 text-brand-700"
+            />
+            <div className="min-w-0">
+              <div className="text-xl sm:text-2xl font-bold text-ink truncate">{user.name}</div>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <span className="text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">
+                  {ROLE_LABEL[user.role]}
+                </span>
+                <span className="text-xs text-muted truncate">{user.email}</span>
               </div>
             </div>
           </div>
