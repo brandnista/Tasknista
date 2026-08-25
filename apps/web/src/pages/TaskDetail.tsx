@@ -317,6 +317,7 @@ export function TaskDetailPage() {
   const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
   const [comment, setComment] = useState('')
   const [descDraft, setDescDraft] = useState<string | null>(null)
+  const [titleDraft, setTitleDraft] = useState<string | null>(null)
   const [dispatching, setDispatching] = useState(false)
   const [assigneeNotesDraft, setAssigneeNotesDraft] = useState<string | null>(null)
   const [refCodeDraft, setRefCodeDraft] = useState<string | null>(null)
@@ -579,7 +580,22 @@ export function TaskDetailPage() {
             >
               {done && <Check className="w-4 h-4" />}
             </button>
-            <h1 className={`text-xl font-semibold text-wrap ${done ? 'text-muted line-through' : 'text-ink'}`}>{t.title}</h1>
+            {canEdit && !isAssignee ? (
+              <textarea
+                value={titleDraft ?? t.title}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={() => {
+                  const next = (titleDraft ?? t.title).trim()
+                  if (titleDraft !== null && next && next !== t.title) void patch({ title: next })
+                  setTitleDraft(null)
+                }}
+                rows={2}
+                aria-label="ชื่องาน"
+                className={`flex-1 min-w-0 resize-none text-xl font-semibold bg-transparent rounded-lg -mx-1.5 px-1.5 py-0.5 hover:bg-hover focus:bg-hover focus:outline-hidden ${done ? 'text-muted line-through' : 'text-ink'}`}
+              />
+            ) : (
+              <h1 className={`text-xl font-semibold text-wrap ${done ? 'text-muted line-through' : 'text-ink'}`}>{t.title}</h1>
+            )}
           </div>
           {t.srsRefCode && t.srsDocId && (
             <a href={`/docs/${t.srsDocId}`} target="_blank" rel="noreferrer" title={t.srsSourceCode ? `อ้างอิงข้อ ${t.srsSourceCode} ในเอกสาร SRS` : 'เปิดเอกสาร SRS ต้นทาง'} className="inline-flex items-center gap-1 text-[11px] font-mono bg-info-50 text-info-700 px-1.5 py-0.5 rounded mt-2 hover:bg-info-100">
