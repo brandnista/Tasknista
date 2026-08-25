@@ -54,7 +54,7 @@ export function DashboardPage() {
   const goTask = (projectId: string, taskId: string) => navigate(`/projects/${projectId}?task=${taskId}`)
 
   return (
-    <div className="p-3 sm:p-6">
+    <div className="px-4 py-3 sm:p-6">
       {user?.role === 'owner' && <CompanyOverview />}
       {/* Pronista §System Requirements Update — พนักงาน Outsource (vendor) เห็นเมนูภาพรวมได้ (เพดาน default) แต่เดิมเจอหน้าเปล่าเพราะ gate ไว้แค่ member — ควรเห็นสรุปงานของตัวเองเหมือน staff */}
       {(user?.role === 'member' || user?.role === 'vendor') && <PersonalOverview />}
@@ -65,7 +65,7 @@ export function DashboardPage() {
             <div className="font-semibold text-ink">งานวันนี้</div>
             <button
               onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyN', bubbles: true }))}
-              className="text-xs bg-brand-50 text-brand-700 hover:bg-brand-100 px-2 py-1 rounded-lg flex items-center gap-1"
+              className="text-xs bg-brand-50 text-brand-700 hover:bg-brand-100 px-2 min-h-[44px] sm:min-h-0 sm:py-1 rounded-lg flex items-center gap-1"
             >
               <Plus className="w-3.5 h-3.5" /> เพิ่มงานด่วน
             </button>

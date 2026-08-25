@@ -96,10 +96,10 @@ export function TeamBox({ presenceRows }: { presenceRows?: TeamRow[] | null }) {
         </label>
       </div>
 
-      {/* avatar row + presence */}
-      <div className="flex flex-wrap gap-3">
+      {/* avatar row + presence — มือถือ scroll แนวนอนแทนตกบรรทัด (จอกว้างขึ้นค่อย wrap ปกติ) */}
+      <div className="flex flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible gap-3 pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
         {rows.map((p) => (
-          <div key={p.userId} className={`group relative ${p.onLeaveToday ? 'opacity-50' : ''}`}>
+          <div key={p.userId} className={`group relative shrink-0 ${p.onLeaveToday ? 'opacity-50' : ''}`}>
             <Avatar name={p.name} avatarUrl={p.avatarUrl} className={`w-11 h-11 text-sm ${p.running ? 'ring-2 ring-brand-400' : ''}`} colorClass={avatarColor(p.name)} />
             {p.running && <RunningBadge startedAt={p.running.startedAt} />}
             <div className="absolute z-20 left-0 top-full mt-2 w-48 bg-ink text-white rounded-xl p-3 text-xs opacity-0 group-hover:opacity-100 pointer-events-none transition shadow-lg">

@@ -38,6 +38,15 @@ const TYPE_CLS: Record<CalEvent['type'], string> = {
 const TYPE_LABEL: Record<string, string> = {
   holiday: 'วันหยุด', leave: 'วันลา', meeting: 'ประชุม', deadline: 'กำหนดส่ง', other: 'อื่นๆ',
 }
+// มือถือ (Month view) แสดงจุดสีแทนข้อความยาว กันตัดคำจนอ่านไม่รู้เรื่อง — คลิกวันที่เพื่อดูรายละเอียดแทน
+const TYPE_DOT: Record<CalEvent['type'], string> = {
+  holiday: 'bg-success-500',
+  leave: 'bg-orange-500',
+  meeting: 'bg-soft',
+  deadline: 'bg-danger-500',
+  other: 'bg-info-500',
+  payroll: 'bg-brand-500',
+}
 
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
 const DOWF = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์']
@@ -122,7 +131,8 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
 }
 
 export function TeamCalendar() {
-  const [view, setView] = useState<'day' | 'week' | 'month'>('month')
+  // มือถือ (< 640px) เริ่มที่ Week view — Month view 7 คอลัมน์แคบเกินอ่านบนจอเล็ก
+  const [view, setView] = useState<'day' | 'week' | 'month'>(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 'week' : 'month'))
   const [ref, setRef] = useState(() => bkkNow())
   const [adding, setAdding] = useState(false)
   const { confirmDialog } = useDialog()
@@ -168,7 +178,7 @@ export function TeamCalendar() {
 
   const EventChip = ({ e, size }: { e: CalEvent; size: 'sm' | 'md' }) => (
     <div
-      onClick={() => void removeEvent(e)}
+      onClick={(ev) => { ev.stopPropagation(); void removeEvent(e) }}
       title={eventTooltip(e)}
       className={`truncate rounded px-1 mt-0.5 ${TYPE_CLS[e.type]} ${size === 'sm' ? 'text-[10px]' : 'text-[11px] px-1.5 py-0.5'} ${e.type === 'payroll' ? '' : 'cursor-pointer hover:opacity-75'}`}
     >
@@ -194,26 +204,26 @@ export function TeamCalendar() {
 
   return (
     <div className="mt-5 bg-white rounded-lg shadow-xs p-5">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-brand-600" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-2">
+        <div className="flex items-center flex-wrap gap-2">
+          <Calendar className="w-4 h-4 text-brand-600 shrink-0" />
           <span className="font-semibold text-ink">ปฏิทินทีมงาน</span>
           <div className="flex items-center gap-0.5 ml-1">
-            <button onClick={() => nav(-1)} className="w-7 h-7 grid place-items-center rounded-lg text-muted hover:bg-divider" aria-label="ก่อนหน้า"><ChevronLeft className="w-4 h-4" /></button>
-            <button onClick={() => setRef(bkkNow())} className="text-xs text-dim hover:bg-divider px-2 py-1 rounded-lg">วันนี้</button>
-            <button onClick={() => nav(1)} className="w-7 h-7 grid place-items-center rounded-lg text-muted hover:bg-divider" aria-label="ถัดไป"><ChevronRight className="w-4 h-4" /></button>
+            <button onClick={() => nav(-1)} className="w-11 h-11 sm:w-7 sm:h-7 grid place-items-center rounded-lg text-muted hover:bg-divider" aria-label="ก่อนหน้า"><ChevronLeft className="w-4 h-4" /></button>
+            <button onClick={() => setRef(bkkNow())} className="text-xs text-dim hover:bg-divider px-2 min-h-[44px] sm:min-h-0 sm:py-1 rounded-lg">วันนี้</button>
+            <button onClick={() => nav(1)} className="w-11 h-11 sm:w-7 sm:h-7 grid place-items-center rounded-lg text-muted hover:bg-divider" aria-label="ถัดไป"><ChevronRight className="w-4 h-4" /></button>
           </div>
           <span className="text-sm text-muted">{label}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between sm:justify-end gap-2">
           <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
             {(['day', 'week', 'month'] as const).map((v) => (
-              <button key={v} onClick={() => setView(v)} className={`px-2.5 py-1 rounded-md capitalize ${view === v ? 'bg-white shadow-xs text-brand-700' : 'text-dim'}`}>
+              <button key={v} onClick={() => setView(v)} className={`px-2.5 py-2 sm:py-1 rounded-md capitalize ${view === v ? 'bg-white shadow-xs text-brand-700' : 'text-dim'}`}>
                 {v === 'day' ? 'Day' : v === 'week' ? 'Week' : 'Month'}
               </button>
             ))}
           </div>
-          <button onClick={() => setAdding(true)} className="text-xs bg-brand-600 text-white rounded-lg px-2.5 py-1.5 hover:bg-brand-700 flex items-center gap-1">
+          <button onClick={() => setAdding(true)} className="text-xs bg-brand-600 text-white rounded-lg px-2.5 min-h-[44px] sm:min-h-0 sm:py-1.5 hover:bg-brand-700 flex items-center gap-1">
             <Plus className="w-3.5 h-3.5" /> เพิ่ม
           </button>
         </div>
@@ -230,14 +240,25 @@ export function TeamCalendar() {
               const dIso = iso(start)
               const inMonth = start.getUTCMonth() === ref.getUTCMonth()
               const isToday = dIso === todayISO()
+              const dayEvents = eventsOn(dIso)
               return (
-                <div key={i} className={`${inMonth ? 'bg-white' : 'bg-hover/60'} min-h-[58px] p-1`}>
+                <div
+                  key={i}
+                  onClick={() => { setView('day'); setRef(start) }}
+                  className={`${inMonth ? 'bg-white' : 'bg-hover/60'} min-h-[58px] p-1 cursor-pointer hover:bg-hover/80`}
+                >
                   {isToday ? (
                     <span className="bg-danger-500 text-white w-5 h-5 grid place-items-center rounded-full text-[11px]">{start.getUTCDate()}</span>
                   ) : (
                     <span className={`${inMonth ? 'text-dim' : 'text-border'} text-[11px] px-1`}>{start.getUTCDate()}</span>
                   )}
-                  {eventsOn(dIso).map((e) => <EventChip key={`${e.id}-${dIso}`} e={e} size="sm" />)}
+                  {/* จอกว้าง (sm+) เห็นชื่อกิจกรรมเต็ม · มือถือเห็นจุดสีแทน กันข้อความถูกตัดจนอ่านไม่รู้เรื่อง แตะวันที่เพื่อดูรายละเอียด */}
+                  <div className="hidden sm:block">
+                    {dayEvents.map((e) => <EventChip key={`${e.id}-${dIso}`} e={e} size="sm" />)}
+                  </div>
+                  <div className="flex flex-wrap gap-0.5 mt-1 px-1 sm:hidden">
+                    {dayEvents.slice(0, 4).map((e) => <span key={`${e.id}-${dIso}`} title={eventTooltip(e)} className={`w-1.5 h-1.5 rounded-full ${TYPE_DOT[e.type]}`} />)}
+                  </div>
                 </div>
               )
             })}
