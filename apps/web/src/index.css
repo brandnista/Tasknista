@@ -111,6 +111,27 @@ html, body {
 .so-pop-in { animation: so-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
 .so-pop-out { animation: so-pop-out 0.13s ease-in forwards; }
 
+/* Pronista §My Note board — บอร์ดกระดาน Post-it ในแท็บ My Note (whiteboard เบาๆ + จุดกริดจาง) */
+.note-board {
+  background-color: #fcfcfb;
+  background-image: radial-gradient(var(--border-subtle) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.postit-note {
+  transform: rotate(var(--postit-rot, 0deg));
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.postit-note:hover {
+  transform: rotate(0deg) translateY(-4px);
+  box-shadow: 0 10px 20px -6px rgb(0 0 0 / 0.18);
+}
+@keyframes so-postit-drop {
+  0% { opacity: 0; transform: translateY(-38px) rotate(calc(var(--postit-rot, 0deg) - 12deg)) scale(0.8); }
+  55% { opacity: 1; transform: translateY(5px) rotate(calc(var(--postit-rot, 0deg) + 4deg)) scale(1.05); }
+  100% { opacity: 1; transform: translateY(0) rotate(var(--postit-rot, 0deg)) scale(1); }
+}
+.so-postit-drop { animation: so-postit-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
 /* typography ของเอกสาร (Tiptap) — ตาม mockup docs */
 .doc-editor h2 { font-size: 1.25rem; font-weight: 600; color: var(--ink); margin: 2rem 0 0.5rem; }
 .doc-editor h3 { font-size: 1.1rem; font-weight: 600; color: var(--ink); margin: 1.5rem 0 0.4rem; }

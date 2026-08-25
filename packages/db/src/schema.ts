@@ -1773,6 +1773,13 @@ export const notes = sqliteTable(
     title: text('title'),
     // เก็บ plain text หรือ checklist ตาม format: JSON string { mode: 'text'|'checklist', text?, items?: {id,text,done}[] }
     body: text('body').notNull(),
+    // Pronista §My Note board — บันทึกลิงก์ไปงานที่ถูก Convert แล้ว (denormalized ไว้แสดงผลตรงๆ บน Post-it โดยไม่ต้อง join —
+    // linkedTaskId ชี้ได้ทั้งแถวใน `tasks` หรือ `epics` แล้วแต่ linkedKind จึงไม่ทำ FK ตรงๆ)
+    linkedKind: text('linked_kind', { enum: ['epic', 'story', 'task', 'subtask', 'defect'] }),
+    linkedTaskId: text('linked_task_id'),
+    linkedCode: text('linked_code'),
+    linkedProjectId: text('linked_project_id').references(() => projects.id),
+    linkedProjectName: text('linked_project_name'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

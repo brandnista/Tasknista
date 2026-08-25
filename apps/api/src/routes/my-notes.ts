@@ -16,6 +16,17 @@ const bodyPayload = z.union([
   z.object({ mode: z.literal('checklist'), items: z.array(z.object({ id: z.string(), text: z.string().max(500), done: z.boolean() })).max(200) }),
 ])
 
+// Pronista §My Note board — ผูกกลับไปงานที่ Convert สร้างขึ้น เพื่อโชว์เป็น badge บน Post-it (ส่ง null = ลบลิงก์)
+const linkPayload = z
+  .object({
+    kind: z.enum(['epic', 'story', 'task', 'subtask', 'defect']),
+    taskId: z.string(),
+    code: z.string().nullable(),
+    projectId: z.string(),
+    projectName: z.string(),
+  })
+  .nullable()
+
 myNoteRoutes
   .get('/my-notes', async (c) => {
     const db = createDb(c.env.DB)
@@ -34,7 +45,9 @@ myNoteRoutes
   })
 
   .patch('/my-notes/:id', async (c) => {
-    const body = z.object({ title: z.string().max(200).nullable().optional(), body: bodyPayload.optional() }).safeParse(await c.req.json())
+    const body = z
+      .object({ title: z.string().max(200).nullable().optional(), body: bodyPayload.optional(), link: linkPayload.optional() })
+      .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -43,6 +56,14 @@ myNoteRoutes
     const patch: Record<string, unknown> = { updatedAt: new Date() }
     if ('title' in body.data) patch.title = body.data.title
     if (body.data.body) patch.body = JSON.stringify(body.data.body)
+    if ('link' in body.data) {
+      const link = body.data.link
+      patch.linkedKind = link?.kind ?? null
+      patch.linkedTaskId = link?.taskId ?? null
+      patch.linkedCode = link?.code ?? null
+      patch.linkedProjectId = link?.projectId ?? null
+      patch.linkedProjectName = link?.projectName ?? null
+    }
     const updated = (await db.update(notes).set(patch).where(eq(notes.id, before.id)).returning())[0]
     return c.json(updated)
   })
