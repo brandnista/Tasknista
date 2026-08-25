@@ -293,13 +293,15 @@ export function Layout() {
       }`}
     >
       <div className="h-16 flex items-center gap-2.5 px-5 border-b border-border-subtle">
-        <div className="w-8 h-8 rounded-lg bg-linear-to-br from-brand-500 to-brand-700 grid place-items-center text-white shadow-sm">
-          <ListChecks className="w-5 h-5" />
-        </div>
-        <div>
-          <div className="font-bold text-ink leading-none">Pronista</div>
-          <div className="text-[11px] text-muted mt-0.5">Project Management</div>
-        </div>
+        <NavLink to="/" onClick={() => setNavOpen(false)} className="flex items-center gap-2.5 rounded-lg -m-1 p-1 hover:bg-hover" title="ไปหน้าภาพรวม">
+          <div className="w-8 h-8 rounded-lg bg-linear-to-br from-brand-500 to-brand-700 grid place-items-center text-white shadow-sm shrink-0">
+            <ListChecks className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="font-bold text-ink leading-none">Pronista</div>
+            <div className="text-[11px] text-muted mt-0.5">Project Management</div>
+          </div>
+        </NavLink>
         <button
           onClick={() => setNavOpen(false)}
           aria-label="ปิดเมนู"
