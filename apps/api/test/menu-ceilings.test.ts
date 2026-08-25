@@ -25,6 +25,7 @@ function grantMenu(category: PermissionCategory, menuKey: keyof CeilingPermissio
     staff: { ...DEFAULT_PERMISSION_CEILINGS.staff, menus: { ...DEFAULT_PERMISSION_CEILINGS.staff.menus, ...(category === 'staff' ? { [menuKey]: true } : {}) } },
     outsource: { ...DEFAULT_PERMISSION_CEILINGS.outsource, menus: { ...DEFAULT_PERMISSION_CEILINGS.outsource.menus, ...(category === 'outsource' ? { [menuKey]: true } : {}) } },
     customer: { ...DEFAULT_PERMISSION_CEILINGS.customer, menus: { ...DEFAULT_PERMISSION_CEILINGS.customer.menus, ...(category === 'customer' ? { [menuKey]: true } : {}) } },
+    membership: { ...DEFAULT_PERMISSION_CEILINGS.membership, menus: { ...DEFAULT_PERMISSION_CEILINGS.membership.menus, ...(category === 'membership' ? { [menuKey]: true } : {}) } },
   }
 }
 

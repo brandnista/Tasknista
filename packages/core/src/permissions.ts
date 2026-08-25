@@ -96,18 +96,25 @@ export function hasAnyEditRight(perm: PositionPermissions): boolean {
  * Pronista §System Requirements Update — ระบบสิทธิ์ 2 ชั้น: "เพดาน" ต่อประเภทผู้ใช้งาน (staff/outsource/customer) ครอบสิทธิ์ตำแหน่งอีกชั้น
  * staff (owner/member) = intersect(ตำแหน่งที่ assign, เพดาน staff) · outsource(vendor)/customer(guest) ไม่มีตำแหน่งของตัวเอง เพดาน = สิทธิ์จริงเลย
  * owner ไม่ผ่านเพดานนี้เลย (bypass ที่ getProjectPermissions อยู่แล้ว)
+ * Pronista §Menu Restructure — เพิ่มหมวด 'membership' (สมาชิก) ไว้ล่วงหน้า — ตั้งชื่อไม่ให้ชนกับ role='member' เดิม (คนละความหมาย: role member = พนักงาน/หมวด staff)
+ * ตอนนี้ "สมาชิก" ยังไม่มี login เป็นของตัวเอง (ยังไม่มี role แม็ปมาที่นี่ ดู permissionCategoryOfRole) เพดานหมวดนี้จึงยังไม่ถูกใช้งานจริงที่ไหน
+ * เตรียมโครง/ค่า default ไว้รอ flow สมัครสมาชิก+login ในเฟสถัดไป (ยังไม่ตัดสินใจรายละเอียด)
  */
-export const PERMISSION_CATEGORIES = ['staff', 'outsource', 'customer'] as const
+export const PERMISSION_CATEGORIES = ['staff', 'outsource', 'customer', 'membership'] as const
 export type PermissionCategory = (typeof PERMISSION_CATEGORIES)[number]
 
 export const PERMISSION_CATEGORY_LABEL: Record<PermissionCategory, string> = {
   staff: 'พนักงาน',
   outsource: 'พาร์ทเนอร์',
   customer: 'ลูกค้า',
+  membership: 'สมาชิก',
 }
 
+/** หมวดที่มี role login จริงใน users table วันนี้ (ไม่รวม 'membership' — สมาชิกยังไม่มี login เป็นของตัวเอง) */
+export type LoginPermissionCategory = Exclude<PermissionCategory, 'membership'>
+
 /** map global role → หมวดเพดาน — owner ไม่มีหมวด (bypass เพดานเสมอ) */
-export function permissionCategoryOfRole(role: 'owner' | 'member' | 'vendor' | 'guest'): PermissionCategory | null {
+export function permissionCategoryOfRole(role: 'owner' | 'member' | 'vendor' | 'guest'): LoginPermissionCategory | null {
   if (role === 'owner') return null
   if (role === 'member') return 'staff'
   if (role === 'vendor') return 'outsource'
@@ -115,7 +122,7 @@ export function permissionCategoryOfRole(role: 'owner' | 'member' | 'vendor' | '
 }
 
 /** หมวดผู้ใช้งาน → เมนูจัดการบัญชีของหมวดนั้น — ใช้เช็คเพดานตอนเปิด /api/admin/users ให้ non-owner เข้าถึงแบบ scope ตาม category ของตัวเอง */
-export function adminUsersMenuKeyForCategory(category: PermissionCategory): PermissionMenuKey {
+export function adminUsersMenuKeyForCategory(category: LoginPermissionCategory): PermissionMenuKey {
   return category === 'staff' ? 'employees' : category === 'outsource' ? 'partners' : 'customers'
 }
 
@@ -164,6 +171,8 @@ export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, CeilingPerm
     actions: { ...VIEW_ONLY_PERMISSIONS.actions, task: { ...VIEW_ONLY_PERMISSIONS.actions.task, create: true }, defect: { ...VIEW_ONLY_PERMISSIONS.actions.defect, create: true } },
     menus: { ...allMenus(false), projects: true, docs: true },
   },
+  // ยังไม่มี role/login ให้หมวดนี้จริง (ดู permissionCategoryOfRole) — ปิดทุกเมนูไว้ก่อนทั้งหมด เตรียมไว้เฉยๆ รอ flow สมัครสมาชิก+login
+  membership: { ...VIEW_ONLY_PERMISSIONS, menus: allMenus(false) },
 }
 
 // เพดานที่บันทึกไว้ตั้งแต่ก่อนเพิ่ม field ใหม่ (เช่น 'menus') จะไม่มี key นั้นใน JSON เดิม — เติมด้วยค่า default ของหมวดนั้น (ไม่ใช่ false เปล่าๆ กัน staff เข้าถึงเต็มโดน fallback เป็นปิดหมดโดยไม่ตั้งใจ)

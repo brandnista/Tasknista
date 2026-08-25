@@ -32,6 +32,7 @@ import {
   type CeilingPermissions,
   type CostRole,
   type Label,
+  type LoginPermissionCategory,
   type ParameterRole,
   type PermissionCategory,
   type Position,
@@ -64,11 +65,11 @@ const BRANCH_CODE_SCHEMA = z
 
 // Pronista §Menu Restructure — /admin/users* เปิดให้ non-owner (staff/outsource/customer) เข้าถึงได้แบบ scope เฉพาะหมวดตัวเอง
 // ถ้าเพดานเมนู (employees/partners/customers) ของหมวดนั้นอนุญาต — คนละกรณีกับ ownerOnly endpoint อื่นใต้ /api/admin (ดู index.ts การ mount)
-const categoryOfUserRole = (role: 'owner' | 'member' | 'vendor' | 'guest'): PermissionCategory =>
+const categoryOfUserRole = (role: 'owner' | 'member' | 'vendor' | 'guest'): LoginPermissionCategory =>
   role === 'owner' || role === 'member' ? 'staff' : role === 'vendor' ? 'outsource' : 'customer'
 
-/** คืน 'owner' = ไม่จำกัด, PermissionCategory = non-owner ที่เพดานอนุญาตแล้ว (จำกัดเห็น/แก้ได้แค่ record ในหมวดเดียวกัน), null = ไม่มีสิทธิ์ */
-async function resolveUsersAccess(c: Context<AppEnv>): Promise<'owner' | PermissionCategory | null> {
+/** คืน 'owner' = ไม่จำกัด, LoginPermissionCategory = non-owner ที่เพดานอนุญาตแล้ว (จำกัดเห็น/แก้ได้แค่ record ในหมวดเดียวกัน), null = ไม่มีสิทธิ์ */
+async function resolveUsersAccess(c: Context<AppEnv>): Promise<'owner' | LoginPermissionCategory | null> {
   const caller = c.get('user')
   if (caller.role === 'owner') return 'owner'
   const category = permissionCategoryOfRole(caller.role)
