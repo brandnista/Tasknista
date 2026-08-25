@@ -11,15 +11,20 @@ import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { canEditProject, type EffectiveProjectRole } from './project-role'
 
 // Pronista §Card glance-at-a-glance — เช็กลิสต์แบบ "☑ x/y" บนการ์ด/แถว (ไม่ต้องเปิด TaskDetail) ใช้ pattern เดียวกับ GET /tasks/mine (EE1): batch select ครั้งเดียว + นับใน memory
+// (2026-08-25) แบ่งเป็นชุดละ 90 — D1/SQLite จำกัดจำนวน bound parameter ต่อ query ไว้ที่ 100 ตัว โปรเจกต์ที่มี task เกินร้อยตัว (เช่นนำเข้าจาก CR sheet ทีเดียว) ยิง IN (...) เดียวเกิน limit แล้ว query ทั้งเส้นพัง (500)
 export async function checklistCountsFor(db: ReturnType<typeof createDb>, taskIds: string[]) {
   const map = new Map<string, { done: number; total: number }>()
   if (taskIds.length === 0) return map
-  const rows = await db.select({ taskId: taskChecklistItems.taskId, done: taskChecklistItems.done }).from(taskChecklistItems).where(inArray(taskChecklistItems.taskId, taskIds))
-  for (const r of rows) {
-    const cur = map.get(r.taskId) ?? { done: 0, total: 0 }
-    cur.total += 1
-    if (r.done) cur.done += 1
-    map.set(r.taskId, cur)
+  const CHUNK_SIZE = 90
+  for (let i = 0; i < taskIds.length; i += CHUNK_SIZE) {
+    const chunk = taskIds.slice(i, i + CHUNK_SIZE)
+    const rows = await db.select({ taskId: taskChecklistItems.taskId, done: taskChecklistItems.done }).from(taskChecklistItems).where(inArray(taskChecklistItems.taskId, chunk))
+    for (const r of rows) {
+      const cur = map.get(r.taskId) ?? { done: 0, total: 0 }
+      cur.total += 1
+      if (r.done) cur.done += 1
+      map.set(r.taskId, cur)
+    }
   }
   return map
 }

@@ -10,7 +10,6 @@ import {
   projects,
   sprints,
   taskAttachments,
-  taskChecklistItems,
   taskComments,
   taskCustomFields,
   taskGroups,
@@ -460,14 +459,11 @@ export const taskRoutes = new Hono<AppEnv>()
       return hasAnyEditRight(perm) ? 'editor' : 'viewer'
     }
     // Pronista §Back to Basic (ต่อยอด) — ความคืบหน้าเกณฑ์ว่าเสร็จ (checklist) ต่องาน ให้หน้า "งานของฉัน" โชว์ได้โดยไม่ต้องเปิดเข้าไปทีละงาน
-    const taskIds = rows.map((r) => r.task.id)
-    const checklistRows =
-      taskIds.length > 0
-        ? await db.select({ taskId: taskChecklistItems.taskId, done: taskChecklistItems.done }).from(taskChecklistItems).where(inArray(taskChecklistItems.taskId, taskIds))
-        : []
+    // (2026-08-25) ใช้ checklistCountsFor กลาง (แบ่งชุด กัน D1 bound-parameter limit) แทน query ตรงๆ ที่นี่ — คนที่มีงานค้างเยอะๆ เคยพังแบบเดียวกับ GET /tasks/all
+    const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
     const checklistOf = (taskId: string) => {
-      const mine = checklistRows.filter((i) => i.taskId === taskId)
-      return { checklistDone: mine.filter((i) => i.done).length, checklistTotal: mine.length }
+      const c = checklistCounts.get(taskId)
+      return { checklistDone: c?.done ?? 0, checklistTotal: c?.total ?? 0 }
     }
     return c.json(
       rows.map((r) => ({ ...r.task, projectName: r.projectName, myRole: roleOf(r.task.projectId!), ...checklistOf(r.task.id) })),
