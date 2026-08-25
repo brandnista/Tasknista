@@ -1,0 +1,9 @@
+[
+  {
+    "date": "2026-08-25",
+    "macrostructure": "Profile Header (app settings page — not a landing macrostructure)",
+    "theme": "existing-project-tokens (locked: brand-500/600/700 gradient, ink/strong/body/soft/muted ramp)",
+    "enrichment": "Tier-A CSS only (two translucent circles on the cover band)",
+    "brief": "Pronista · redesign profile settings page — hero cover band + large avatar, demoted Access Tokens into a labeled advanced-integrations section"
+  }
+]

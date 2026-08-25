@@ -211,6 +211,33 @@ export function Layout() {
           <X className="w-5 h-5" />
         </button>
       </div>
+      {/* บัญชีผู้ใช้ — ย้ายขึ้นมาไว้ต่อจากโลโก้ (จุดแรกที่เห็นหลัง login แทนที่จะจมอยู่ล่างสุด) */}
+      <div className="p-3 border-b border-border-subtle">
+        <div className="flex items-center gap-2.5 px-2 py-1.5">
+          <NavLink
+            to="/profile"
+            onClick={() => setNavOpen(false)}
+            title="โปรไฟล์"
+            className="flex items-center gap-2.5 min-w-0 flex-1 -mx-1 px-1 py-0.5 rounded-lg hover:bg-hover"
+          >
+            <Avatar name={user.name} avatarUrl={user.avatarUrl} className="w-8 h-8 text-xs" colorClass="bg-brand-100 text-brand-700" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-strong truncate">{user.name}</div>
+              <div className="text-[11px] text-muted truncate">{ROLE_LABEL[user.role]}</div>
+            </div>
+          </NavLink>
+          <button
+            onClick={() => {
+              void logout().then(() => navigate('/login'))
+            }}
+            title="ออกจากระบบ"
+            className="p-1.5 rounded-lg text-muted hover:bg-divider hover:text-soft"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+        <DevSwitcher me={user} />
+      </div>
       <nav className="flex-1 p-3 space-y-0.5 text-sm">
         {items.map(({ to, label, icon: Icon, children }) => {
           const isOpen = !!children && openGroups.has(to)
@@ -259,32 +286,6 @@ export function Layout() {
           )
         })}
       </nav>
-      <div className="p-3 border-t border-border-subtle">
-        <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <NavLink
-            to="/profile"
-            onClick={() => setNavOpen(false)}
-            title="โปรไฟล์"
-            className="flex items-center gap-2.5 min-w-0 flex-1 -mx-1 px-1 py-0.5 rounded-lg hover:bg-hover"
-          >
-            <Avatar name={user.name} avatarUrl={user.avatarUrl} className="w-8 h-8 text-xs" colorClass="bg-brand-100 text-brand-700" />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-strong truncate">{user.name}</div>
-              <div className="text-[11px] text-muted truncate">{ROLE_LABEL[user.role]}</div>
-            </div>
-          </NavLink>
-          <button
-            onClick={() => {
-              void logout().then(() => navigate('/login'))
-            }}
-            title="ออกจากระบบ"
-            className="p-1.5 rounded-lg text-muted hover:bg-divider hover:text-soft"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-        <DevSwitcher me={user} />
-      </div>
     </aside>
   )
 
