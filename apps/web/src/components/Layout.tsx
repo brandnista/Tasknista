@@ -8,7 +8,6 @@ import {
   Layers,
   LayoutDashboard,
   ListChecks,
-  LogOut,
   Menu,
   NotebookText,
   Settings,
@@ -16,13 +15,14 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { useAuth, type Me, type MenuKey } from '../lib/auth'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TimerProvider, useTimer } from '../lib/timer'
 import { Avatar } from './Avatar'
+import { useDialog } from './Dialog'
 import { NotificationBell } from './NotificationBell'
 import { QuickAddModal } from './QuickAdd'
 
@@ -114,9 +114,106 @@ function DevSwitcher({ me }: { me: Me }) {
   )
 }
 
-export function Layout() {
-  const { user, logout } = useAuth()
+/**
+ * Sidebar Profile — trigger button + dropdown panel (avatar/ชื่อ/role, เมนูโปรไฟล์, ออกจากระบบ)
+ * อ้างอิงดีไซน์ "sidebar-profile-1c" — ตัด section "สลับ Workspace" ออกตาม fallback ของสเปกเอง
+ * (Pronista เป็น single-tenant ไม่มีแนวคิดหลาย workspace ต่อผู้ใช้ — สเปกข้อ 3 บอกไว้ว่า "มี workspace เดียว → ซ่อน section ทั้งบล็อก")
+ */
+function SidebarProfile({ user, closeMobileNav }: { user: Me; closeMobileNav: () => void }) {
+  const { logout } = useAuth()
+  const { confirmDialog } = useDialog()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // เปลี่ยนหน้า → ปิด panel อัตโนมัติ
+  useEffect(() => setOpen(false), [location.pathname])
+
+  const doLogout = async () => {
+    setOpen(false)
+    const ok = await confirmDialog({ title: 'ต้องการออกจากระบบใช่หรือไม่', confirmLabel: 'ออกจากระบบ', danger: true })
+    if (!ok) return
+    closeMobileNav()
+    await logout()
+    navigate('/login')
+  }
+
+  return (
+    <div ref={rootRef}>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls="sidebar-profile-menu"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center gap-2.5 p-2.5 rounded-2xl border text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 ${
+          open ? 'bg-brand-50 border-brand-200' : 'bg-hover border-border-subtle hover:bg-brand-50 hover:border-brand-200'
+        }`}
+      >
+        <Avatar name={user.name} avatarUrl={user.avatarUrl} className="w-[38px] h-[38px] text-base shrink-0" colorClass="bg-brand-100 text-brand-700" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-extrabold text-ink truncate" title={user.name}>
+            {user.name}
+          </span>
+          <span className="block text-[11.5px] text-dim truncate" title={ROLE_LABEL[user.role]}>
+            {ROLE_LABEL[user.role]}
+          </span>
+        </span>
+        <ChevronDown className={`w-3.5 h-3.5 text-muted shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+
+      {open && (
+        // อยู่ใน flow ปกติ (push nav ด้านล่างลง) ไม่ใช่ popover ลอยทับ — ตามสเปก
+        <div
+          id="sidebar-profile-menu"
+          role="menu"
+          className="mt-1 p-2 bg-white border border-border-subtle rounded-2xl shadow-lg so-fade-in space-y-0.5"
+        >
+          <NavLink
+            to="/profile"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              closeMobileNav()
+            }}
+            className="block px-2.5 py-2 rounded-xl text-[13.5px] text-body hover:bg-divider"
+          >
+            โปรไฟล์ของฉัน
+          </NavLink>
+          <div className="h-px bg-border-subtle my-1.5 mx-2" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => void doLogout()}
+            className="w-full text-left px-2.5 py-2 rounded-xl text-[13.5px] font-semibold text-danger-600 hover:bg-danger-50"
+          >
+            ออกจากระบบ
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function Layout() {
+  const { user } = useAuth()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
@@ -213,29 +310,7 @@ export function Layout() {
       </div>
       {/* บัญชีผู้ใช้ — ย้ายขึ้นมาไว้ต่อจากโลโก้ (จุดแรกที่เห็นหลัง login แทนที่จะจมอยู่ล่างสุด) */}
       <div className="p-3 border-b border-border-subtle">
-        <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <NavLink
-            to="/profile"
-            onClick={() => setNavOpen(false)}
-            title="โปรไฟล์"
-            className="flex items-center gap-2.5 min-w-0 flex-1 -mx-1 px-1 py-0.5 rounded-lg hover:bg-hover"
-          >
-            <Avatar name={user.name} avatarUrl={user.avatarUrl} className="w-8 h-8 text-xs" colorClass="bg-brand-100 text-brand-700" />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-strong truncate">{user.name}</div>
-              <div className="text-[11px] text-muted truncate">{ROLE_LABEL[user.role]}</div>
-            </div>
-          </NavLink>
-          <button
-            onClick={() => {
-              void logout().then(() => navigate('/login'))
-            }}
-            title="ออกจากระบบ"
-            className="p-1.5 rounded-lg text-muted hover:bg-divider hover:text-soft"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
+        <SidebarProfile user={user} closeMobileNav={() => setNavOpen(false)} />
         <DevSwitcher me={user} />
       </div>
       <nav className="flex-1 p-3 space-y-0.5 text-sm">
