@@ -6,6 +6,7 @@
 import { Check, ListTodo, Plus, Repeat, Trash2, Type } from 'lucide-react'
 import { useState } from 'react'
 import { useDialog } from './Dialog'
+import { RichTextEditor } from './RichTextEditor'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
@@ -108,6 +109,7 @@ function NoteEditor({ onSaved }: { onSaved: () => void }) {
   const [title, setTitle] = useState('')
   const [mode, setMode] = useState<'text' | 'checklist'>('text')
   const [text, setText] = useState('')
+  const [resetKey, setResetKey] = useState(0)
   const [items, setItems] = useState<{ id: string; text: string; done: boolean }[]>([])
   const [itemDraft, setItemDraft] = useState('')
 
@@ -122,6 +124,7 @@ function NoteEditor({ onSaved }: { onSaved: () => void }) {
     await api.post('/api/my-notes', { title: title.trim() || null, body })
     setTitle('')
     setText('')
+    setResetKey((k) => k + 1)
     setItems([])
     onSaved()
   }
@@ -138,7 +141,7 @@ function NoteEditor({ onSaved }: { onSaved: () => void }) {
         </button>
       </div>
       {mode === 'text' ? (
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="พิมพ์บันทึก..." className="w-full text-sm bg-hover rounded-lg px-3 py-2 outline-hidden resize-y" />
+        <RichTextEditor key={resetKey} content="" onChange={setText} placeholder="พิมพ์บันทึก..." minHeight="min-h-20" />
       ) : (
         <div className="space-y-1.5">
           {items.map((it) => (
@@ -197,7 +200,7 @@ export function MyNoteTab() {
                   <div className="min-w-0 flex-1">
                     {n.title && <div className="text-sm font-medium text-strong mb-0.5">{n.title}</div>}
                     {body.mode === 'text' ? (
-                      <div className="text-sm text-body whitespace-pre-wrap">{body.text}</div>
+                      <RichTextEditor content={body.text} editable={false} bare />
                     ) : (
                       <div className="space-y-0.5">
                         {body.items.map((it) => (

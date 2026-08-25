@@ -1,19 +1,10 @@
-import { Markdown } from '@tiptap/markdown'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
-import Image from '@tiptap/extension-image'
-import { TableKit } from '@tiptap/extension-table'
-import { Placeholder } from '@tiptap/extensions'
-import { EditorContent, useEditor, type Editor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
+import { EditorContent, useEditor } from '@tiptap/react'
 import type { TemplateData } from '@seedoffice/core'
-import {
-  ArrowLeft, Bold, Code, Columns3, Copy, ExternalLink, FileText, Heading2, Heading3, Heading4,
-  Image as ImageIcon, Italic, Link2, List, ListChecks, ListOrdered, Lock, Minus, Rows3,
-  Strikethrough, Table, TextQuote, Trash2, Users,
-} from 'lucide-react'
+import { ArrowLeft, Copy, ExternalLink, FileText, Link2, Lock, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
+import { richTextExtensions, RichTextToolbar } from '../components/RichTextEditor'
 import { TemplateFillForm } from '../components/doc-templates/TemplateFillForm'
 import { SrsLinkedTasksSection } from '../components/SrsLinkedTasksSection'
 import { api } from '../lib/api'
@@ -81,89 +72,15 @@ function openDocNode(n: DocNode) {
   else if (n.kind === 'file') window.open(`/api/docs/${n.id}/raw`, '_blank', 'noopener')
 }
 
-function Toolbar({ editor, docId, saveState }: { editor: Editor; docId: string; saveState: 'saved' | 'saving' }) {
-  const fileRef = useRef<HTMLInputElement>(null)
-  const { promptDialog } = useDialog()
-  const btn = (active: boolean) =>
-    `w-8 h-8 grid place-items-center rounded-lg shrink-0 ${active ? 'bg-brand-50 text-brand-700' : 'text-dim hover:bg-divider'}`
-  const divider = <span className="w-px h-5 bg-border-subtle mx-1 shrink-0" />
-  const setLink = async () => {
-    const prev = editor.getAttributes('link').href as string | undefined
-    const url = await promptDialog({
-      title: 'ใส่ลิงก์',
-      message: 'เว้นว่างแล้วกดตกลง = เอาลิงก์ออก',
-      placeholder: 'https://...',
-      initialValue: prev ?? 'https://',
-      confirmLabel: 'ใส่ลิงก์',
-    })
-    if (url === null) return
-    if (url === '' || url === 'https://') editor.chain().focus().unsetLink().run()
-    else editor.chain().focus().setLink({ href: url }).run()
-  }
-  const pickImage = () => fileRef.current?.click()
-  const onFile = async (f: File) => {
-    const url = await uploadImage(f, docId)
-    if (url) editor.chain().focus().setImage({ src: url }).run()
-  }
-  return (
-    // บั๊ก (2026-07-03): ปุ่มทูลบาร์กด "ตัวหนา/เอียง/ฯลฯ" แล้วไม่มีอะไรเกิดขึ้น — mousedown เดิมทำให้ ProseMirror เสียโฟกัส/selection ก่อน onClick จะรัน (ต้อง preventDefault ตอน mousedown เพื่อกันเบราว์เซอร์แย่งโฟกัสจาก editor)
-    <div onMouseDown={(e) => e.preventDefault()} className="flex items-center gap-0.5 border-b border-border-subtle px-2 sm:px-3 h-12 shrink-0 overflow-x-auto">
-      {([2, 3, 4] as const).map((lv) => (
-        <button key={lv} title={`หัวข้อ h${lv}`} onClick={() => editor.chain().focus().toggleHeading({ level: lv }).run()} className={btn(editor.isActive('heading', { level: lv }))}>
-          {lv === 2 ? <Heading2 className="w-4 h-4" /> : lv === 3 ? <Heading3 className="w-4 h-4" /> : <Heading4 className="w-4 h-4" />}
-        </button>
-      ))}
-      {divider}
-      <button title="ตัวหนา" onClick={() => editor.chain().focus().toggleBold().run()} className={btn(editor.isActive('bold'))}><Bold className="w-4 h-4" /></button>
-      <button title="ตัวเอียง" onClick={() => editor.chain().focus().toggleItalic().run()} className={btn(editor.isActive('italic'))}><Italic className="w-4 h-4" /></button>
-      <button title="ขีดฆ่า" onClick={() => editor.chain().focus().toggleStrike().run()} className={btn(editor.isActive('strike'))}><Strikethrough className="w-4 h-4" /></button>
-      <button title="โค้ด" onClick={() => editor.chain().focus().toggleCode().run()} className={btn(editor.isActive('code'))}><Code className="w-4 h-4" /></button>
-      {divider}
-      <button title="รายการ" onClick={() => editor.chain().focus().toggleBulletList().run()} className={btn(editor.isActive('bulletList'))}><List className="w-4 h-4" /></button>
-      <button title="รายการมีลำดับ" onClick={() => editor.chain().focus().toggleOrderedList().run()} className={btn(editor.isActive('orderedList'))}><ListOrdered className="w-4 h-4" /></button>
-      <button title="เช็คลิสต์" onClick={() => editor.chain().focus().toggleList('taskList', 'taskItem').run()} className={btn(editor.isActive('taskList'))}><ListChecks className="w-4 h-4" /></button>
-      {divider}
-      <button title="อ้างอิง" onClick={() => editor.chain().focus().toggleBlockquote().run()} className={btn(editor.isActive('blockquote'))}><TextQuote className="w-4 h-4" /></button>
-      <button title="ลิงก์" onClick={() => void setLink()} className={btn(editor.isActive('link'))}><Link2 className="w-4 h-4" /></button>
-      <button title="แทรกรูป (หรือวาง/ลากรูปลงในเนื้อหา)" onClick={pickImage} className={btn(false)}><ImageIcon className="w-4 h-4" /></button>
-      <button title="เส้นคั่น" onClick={() => editor.chain().focus().setHorizontalRule().run()} className={btn(false)}><Minus className="w-4 h-4" /></button>
-      {divider}
-      {editor.isActive('table') ? (
-        <>
-          <button title="เพิ่มแถว" onClick={() => editor.chain().focus().addRowAfter().run()} className={btn(false)}><Rows3 className="w-4 h-4" /></button>
-          <button title="เพิ่มคอลัมน์" onClick={() => editor.chain().focus().addColumnAfter().run()} className={btn(false)}><Columns3 className="w-4 h-4" /></button>
-          <button title="ลบแถวนี้" onClick={() => editor.chain().focus().deleteRow().run()} className="text-xs text-dim hover:text-danger-600 px-2 h-8 shrink-0 rounded-lg hover:bg-divider">ลบแถว</button>
-          <button title="ลบคอลัมน์นี้" onClick={() => editor.chain().focus().deleteColumn().run()} className="text-xs text-dim hover:text-danger-600 px-2 h-8 shrink-0 rounded-lg hover:bg-divider">ลบคอลัมน์</button>
-          <button title="ลบตารางทั้งหมด" onClick={() => editor.chain().focus().deleteTable().run()} className="text-xs text-danger-600 hover:text-danger-700 px-2 h-8 shrink-0 rounded-lg hover:bg-divider">ลบตาราง</button>
-        </>
-      ) : (
-        <button title="แทรกตาราง" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} className={btn(false)}><Table className="w-4 h-4" /></button>
-      )}
-      <span className="ml-auto flex items-center gap-1.5 text-xs text-muted shrink-0 pl-3">
-        {saveState === 'saving' ? 'กำลังบันทึก…' : <><span className="text-success-500">✓</span> บันทึกแล้ว</>}
-      </span>
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = '' }} />
-    </div>
-  )
-}
-
 function DocEditor({ doc, canEdit, onMetaChanged }: { doc: DocFull; canEdit: boolean; onMetaChanged: () => void }) {
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved')
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [title, setTitle] = useState(doc.title)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const editor = useEditor(
     {
-      extensions: [
-        StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
-        TaskList,
-        TaskItem.configure({ nested: true }),
-        Image,
-        TableKit.configure({ table: { resizable: false } }),
-        Placeholder.configure({ placeholder: 'เริ่มพิมพ์ได้เลย — ระบบบันทึกเป็น Markdown ให้อัตโนมัติ' }),
-        Markdown,
-      ],
+      extensions: richTextExtensions('เริ่มพิมพ์ได้เลย — ระบบบันทึกเป็น Markdown ให้อัตโนมัติ'),
       content: doc.contentMarkdown,
       contentType: 'markdown',
       editable: canEdit,
@@ -220,11 +137,30 @@ function DocEditor({ doc, canEdit, onMetaChanged }: { doc: DocFull; canEdit: boo
       onMetaChanged()
     }
   }
+  const onFile = async (f: File) => {
+    const url = await uploadImage(f, doc.id)
+    if (url) editor?.chain().focus().setImage({ src: url }).run()
+  }
 
   if (!editor) return null
   return (
     <>
-      {canEdit && <Toolbar editor={editor} docId={doc.id} saveState={saveState} />}
+      {canEdit && (
+        <RichTextToolbar
+          editor={editor}
+          onPickImage={() => fileRef.current?.click()}
+          rightSlot={saveState === 'saving' ? 'กำลังบันทึก…' : <><span className="text-success-500">✓</span> บันทึกแล้ว</>}
+        />
+      )}
+      {canEdit && (
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/avif"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = '' }}
+        />
+      )}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-5 sm:px-10 py-8">
           <input
