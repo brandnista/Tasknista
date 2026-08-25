@@ -88,9 +88,16 @@ body {
 }
 
 /* Pronista §Mobile lock — กันหน้าจอ "ดิ้น"/เลื่อนหลุดบนมือถือ: rubber-band bounce ที่ขอบบน-ล่าง + swipe ซ้าย-ขวาที่บาง
-   browser ตีความเป็น back/forward navigation โดยไม่ตั้งใจ (ค่า default ของ browser คือ auto = อนุญาตทั้งคู่) */
+   browser ตีความเป็น back/forward navigation โดยไม่ตั้งใจ (ค่า default ของ browser คือ auto = อนุญาตทั้งคู่)
+   (2026-08-25) เพิ่ม touch-action: pan-y — บนมือถือจริง (ไม่ใช่ emulator) ท่าทางเลื่อนที่เฉียงนิดเดียวทำให้ browser
+   งงว่าจะ pan แนวไหน แล้วสั่น/กระตุกทั้งการ์ด — ล็อกหน้าเว็บให้ pan ได้แนวตั้งอย่างเดียวเป็นค่าเริ่มต้นทุกหน้า/ทุกแท็บ
+   ส่วนโซนที่ตั้งใจเลื่อนแนวนอนจริง (ตาราง/toolbar ที่ overflow-x-auto) ปลดล็อกกลับเป็น pan-x เฉพาะจุดด้านล่าง */
 html, body {
   overscroll-behavior: none;
+  touch-action: pan-y;
+}
+.overflow-x-auto {
+  touch-action: pan-x;
 }
 
 /* dialog animation — fade backdrop + pop card (เข้า/ออกสั้นๆ เรียบหรู) */
