@@ -317,6 +317,7 @@ export function TaskDetailPage() {
   const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
   const [comment, setComment] = useState('')
   const [descDraft, setDescDraft] = useState<string | null>(null)
+  const [dispatching, setDispatching] = useState(false)
   const [assigneeNotesDraft, setAssigneeNotesDraft] = useState<string | null>(null)
   const [refCodeDraft, setRefCodeDraft] = useState<string | null>(null)
   const [newSubtask, setNewSubtask] = useState('')
@@ -380,9 +381,16 @@ export function TaskDetailPage() {
     await reload()
   }
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
+  // (2026-08-25) กัน busy ระหว่างรอ reload — ดับเบิลคลิกปุ่มก่อนหน้านี้ยิง dispatch ซ้ำ ทำให้แจ้งเตือนเบิ้ล
   const dispatch = async () => {
-    await api.post(`/api/tasks/${t.id}/dispatch`, {})
-    await reload()
+    if (dispatching) return
+    setDispatching(true)
+    try {
+      await api.post(`/api/tasks/${t.id}/dispatch`, {})
+      await reload()
+    } finally {
+      setDispatching(false)
+    }
   }
   // Pronista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
   const accept = async () => {
@@ -1097,7 +1105,7 @@ export function TaskDetailPage() {
                   // Pronista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → คนที่ถูก assign เอง (self-assign) ก็ต้องกด "จ่ายงาน" ได้เหมือน flow ปกติ (เดิมมีแต่ข้อความเฉยๆ ไม่มีปุ่มเลย ทำให้ self-assign ค้าง ไปต่อไม่ได้ด้วยตัวเอง) · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
                   !t.dispatchedAt ? (
                     <>
-                      <button onClick={() => void dispatch()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                      <button onClick={() => void dispatch()} disabled={dispatching} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                         <CheckCircle2 className="w-4 h-4" /> จ่ายงาน (ให้ตัวเอง)
                       </button>
                       <div className="text-[11px] text-muted text-center">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย</div>
@@ -1114,7 +1122,7 @@ export function TaskDetailPage() {
                 ) : !t.dispatchedAt ? (
                   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องกดก่อนงานถึงจะโผล่ในหน้า "งานของฉัน" ของผู้รับผิดชอบ
                   <>
-                    <button onClick={() => void dispatch()} disabled={!t.assigneeId} title={!t.assigneeId ? 'เลือกผู้รับผิดชอบก่อน' : undefined} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
+                    <button onClick={() => void dispatch()} disabled={!t.assigneeId || dispatching} title={!t.assigneeId ? 'เลือกผู้รับผิดชอบก่อน' : undefined} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                       <CheckCircle2 className="w-4 h-4" /> จ่ายงาน
                     </button>
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>

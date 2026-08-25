@@ -658,6 +658,8 @@ export const taskRoutes = new Hono<AppEnv>()
     if (!before) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
     if (!before.assigneeId) return c.json({ error: 'assignee_required', message: 'ต้องเลือกผู้รับผิดชอบก่อนถึงจะจ่ายงานได้' }, 400)
+    // (2026-08-25) กันจ่ายงานซ้ำ — เดิมไม่เช็คจุดนี้ กดปุ่ม "จ่ายงาน" ซ้ำ/ดับเบิลคลิก (ก่อน UI reload ทัน) ยิง insert notification ซ้ำทุกครั้งไม่มีเพดาน
+    if (before.dispatchedAt) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 400)
     if (before.projectId) {
       const role = await getProjectRole(db, before.projectId, me.id, me.role)
       if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
