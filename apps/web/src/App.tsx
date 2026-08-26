@@ -32,6 +32,7 @@ import { ProjectsPage } from './pages/Projects'
 import { PartnerDetailPage } from './pages/PartnerDetail'
 import { SprintSnapshotPage } from './pages/SprintSnapshot'
 import { TaskDetailPage } from './pages/TaskDetail'
+import { TeamPage } from './pages/Team'
 import { UserSettingsPage } from './pages/UserSettings'
 import { UserSettingsCustomerDetailPage } from './pages/UserSettingsCustomerDetail'
 import { WorkspacePage } from './pages/Workspace'
@@ -83,6 +84,7 @@ const router = createBrowserRouter([
       { path: 'workspace/:workspaceId', element: <Protected menuKey="workspace"><WorkspacePage /></Protected> },
       { path: 'workspace/:workspaceId/sprints/:sprintId/board', element: <Protected menuKey="workspace"><WorkspaceBoardPage /></Protected> },
       { path: 'projects', element: <Protected menuKey="projects"><ProjectsPage /></Protected> },
+      { path: 'team', element: <Protected menuKey="team"><TeamPage /></Protected> },
       {
         path: 'projects/:id/edit',
         element: (

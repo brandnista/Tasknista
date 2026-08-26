@@ -4,6 +4,8 @@ import { DurableObject } from 'cloudflare:workers'
  * Presence ของ Sprint Board — DO ต่อ sprint (idFromName(sprintId))
  * ใครกำลังเปิดดูบอร์ดนี้อยู่ — broadcast roster ทุกครั้งที่เข้า/ออก
  * ใช้ WebSocket Hibernation เหมือน InboxThreadHub (attachment อยู่รอดข้าม hibernation)
+ * Pronista §Room Hub reuse — เป็น hub กลางที่ใช้ซ้ำได้กับ "ห้อง" อื่นๆ ที่ต้องการ roster+notify+relay แบบเดียวกัน
+ * โดยแยก instance ด้วย prefix ของ id (ดู index.ts: sprint ตรงๆ, `task:{id}` สำหรับ Task Detail, `chat:{channelId}` สำหรับ Team Chat)
  */
 
 interface Viewer {
@@ -60,20 +62,20 @@ export class BoardPresenceHub extends DurableObject<Env> {
 
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     if (message === 'ping') return void ws.send('pong') // keepalive จาก client
-    // ตำแหน่งเมาส์ลอย — relay สดให้ทุกคนยกเว้นคนส่งเอง ไม่เก็บ state ฝั่ง server (client ไหนหลุดก็หายเงียบๆ เอง)
+    // Pronista §Room Hub reuse — relay แบบทั่วไปไม่เก็บ state ฝั่ง server (client ไหนหลุดก็หายเงียบๆ เอง)
+    // เดิมรับแค่ type:'cursor' (ตำแหน่งเมาส์ลอยบน Sprint Board) ตอนนี้ปล่อยผ่านทุก type ที่ระบุมา (เช่น 'typing' ของ Team Chat) — userId/name ประทับจาก attachment ฝั่ง server เสมอ ไม่เชื่อค่าที่ client ส่งมาปลอม
     try {
-      const msg = JSON.parse(String(message)) as { type?: string; x?: number; y?: number }
-      if (msg.type === 'cursor' && typeof msg.x === 'number' && typeof msg.y === 'number') {
-        const v = ws.deserializeAttachment() as Viewer | null
-        if (!v?.userId) return
-        const data = JSON.stringify({ type: 'cursor', userId: v.userId, name: v.name, x: msg.x, y: msg.y })
-        for (const other of this.ctx.getWebSockets()) {
-          if (other === ws) continue
-          try {
-            other.send(data)
-          } catch {
-            // socket ตายระหว่างส่ง — hibernation API เก็บกวาดเอง
-          }
+      const msg = JSON.parse(String(message)) as { type?: string; [k: string]: unknown }
+      if (!msg.type || msg.type === 'roster') return // กัน client ปลอม event ระบบ
+      const v = ws.deserializeAttachment() as Viewer | null
+      if (!v?.userId) return
+      const data = JSON.stringify({ ...msg, userId: v.userId, name: v.name })
+      for (const other of this.ctx.getWebSockets()) {
+        if (other === ws) continue
+        try {
+          other.send(data)
+        } catch {
+          // socket ตายระหว่างส่ง — hibernation API เก็บกวาดเอง
         }
       }
     } catch {

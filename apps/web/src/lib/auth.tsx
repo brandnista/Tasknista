@@ -6,6 +6,7 @@ export type MenuKey =
   | 'myTasks'
   | 'workspace'
   | 'projects'
+  | 'team'
   | 'docs'
   | 'docsHistory'
   | 'employees'

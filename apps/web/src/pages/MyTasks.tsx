@@ -51,6 +51,8 @@ interface NotificationRow {
     | 'task_approved'
     | 'task_bounced'
     | 'task_recalled'
+    | 'chat_mention'
+    | 'meeting_scheduled'
     | 'expiry_reminder'
     | 'daily_report_submitted'
     | 'daily_report_commented'
@@ -165,9 +167,11 @@ function NotificationsTab({ notifications, onRead }: { notifications: Notificati
         // กด "กลับ" ในหน้า Task Detail จึงย้อนไปไหนไม่ได้ — เปลี่ยนเป็น client-side navigate ในแท็บเดิมเหมือนลิงก์ภายในทุกจุดอื่นของแอป
         const href = n.dailyReportId
           ? `/my-tasks?tab=dailyReport&report=${n.dailyReportId}`
-          : n.projectId
-            ? (n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`)
-            : undefined
+          : n.type === 'chat_mention' || n.type === 'meeting_scheduled'
+            ? '/team'
+            : n.projectId
+              ? (n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`)
+              : undefined
         const content = (
           <>
             <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.isRead ? 'bg-transparent' : 'bg-info-500'}`} />

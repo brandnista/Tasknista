@@ -5,6 +5,7 @@ import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
 import { calendarConnectRoutes } from './routes/calendar-connect'
+import { chatRoutes } from './routes/chat'
 import { docAttachmentsRoutes } from './routes/doc-attachments'
 import { docRoutes } from './routes/docs'
 import { docsSrsRoutes } from './routes/docs-srs'
@@ -170,6 +171,9 @@ app.route('/api', dailyReportRoutes)
 app.use('/api/my-notes', requireAuth)
 app.use('/api/my-notes/*', requireAuth)
 app.route('/api', myNoteRoutes)
+// Pronista §Team Chat (2026-08-26) — เพดานเมนู "team" คุมเองต่อ route ใน chat.ts (teamOrMenu) ที่นี่แค่ requireAuth ตั้ง c.get('user') ให้
+app.use('/api/chat/*', requireAuth)
+app.route('/api', chatRoutes)
 // เงินสดย่อย: owner+member (vendor ❌ — SPEC §2)
 app.use('/api/expenses', requireAuth, teamOnly)
 app.use('/api/expenses/*', requireAuth, teamOnly)
@@ -249,6 +253,18 @@ app.get('/api/tasks/:id/presence/ws', requireAuth, async (c) => {
   headers.set('x-user-id', me.id)
   headers.set('x-user-name', me.name)
   const stub = c.env.BOARD_HUB.get(c.env.BOARD_HUB.idFromName(`task:${c.req.param('id')}`))
+  return stub.fetch(new Request(c.req.raw.url, { headers }))
+})
+
+// presence WebSocket ของ Team Chat (ใครกำลังเปิดห้องนี้อยู่ + ข้อความ realtime) — ใช้ BOARD_HUB ตัวเดียวกับ Board/Task Detail แค่แยก instance ด้วย prefix "chat:"
+app.get('/api/chat/channels/:id/ws', requireAuth, async (c) => {
+  if (c.req.header('upgrade')?.toLowerCase() !== 'websocket')
+    return c.json({ error: 'expected_websocket' }, 426)
+  const me = c.get('user')
+  const headers = new Headers(c.req.raw.headers)
+  headers.set('x-user-id', me.id)
+  headers.set('x-user-name', me.name)
+  const stub = c.env.BOARD_HUB.get(c.env.BOARD_HUB.idFromName(`chat:${c.req.param('id')}`))
   return stub.fetch(new Request(c.req.raw.url, { headers }))
 })
 

@@ -11,7 +11,7 @@ const json = (cookie: string, body: unknown) => ({
 
 beforeEach(async () => {
   await seedUsers()
-  for (const t of ['client_notes', 'recurring_services', 'payments', 'projects', 'clients'])
+  for (const t of ['client_notes', 'recurring_services', 'payments', 'chat_channels', 'projects', 'clients'])
     await env.DB.prepare(`DELETE FROM ${t}`).run()
 })
 

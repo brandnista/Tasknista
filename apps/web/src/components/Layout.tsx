@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Menu,
+  MessageSquare,
   NotebookText,
   Settings,
   UserCheck,
@@ -49,6 +50,7 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   // Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ (สิทธิ์เห็นเนื้อหาจริงคุมด้วย tabs.sprint ต่อโปรเจกต์อยู่แล้ว เหมือนแท็บ Sprint เดิม)
   { to: '/workspace', label: 'Workspace', icon: Layers, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'workspace' },
   { to: '/projects', label: 'โปรเจกต์', icon: FolderKanban, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'projects' },
+  { to: '/team', label: 'ทีม', icon: MessageSquare, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'team' },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docs' },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docsHistory' },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)

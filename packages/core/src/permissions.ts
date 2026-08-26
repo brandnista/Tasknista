@@ -129,13 +129,14 @@ export function adminUsersMenuKeyForCategory(category: LoginPermissionCategory):
 /** เมนูหลักฝั่ง sidebar ที่คุมได้ต่อประเภทผู้ใช้งาน — ตรงกับ NAV ใน Layout.tsx (ไม่รวม "ตั้งค่า"/"ตั้งค่าผู้ใช้งาน" ซึ่ง owner-only เสมอ ไม่ผ่านเพดานนี้)
  * Pronista §Menu Restructure — employees/partners/customers/members เพิ่มเข้ามาทีหลัง (แยกจาก "ตั้งค่าผู้ใช้งาน" เดิมเป็นเมนูหลัก) ต้อง sync ไว้ที่นี่ด้วย
  * ให้เพดานคุมได้ (ค่า default ปิดหมดกัน privilege escalation โดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ครั้งแรก — ดู DEFAULT_PERMISSION_CEILINGS) */
-export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'workspace', 'projects', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members'] as const
+export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members'] as const
 export type PermissionMenuKey = (typeof PERMISSION_MENU_KEYS)[number]
 export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   dashboard: 'ภาพรวม',
   myTasks: 'งานของฉัน',
   workspace: 'Workspace',
   projects: 'โปรเจกต์',
+  team: 'ทีม',
   docs: 'เอกสาร',
   docsHistory: 'ประวัติเอกสาร',
   employees: 'จัดการพนักงาน',

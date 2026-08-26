@@ -1658,6 +1658,9 @@ export const NOTIFICATION_TYPES = [
   'task_bounced',
   // Pronista §ดึงงานกลับ (2026-08-26) — assignee ดึงงานที่ส่งไปแล้ว (waiting_for_test) กลับมาแก้ไขต่อเอง ก่อนหัวหน้าอนุมัติ/ตีกลับ
   'task_recalled',
+  // Pronista §Team Chat & Meeting (2026-08-26) — ถูก mention ในแชท / ถูกเชิญเข้าประชุมใหม่
+  'chat_mention',
+  'meeting_scheduled',
   // Pronista §Subscription Notify — เตือน Project Lead ก่อนโปรเจกต์ใกล้หมดอายุบริการ (คอลัมน์ TEXT ธรรมดา ไม่ต้อง migration)
   'expiry_reminder',
   // Pronista §Guest Backlog — แจ้งสมาชิกโปรเจกต์ทุกคนเมื่อลูกค้า (guest) คีย์ Backlog/Defect เอง
@@ -1792,6 +1795,137 @@ export const notes = sqliteTable(
   (t) => [index('notes_user_idx').on(t.userId)],
 )
 
+// Pronista §Team Chat — ห้องสนทนา: kind='project' สร้างอัตโนมัติคู่กับโปรเจกต์ (projectId ไม่ว่าง) · 'dm'/'group' ตั้งชื่อเองหรือไม่ก็ได้ (name ว่าง = ใช้รายชื่อสมาชิกแสดงแทน)
+export const chatChannels = sqliteTable(
+  'chat_channels',
+  {
+    id: id(),
+    kind: text('kind', { enum: ['project', 'dm', 'group'] }).notNull(),
+    projectId: text('project_id').references(() => projects.id),
+    name: text('name'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('chat_channels_project_idx').on(t.projectId)],
+)
+
+// Pronista §Team Chat — สมาชิกห้อง + lastReadAt (ใช้คำนวณ unread badge ต่อคนต่อห้อง)
+export const chatChannelMembers = sqliteTable(
+  'chat_channel_members',
+  {
+    id: id(),
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => chatChannels.id),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    lastReadAt: integer('last_read_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [uniqueIndex('chat_channel_members_channel_user_idx').on(t.channelId, t.userId)],
+)
+
+// Pronista §Team Chat — ข้อความ · parentMessageId เผื่อฟีเจอร์ thread/reply ในอนาคต (ยังไม่ใช้ตอนนี้) · soft-delete ตามกฎเหล็ก
+export const chatMessages = sqliteTable(
+  'chat_messages',
+  {
+    id: id(),
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => chatChannels.id),
+    senderId: text('sender_id')
+      .notNull()
+      .references(() => users.id),
+    body: text('body').notNull(),
+    parentMessageId: text('parent_message_id').references((): AnySQLiteColumn => chatMessages.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    editedAt: integer('edited_at', { mode: 'timestamp_ms' }),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('chat_messages_channel_idx').on(t.channelId, t.createdAt)],
+)
+
+// Pronista §Team Chat — ไฟล์แนบ/ลิงก์บนข้อความ (คู่ r2Key/externalUrl เหมือน taskAttachments)
+export const chatMessageAttachments = sqliteTable(
+  'chat_message_attachments',
+  {
+    id: id(),
+    messageId: text('message_id')
+      .notNull()
+      .references(() => chatMessages.id),
+    r2Key: text('r2_key'),
+    externalUrl: text('external_url'),
+    filename: text('filename').notNull(),
+    mime: text('mime'),
+    sizeBytes: integer('size_bytes'),
+  },
+  (t) => [index('chat_message_attachments_message_idx').on(t.messageId)],
+)
+
+// Pronista §Team Meeting — นัดประชุม (ไม่มีวิดีโอในระบบเฟสนี้ — externalMeetingUrl ให้แปะลิงก์ Google Meet/Zoom เอง)
+export const meetings = sqliteTable(
+  'meetings',
+  {
+    id: id(),
+    title: text('title').notNull(),
+    meetingType: text('meeting_type', {
+      enum: ['team', 'project', 'sprint_planning', 'sprint_review', 'daily_standup', 'client', 'other'],
+    })
+      .notNull()
+      .default('other'),
+    projectId: text('project_id').references(() => projects.id),
+    sprintId: text('sprint_id').references(() => sprints.id),
+    organizerId: text('organizer_id')
+      .notNull()
+      .references(() => users.id),
+    startAt: integer('start_at', { mode: 'timestamp_ms' }).notNull(),
+    endAt: integer('end_at', { mode: 'timestamp_ms' }).notNull(),
+    externalMeetingUrl: text('external_meeting_url'),
+    agenda: text('agenda'),
+    notes: text('notes'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('meetings_start_idx').on(t.startAt), index('meetings_project_idx').on(t.projectId)],
+)
+
+// Pronista §Team Meeting — ผู้เข้าร่วมประชุม
+export const meetingParticipants = sqliteTable(
+  'meeting_participants',
+  {
+    id: id(),
+    meetingId: text('meeting_id')
+      .notNull()
+      .references(() => meetings.id),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+  },
+  (t) => [uniqueIndex('meeting_participants_meeting_user_idx').on(t.meetingId, t.userId)],
+)
+
+// Pronista §Team Meeting — Action Item ต่อการประชุม · taskId ไม่ว่าง = ถูกแปลงเป็น Task จริงแล้ว
+export const meetingActionItems = sqliteTable(
+  'meeting_action_items',
+  {
+    id: id(),
+    meetingId: text('meeting_id')
+      .notNull()
+      .references(() => meetings.id),
+    text: text('text').notNull(),
+    taskId: text('task_id').references((): AnySQLiteColumn => tasks.id),
+    done: integer('done', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('meeting_action_items_meeting_idx').on(t.meetingId)],
+)
+
 export type User = typeof users.$inferSelect
 export type Session = typeof sessions.$inferSelect
 export type ApiToken = typeof apiTokens.$inferSelect
@@ -1839,3 +1973,10 @@ export type Member = typeof members.$inferSelect
 export type MemberOrder = typeof memberOrders.$inferSelect
 export type MemberPayment = typeof memberPayments.$inferSelect
 export type Note = typeof notes.$inferSelect
+export type ChatChannel = typeof chatChannels.$inferSelect
+export type ChatChannelMember = typeof chatChannelMembers.$inferSelect
+export type ChatMessage = typeof chatMessages.$inferSelect
+export type ChatMessageAttachment = typeof chatMessageAttachments.$inferSelect
+export type Meeting = typeof meetings.$inferSelect
+export type MeetingParticipant = typeof meetingParticipants.$inferSelect
+export type MeetingActionItem = typeof meetingActionItems.$inferSelect

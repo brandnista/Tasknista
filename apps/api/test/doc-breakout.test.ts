@@ -32,6 +32,7 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM sprint_task_snapshots').run()
   await env.DB.prepare('DELETE FROM sprints').run()
   await env.DB.prepare('DELETE FROM project_members').run()
+  await env.DB.prepare('DELETE FROM chat_channels').run()
   await env.DB.prepare('DELETE FROM projects').run()
 })
 
