@@ -105,6 +105,19 @@ describe('Pronista §Task Workflow — kanban drag / self-assign status transiti
     expect(((await closeSelf.json()) as { status: string }).status).toBe('done')
   })
 
+  it('งานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) เปลี่ยนสถานะเองได้อิสระ แม้ไม่ใช่งานที่คีย์เอง — ยังไม่เข้า workflow ตรวจงานจริง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g } = await setupProject(owner, 'u_pond')
+    // owner คีย์งานแล้วมอบหมายให้ pond ทันที แต่ "ยังไม่ได้กดจ่ายงาน" (ไม่เรียก /dispatch)
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานที่ยังไม่จ่าย' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patch(owner, { assigneeId: 'u_pond' }), env)
+
+    // pond ข้ามจาก non_start ไป done ตรงๆ ได้ ทั้งที่ไม่ใช่ผู้คีย์งานเอง เพราะงานยังไม่ถูกจ่ายอย่างเป็นทางการ
+    const skip = await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'done' }), env)
+    expect(skip.status).toBe(200)
+  })
+
   it('assignee ที่ไม่มีสิทธิ์ editor โปรเจกต์เลย (assignee-only) ยังคงจำกัดแค่กด "ส่งงาน" เหมือนเดิม', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')

@@ -517,6 +517,8 @@ export function TaskDetailPage() {
   // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
   const isSelfKeyed = !!user && t.createdBy === user.id
   const canQuickToggleDone = canEdit && (!isAssignee || isSelfKeyed)
+  // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือเป็นงานที่คีย์เอง หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
+  const canEditStatusFreely = canEdit && (!isAssignee || isSelfKeyed || !t.dispatchedAt)
   const done = t.status === 'done'
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
   const totalMinutes = (timeRows ?? []).reduce((s, r) => s + r.minutes, 0)
@@ -947,8 +949,8 @@ export function TaskDetailPage() {
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
                   <span className="text-dim">สถานะ</span>
-                  {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น */}
-                  {canEdit && !isAssignee ? (
+                  {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
+                  {canEditStatusFreely ? (
                     <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะ" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
                       {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                     </select>
@@ -959,7 +961,7 @@ export function TaskDetailPage() {
                   {t.kind === 'defect' && t.defectStatus && (
                     <>
                       <span className="text-dim">Defect</span>
-                      {canEdit && !isAssignee ? (
+                      {canEditStatusFreely ? (
                         <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="สถานะ Defect" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
                           {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
                         </select>

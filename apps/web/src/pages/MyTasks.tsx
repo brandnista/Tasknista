@@ -12,7 +12,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { DailyReportTab } from '../components/DailyReportTab'
 import { MyNoteTab } from '../components/MyNoteTab'
 import { MyWorkSummary, taskTypeLabel } from '../components/MyWorkSummary'
@@ -161,26 +161,31 @@ function NotificationsTab({ notifications, onRead }: { notifications: Notificati
   return (
     <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
       {notifications.map((n) => {
+        // Pronista §Notification back-button fix (2026-08-26) — เดิมเปิดด้วย target="_blank" ทำให้ได้แท็บใหม่ที่ไม่มีประวัติหน้าก่อนหน้าเลย
+        // กด "กลับ" ในหน้า Task Detail จึงย้อนไปไหนไม่ได้ — เปลี่ยนเป็น client-side navigate ในแท็บเดิมเหมือนลิงก์ภายในทุกจุดอื่นของแอป
         const href = n.dailyReportId
           ? `/my-tasks?tab=dailyReport&report=${n.dailyReportId}`
           : n.projectId
             ? (n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`)
             : undefined
-        return (
-          <a
-            key={n.id}
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            onClick={() => { if (!n.isRead) onRead(n.id) }}
-            className={`flex items-start gap-3 px-4 py-3 hover:bg-hover ${n.isRead ? '' : 'bg-info-50/40'}`}
-          >
+        const content = (
+          <>
             <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.isRead ? 'bg-transparent' : 'bg-info-500'}`} />
             <div className="min-w-0 flex-1">
               <div className="text-sm text-body">{n.message}</div>
               <div className="text-[11px] text-muted mt-0.5">{new Date(n.createdAt).toLocaleString('th-TH')}</div>
             </div>
-          </a>
+          </>
+        )
+        const rowClass = `flex items-start gap-3 px-4 py-3 hover:bg-hover ${n.isRead ? '' : 'bg-info-50/40'}`
+        return href ? (
+          <Link key={n.id} to={href} onClick={() => { if (!n.isRead) onRead(n.id) }} className={rowClass}>
+            {content}
+          </Link>
+        ) : (
+          <div key={n.id} className={rowClass}>
+            {content}
+          </div>
         )
       })}
     </div>
