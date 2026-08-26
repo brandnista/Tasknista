@@ -511,6 +511,12 @@ export function TaskDetailPage() {
   }
 
   const isAssignee = !!user && t.assigneeId === user.id
+  // Pronista §Task Workflow fix (2026-08-26) — isAssignee เดิมใช้ซ่อน "ฝั่งผู้จ่ายงาน" ทั้งหมดรวมถึงตอนจ่ายงานให้ตัวเอง (self-assign)
+  // ทำให้กรอกเวลาประเมิน/ลำดับความสำคัญ/ประเภทงาน/กำหนดการฯลฯ ไม่ได้เลยระหว่างจ่ายให้ตัวเอง — isAssigneeOnly แยกกรณีนี้ออก: true เฉพาะเป็น assignee "อย่างเดียว" (ไม่มีสิทธิ์ editor/owner โปรเจกต์ด้วย)
+  const isAssigneeOnly = isAssignee && t.myRole !== 'owner' && t.myRole !== 'editor'
+  // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
+  const isSelfKeyed = !!user && t.createdBy === user.id
+  const canQuickToggleDone = canEdit && (!isAssignee || isSelfKeyed)
   const done = t.status === 'done'
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
   const totalMinutes = (timeRows ?? []).reduce((s, r) => s + r.minutes, 0)
@@ -574,13 +580,13 @@ export function TaskDetailPage() {
           </div>
           <div className="flex items-start gap-2.5 mt-2">
             <button
-              onClick={() => canEdit && !isAssignee && void patch({ status: done ? 'non_start' : 'done' })}
-              title={canEdit && !isAssignee ? (done ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ') : 'ต้องมีสิทธิ์แก้ไข (ผู้จ่ายงาน) ในโปรเจกต์นี้'}
-              className={`shrink-0 mt-0.5 w-7 h-7 rounded-lg border-2 grid place-items-center transition ${done ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'} ${canEdit && !isAssignee ? '' : 'opacity-60 cursor-default'}`}
+              onClick={() => canQuickToggleDone && void patch({ status: done ? 'non_start' : 'done' })}
+              title={canQuickToggleDone ? (done ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ') : 'ต้องมีสิทธิ์แก้ไข (ผู้จ่ายงาน) ในโปรเจกต์นี้'}
+              className={`shrink-0 mt-0.5 w-7 h-7 rounded-lg border-2 grid place-items-center transition ${done ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'} ${canQuickToggleDone ? '' : 'opacity-60 cursor-default'}`}
             >
               {done && <Check className="w-4 h-4" />}
             </button>
-            {canEdit && !isAssignee ? (
+            {canEdit && !isAssigneeOnly ? (
               <textarea
                 value={titleDraft ?? t.title}
                 onChange={(e) => setTitleDraft(e.target.value)}
@@ -636,7 +642,7 @@ export function TaskDetailPage() {
 
             <div>
               <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้จ่ายงาน</div>
-              {canEdit && !isAssignee ? (
+              {canEdit && !isAssigneeOnly ? (
                 <textarea
                   value={descDraft ?? t.description ?? ''}
                   onChange={(e) => setDescDraft(e.target.value)}
@@ -964,7 +970,7 @@ export function TaskDetailPage() {
                   )}
 
                   <span className="text-dim">ผู้รับผิดชอบ</span>
-                  {canEdit && !isAssignee ? (
+                  {canEdit && !isAssigneeOnly ? (
                     <select value={t.assigneeId ?? ''} onChange={(e) => void patch({ assigneeId: e.target.value || null })} aria-label="ผู้รับผิดชอบ" className="w-full border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
                       <option value="">— ไม่ระบุ —</option>
                       {(userOpts ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -973,7 +979,7 @@ export function TaskDetailPage() {
                     t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
                   )}
 
-                  {!isAssignee && (
+                  {!isAssigneeOnly && (
                     <>
                       <span className="text-dim">ความสำคัญ</span>
                       {canEdit ? (
@@ -988,7 +994,7 @@ export function TaskDetailPage() {
                 </div>
               </div>
 
-              {!isAssignee && (
+              {!isAssigneeOnly && (
                 <>
                   <div className="border-t border-border-subtle" />
                   <div>
@@ -1072,20 +1078,20 @@ export function TaskDetailPage() {
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">กำหนดการ</div>
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
                   <span className="text-dim">กำหนดส่ง</span>
-                  {canEdit && !isAssignee ? (
+                  {canEdit && !isAssigneeOnly ? (
                     <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
                   ) : (
                     <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
                   )}
 
-                  {canEdit && !isAssignee && (
+                  {canEdit && !isAssigneeOnly && (
                     <>
                       <span className="text-dim">เริ่ม</span>
                       <DateInputTH value={t.startDate ?? ''} onChange={(v) => void patch({ startDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
                     </>
                   )}
 
-                  {!isAssignee && canEdit && (
+                  {!isAssigneeOnly && canEdit && (
                     <>
                       <span className="text-dim">ประเมิน (ชม.)</span>
                       <input type="number" defaultValue={t.estimateMinutes != null ? t.estimateMinutes / 60 : ''} onBlur={(e) => void patch({ estimateMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : null })} className="w-20 text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
@@ -1103,7 +1109,7 @@ export function TaskDetailPage() {
               <div className="text-[11px] text-muted border-t border-border-subtle pt-4">ลงเวลาได้เมื่องานอยู่ใน Sprint ที่กด "เริ่ม Sprint" แล้วเท่านั้น</div>
             )}
 
-            {!isAssignee && t.estimateMinutes != null && (
+            {!isAssigneeOnly && t.estimateMinutes != null && (
               <div className="border-t border-border-subtle pt-4">
                 <div className="text-xs font-medium text-muted mb-2">ประเมิน vs เวลาที่ใช้จริง</div>
                 <div className="flex items-center gap-2">
@@ -1130,10 +1136,31 @@ export function TaskDetailPage() {
                     <button onClick={() => void accept()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                       <CheckCircle2 className="w-4 h-4" /> รับงาน
                     </button>
+                  ) : done ? null : t.status === 'waiting_for_test' ? (
+                    // Pronista §ดึงงานกลับ (2026-08-26) — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ไขต่อเองได้
+                    <>
+                      <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2 mb-1">ส่งงานแล้ว รอผู้จ่ายงานตรวจ</div>
+                      <button onClick={() => void patch({ status: 'on_processing' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
+                        <RotateCcw className="w-4 h-4" /> ดึงงานกลับ
+                      </button>
+                      {isSelfKeyed && (
+                        <button onClick={() => void patch({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                          <Check className="w-4 h-4" /> ปิดงานเอง
+                        </button>
+                      )}
+                    </>
                   ) : (
-                    <button onClick={() => void patch({ status: 'waiting_for_test' })} disabled={t.status === 'waiting_for_test' || done} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
-                      <CheckCircle2 className="w-4 h-4" /> ส่งงาน
-                    </button>
+                    <>
+                      <button onClick={() => void patch({ status: 'waiting_for_test' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                        <CheckCircle2 className="w-4 h-4" /> ส่งงาน
+                      </button>
+                      {isSelfKeyed && (
+                        // Pronista §Kanban drag constraints 3.2 — ผู้คีย์งานเองปิดงานได้ทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
+                        <button onClick={() => void patch({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-success-200 text-success-700 hover:bg-success-50 px-3 py-2 rounded-lg font-medium">
+                          <Check className="w-4 h-4" /> ปิดงานเอง
+                        </button>
+                      )}
+                    </>
                   )
                 ) : !t.dispatchedAt ? (
                   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องกดก่อนงานถึงจะโผล่ในหน้า "งานของฉัน" ของผู้รับผิดชอบ

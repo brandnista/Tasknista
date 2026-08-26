@@ -28,6 +28,21 @@ export interface KanbanTask {
   estimateMinutes?: number | null
   checklistDone?: number
   checklistTotal?: number
+  // Pronista §Kanban drag constraints (2026-08-26) — ใช้เช็คข้อยกเว้น "งานที่คีย์เอง" (ดูฟังก์ชัน allowedDragTargets)
+  createdBy?: string
+}
+
+// Pronista §Kanban drag constraints (2026-08-26) — ห้ามลากข้ามขั้นตอนตรวจงานเองบนบอร์ด "งานของฉัน" (assignee ของทุกใบในบอร์ดนี้คือผู้ใช้ที่กำลังดูอยู่เสมอ)
+// non_start→on_processing (เริ่มงาน) และ waiting_for_test→on_processing (ดึงงานกลับ) ลากได้อิสระ · ที่เหลือ (ส่งงาน/อนุมัติ/ตีกลับ) ต้องผ่านปุ่มในหน้ารายละเอียดเท่านั้น
+// ยกเว้นงานที่ตัวเองคีย์ขึ้นมาเอง (createdBy === meId) — ลากไป Done ได้ทันทีจากทุกสถานะ ไม่ต้องผ่านขั้นตอนอนุมัติ
+const ASSIGNEE_DRAG_TARGETS: Partial<Record<TaskStatus, TaskStatus[]>> = {
+  non_start: ['on_processing'],
+  on_processing: [],
+  waiting_for_test: ['on_processing'],
+}
+function allowedDragTargets(t: KanbanTask, meId?: string): TaskStatus[] {
+  if (meId && t.createdBy === meId) return TASK_STATUS_ORDER.filter((s) => s !== t.status)
+  return ASSIGNEE_DRAG_TARGETS[t.status] ?? []
 }
 
 const PRIORITY_DOT = { low: 'bg-border', normal: 'bg-warning-400', high: 'bg-danger-500' } as const
@@ -46,7 +61,7 @@ function dueBadge(dueDate: string | null, status: TaskStatus, soonDays = 3) {
 
 /** Pronista §2.12 — Kanban 4 สถานะตายตัว ใช้ทั้งในโปรเจกต์เดี่ยว (ProjectDetail) และข้ามโปรเจกต์ (งานของฉัน)
  * canEdit: boolean (ทุกใบเท่ากัน) หรือ function ต่อใบ (Pronista §permission — พนักงานลากได้เฉพาะงานที่ตัวเอง assign) */
-export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bouncedTaskIds, soonDays }: {
+export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bouncedTaskIds, soonDays, meId }: {
   tasks: KanbanTask[]
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: TaskStatus) => void | Promise<void>
@@ -55,6 +70,8 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
   bouncedTaskIds?: Set<string>
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป, ไม่ระบุ = 3)
   soonDays?: number
+  // Pronista §Kanban drag constraints (2026-08-26) — ตัวผู้ใช้ที่กำลังดูบอร์ดอยู่ ใช้เช็คข้อยกเว้น "งานที่คีย์เอง" ต่อใบ (ไม่ระบุ = ปิดข้อยกเว้นนี้ กลับไปใช้กฎ assignee ปกติล้วน)
+  meId?: string
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const over = (e: DragEvent) => e.preventDefault()
@@ -65,7 +82,7 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       {TASK_STATUS_ORDER.map((status) => {
         const col = tasks.filter((t) => t.status === status)
-        const dropOk = !!dragTask && editableOf(dragTask)
+        const dropOk = !!dragTask && editableOf(dragTask) && allowedDragTargets(dragTask, meId).includes(status)
         return (
           <div
             key={status}
@@ -82,13 +99,20 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
               {col.map((t) => {
                 const badge = dueBadge(t.dueDate, t.status, soonDays)
                 const editable = editableOf(t)
+                const draggableTargets = allowedDragTargets(t, meId)
+                const draggable = editable && draggableTargets.length > 0
+                const dragTitle = !editable
+                  ? 'ต้องมีสิทธิ์แก้ไข (editor) ในโปรเจกต์นี้'
+                  : draggableTargets.length === 0
+                    ? 'เปลี่ยนสถานะนี้ผ่านปุ่มในหน้ารายละเอียดงานเท่านั้น'
+                    : undefined
                 return (
                   <div
                     key={t.id}
-                    draggable={editable}
+                    draggable={draggable}
                     onDragStart={() => setDragId(t.id)}
                     onClick={() => onOpenTask(t.id)}
-                    title={editable ? undefined : 'ต้องมีสิทธิ์แก้ไข (editor) ในโปรเจกต์นี้'}
+                    title={dragTitle}
                     className={`rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]} ${editable ? '' : 'opacity-80'}`}
                   >
                     <div className="text-sm text-body mb-1.5">{t.title}</div>

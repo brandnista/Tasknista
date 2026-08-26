@@ -50,6 +50,7 @@ interface NotificationRow {
     | 'task_submitted'
     | 'task_approved'
     | 'task_bounced'
+    | 'task_recalled'
     | 'expiry_reminder'
     | 'daily_report_submitted'
     | 'daily_report_commented'
@@ -533,6 +534,7 @@ export function MyTasksPage() {
                 onStatusChange={changeStatus}
                 bouncedTaskIds={bouncedTaskIds}
                 soonDays={cfg?.dueSoonDays}
+                meId={user?.id}
               />
             ) : (
               <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />

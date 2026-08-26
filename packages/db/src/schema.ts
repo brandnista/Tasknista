@@ -1656,6 +1656,8 @@ export const NOTIFICATION_TYPES = [
   'task_submitted',
   'task_approved',
   'task_bounced',
+  // Pronista §ดึงงานกลับ (2026-08-26) — assignee ดึงงานที่ส่งไปแล้ว (waiting_for_test) กลับมาแก้ไขต่อเอง ก่อนหัวหน้าอนุมัติ/ตีกลับ
+  'task_recalled',
   // Pronista §Subscription Notify — เตือน Project Lead ก่อนโปรเจกต์ใกล้หมดอายุบริการ (คอลัมน์ TEXT ธรรมดา ไม่ต้อง migration)
   'expiry_reminder',
   // Pronista §Guest Backlog — แจ้งสมาชิกโปรเจกต์ทุกคนเมื่อลูกค้า (guest) คีย์ Backlog/Defect เอง

@@ -521,8 +521,20 @@ export const taskRoutes = new Hono<AppEnv>()
       const allowedKeys = new Set(['assigneeNotes', 'status'])
       if (Object.keys(body.data).some((k) => !allowedKeys.has(k)))
         return c.json({ error: 'forbidden', message: 'แก้ไขได้แค่บันทึกของตัวเองกับกด "ส่งงาน" เท่านั้น ให้ผู้จ่ายงานเป็นคนแก้ไขฟิลด์อื่น' }, 403)
-      if ('status' in body.data && !(before.status === 'on_processing' && body.data.status === 'waiting_for_test'))
-        return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะเองไม่ได้ ต้องกด "ส่งงาน" เท่านั้น' }, 403)
+    }
+    // Pronista §Kanban drag constraints (2026-08-26) — งด "ลาก/สั่งข้ามขั้น" สถานะเอง สำหรับใครก็ตามที่เป็น assignee ของงานนี้
+    // (ไม่ใช่แค่ isAssigneeOnly ด้านบน — เดิมคนที่เป็น assignee ของตัวเอง "และ" เป็น owner/editor โปรเจกต์ด้วย (self-assign) หลุดเช็คนี้ไปเลย ลากข้ามขั้นได้อิสระผ่าน Kanban)
+    // ยกเว้นงานที่ตัวเองเป็นคนคีย์ขึ้นมาเอง (createdBy === ตัวเอง) — ให้จบงานเองได้ทันทีตามที่ตกลง ไม่ต้องผ่านขั้นตอนอนุมัติ
+    if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.createdBy !== me.id) {
+      const nextStatus = body.data.status
+      const assigneeAllowedNext: Partial<Record<(typeof TASK_STATUSES)[number], (typeof TASK_STATUSES)[number][]>> = {
+        non_start: ['on_processing'],
+        on_processing: ['waiting_for_test'],
+        // §ดึงงานกลับ — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ต่อเองได้
+        waiting_for_test: ['on_processing'],
+      }
+      if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
+        return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)
     }
     // Pronista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
     // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา non_start (รับงานใหม่) ก่อนถึงจะแก้ต่อได้
@@ -637,6 +649,16 @@ export const taskRoutes = new Hono<AppEnv>()
         taskId: before.id,
         projectId: before.projectId,
         message: `งาน "${before.title}" ได้รับการอนุมัติแล้ว`,
+      })
+    }
+    // Pronista §ดึงงานกลับ (2026-08-26) — assignee ดึงงานที่ส่งไปแล้วกลับมาแก้ต่อเอง ก่อนหัวหน้าอนุมัติ/ตีกลับ — แจ้งผู้จ่ายงานให้รู้ตัว
+    if (body.data.status === 'on_processing' && before.status === 'waiting_for_test' && before.assignedBy) {
+      await db.insert(notifications).values({
+        userId: before.assignedBy,
+        type: 'task_recalled',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ถูกดึงกลับไปแก้ไขเพิ่มเติม`,
       })
     }
     if (body.data.status === 'non_start' && before.status === 'waiting_for_test' && before.assigneeId) {
