@@ -1,4 +1,5 @@
 import js from '@eslint/js'
+import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
@@ -11,6 +12,15 @@ export default tseslint.config(
     rules: {
       // กัน floating promise ตั้งแต่วันแรก (best practice ของ Workers)
       '@typescript-eslint/no-floating-promises': 'off', // ต้องใช้ type-aware lint — เปิดใน T04 ตอนมี route จริง
+    },
+  },
+  {
+    // 'off' เพราะยังไม่เคยเปิดใช้จริงทั้งแอป (จะมีของเก่าเตือนเพียบถ้าเปิด) — ลงทะเบียนแค่ให้ rule นี้ "มีอยู่จริง"
+    // กัน error "Definition for rule 'react-hooks/exhaustive-deps' was not found" ที่จุดซึ่งมี eslint-disable-next-line ระบุ rule นี้ไว้ตั้งแต่ก่อน migrate มา flat config
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/exhaustive-deps': 'off',
     },
   },
   {

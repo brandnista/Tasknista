@@ -1,6 +1,7 @@
 import type { TableColumnDef, TableSectionDef, TemplateTableRow } from '@seedoffice/core'
 import { AlertTriangle, FileText, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useDialog } from '../Dialog'
 import { api, ApiError } from '../../lib/api'
 import { useLoad } from '../../lib/useLoad'
 import type { DocLinkRow } from '../SrsLinkedTasksSection'
@@ -50,6 +51,7 @@ export function DocBreakoutModal({
   onClose: () => void
   onCreated: (count: number) => void
 }) {
+  const { alertDialog } = useDialog()
   const { data: links } = useLoad<DocLinkRow[]>(() => api.get(`/api/docs/${docId}/links`), [docId])
   const existingSourceCodes = new Set((links ?? []).filter((l) => l.taskSrsSourceCode).map((l) => l.taskSrsSourceCode!))
   // เอกสาร Template ผูกโปรเจกต์ตรงๆ ไว้ตั้งแต่สร้าง (docLinks แถวที่ projectId ไม่ว่าง, taskId ว่าง) — ใช้แค่ preview รหัสอ้างอิง (โค้ดจริงฝั่ง backend คำนวณเองจาก docLinks อยู่แล้ว)
@@ -96,7 +98,6 @@ export function DocBreakoutModal({
       .filter((c): c is Candidate => c !== null)
     setItems(built)
     setInitialized(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [links])
 
   const updateItem = (tempId: string, patch: Partial<Candidate>) => setItems(items.map((it) => (it.tempId === tempId ? { ...it, ...patch } : it)))
@@ -126,10 +127,10 @@ export function DocBreakoutModal({
         })),
       })
       if (result.duplicateWarnings.length > 0) {
-        alert(`สร้างสำเร็จ แต่พบรหัสซ้ำจากที่แตกไปแล้วก่อนหน้า: ${result.duplicateWarnings.join(', ')} (สร้างใหม่ให้แล้ว)`)
+        await alertDialog({ title: `สร้างสำเร็จ แต่พบรหัสซ้ำจากที่แตกไปแล้วก่อนหน้า: ${result.duplicateWarnings.join(', ')} (สร้างใหม่ให้แล้ว)` })
       }
       if (result.unresolvedReferences.length > 0) {
-        alert(`สร้าง Task สำเร็จ แต่หารหัสอ้างอิงไม่เจอ: ${result.unresolvedReferences.join(', ')} (พิมพ์ผิด หรือยังไม่ได้แตกเป็น Task ในเล่มก่อนหน้า)`)
+        await alertDialog({ title: `สร้าง Task สำเร็จ แต่หารหัสอ้างอิงไม่เจอ: ${result.unresolvedReferences.join(', ')} (พิมพ์ผิด หรือยังไม่ได้แตกเป็น Task ในเล่มก่อนหน้า)` })
       }
       onCreated(result.tasks.length)
     } catch (e) {

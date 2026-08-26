@@ -3,6 +3,7 @@ import { type DragEvent, type MouseEvent as ReactMouseEvent, useEffect, useRef, 
 import { Link, useNavigate, useParams } from 'react-router'
 import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
+import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -324,6 +325,7 @@ export function BoardPage() {
   const columns = preset ? [...preset.columns].sort((a, b) => a.sortOrder - b.sortOrder) : []
   // Pronista §System Requirements Update — "ปิด Sprint" เป็นแอ็กชันระดับ Sprint (ไม่ใช่ต่อการ์ด) ยังเช็คแค่ role กว้างๆ ได้ · การ์ดแต่ละใบใช้ t.canEdit จาก backend แทน (ตรงกับ canEditTask จริง)
   const canEditSprint = user?.role !== 'vendor' && user?.role !== 'guest'
+  const { alertDialog, confirmDialog } = useDialog()
 
   const changeStatus = async (taskId: string, sprintStatus: string) => {
     await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
@@ -335,12 +337,12 @@ export function BoardPage() {
     const removed = await api.delete<{ originDocType: string | null; srsDocId: string | null }>(`/api/sprints/${sprint.id}/tasks/${taskId}`)
     const tabLabel = removed.originDocType ?? (removed.srsDocId ? 'SRS' : 'ทั่วไป')
     await reload()
-    alert(`เอา ${code ?? 'งาน'} ออกจาก Sprint แล้ว — กลับไปที่แท็บ "${tabLabel}" ใน Backlog หน้าโปรเจกต์เพื่อดู`)
+    await alertDialog({ title: `เอา ${code ?? 'งาน'} ออกจาก Sprint แล้ว — กลับไปที่แท็บ "${tabLabel}" ใน Backlog หน้าโปรเจกต์เพื่อดู` })
   }
   // Pronista §Sprint & Board แก้ไข flow — ปิด Sprint ได้จากหน้า Detail Board โดยตรง (ไม่ต้องย้อนกลับไปหน้าโปรเจกต์)
   const completeSprint = async () => {
     if (!sprint) return
-    if (!confirm('ปิด Sprint นี้เลยไหม? งานที่ยังไม่ Done จะเด้งกลับ Backlog')) return
+    if (!(await confirmDialog({ title: 'ปิด Sprint นี้เลยไหม?', message: 'งานที่ยังไม่ Done จะเด้งกลับ Backlog' }))) return
     setBusy(true)
     try {
       await api.post(`/api/sprints/${sprint.id}/complete`)

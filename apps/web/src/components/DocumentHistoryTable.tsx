@@ -1,6 +1,7 @@
 import { ExternalLink, FileText, GitCompare, MoreVertical, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
+import { useDialog } from './Dialog'
 import { AddVersionModal } from './ExternalDesignAssetsSection'
 import { DEFAULT_PAGE_SIZE, Pager } from './Pager'
 import { api } from '../lib/api'
@@ -103,6 +104,7 @@ export function DocumentHistoryTable({ projectId, projectName, canEdit }: {
   projectName?: string
   canEdit?: boolean
 }) {
+  const { confirmDialog } = useDialog()
   const { data: internal, loading: loadingInternal } = useLoad<{ docs: HistoryDoc[] }>(() => api.get('/api/document-history'))
   const { data: externalGlobal, loading: loadingExternalGlobal } = useLoad<{ logs: (ExternalLogRow & { projectId: string; projectName: string })[] }>(
     () => (projectId ? Promise.resolve({ logs: [] }) : api.get('/api/external-doc-logs')),
@@ -196,7 +198,7 @@ export function DocumentHistoryTable({ projectId, projectName, canEdit }: {
   )
 
   const removeExternalLog = async (id: string, label: string) => {
-    if (!confirm(`ลบ log "${label}"? (ใช้เฉพาะกรณีกรอกผิด — ประวัติเวอร์ชันควรเก็บไว้)`)) return
+    if (!(await confirmDialog({ title: `ลบ log "${label}"?`, message: 'ใช้เฉพาะกรณีกรอกผิด — ประวัติเวอร์ชันควรเก็บไว้', danger: true }))) return
     await api.delete(`/api/external-doc-logs/${id}`)
     void reloadScoped()
   }

@@ -1,5 +1,6 @@
 import { AlertTriangle, FileText, Plus, Trash2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
 
 interface SrsCandidate {
@@ -35,6 +36,7 @@ const sanitizeCodePrefix = (raw: string | null | undefined, fallback: string) =>
 
 /** Pronista §SRS import — นำเข้าเอกสาร SRS มาแตกเป็น Task: อัปโหลด → พาร์สหาโครงสร้าง → รีวิว/แก้/เลือก → ยืนยันสร้าง */
 export function SrsImportModal({ projectId, projectCode, onClose, onCreated }: { projectId: string; projectCode: string | null; onClose: () => void; onCreated: () => void }) {
+  const { alertDialog } = useDialog()
   const fileRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<'upload' | 'review'>('upload')
   const [parsing, setParsing] = useState(false)
@@ -114,7 +116,7 @@ export function SrsImportModal({ projectId, projectCode, onClose, onCreated }: {
         })),
       })
       if (result.duplicateWarnings.length > 0) {
-        alert(`สร้างสำเร็จ แต่พบรหัสซ้ำจากการนำเข้าครั้งก่อน: ${result.duplicateWarnings.join(', ')} (สร้างใหม่ให้แล้ว)`)
+        await alertDialog({ title: `สร้างสำเร็จ แต่พบรหัสซ้ำจากการนำเข้าครั้งก่อน: ${result.duplicateWarnings.join(', ')} (สร้างใหม่ให้แล้ว)` })
       }
       onCreated()
     } catch (e) {

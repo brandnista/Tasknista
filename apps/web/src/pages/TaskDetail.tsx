@@ -295,7 +295,7 @@ export function TaskDetailPage() {
   const { id: taskId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { confirmDialog, promptDialog } = useDialog()
+  const { alertDialog, confirmDialog, promptDialog } = useDialog()
   const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
@@ -441,7 +441,7 @@ export function TaskDetailPage() {
       await api.post(`/api/tasks/${t.id}/attachment-links`, { url: url.trim() })
       await reload()
     } catch {
-      alert('ลิงก์ไม่ถูกต้อง ลองใหม่อีกครั้ง (ต้องขึ้นต้นด้วย https://)')
+      await alertDialog({ title: 'ลิงก์ไม่ถูกต้อง ลองใหม่อีกครั้ง (ต้องขึ้นต้นด้วย https://)' })
     }
   }
   // Pronista §Back to Basic — สร้างเอกสารจาก Template สำเร็จแล้ว (เอกสารผูกโปรเจกต์ไปแล้วจาก TemplatePickerModal) ผูกเพิ่มกับ task นี้ด้วย
@@ -463,7 +463,7 @@ export function TaskDetailPage() {
     fd.append('docType', docType)
     const res = await fetch('/api/docs/upload', { method: 'POST', body: fd })
     if (!res.ok) {
-      alert('อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF ขนาดไม่เกิน 15MB')
+      await alertDialog({ title: 'อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF ขนาดไม่เกิน 15MB' })
       return
     }
     const created = (await res.json()) as { id: string }

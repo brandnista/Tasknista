@@ -331,7 +331,7 @@ function DocListRow({ n, projectName, onMenu }: { n: DocNode; projectName: strin
 export function DocsPage() {
   const { data: nodes, reload: reloadTree } = useLoad<DocNode[]>(() => api.get('/api/docs'))
   const { data: projectOpts } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
-  const { confirmDialog, promptDialog } = useDialog()
+  const { alertDialog, confirmDialog, promptDialog } = useDialog()
   const [addMenu, setAddMenu] = useState<{ parentId: string | null; x: number; y: number } | null>(null)
   const [templatePicker, setTemplatePicker] = useState<{ parentId: string | null } | null>(null)
   const [pendingUpload, setPendingUpload] = useState<File | null>(null)
@@ -543,7 +543,7 @@ export function DocsPage() {
     const res = await fetch('/api/docs/upload', { method: 'POST', body: form })
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { message?: string }
-      alert(j.message ?? 'อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF ขนาดไม่เกิน 15MB')
+      await alertDialog({ title: j.message ?? 'อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF ขนาดไม่เกิน 15MB' })
       return
     }
     const created = (await res.json()) as { id: string }

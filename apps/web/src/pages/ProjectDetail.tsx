@@ -7,6 +7,7 @@ import { BacklogConvertMenu, CONVERT_LABEL } from '../components/BacklogConvertM
 import { DateInputTH } from '../components/DateInputTH'
 import { LabelChips } from '../components/LabelChips'
 import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
+import { useDialog } from '../components/Dialog'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { ImportDataModal } from '../components/ImportDataModal'
 import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
@@ -202,6 +203,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
 }) {
   // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย ทำให้ทุกจุดที่เช็ค canEdit อยู่แล้วในฟังก์ชันนี้ (รวมถึงที่ส่งต่อลง sub-tab) กลายเป็น read-only อัตโนมัติโดยไม่ต้องไล่แก้ทีละจุด
   const canEdit = canEditProp && !readOnly
+  const { alertDialog, confirmDialog } = useDialog()
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog · §System Requirements Update — แคตตาล็อก Task Type ใช้ filter
   const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
@@ -249,7 +251,6 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     })
   useEffect(() => {
     if (revealTab) setTab(revealTab.tab)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealTab?.nonce])
   const [deleting, setDeleting] = useState(false)
   const list = data?.tasks ?? []
@@ -310,7 +311,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   }
   const deleteSelected = async () => {
     if (selected.size === 0) return
-    if (!confirm(`ลบ ${selected.size} รายการที่เลือก? กู้คืนไม่ได้`)) return
+    if (!(await confirmDialog({ title: `ลบ ${selected.size} รายการที่เลือก?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     setDeleting(true)
     try {
       const ids = [...selected]
@@ -318,7 +319,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       const failed = results.filter((r) => r.status === 'rejected').length
       setSelected(new Set())
       void reload()
-      if (failed > 0) alert(`ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ (อาจถูกล็อกอยู่)`)
+      if (failed > 0) await alertDialog({ title: `ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ (อาจถูกล็อกอยู่)` })
     } finally {
       setDeleting(false)
     }
@@ -811,6 +812,7 @@ function SprintSection({ projectId, canEdit: canEditProp, onBacklogChanged, read
   // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย (ดูคอมเมนต์เดียวกันใน ProjectBacklogSection)
   const canEdit = canEditProp && !readOnly
   const navigate = useNavigate()
+  const { confirmDialog } = useDialog()
   const { data, reload } = useLoad<CurrentSprintData>(() => api.get(`/api/projects/${projectId}/sprints/current`), [projectId, refreshKey])
   const { data: history, reload: reloadHistory } = useLoad<SprintRow[]>(() => api.get(`/api/projects/${projectId}/sprints`), [projectId, refreshKey])
   const [instantCreating, setInstantCreating] = useState(false)
@@ -850,7 +852,7 @@ function SprintSection({ projectId, canEdit: canEditProp, onBacklogChanged, read
     }
   }
   const completeSprint = async (sprintId: string) => {
-    if (!confirm('ปิด Sprint นี้เลยไหม? งานที่ยังไม่ Done จะเด้งกลับ Backlog')) return
+    if (!(await confirmDialog({ title: 'ปิด Sprint นี้เลยไหม?', message: 'งานที่ยังไม่ Done จะเด้งกลับ Backlog' }))) return
     setBusy(true)
     try {
       await api.post(`/api/sprints/${sprintId}/complete`)
@@ -1888,6 +1890,7 @@ function ApiDocumentSection({ projectId, canEdit }: { projectId: string; canEdit
   const apiDocs = (docList ?? []).filter((d) => d.docType === 'API')
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const { alertDialog } = useDialog()
 
   const upload = async (file: File) => {
     const form = new FormData()
@@ -1905,7 +1908,7 @@ function ApiDocumentSection({ projectId, canEdit }: { projectId: string; canEdit
       for (const f of Array.from(files)) await upload(f)
       void reload()
     } catch {
-      alert('อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF')
+      await alertDialog({ title: 'อัปโหลดไม่สำเร็จ — รับเฉพาะ Word (.docx/.doc) และ PDF' })
     } finally {
       setUploading(false)
     }
@@ -1963,6 +1966,7 @@ export function ProjectDetailPage() {
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && canEditProject
   const { data: board, reload } = useLoad<{ groups: BoardGroup[] }>(() => api.get(`/api/projects/${id}/board`), [id])
   const navigate = useNavigate()
+  const { confirmDialog } = useDialog()
   const [searchParams] = useSearchParams()
   const openTask = (taskId: string) => navigate(`/tasks/${taskId}`)
   // Pronista §Task Detail redesign — ลิงก์เก่าแบบ /projects/:id?task=:taskId (ยิงมาจากหลายที่: Dashboard, TeamBox, การ์ดแจ้งเตือน ฯลฯ) redirect ไปหน้าใหม่แทนเปิด Drawer เดิม — ไม่ต้องแก้จุดสร้างลิงก์เดิมที่อื่นเลย
@@ -1994,7 +1998,6 @@ export function ProjectDetailPage() {
   // Pronista §Position-based permission — กัน deep-link ผ่าน ?tab= เข้าแท็บที่ถูกซ่อนไว้ (สลับไปแท็บแรกที่มองเห็นได้แทน)
   useEffect(() => {
     if (tabs.length > 0 && !tabs.some(([v]) => v === view)) setView(tabs[0]![0])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.myPermissions])
 
   const groups = useMemo(() => board?.groups ?? [], [board])
@@ -2056,7 +2059,7 @@ export function ProjectDetailPage() {
               {user?.role === 'owner' && (
                 <button
                   onClick={async () => {
-                    if (!confirm(`ลบโปรเจกต์ "${project.name}"? กู้คืนเองไม่ได้ผ่านหน้านี้`)) return
+                    if (!(await confirmDialog({ title: `ลบโปรเจกต์ "${project.name}"?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', danger: true }))) return
                     await api.delete(`/api/projects/${project.id}`)
                     navigate('/projects')
                   }}

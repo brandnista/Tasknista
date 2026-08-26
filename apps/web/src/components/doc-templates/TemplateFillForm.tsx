@@ -1,6 +1,7 @@
 import { getDocTemplate, type TableSectionDef, type TemplateData } from '@seedoffice/core'
 import { Download, ListTree, Plus, Printer, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useDialog } from '../Dialog'
 import { api } from '../../lib/api'
 import { buildTemplateDocx, downloadBlob } from '../../lib/doc-export/docx-builder'
 import { useLoad } from '../../lib/useLoad'
@@ -30,6 +31,7 @@ const emptyData: TemplateData = { fields: {}, tables: {}, lists: {} }
  * ใช้ key={doc.id} ตอน mount (เหมือน DocEditor) ให้ remount สดตอนสลับเอกสาร — ไม่ต้องมี logic reset state เองข้างใน */
 export function TemplateFillForm({ doc, canEdit, onMetaChanged }: { doc: TemplateDoc; canEdit: boolean; onMetaChanged: () => void }) {
   const def = doc.templateType ? getDocTemplate(doc.templateType) : undefined
+  const { alertDialog } = useDialog()
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const [data, setData] = useState<TemplateData>(doc.templateData ?? emptyData)
   const [title, setTitle] = useState(doc.title)
@@ -53,7 +55,6 @@ export function TemplateFillForm({ doc, canEdit, onMetaChanged }: { doc: Templat
     saveTimer.current = setTimeout(() => {
       void api.patch(`/api/docs/${doc.id}/template-values`, { dataJson: JSON.stringify(data) }).then(() => setSaveState('saved'))
     }, 800)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
   // flush ก่อนสลับ/ปิดเอกสาร — ใช้ ref กัน closure จับ data เก่าตอน mount (deps ว่างจงใจ ให้ cleanup รันครั้งเดียวตอน unmount จริง)
@@ -64,7 +65,6 @@ export function TemplateFillForm({ doc, canEdit, onMetaChanged }: { doc: Templat
         void api.patch(`/api/docs/${doc.id}/template-values`, { dataJson: JSON.stringify(dataRef.current) })
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const saveTitle = async () => {
@@ -287,7 +287,7 @@ export function TemplateFillForm({ doc, canEdit, onMetaChanged }: { doc: Templat
           onCreated={(count) => {
             setBreakoutSection(null)
             setLinksRefreshKey((k) => k + 1)
-            alert(`สร้าง ${count} Task สำเร็จ`)
+            void alertDialog({ title: `สร้าง ${count} Task สำเร็จ` })
           }}
         />
       )}

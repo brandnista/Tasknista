@@ -1,5 +1,6 @@
 import { FileText, Image as ImageIcon, Link2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useDialog } from '../Dialog'
 import { api, ApiError } from '../../lib/api'
 import { useLoad } from '../../lib/useLoad'
 
@@ -22,6 +23,7 @@ const isImage = (mime: string | null) => !!mime && /^image\/(png|jpeg|gif|webp|a
  * เรียก endpoint docAttachments (apps/api/src/routes/doc-attachments.ts) — คนละตารางกับ task attachments เดิม
  */
 export function DocAttachmentsSection({ docId, canEdit }: { docId: string; canEdit: boolean }) {
+  const { confirmDialog } = useDialog()
   const { data, reload } = useLoad<DocAttachment[]>(() => api.get(`/api/docs/${docId}/attachments`), [docId])
   const fileRef = useRef<HTMLInputElement>(null)
   const [addingLink, setAddingLink] = useState(false)
@@ -69,7 +71,7 @@ export function DocAttachmentsSection({ docId, canEdit }: { docId: string; canEd
   }
 
   const remove = async (id: string) => {
-    if (!confirm('ลบไฟล์แนบนี้? กู้คืนไม่ได้')) return
+    if (!(await confirmDialog({ title: 'ลบไฟล์แนบนี้?', message: 'กู้คืนไม่ได้', danger: true }))) return
     await api.delete(`/api/doc-attachments/${id}`)
     void reload()
   }

@@ -1,5 +1,6 @@
 import { AlertTriangle, FileText, Plus, Trash2, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
@@ -73,6 +74,7 @@ export function SowUploadBreakoutModal({ lockedProject, onClose, onCreated }: {
   onClose: () => void
   onCreated: () => void
 }) {
+  const { alertDialog } = useDialog()
   const fileRef = useRef<HTMLInputElement>(null)
   const { data: fetchedProjectOpts } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
@@ -208,10 +210,10 @@ export function SowUploadBreakoutModal({ lockedProject, onClose, onCreated }: {
         })),
       })
       if (result.duplicateWarnings.length > 0) {
-        alert(`สร้างสำเร็จ แต่พบรหัสซ้ำจากการนำเข้าครั้งก่อน: ${result.duplicateWarnings.join(', ')} (สร้างใหม่ให้แล้ว)`)
+        await alertDialog({ title: `สร้างสำเร็จ แต่พบรหัสซ้ำจากการนำเข้าครั้งก่อน: ${result.duplicateWarnings.join(', ')} (สร้างใหม่ให้แล้ว)` })
       }
       if (result.unresolvedReferences.length > 0) {
-        alert(`สร้าง Task สำเร็จ แต่หารหัสอ้างอิงไม่เจอ: ${result.unresolvedReferences.join(', ')} (พิมพ์ผิด หรือยังไม่ได้แตกเป็น Task ในเล่มก่อนหน้า)`)
+        await alertDialog({ title: `สร้าง Task สำเร็จ แต่หารหัสอ้างอิงไม่เจอ: ${result.unresolvedReferences.join(', ')} (พิมพ์ผิด หรือยังไม่ได้แตกเป็น Task ในเล่มก่อนหน้า)` })
       }
       setDoneInfo({ docId: result.doc.id, projectId, taskIds: result.tasks.map((t) => t.id), subtaskCount: result.subtasks.length })
       setStep('done')

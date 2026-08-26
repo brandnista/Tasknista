@@ -9,12 +9,18 @@ import {
 } from 'react'
 
 /**
- * Dialog กลางแทน confirm()/prompt() ของ browser — เรียบหรู มี fade+pop animation
- * ใช้: const { confirmDialog, promptDialog } = useDialog()
+ * Dialog กลางแทน alert()/confirm()/prompt() ของ browser — เรียบหรู มี fade+pop animation
+ * ใช้: const { alertDialog, confirmDialog, promptDialog } = useDialog()
+ *   await alertDialog({ title: 'บันทึกแล้ว' })
  *   if (await confirmDialog({ title: 'ลบงาน?', danger: true })) ...
  *   const name = await promptDialog({ title: 'หน้าใหม่' }) // null = ยกเลิก
  */
 
+export interface AlertOptions {
+  title: string
+  message?: string
+  confirmLabel?: string
+}
 export interface ConfirmOptions {
   title: string
   message?: string
@@ -32,10 +38,12 @@ export interface PromptOptions {
 }
 
 type Pending =
+  | { kind: 'alert'; opts: AlertOptions; resolve: (v: void) => void }
   | { kind: 'confirm'; opts: ConfirmOptions; resolve: (v: boolean) => void }
   | { kind: 'prompt'; opts: PromptOptions; resolve: (v: string | null) => void }
 
 interface DialogApi {
+  alertDialog: (opts: AlertOptions) => Promise<void>
   confirmDialog: (opts: ConfirmOptions) => Promise<boolean>
   promptDialog: (opts: PromptOptions) => Promise<string | null>
 }
@@ -58,6 +66,11 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     setPending(p)
   }, [])
 
+  const alertDialog = useCallback(
+    (opts: AlertOptions) =>
+      new Promise<void>((resolve) => open({ kind: 'alert', opts, resolve })),
+    [open],
+  )
   const confirmDialog = useCallback(
     (opts: ConfirmOptions) =>
       new Promise<boolean>((resolve) => open({ kind: 'confirm', opts, resolve })),
@@ -81,11 +94,13 @@ export function DialogProvider({ children }: { children: ReactNode }) {
       setPending(null)
       setClosing(false)
       if (!p) return
-      if (p.kind === 'confirm') p.resolve(result as boolean)
+      if (p.kind === 'alert') p.resolve()
+      else if (p.kind === 'confirm') p.resolve(result as boolean)
       else p.resolve(result as string | null)
     }, CLOSE_MS)
   }, [])
 
+  // alert ไม่มีปุ่มยกเลิก — ปิดด้วยวิธีไหนก็ถือว่า "รับทราบแล้ว" เหมือนกด ok
   const cancel = useCallback(
     () => finish(pendingRef.current?.kind === 'confirm' ? false : null),
     [finish],
@@ -123,7 +138,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const danger = pending?.kind === 'confirm' && pending.opts.danger
 
   return (
-    <Ctx.Provider value={{ confirmDialog, promptDialog }}>
+    <Ctx.Provider value={{ alertDialog, confirmDialog, promptDialog }}>
       {children}
       {pending && opts && (
         <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label={opts.title}>
@@ -152,12 +167,14 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 />
               )}
               <div className="flex justify-end gap-2 mt-5">
-                <button
-                  onClick={cancel}
-                  className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover"
-                >
-                  {(pending.kind === 'confirm' && pending.opts.cancelLabel) || 'ยกเลิก'}
-                </button>
+                {pending.kind !== 'alert' && (
+                  <button
+                    onClick={cancel}
+                    className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover"
+                  >
+                    {(pending.kind === 'confirm' && pending.opts.cancelLabel) || 'ยกเลิก'}
+                  </button>
+                )}
                 <button
                   ref={okRef}
                   onClick={ok}
