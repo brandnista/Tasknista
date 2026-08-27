@@ -1,23 +1,11 @@
-import {
-  chatChannelMembers,
-  chatChannels,
-  chatMessageAttachments,
-  chatMessages,
-  createDb,
-  notifications,
-  projectMembers,
-  projects,
-  taskGroups,
-  tasks,
-  users,
-} from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNull, lt, ne } from 'drizzle-orm'
+import { chatChannelMembers, chatChannels, chatMessageAttachments, chatMessages, createDb, notifications, projectMembers, projects, users } from '@seedoffice/db'
+import { and, desc, eq, inArray, isNull, lt, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyChatChannel } from '../lib/presence-notify'
 import { getProjectPermissions } from '../lib/project-role'
-import { nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
+import { createQuickTask } from '../lib/quick-task'
 import { teamOrMenu } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -225,25 +213,8 @@ chatRoutes
     // Pronista §Message → Task — ต้องมีสิทธิ์สร้าง Task ในโปรเจกต์ปลายทางจริง (เช็คเดียวกับ POST /projects/:id/tasks ปกติ กันสิทธิ์หลุดผ่านทางลัดแชท)
     const permissions = await getProjectPermissions(db, project.id, me.id, me.role)
     if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
-    let group = (await db.select().from(taskGroups).where(eq(taskGroups.projectId, project.id)).orderBy(asc(taskGroups.sortOrder)).limit(1))[0]
-    if (!group) group = (await db.insert(taskGroups).values({ projectId: project.id, name: 'ทั่วไป', sortOrder: 0 }).returning())[0]!
-    const siblings = await db.select().from(tasks).where(eq(tasks.groupId, group.id))
-    const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), 'Task')
-    const created = (
-      await db
-        .insert(tasks)
-        .values({
-          projectId: project.id,
-          groupId: group.id,
-          sortOrder: siblings.length,
-          createdBy: me.id,
-          code,
-          title: (body.data.title ?? msg.body).slice(0, 200),
-          description: msg.body,
-          assigneeId: body.data.assigneeId,
-        })
-        .returning()
-    )[0]!
+    const created = await createQuickTask(db, { projectId: project.id, title: body.data.title ?? msg.body, description: msg.body, assigneeId: body.data.assigneeId, createdBy: me.id })
+    if (!created) return c.json({ error: 'project_not_found' }, 404)
     await writeAudit(c.env, { actorId: me.id, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, source: 'chat_message', messageId: msg.id } })
     return c.json(created, 201)
   })

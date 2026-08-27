@@ -17,6 +17,7 @@ import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
 import { ProjectChangeLogTab } from '../components/ProjectChangeLogTab'
 import { ProjectEstimateSection } from '../components/ProjectEstimateSection'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
+import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -1978,7 +1979,7 @@ export function ProjectDetailPage() {
   // Pronista §Project Estimate — Tab เห็นเฉพาะ owner (ต้นทุนทีมทั้งหมด ไม่ใช่แค่งบรวม)
   // Pronista §External Document Version Logging — เพิ่มแท็บ External Design Assets (log เวอร์ชันเอกสารภายนอก เช่น Canva)
   // Pronista §Document Management MVP — เชื่อมสองทางกับหน้า "ประวัติเอกสาร": ลิงก์มาพร้อม ?tab=assets ให้เด้งไปแท็บนี้ตรงๆ
-  const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'releases' | 'changeLog' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate'>(
+  const [view, setView] = useState<'sprint' | 'docs' | 'assets' | 'releases' | 'changeLog' | 'apidoc' | 'defect' | 'epic' | 'story' | 'task' | 'cr' | 'estimate' | 'meetings'>(
     searchParams.get('tab') === 'assets' ? 'assets' : 'sprint',
   )
   // Pronista §Back to Basic — Tab บนสุดเหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร/Version Release — Epic/Story/Task/Defect/CR ย้ายไปเป็น sub-tab ใน Backlog (ดู ProjectBacklogSection) · API Document ยังถอดออกจากแถบอยู่ (component/route เดิมยังอยู่ ไม่ได้ลบ) · Project Estimate กลับมาแล้ว (owner เท่านั้น — ดู .concat ด้านล่าง)
@@ -1990,6 +1991,7 @@ export function ProjectDetailPage() {
       ['assets', 'ประวัติเอกสาร'],
       ['releases', 'Version Release'],
       ['changeLog', 'Change Log'],
+      ['meetings', 'ประชุม'],
     ] as [typeof view, string][]
   )
     .filter(([v]) => project?.myPermissions?.tabs[v as PermissionTabKey] ?? true)
@@ -2158,6 +2160,12 @@ export function ProjectDetailPage() {
       {view === 'docs' && id && <ProjectDocsSection projectId={id} />}
 
       {view === 'assets' && id && <DocumentHistoryTable projectId={id} projectName={project.name} canEdit={canEdit} />}
+
+      {view === 'meetings' && id && (
+        <div className="h-[calc(100dvh-14rem)]">
+          <MeetingsTab projectIdFilter={id} />
+        </div>
+      )}
 
       {view === 'releases' && id && (
         <ProjectReleasesTab

@@ -1,7 +1,8 @@
-import { Hash, Paperclip, Plus, Send, X } from 'lucide-react'
+import { Calendar, Hash, MessagesSquare, Paperclip, Plus, Send, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
+import { MeetingsTab } from '../components/MeetingsTab'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
@@ -41,9 +42,26 @@ interface UserOpt {
 
 const fmtTime = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-/** Pronista §Team Chat (2026-08-26) — เมนู "ทีม" คุยงานข้ามโปรเจกต์/DM ในระบบ ไม่ต้องออกไปแอปอื่น
+/** Pronista §Team Chat (2026-08-26) — เมนู "ทีม" คุยงานข้ามโปรเจกต์/DM + นัดประชุมในระบบ ไม่ต้องออกไปแอปอื่น
  * โครงหน้าเลียนแบบ MyTasks.tsx (แท็บ), WebSocket ต่อห้องเลียนแบบ Inbox.tsx (reconnect 5s, ping/pong) */
 export function TeamPage() {
+  const [tab, setTab] = useState<'chat' | 'meetings'>('chat')
+  return (
+    <div className="h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] flex flex-col">
+      <div className="flex bg-divider p-0.5 gap-0.5 m-2 rounded-lg text-xs font-medium w-fit shrink-0">
+        <button onClick={() => setTab('chat')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'chat' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <MessagesSquare className="w-3.5 h-3.5" /> Chat
+        </button>
+        <button onClick={() => setTab('meetings')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'meetings' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <Calendar className="w-3.5 h-3.5" /> ประชุม
+        </button>
+      </div>
+      <div className="flex-1 min-h-0">{tab === 'chat' ? <ChatTab /> : <MeetingsTab />}</div>
+    </div>
+  )
+}
+
+function ChatTab() {
   const { user } = useAuth()
   const { data, reload } = useLoad<ChatChannel[]>(() => api.get('/api/chat/channels'))
   const channels = useMemo(() => (data ?? []).sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0)), [data])
@@ -63,10 +81,10 @@ export function TeamPage() {
   const selected = channels.find((c) => c.id === selectedId) ?? null
 
   return (
-    <div className="h-[calc(100dvh-3.5rem)] sm:h-[calc(100dvh-4rem)] flex">
+    <div className="h-full flex">
       <div className="w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white flex flex-col overflow-y-auto" style={{ display: selected ? undefined : 'flex' }}>
         <div className="flex items-center justify-between px-3 py-3 border-b border-border-subtle">
-          <span className="font-semibold text-ink text-sm">ทีม</span>
+          <span className="font-semibold text-ink text-sm">Chat</span>
           <button onClick={() => setNewDmOpen(true)} title="เริ่มข้อความใหม่" className="p-1.5 rounded-lg hover:bg-hover text-dim">
             <Plus className="w-4 h-4" />
           </button>

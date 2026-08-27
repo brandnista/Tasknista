@@ -25,6 +25,7 @@ import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
 import { dailyReportRoutes } from './routes/daily-reports'
 import { memberRoutes } from './routes/members'
+import { meetingRoutes } from './routes/meetings'
 import { myNoteRoutes } from './routes/my-notes'
 import { projectReleaseRoutes } from './routes/project-releases'
 import { projectChangelogRoutes } from './routes/project-changelogs'
@@ -174,6 +175,9 @@ app.route('/api', myNoteRoutes)
 // Pronista §Team Chat (2026-08-26) — เพดานเมนู "team" คุมเองต่อ route ใน chat.ts (teamOrMenu) ที่นี่แค่ requireAuth ตั้ง c.get('user') ให้
 app.use('/api/chat/*', requireAuth)
 app.route('/api', chatRoutes)
+app.use('/api/meetings', requireAuth)
+app.use('/api/meetings/*', requireAuth)
+app.route('/api', meetingRoutes)
 // เงินสดย่อย: owner+member (vendor ❌ — SPEC §2)
 app.use('/api/expenses', requireAuth, teamOnly)
 app.use('/api/expenses/*', requireAuth, teamOnly)

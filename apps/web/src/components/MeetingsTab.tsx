@@ -1,0 +1,392 @@
+import { Check, ExternalLink, Plus, X } from 'lucide-react'
+import { useState } from 'react'
+import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { useLoad } from '../lib/useLoad'
+import { avatarColor } from '../pages/ProjectDetail'
+import { Avatar } from './Avatar'
+import { useDialog } from './Dialog'
+
+interface MeetingRow {
+  id: string
+  title: string
+  meetingType: string
+  projectId: string | null
+  projectName: string | null
+  organizerId: string
+  startAt: number
+  endAt: number
+  externalMeetingUrl: string | null
+}
+interface MeetingActionItem {
+  id: string
+  text: string
+  taskId: string | null
+  done: boolean
+}
+interface MeetingDetail extends MeetingRow {
+  agenda: string | null
+  notes: string | null
+  participants: { userId: string; name: string }[]
+  actionItems: MeetingActionItem[]
+}
+interface ProjectOpt {
+  id: string
+  name: string
+}
+interface UserOpt {
+  id: string
+  name: string
+}
+
+const MEETING_TYPE_LABEL: Record<string, string> = {
+  team: 'Team Meeting',
+  project: 'Project Meeting',
+  sprint_planning: 'Sprint Planning',
+  sprint_review: 'Sprint Review',
+  daily_standup: 'Daily Standup',
+  client: 'Client Meeting',
+  other: 'อื่นๆ',
+}
+
+const fmtTimeRange = (startAt: number, endAt: number) =>
+  `${new Date(startAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })} - ${new Date(endAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })}`
+const fmtDayHeader = (ms: number) => new Date(ms).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', weekday: 'long', day: 'numeric', month: 'long' })
+const dayKey = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+
+function toLocalInputValue(ms: number) {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Pronista §Team Meeting (2026-08-26) — แท็บ "ประชุม" ใน หน้าทีม: นัดประชุม + Notes + Action Items → Task (ไม่มีวิดีโอในระบบ ใช้ช่องแปะลิงก์ Meet/Zoom เอง) */
+export function MeetingsTab({ projectIdFilter }: { projectIdFilter?: string } = {}) {
+  const [scope, setScope] = useState<'upcoming' | 'all'>('upcoming')
+  const { data, reload } = useLoad<MeetingRow[]>(() => api.get(`/api/meetings?scope=${scope}`), [scope])
+  const meetings = (data ?? []).filter((m) => !projectIdFilter || m.projectId === projectIdFilter)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [detailId, setDetailId] = useState<string | null>(null)
+
+  const groups = new Map<string, MeetingRow[]>()
+  for (const m of meetings) {
+    const key = dayKey(m.startAt)
+    groups.set(key, [...(groups.get(key) ?? []), m])
+  }
+
+  return (
+    <div className="h-full overflow-y-auto p-3 sm:p-4 max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex bg-divider p-0.5 rounded-lg text-xs font-medium">
+          <button onClick={() => setScope('upcoming')} className={`px-2.5 py-1 rounded-md ${scope === 'upcoming' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ที่จะถึง</button>
+          <button onClick={() => setScope('all')} className={`px-2.5 py-1 rounded-md ${scope === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ทั้งหมด</button>
+        </div>
+        <button onClick={() => setCreateOpen(true)} className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg flex items-center gap-1">
+          <Plus className="w-3.5 h-3.5" /> นัดประชุม
+        </button>
+      </div>
+      {meetings.length === 0 && <div className="text-center text-sm text-muted py-10">ยังไม่มีการประชุม{scope === 'upcoming' ? 'ที่จะถึง' : ''}</div>}
+      {[...groups.entries()].map(([key, rows]) => (
+        <div key={key} className="mb-4">
+          <div className="text-xs font-medium text-muted mb-1.5">{fmtDayHeader(rows[0]!.startAt)}</div>
+          <div className="space-y-2">
+            {rows.map((m) => (
+              <button key={m.id} onClick={() => setDetailId(m.id)} className="w-full text-left bg-white rounded-lg shadow-xs p-3 hover:shadow-sm flex items-start gap-3">
+                <div className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtTimeRange(m.startAt, m.endAt)}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-body font-medium truncate">{m.title}</div>
+                  <div className="text-[11px] text-muted flex items-center gap-1.5 flex-wrap mt-0.5">
+                    <span>{MEETING_TYPE_LABEL[m.meetingType] ?? m.meetingType}</span>
+                    {m.projectName && <span>· {m.projectName}</span>}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {createOpen && (
+        <CreateMeetingModal
+          defaultProjectId={projectIdFilter}
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => {
+            setCreateOpen(false)
+            void reload()
+          }}
+        />
+      )}
+      {detailId && <MeetingDetailModal meetingId={detailId} onClose={() => setDetailId(null)} onChanged={reload} />}
+    </div>
+  )
+}
+
+function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultProjectId?: string; onClose: () => void; onCreated: () => void }) {
+  const { alertDialog } = useDialog()
+  const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
+  const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
+  const [title, setTitle] = useState('')
+  const [meetingType, setMeetingType] = useState('team')
+  const [projectId, setProjectId] = useState(defaultProjectId ?? '')
+  const now = new Date(Date.now() + 60 * 60_000)
+  now.setMinutes(0, 0, 0)
+  const [startAt, setStartAt] = useState(toLocalInputValue(now.getTime()))
+  const [endAt, setEndAt] = useState(toLocalInputValue(now.getTime() + 60 * 60_000))
+  const [externalMeetingUrl, setExternalMeetingUrl] = useState('')
+  const [agenda, setAgenda] = useState('')
+  const [participantIds, setParticipantIds] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+
+  const toggleParticipant = (id: string) => setParticipantIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+
+  const create = async () => {
+    if (!title.trim()) return
+    setBusy(true)
+    try {
+      await api.post('/api/meetings', {
+        title: title.trim(),
+        meetingType,
+        projectId: projectId || null,
+        startAt: new Date(startAt).getTime(),
+        endAt: new Date(endAt).getTime(),
+        externalMeetingUrl: externalMeetingUrl.trim() || null,
+        agenda: agenda.trim() || null,
+        participantIds: [...participantIds],
+      })
+      onCreated()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'นัดประชุมไม่สำเร็จ' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+          <span className="font-semibold text-ink text-sm">นัดประชุม</span>
+          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3 overflow-y-auto">
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">หัวข้อ</label>
+            <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-muted block mb-0.5">ประเภท</label>
+              <select value={meetingType} onChange={(e) => setMeetingType(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
+                {Object.entries(MEETING_TYPE_LABEL).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-muted block mb-0.5">โปรเจกต์ (ถ้ามี)</label>
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
+                <option value="">— ไม่ระบุ —</option>
+                {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-muted block mb-0.5">เริ่ม</label>
+              <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted block mb-0.5">ถึง</label>
+              <input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">ลิงก์ประชุม (Google Meet/Zoom ฯลฯ)</label>
+            <input value={externalMeetingUrl} onChange={(e) => setExternalMeetingUrl(e.target.value)} placeholder="https://..." className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">Agenda</label>
+            <textarea value={agenda} onChange={(e) => setAgenda(e.target.value)} rows={2} className="w-full text-sm bg-hover rounded-lg px-3 py-2 resize-none focus:outline-hidden" />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-1">ผู้เข้าร่วม</label>
+            <div className="max-h-32 overflow-y-auto space-y-0.5 border border-border-subtle rounded-lg p-1.5">
+              {(users ?? []).map((u) => (
+                <label key={u.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-hover cursor-pointer">
+                  <input type="checkbox" checked={participantIds.has(u.id)} onChange={() => toggleParticipant(u.id)} />
+                  <span className="text-xs text-body">{u.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
+          <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
+          <button onClick={() => void create()} disabled={!title.trim() || busy} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40">นัดประชุม</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingId: string; onClose: () => void; onChanged: () => void }) {
+  const { user } = useAuth()
+  const { confirmDialog } = useDialog()
+  const { data: meeting, reload } = useLoad<MeetingDetail>(() => api.get(`/api/meetings/${meetingId}`), [meetingId])
+  const [notesDraft, setNotesDraft] = useState<string | null>(null)
+  const [newItemText, setNewItemText] = useState('')
+  const [convertItem, setConvertItem] = useState<MeetingActionItem | null>(null)
+  const isOrganizerOrOwner = !!meeting && !!user && (user.role === 'owner' || meeting.organizerId === user.id)
+
+  const saveNotes = async () => {
+    if (notesDraft === null || notesDraft === (meeting?.notes ?? '')) { setNotesDraft(null); return }
+    await api.patch(`/api/meetings/${meetingId}`, { notes: notesDraft })
+    setNotesDraft(null)
+    await reload()
+  }
+  const addItem = async () => {
+    if (!newItemText.trim()) return
+    await api.post(`/api/meetings/${meetingId}/action-items`, { text: newItemText.trim() })
+    setNewItemText('')
+    await reload()
+  }
+  const toggleItem = async (item: MeetingActionItem) => {
+    await api.patch(`/api/meetings/${meetingId}/action-items/${item.id}`, { done: !item.done })
+    await reload()
+  }
+  const removeMeeting = async () => {
+    if (!(await confirmDialog({ title: 'ยกเลิกการประชุมนี้?', danger: true }))) return
+    await api.delete(`/api/meetings/${meetingId}`)
+    onChanged()
+    onClose()
+  }
+
+  if (!meeting) return null
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div className="flex items-start justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+          <div>
+            <div className="font-semibold text-ink text-sm">{meeting.title}</div>
+            <div className="text-[11px] text-muted mt-0.5">
+              {fmtDayHeader(meeting.startAt)} · {fmtTimeRange(meeting.startAt, meeting.endAt)}
+              {meeting.projectName && ` · ${meeting.projectName}`}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim shrink-0"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-4 overflow-y-auto">
+          {meeting.externalMeetingUrl && (
+            <a href={meeting.externalMeetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-white bg-success-600 hover:bg-success-700 px-3 py-2 rounded-lg font-medium">
+              <ExternalLink className="w-4 h-4" /> เข้าร่วมประชุม
+            </a>
+          )}
+          <div className="flex flex-wrap gap-1">
+            {meeting.participants.map((p) => (
+              <span key={p.userId} className="inline-flex items-center gap-1 bg-hover rounded-full pl-0.5 pr-2 py-0.5">
+                <Avatar name={p.name} className="w-4 h-4 text-[8px]" colorClass={avatarColor(p.name)} />
+                <span className="text-[11px] text-body">{p.name}</span>
+              </span>
+            ))}
+          </div>
+          {meeting.agenda && (
+            <div>
+              <div className="text-[11px] font-medium text-muted mb-1">Agenda</div>
+              <p className="text-sm text-body whitespace-pre-line">{meeting.agenda}</p>
+            </div>
+          )}
+          <div>
+            <div className="text-[11px] font-medium text-muted mb-1">บันทึกการประชุม</div>
+            <textarea
+              value={notesDraft ?? meeting.notes ?? ''}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              onBlur={() => void saveNotes()}
+              placeholder="พิมพ์สรุป/บันทึกการประชุม..."
+              rows={4}
+              className="w-full text-sm bg-hover rounded-lg p-2.5 resize-none focus:outline-hidden"
+            />
+          </div>
+          <div>
+            <div className="text-[11px] font-medium text-muted mb-1">Action Items</div>
+            <div className="space-y-1">
+              {meeting.actionItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-2">
+                  <button onClick={() => void toggleItem(item)} className={`w-4 h-4 rounded border shrink-0 grid place-items-center ${item.done ? 'bg-brand-500 border-brand-500 text-white' : 'border-border'}`}>
+                    {item.done && <Check className="w-3 h-3" />}
+                  </button>
+                  <span className={`text-sm flex-1 ${item.done ? 'text-muted line-through' : 'text-body'}`}>{item.text}</span>
+                  {item.taskId ? (
+                    <span className="text-[10px] text-success-700 bg-success-50 px-1.5 py-0.5 rounded shrink-0">สร้าง Task แล้ว</span>
+                  ) : (
+                    <button onClick={() => setConvertItem(item)} className="text-[11px] text-brand-700 hover:underline shrink-0">สร้าง Task</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                value={newItemText}
+                onChange={(e) => setNewItemText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
+                placeholder="+ เพิ่ม action item..."
+                className="flex-1 text-sm bg-hover rounded-lg px-2.5 py-1.5 focus:outline-hidden"
+              />
+              <button onClick={() => void addItem()} disabled={!newItemText.trim()} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
+            </div>
+          </div>
+        </div>
+        {isOrganizerOrOwner && (
+          <div className="px-4 py-3 border-t border-border-subtle shrink-0">
+            <button onClick={() => void removeMeeting()} className="text-xs text-danger-600 hover:underline">ยกเลิกการประชุมนี้</button>
+          </div>
+        )}
+      </div>
+      {convertItem && (
+        <ConvertActionItemModal
+          meetingId={meetingId}
+          item={convertItem}
+          defaultProjectId={meeting.projectId}
+          onClose={() => setConvertItem(null)}
+          onCreated={async () => {
+            setConvertItem(null)
+            await reload()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ConvertActionItemModal({ meetingId, item, defaultProjectId, onClose, onCreated }: { meetingId: string; item: MeetingActionItem; defaultProjectId: string | null; onClose: () => void; onCreated: () => void }) {
+  const { alertDialog } = useDialog()
+  const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
+  const [projectId, setProjectId] = useState(defaultProjectId ?? '')
+  const [busy, setBusy] = useState(false)
+  const create = async () => {
+    if (!projectId) return
+    setBusy(true)
+    try {
+      await api.post(`/api/meetings/${meetingId}/action-items/${item.id}/create-task`, { projectId })
+      onCreated()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'สร้าง Task ไม่สำเร็จ' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-4 space-y-3">
+        <div className="font-semibold text-ink text-sm">สร้าง Task จาก: {item.text}</div>
+        <div>
+          <label className="text-[11px] text-muted block mb-0.5">โปรเจกต์ปลายทาง</label>
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden">
+            <option value="">— เลือกโปรเจกต์ —</option>
+            {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
+          <button onClick={() => void create()} disabled={!projectId || busy} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40">สร้าง Task</button>
+        </div>
+      </div>
+    </div>
+  )
+}
