@@ -201,21 +201,33 @@ function NoteShareModal({ note, onClose }: { note: Note; onClose: () => void }) 
   )
 }
 
-// Pronista §My Note attachments (2026-08-28) — แนบไฟล์ได้หลายไฟล์ ใช้เฉพาะตอนแก้ไขบันทึกที่มีอยู่แล้ว (ต้องมี id ก่อน)
-function NoteAttachments({ noteId, canEdit }: { noteId: string; canEdit: boolean }) {
+// Pronista §My Note attachments (2026-08-31) — แนบไฟล์ได้ตั้งแต่ตอนกำลังเขียนบันทึกใหม่ (ยังไม่กด "บันทึก")
+// noteId = null ตอนกำลังสร้างใหม่ → เรียก ensureNoteId() สร้างบันทึก (silent draft) ก่อน แล้วค่อยอัปโหลดแนบเข้าไป
+function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | null; canEdit: boolean; ensureNoteId?: () => Promise<string> }) {
   const { alertDialog, confirmDialog } = useDialog()
-  const { data: attachments, reload } = useLoad<AttachmentRow[]>(() => api.get(`/api/my-notes/${noteId}/attachments`), [noteId])
+  const [resolvedId, setResolvedId] = useState<string | null>(noteId)
+  useEffect(() => { if (noteId) setResolvedId(noteId) }, [noteId])
+  const { data: attachments, reload } = useLoad<AttachmentRow[]>(() => (resolvedId ? api.get(`/api/my-notes/${resolvedId}/attachments`) : Promise.resolve([])), [resolvedId])
   const [uploading, setUploading] = useState(false)
 
   const uploadFiles = async (fileList: FileList) => {
+    // สแนปช็อตไฟล์ไว้ก่อน await ใดๆ — caller เคลียร์ input.value ทันทีหลังเรียกฟังก์ชันนี้ (fire-and-forget)
+    // ซึ่งเป็น live FileList เดียวกัน ถ้ามี await (เช่น ensureNoteId ตอนสร้างบันทึกใหม่) มาคั่นก่อน Array.from ไฟล์จะหายไปเงียบๆ
+    const files = Array.from(fileList)
     setUploading(true)
     const failed: string[] = []
     try {
-      for (const file of Array.from(fileList)) {
+      let id = resolvedId
+      if (!id && ensureNoteId) {
+        id = await ensureNoteId()
+        setResolvedId(id)
+      }
+      if (!id) return
+      for (const file of files) {
         try {
           const form = new FormData()
           form.set('file', file)
-          await api.post(`/api/my-notes/${noteId}/attachments`, form)
+          await api.post(`/api/my-notes/${id}/attachments`, form)
         } catch {
           failed.push(file.name)
         }
@@ -267,7 +279,7 @@ function NoteAttachments({ noteId, canEdit }: { noteId: string; canEdit: boolean
  * Pronista §My Note Edit (2026-08-27) — ฟอร์มเดียวใช้ทั้งสร้างใหม่และแก้ไขของเดิม
  * ตัดสินใจ POST/PATCH จาก `editing` — parent ใส่ key={editing?.id ?? 'new'} กำกับไว้ให้ remount สดใหม่ทุกครั้งที่สลับเป้าหมาย (เหมือน resetKey เดิมของ RichTextEditor)
  */
-function NoteEditor({ editing, meId, onSaved, onCancel }: { editing?: Note | null; meId: string; onSaved: () => void; onCancel?: () => void }) {
+function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { editing?: Note | null; meId: string; onSaved: () => void; onCancel?: () => void; onDraftCreated?: () => void }) {
   const initialBody = editing ? parseBody(editing.body) : null
   const readOnly = !!editing && !canEditNoteRow(editing, meId)
   const [shareOpen, setShareOpen] = useState(false)
@@ -277,24 +289,38 @@ function NoteEditor({ editing, meId, onSaved, onCancel }: { editing?: Note | nul
   const [resetKey, setResetKey] = useState(0)
   const [items, setItems] = useState<{ id: string; text: string; done: boolean }[]>(initialBody?.mode === 'checklist' ? initialBody.items : [])
   const [itemDraft, setItemDraft] = useState('')
+  // Pronista §My Note attachments (2026-08-31) — บันทึกใหม่ที่ยังไม่กด "บันทึก" แต่แนบไฟล์แล้ว → สร้างเป็น draft เงียบๆ ไว้ก่อน (ดู ensureNoteId ด้านล่าง) กัน POST ซ้ำตอนกด "บันทึก" จริง
+  const [draftId, setDraftId] = useState<string | null>(null)
+  const activeNoteId = editing?.id ?? draftId
 
   const addItem = () => {
     if (!itemDraft.trim()) return
     setItems([...items, { id: crypto.randomUUID(), text: itemDraft.trim(), done: false }])
     setItemDraft('')
   }
+  const ensureNoteId = async (): Promise<string> => {
+    if (activeNoteId) return activeNoteId
+    const body: NoteBody = mode === 'text' ? { mode: 'text', text } : { mode: 'checklist', items }
+    const created = await api.post<Note>('/api/my-notes', { title: title.trim() || null, body })
+    setDraftId(created.id)
+    onDraftCreated?.()
+    return created.id
+  }
   const save = async () => {
     const body: NoteBody = mode === 'text' ? { mode: 'text', text } : { mode: 'checklist', items }
     if (mode === 'text' ? !text.trim() : items.length === 0) return
-    if (editing) {
-      await api.patch(`/api/my-notes/${editing.id}`, { title: title.trim() || null, body })
+    if (activeNoteId) {
+      await api.patch(`/api/my-notes/${activeNoteId}`, { title: title.trim() || null, body })
     } else {
       await api.post('/api/my-notes', { title: title.trim() || null, body })
+    }
+    if (!editing) {
       // เคลียร์ฟอร์มไว้เขียนบันทึกใหม่ต่อได้เลย (เฉพาะโหมดสร้างใหม่ — โหมดแก้ไข parent จะปิดฟอร์มนี้ทิ้งหลัง onSaved)
       setTitle('')
       setText('')
       setItems([])
       setResetKey((k) => k + 1)
+      setDraftId(null)
     }
     onSaved()
   }
@@ -348,7 +374,7 @@ function NoteEditor({ editing, meId, onSaved, onCancel }: { editing?: Note | nul
           )}
         </div>
       )}
-      {editing && <NoteAttachments noteId={editing.id} canEdit={canEditNoteRow(editing, meId)} />}
+      <NoteAttachments noteId={activeNoteId} canEdit={!readOnly} ensureNoteId={readOnly ? undefined : ensureNoteId} />
       <div className="flex justify-end gap-2">
         {readOnly ? (
           <button onClick={onCancel} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ปิด</button>
@@ -490,6 +516,7 @@ export function MyNoteTab() {
             setEditingNote(null)
             void reload()
           }}
+          onDraftCreated={() => void reload()}
         />
 
         {!notesList ? (
