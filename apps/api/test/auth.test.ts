@@ -157,6 +157,17 @@ describe('OAuth callback (mock Google)', () => {
     expect((await callCallback()).headers.get('location')).toBe('/')
   })
 
+  it('google sub เดียวกัน login เข้า user คนละแถว (เช่น อีเมลส่วนตัว + อีเมลบริษัทคนเดียวกัน) → ไม่ 500 ทั้งคู่', async () => {
+    mockGoogle({ sub: 'g-shared', email: 'pond@example-co.test', email_verified: true })
+    const first = await callCallback()
+    expect(first.headers.get('location')).toBe('/')
+
+    mockGoogle({ sub: 'g-shared', email: 'somchai@example.com', email_verified: true })
+    const second = await callCallback()
+    expect(second.status).toBe(302)
+    expect(second.headers.get('location')).toBe('/')
+  })
+
   it('state ไม่ตรง → 400 (กัน CSRF)', async () => {
     const res = await app.request(
       '/api/auth/callback?code=c&state=WRONG',

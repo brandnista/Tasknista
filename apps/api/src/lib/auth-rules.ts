@@ -24,7 +24,14 @@ export async function resolveLoginUser(env: Env, profile: GoogleProfile): Promis
   if (existing) {
     if (existing.status !== 'active') return null
     const patch: Partial<typeof users.$inferInsert> = {}
-    if (!existing.googleSub && profile.sub) patch.googleSub = profile.sub
+    if (!existing.googleSub && profile.sub) {
+      // google_sub มี unique constraint — คนคนเดียวอาจมีหลาย user row ในระบบ (เช่น อีเมลส่วนตัว + อีเมลบริษัท)
+      // ถ้า sub นี้ถูก user แถวอื่นจับจองไปแล้ว ข้ามการ patch ไป (ไม่งั้น update ชนกันจนล้มทั้ง endpoint แทนที่จะแค่ไม่ auto-link)
+      const subTaken = (
+        await db.select({ id: users.id }).from(users).where(eq(users.googleSub, profile.sub)).limit(1)
+      )[0]
+      if (!subTaken) patch.googleSub = profile.sub
+    }
     if (profile.picture && profile.picture !== existing.avatarUrl) patch.avatarUrl = profile.picture
     if (Object.keys(patch).length > 0) {
       await db.update(users).set(patch).where(eq(users.id, existing.id))
