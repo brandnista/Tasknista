@@ -24,8 +24,9 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GCAL_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
 const MAX_PAGES = 20
 
-/** ขอ access token ของ connection (refresh flow) — ใช้ client ตัวเดียวกับอีเมลกลาง */
-async function getCalendarAccessToken(env: Env, conn: CalendarConnection): Promise<string> {
+/** ขอ access token ของ connection (refresh flow) — ใช้ client ตัวเดียวกับอีเมลกลาง
+ * Pronista §Google Meet Integration (2026-08-28) — export ให้ gcal-meet.ts (สร้างประชุม+ลิงก์ Meet) เรียกใช้ร่วมกัน ไม่ต้อง implement ซ้ำ */
+export async function getCalendarAccessToken(env: Env, conn: CalendarConnection): Promise<string> {
   const db = createDb(env.DB)
   const [client] = await db
     .select()

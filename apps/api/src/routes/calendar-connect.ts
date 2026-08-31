@@ -15,14 +15,18 @@ import type { AppEnv } from '../types'
 
 /**
  * เชื่อม Google Calendar เพื่อ sync ขาเข้า (SPEC §4.14 · E6) — owner เท่านั้น (mount ใน index.ts)
- * ใช้ OAuth client (Internal) ตัวเดียวกับอีเมลกลาง · scope calendar.readonly (อ่านอย่างเดียว)
+ * ใช้ OAuth client (Internal) ตัวเดียวกับอีเมลกลาง
+ * Pronista §Google Meet Integration (2026-08-28) — เพิ่ม scope calendar.events (เขียน) ควบคู่ readonly เดิม
+ * เพื่อให้ routes/meetings.ts สร้างนัดประชุมพร้อมลิงก์ Google Meet อัตโนมัติได้ (ดู lib/gcal-meet.ts)
  * refresh token เข้ารหัสก่อนเก็บ · ไม่หลุดออก response
  */
 
 const GCAL_STATE_COOKIE = 'so_gcal_state'
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
-const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
+const CALENDAR_READONLY_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
+const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+const CALENDAR_SCOPE = `${CALENDAR_READONLY_SCOPE} ${CALENDAR_EVENTS_SCOPE}`
 
 /** decode payload ของ id_token (มาจาก Google ตรงๆ ผ่าน TLS — ไม่ต้อง verify ลายเซ็น) */
 function decodeIdToken(idToken: string | undefined): { sub?: string; email?: string } {
@@ -58,6 +62,7 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
         id: calendarConnections.id,
         clientId: calendarConnections.clientId,
         googleEmail: calendarConnections.googleEmail,
+        scope: calendarConnections.scope,
         status: calendarConnections.status,
         lastSyncAt: calendarConnections.lastSyncAt,
         lastError: calendarConnections.lastError,
@@ -140,8 +145,9 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
       scope?: string
     }
     if (!token.access_token || !token.refresh_token) return fail('no_refresh_token')
-    // ยืนยัน scope ปฏิทินถูก grant จริง (ผู้ใช้ติ๊กออกได้ตอน consent)
+    // ยืนยัน scope ปฏิทินถูก grant จริง (ผู้ใช้ติ๊กออกได้ตอน consent) — ต้องได้ทั้งอ่าน (sync เข้า) และเขียน (สร้างนัดประชุม+ลิงก์ Meet)
     if (!token.scope?.includes('calendar.readonly')) return fail('calendar_scope_denied')
+    if (!token.scope?.includes('calendar.events')) return fail('calendar_events_scope_denied')
 
     const { sub, email } = decodeIdToken(token.id_token)
     const refreshTokenEnc = await encryptSecret(token.refresh_token, c.env.INBOX_ENC_KEY)
@@ -161,6 +167,7 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
           clientId: clientRowId,
           googleEmail: email ?? null,
           refreshTokenEnc,
+          scope: token.scope ?? null,
           status: 'connected',
           connectedAt: new Date(),
           lastError: null,
@@ -175,6 +182,7 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
           googleEmail: email ?? null,
           googleAccountId: sub ?? null,
           refreshTokenEnc,
+          scope: token.scope ?? null,
           status: 'connected',
           connectedAt: new Date(),
         })

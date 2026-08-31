@@ -1,5 +1,6 @@
 import { Calendar, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 import { DateInputTH } from './DateInputTH'
@@ -16,6 +17,8 @@ interface CalEvent {
   projectId?: string | null
   projectName?: string | null
   attendees?: { id: string; name: string }[]
+  /** ประชุมจากเมนู "ทีม" — อ่านอย่างเดียว คลิกแล้วพาไปหน้าทีมแทนที่จะลบ */
+  readOnly?: boolean
 }
 interface UserOpt {
   id: string
@@ -136,6 +139,7 @@ export function TeamCalendar() {
   const [ref, setRef] = useState(() => bkkNow())
   const [adding, setAdding] = useState(false)
   const { confirmDialog } = useDialog()
+  const navigate = useNavigate()
 
   // โหลดครอบทั้งช่วงที่มองเห็น (เดือน ±7 วัน)
   const range = useMemo(() => {
@@ -151,6 +155,7 @@ export function TeamCalendar() {
 
   const removeEvent = async (e: CalEvent) => {
     if (e.type === 'payroll') return // virtual จาก config
+    if (e.readOnly) { navigate('/team'); return } // ประชุมจากเมนู "ทีม" — จัดการที่นั่นเท่านั้น
     const yes = await confirmDialog({ title: 'ลบกิจกรรมนี้?', message: e.title, confirmLabel: 'ลบ', danger: true })
     if (yes) {
       await api.delete(`/api/calendar/${e.id}`)
@@ -171,7 +176,7 @@ export function TeamCalendar() {
     if (e.type === 'meeting') {
       const who = e.attendees && e.attendees.length > 0 ? `ผู้เข้าร่วม: ${e.attendees.map((a) => a.name).join(', ')}` : 'ยังไม่มีผู้เข้าร่วม'
       const proj = e.projectName ? ` · โปรเจกต์: ${e.projectName}` : ''
-      return `${e.title}${proj}\n${who}\nคลิกเพื่อลบ`
+      return `${e.title}${proj}\n${who}\n${e.readOnly ? 'นัดจากเมนู "ทีม" — คลิกเพื่อดูรายละเอียด' : 'คลิกเพื่อลบ'}`
     }
     return `${e.title} — คลิกเพื่อลบ`
   }

@@ -1,5 +1,6 @@
-import { Check, ExternalLink, Plus, X } from 'lucide-react'
-import { useState } from 'react'
+import { canJoinMeeting } from '@seedoffice/core'
+import { Check, ExternalLink, Plus, Trash2, Video, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
@@ -54,19 +55,32 @@ const fmtTimeRange = (startAt: number, endAt: number) =>
 const fmtDayHeader = (ms: number) => new Date(ms).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', weekday: 'long', day: 'numeric', month: 'long' })
 const dayKey = (ms: number) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 
+// Pronista §Meeting Schedule Tab (2026-08-27) — ปุ่ม "เข้าร่วมประชุม" ต้องเปิด/ปิดเองตามเวลาจริงโดยไม่ต้องรีเฟรชหน้า (ดู canJoinMeeting)
+function useNowTick(intervalMs = 15_000) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs)
+    return () => clearInterval(id)
+  }, [intervalMs])
+  return now
+}
+
 function toLocalInputValue(ms: number) {
   const d = new Date(ms)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** Pronista §Team Meeting (2026-08-26) — แท็บ "ประชุม" ใน หน้าทีม: นัดประชุม + Notes + Action Items → Task (ไม่มีวิดีโอในระบบ ใช้ช่องแปะลิงก์ Meet/Zoom เอง) */
-export function MeetingsTab({ projectIdFilter }: { projectIdFilter?: string } = {}) {
+/** Pronista §Team Meeting (2026-08-26) — แท็บ "ประชุม" ใน หน้าทีม: นัดประชุม + Notes + Action Items → Task
+ * Pronista §Google Meet Integration (2026-08-28) — ไม่แปะลิงก์เอง = สร้างนัดหมายจริงบน Google Calendar พร้อมลิงก์ Google Meet อัตโนมัติ (ต้องเชื่อมต่อ Google Calendar ไว้ก่อนที่ ตั้งค่า — ถ้ายังไม่เชื่อม/ยัง scope เก่าอยู่ จะ error ชัดเจนตอนกดนัดประชุม) */
+export function MeetingsTab({ projectIdFilter, initialMeetingId }: { projectIdFilter?: string; initialMeetingId?: string } = {}) {
   const [scope, setScope] = useState<'upcoming' | 'all'>('upcoming')
   const { data, reload } = useLoad<MeetingRow[]>(() => api.get(`/api/meetings?scope=${scope}`), [scope])
   const meetings = (data ?? []).filter((m) => !projectIdFilter || m.projectId === projectIdFilter)
   const [createOpen, setCreateOpen] = useState(false)
-  const [detailId, setDetailId] = useState<string | null>(null)
+  // Pronista §Team Meeting (2026-08-27) — มาจากแจ้งเตือน meeting_scheduled (ดู Team.tsx) เปิด detail ตรงประชุมนั้นทันที
+  const [detailId, setDetailId] = useState<string | null>(initialMeetingId ?? null)
+  const now = useNowTick()
 
   const groups = new Map<string, MeetingRow[]>()
   for (const m of meetings) {
@@ -75,7 +89,8 @@ export function MeetingsTab({ projectIdFilter }: { projectIdFilter?: string } = 
   }
 
   return (
-    <div className="h-full overflow-y-auto p-3 sm:p-4 max-w-2xl mx-auto">
+    // Pronista §Meeting Schedule Tab (2026-08-27) — ใช้ร่วม 2 บริบท: Team.tsx (flex column สูงเต็มจอ, h-full ใช้ได้ปกติ) กับ MyTasks.tsx (หน้า scroll ปกติ ไม่มี ancestor สูงกำหนดไว้ — min-h กันยุบเหลือ 0)
+    <div className="h-full min-h-[60vh] overflow-y-auto p-3 sm:p-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div className="flex bg-divider p-0.5 rounded-lg text-xs font-medium">
           <button onClick={() => setScope('upcoming')} className={`px-2.5 py-1 rounded-md ${scope === 'upcoming' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ที่จะถึง</button>
@@ -91,16 +106,30 @@ export function MeetingsTab({ projectIdFilter }: { projectIdFilter?: string } = 
           <div className="text-xs font-medium text-muted mb-1.5">{fmtDayHeader(rows[0]!.startAt)}</div>
           <div className="space-y-2">
             {rows.map((m) => (
-              <button key={m.id} onClick={() => setDetailId(m.id)} className="w-full text-left bg-white rounded-lg shadow-xs p-3 hover:shadow-sm flex items-start gap-3">
-                <div className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtTimeRange(m.startAt, m.endAt)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm text-body font-medium truncate">{m.title}</div>
-                  <div className="text-[11px] text-muted flex items-center gap-1.5 flex-wrap mt-0.5">
-                    <span>{MEETING_TYPE_LABEL[m.meetingType] ?? m.meetingType}</span>
-                    {m.projectName && <span>· {m.projectName}</span>}
+              <div key={m.id} className="bg-white rounded-lg shadow-xs hover:shadow-sm flex items-start gap-3 p-3">
+                <button onClick={() => setDetailId(m.id)} className="min-w-0 flex-1 text-left flex items-start gap-3">
+                  <div className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtTimeRange(m.startAt, m.endAt)}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-body font-medium truncate">{m.title}</div>
+                    <div className="text-[11px] text-muted flex items-center gap-1.5 flex-wrap mt-0.5">
+                      <span>{MEETING_TYPE_LABEL[m.meetingType] ?? m.meetingType}</span>
+                      {m.projectName && <span>· {m.projectName}</span>}
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                {/* Pronista §Meeting Schedule Tab (2026-08-27) — กดเข้าร่วมได้เฉพาะช่วงก่อนเริ่ม 5 นาที ถึงเวลาสิ้นสุดนัดหมาย นอกช่วงนี้ซ่อนปุ่มไปเลย */}
+                {m.externalMeetingUrl && canJoinMeeting(new Date(m.startAt).getTime(), new Date(m.endAt).getTime(), now) && (
+                  <a
+                    href={m.externalMeetingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-white bg-success-600 hover:bg-success-700 px-2.5 py-1.5 rounded-lg"
+                  >
+                    <Video className="w-3.5 h-3.5" /> เข้าร่วมประชุม
+                  </a>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -199,7 +228,7 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
           </div>
           <div>
             <label className="text-[11px] text-muted block mb-0.5">ลิงก์ประชุม (Google Meet/Zoom ฯลฯ)</label>
-            <input value={externalMeetingUrl} onChange={(e) => setExternalMeetingUrl(e.target.value)} placeholder="https://..." className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
+            <input value={externalMeetingUrl} onChange={(e) => setExternalMeetingUrl(e.target.value)} placeholder="เว้นว่างไว้ = ระบบสร้างนัดหมาย + ลิงก์ Google Meet ให้อัตโนมัติ" className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
           </div>
           <div>
             <label className="text-[11px] text-muted block mb-0.5">Agenda</label>
@@ -234,6 +263,7 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
   const [newItemText, setNewItemText] = useState('')
   const [convertItem, setConvertItem] = useState<MeetingActionItem | null>(null)
   const isOrganizerOrOwner = !!meeting && !!user && (user.role === 'owner' || meeting.organizerId === user.id)
+  const now = useNowTick()
 
   const saveNotes = async () => {
     if (notesDraft === null || notesDraft === (meeting?.notes ?? '')) { setNotesDraft(null); return }
@@ -252,7 +282,7 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
     await reload()
   }
   const removeMeeting = async () => {
-    if (!(await confirmDialog({ title: 'ยกเลิกการประชุมนี้?', danger: true }))) return
+    if (!(await confirmDialog({ title: 'ลบการนัดประชุมนี้?', message: `${meeting?.title ?? ''} — ผู้เข้าร่วมจะไม่เห็นประชุมนี้อีก ยกเลิกไม่ได้`, danger: true, confirmLabel: 'ลบ' }))) return
     await api.delete(`/api/meetings/${meetingId}`)
     onChanged()
     onClose()
@@ -263,17 +293,26 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex items-start justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-          <div>
+          <div className="min-w-0">
             <div className="font-semibold text-ink text-sm">{meeting.title}</div>
             <div className="text-[11px] text-muted mt-0.5">
               {fmtDayHeader(meeting.startAt)} · {fmtTimeRange(meeting.startAt, meeting.endAt)}
               {meeting.projectName && ` · ${meeting.projectName}`}
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim shrink-0"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Pronista §Team Meeting (2026-08-27) — ย้ายปุ่มลบขึ้นมาไว้ที่หัวการ์ดให้เห็นชัด (เดิมเป็นลิงก์เล็กๆ ล่างสุด หาไม่ค่อยเจอ) — ลบได้เฉพาะผู้จัดประชุมหรือ owner */}
+            {isOrganizerOrOwner && (
+              <button onClick={() => void removeMeeting()} title="ลบการนัดประชุมนี้" className="p-1.5 rounded hover:bg-danger-50 text-dim hover:text-danger-600">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
+          </div>
         </div>
         <div className="p-4 space-y-4 overflow-y-auto">
-          {meeting.externalMeetingUrl && (
+          {/* Pronista §Meeting Schedule Tab (2026-08-27) — กดเข้าร่วมได้เฉพาะช่วงก่อนเริ่ม 5 นาที ถึงเวลาสิ้นสุดนัดหมาย (เหมือนปุ่มในรายการ) */}
+          {meeting.externalMeetingUrl && canJoinMeeting(new Date(meeting.startAt).getTime(), new Date(meeting.endAt).getTime(), now) && (
             <a href={meeting.externalMeetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-white bg-success-600 hover:bg-success-700 px-3 py-2 rounded-lg font-medium">
               <ExternalLink className="w-4 h-4" /> เข้าร่วมประชุม
             </a>
@@ -332,11 +371,6 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
             </div>
           </div>
         </div>
-        {isOrganizerOrOwner && (
-          <div className="px-4 py-3 border-t border-border-subtle shrink-0">
-            <button onClick={() => void removeMeeting()} className="text-xs text-danger-600 hover:underline">ยกเลิกการประชุมนี้</button>
-          </div>
-        )}
       </div>
       {convertItem && (
         <ConvertActionItemModal

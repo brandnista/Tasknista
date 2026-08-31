@@ -3,6 +3,9 @@ import { and, asc, eq, gte, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { cancelMeetEvent, createMeetEvent, GcalNotConnectedError, updateMeetEvent } from '../lib/gcal-meet'
+import { formatMeetingDetailMessage } from '../lib/meeting-notify'
+import { notifyUser } from '../lib/notify'
 import { getProjectPermissions } from '../lib/project-role'
 import { createQuickTask } from '../lib/quick-task'
 import { teamOrMenu } from '../middleware/roles'
@@ -69,6 +72,19 @@ meetingRoutes
     if (body.data.endAt <= body.data.startAt) return c.json({ error: 'invalid_time_range', message: 'เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่ม' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
+    // Pronista §Google Meet Integration (2026-08-28) — ไม่ได้แปะลิงก์เอง → สร้างนัดหมายจริงบน Google Calendar พร้อม gen ลิงก์ Meet อัตโนมัติ (แทนที่ Jitsi auto-gen เดิม — พี่ตัดสินใจใช้ Google Meet อย่างเดียว)
+    let meetingUrl = body.data.externalMeetingUrl ?? null
+    let gcalEventId: string | null = null
+    if (!meetingUrl) {
+      try {
+        const meet = await createMeetEvent(c.env, { title: body.data.title, startAt: new Date(body.data.startAt), endAt: new Date(body.data.endAt) })
+        meetingUrl = meet.meetUrl
+        gcalEventId = meet.gcalEventId
+      } catch (e) {
+        if (e instanceof GcalNotConnectedError) return c.json({ error: 'gcal_not_connected', message: e.message }, 409)
+        throw e
+      }
+    }
     const created = (
       await db
         .insert(meetings)
@@ -80,16 +96,20 @@ meetingRoutes
           organizerId: me.id,
           startAt: new Date(body.data.startAt),
           endAt: new Date(body.data.endAt),
-          externalMeetingUrl: body.data.externalMeetingUrl ?? null,
+          externalMeetingUrl: meetingUrl,
+          gcalEventId,
           agenda: body.data.agenda ?? null,
         })
         .returning()
     )[0]!
     const participantIds = new Set([me.id, ...body.data.participantIds])
     await db.insert(meetingParticipants).values([...participantIds].map((userId) => ({ meetingId: created.id, userId })))
+    // Pronista §Meeting Schedule Tab (2026-08-27) — popup แจ้งเตือนต้องโชว์ครบ: ชื่อประชุม, เวลา, Agenda, ผู้เข้าร่วม
+    const participantNames = (await db.select({ name: users.name }).from(users).where(inArray(users.id, [...participantIds]))).map((u) => u.name)
+    const message = formatMeetingDetailMessage(`${me.name} นัดประชุม "${created.title}"`, created, participantNames)
     for (const userId of participantIds) {
       if (userId === me.id) continue
-      await db.insert(notifications).values({ userId, type: 'meeting_scheduled', message: `${me.name} นัดประชุม "${created.title}"` })
+      await notifyUser(db, { userId, type: 'meeting_scheduled', message, meetingId: created.id })
     }
     await writeAudit(c.env, { actorId: me.id, action: 'meeting.create', entity: 'meeting', entityId: created.id, meta: { title: created.title } })
     return c.json(created, 201)
@@ -136,6 +156,23 @@ meetingRoutes
     if (body.data.agenda !== undefined) patch.agenda = body.data.agenda
     if (body.data.notes !== undefined) patch.notes = body.data.notes
     const updated = (await db.update(meetings).set(patch).where(eq(meetings.id, before.id)).returning())[0]!
+    // Pronista §Google Meet Integration (2026-08-28) — เลื่อนเวลา/เปลี่ยนหัวข้อ ต้องอัปเดต event ต้นทางบน Google Calendar ด้วย ไม่งั้นลิงก์เดิมจะโชว์เวลาผิด
+    if (updated.gcalEventId && (body.data.title !== undefined || body.data.startAt !== undefined || body.data.endAt !== undefined)) {
+      try {
+        await updateMeetEvent(c.env, updated.gcalEventId, { title: updated.title, startAt: updated.startAt, endAt: updated.endAt })
+      } catch (e) {
+        if (!(e instanceof GcalNotConnectedError)) throw e
+        // เชื่อมต่อหลุดไปแล้ว (เช่น token ถูกเพิกถอน) — ไม่ block การแก้ในระบบ Pronista แต่ผู้จัดควรรู้ว่า Google Calendar ไม่ sync แล้ว
+      }
+    }
+    // Pronista §Notification overhaul (2026-08-27) — เลื่อน/แก้หัวข้อ/เปลี่ยนลิงก์ (ข้อมูลนัดหมายจริง ไม่ใช่แค่ notes/agenda) ต้องแจ้งผู้เข้าร่วมทุกคน
+    if ('title' in body.data || 'startAt' in body.data || 'endAt' in body.data || 'externalMeetingUrl' in body.data) {
+      const participants = await db.select({ userId: meetingParticipants.userId }).from(meetingParticipants).where(eq(meetingParticipants.meetingId, before.id))
+      for (const p of participants) {
+        if (p.userId === me.id) continue
+        await notifyUser(db, { userId: p.userId, type: 'meeting_updated', meetingId: updated.id, message: `${me.name} แก้ไขนัดประชุม "${updated.title}"` })
+      }
+    }
     return c.json(updated)
   })
 
@@ -145,10 +182,25 @@ meetingRoutes
     const before = (await db.select().from(meetings).where(eq(meetings.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     if (me.role !== 'owner' && before.organizerId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Google Meet Integration (2026-08-28) — ยกเลิก event ต้นทางบน Google Calendar ด้วย กัน event ผีค้างให้คนสับสน (best-effort — เชื่อมต่อหลุดไปแล้วก็ไม่ block การลบในระบบ)
+    if (before.gcalEventId) {
+      try {
+        await cancelMeetEvent(c.env, before.gcalEventId)
+      } catch (e) {
+        if (!(e instanceof GcalNotConnectedError)) throw e
+      }
+    }
+    // Pronista §Notification overhaul (2026-08-27) — ดึงผู้เข้าร่วมไว้ก่อนลบ ประชุมจะไม่มีอยู่ให้ลิงก์ไปแล้ว (meetingId: null) เก็บหัวข้อไว้ในข้อความแทน
+    const participants = await db.select({ userId: meetingParticipants.userId }).from(meetingParticipants).where(eq(meetingParticipants.meetingId, before.id))
+    await db.delete(notifications).where(eq(notifications.meetingId, before.id))
     await db.delete(meetingActionItems).where(eq(meetingActionItems.meetingId, before.id))
     await db.delete(meetingParticipants).where(eq(meetingParticipants.meetingId, before.id))
     await db.delete(meetings).where(eq(meetings.id, before.id))
     await writeAudit(c.env, { actorId: me.id, action: 'meeting.delete', entity: 'meeting', entityId: before.id, meta: { title: before.title } })
+    for (const p of participants) {
+      if (p.userId === me.id) continue
+      await notifyUser(db, { userId: p.userId, type: 'meeting_cancelled', meetingId: null, message: `${me.name} ยกเลิกนัดประชุม "${before.title}"` })
+    }
     return c.json({ ok: true })
   })
 

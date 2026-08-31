@@ -1,6 +1,7 @@
 import { CalendarDays, Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 import { GcalSettings } from '../components/GcalSettings'
+import { InboxSettings } from '../components/InboxSettings'
 import { ParameterRoleSettings } from '../components/ParameterRoleSettings'
 import { PageHeader } from '../components/PageHeader'
 import { BoardPresetSettings } from '../components/BoardPresetSettings'
@@ -216,6 +217,8 @@ export function AdminPage() {
         <LabelSettings />
 
         <GcalSettings />
+
+        <InboxSettings />
       </div>
     </>
   )

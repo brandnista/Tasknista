@@ -5,6 +5,8 @@ import {
   calendarEvents,
   companyConfig,
   createDb,
+  meetingParticipants,
+  meetings,
   projects,
   users,
   type Db,
@@ -27,6 +29,45 @@ export interface CalendarEventOut {
   projectId?: string | null
   projectName?: string | null
   attendees?: { id: string; name: string }[]
+  /** Pronista §Team Meeting (2026-08-27) — มาจากระบบนัดประชุมเมนู "ทีม" ไม่ใช่ event ที่เพิ่มมือในปฏิทินนี้ ดู/แก้ไขจริงต้องไปหน้า "ทีม" */
+  readOnly?: boolean
+  meetingId?: string
+}
+
+const bkkDateOf = (ms: number) => new Date(ms + 7 * 3_600_000).toISOString().slice(0, 10)
+const bkkTimeOf = (ms: number) => new Date(ms).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+
+/** ประชุมจากระบบนัดประชุม (เมนู "ทีม") — ดึงมาแสดงร่วมในปฏิทินทีมงานแบบอ่านอย่างเดียว */
+async function gatherTeamMeetingEvents(db: Db, from: string, to: string): Promise<CalendarEventOut[]> {
+  const rowsRaw = await db
+    .select({ m: meetings, projectName: projects.name })
+    .from(meetings)
+    .leftJoin(projects, eq(meetings.projectId, projects.id))
+    .where(and(gte(meetings.startAt, new Date(`${addDaysISO(from, -1)}T00:00:00.000Z`)), lte(meetings.startAt, new Date(`${addDaysISO(to, 1)}T23:59:59.999Z`))))
+  const rows = rowsRaw.filter((r) => {
+    const d = bkkDateOf(r.m.startAt.getTime())
+    return d >= from && d <= to
+  })
+  const meetingIds = rows.map((r) => r.m.id)
+  const attendeeRows = meetingIds.length
+    ? await db
+        .select({ meetingId: meetingParticipants.meetingId, id: users.id, name: users.name })
+        .from(meetingParticipants)
+        .innerJoin(users, eq(meetingParticipants.userId, users.id))
+        .where(inArray(meetingParticipants.meetingId, meetingIds))
+    : []
+  return rows.map((r) => ({
+    id: `meeting-${r.m.id}`,
+    title: `${bkkTimeOf(r.m.startAt.getTime())} ${r.m.title}`,
+    startDate: bkkDateOf(r.m.startAt.getTime()),
+    endDate: null,
+    type: 'meeting',
+    projectId: r.m.projectId,
+    projectName: r.projectName,
+    attendees: attendeeRows.filter((a) => a.meetingId === r.m.id).map((a) => ({ id: a.id, name: a.name })),
+    readOnly: true,
+    meetingId: r.m.id,
+  }))
 }
 
 /** event ตัดรอบ/จ่ายเงินเดือนจาก config — virtual ไม่เก็บใน DB (เปลี่ยน config แล้วขยับเอง) */
@@ -82,6 +123,7 @@ export async function gatherCalendarEvents(
       projectName: r.projectName,
       attendees: attendeeRows.filter((a) => a.eventId === r.ev.id).map((a) => ({ id: a.id, name: a.name })),
     })),
+    ...(await gatherTeamMeetingEvents(db, from, to)),
     ...payrollEvents(from, to, cfg?.cutoffDay ?? 25),
   ]
 }
