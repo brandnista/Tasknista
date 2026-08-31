@@ -6,7 +6,6 @@
 import { ChevronLeft, File, FileText, Folder, FolderPlus, Image as ImageIcon, Pencil, Share2, Trash2, Upload, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useDialog } from './Dialog'
-import { RichTextEditor } from './RichTextEditor'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
@@ -95,40 +94,7 @@ function CreateFolderModal({ parentId, onClose, onDone }: { parentId: string | n
   )
 }
 
-function PageEditorModal({ file, canEdit, onClose, onSaved }: { file: FileRow; canEdit: boolean; onClose: () => void; onSaved: () => void }) {
-  const { data: detail } = useLoad<{ contentMarkdown: string | null }>(() => api.get(`/api/my-files/${file.id}`), [file.id])
-  const [name, setName] = useState(file.name)
-  const [content, setContent] = useState<string | null>(null)
-  const save = async () => {
-    await api.patch(`/api/my-files/${file.id}`, { name: name.trim() || file.name, ...(content !== null ? { contentMarkdown: content } : {}) })
-    onSaved()
-  }
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0 gap-2">
-          {canEdit ? (
-            <input value={name} onChange={(e) => setName(e.target.value)} className="font-semibold text-ink text-sm flex-1 outline-hidden" />
-          ) : (
-            <span className="font-semibold text-ink text-sm flex-1">{name}</span>
-          )}
-          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim shrink-0"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-4 overflow-y-auto flex-1">
-          {detail && <RichTextEditor content={content ?? detail.contentMarkdown ?? ''} onChange={canEdit ? setContent : undefined} editable={canEdit} minHeight="min-h-48" />}
-        </div>
-        {canEdit && (
-          <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
-            <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ปิด</button>
-            <button onClick={() => void save()} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700">บันทึก</button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ShareModal({ file, onClose }: { file: FileRow; onClose: () => void }) {
+export function ShareModal({ file, onClose }: { file: { id: string; name: string; ownerId: string }; onClose: () => void }) {
   const { alertDialog } = useDialog()
   const { data: members, reload } = useLoad<MemberRow[]>(() => api.get(`/api/my-files/${file.id}/members`), [file.id])
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
@@ -200,7 +166,6 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
   const [dateFilter, setDateFilter] = useState<DateFilter>('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
-  const [pageModal, setPageModal] = useState<FileRow | null>(null)
   const [shareModal, setShareModal] = useState<FileRow | null>(null)
   const [uploading, setUploading] = useState(false)
 
@@ -226,9 +191,12 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
 
   const canCreateHere = browsingShared ? false : !listData?.folder || listData.folder.access !== 'viewer'
 
+  // เอกสาร (kind='page') เปิดเป็นแท็บใหม่เสมอ — เหมือนแพตเทิร์น "หน้าใหม่" ในเมนูเอกสาร (Docs.tsx)
+  const openPage = (id: string) => window.open(`/my-tasks/files/${id}`, '_blank', 'noopener')
+
   const openItem = (r: FileRow) => {
     if (r.kind === 'folder') { setFolderId(r.id); return }
-    if (r.kind === 'page') { setPageModal(r); return }
+    if (r.kind === 'page') { openPage(r.id); return }
     window.open(`/api/my-files/${r.id}/download`, '_blank')
   }
 
@@ -302,7 +270,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
             <FolderPlus className="w-3.5 h-3.5" /> สร้างโฟลเดอร์
           </button>
           <button
-            onClick={() => void api.post('/api/my-files', { kind: 'page', name: 'เอกสารใหม่', parentId: folderId, contentMarkdown: '' }).then((r) => { reload(); setPageModal(r as FileRow) })}
+            onClick={() => void api.post<FileRow>('/api/my-files', { kind: 'page', name: 'เอกสารใหม่', parentId: folderId, contentMarkdown: '' }).then((r) => { reload(); openPage(r.id) })}
             className="inline-flex items-center gap-1.5 text-sm text-body border border-border-subtle hover:bg-hover px-3 py-1.5 rounded-lg"
           >
             <FileText className="w-3.5 h-3.5" /> สร้างเอกสาร
@@ -328,7 +296,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
                 {r.kind === 'file' && <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-14 text-right">{fmtSize(r.sizeBytes)}</span>}
                 <span className="text-[11px] text-muted shrink-0 hidden md:inline w-20 text-right">{new Date(r.updatedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>
                 <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                  {r.kind === 'page' && canManage && <button onClick={() => setPageModal(r)} title="แก้ไข" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>}
+                  {r.kind === 'page' && canManage && <button onClick={() => openPage(r.id)} title="แก้ไข" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>}
                   {/* Pronista §My Files bug fix (2026-08-28) — เดิมเช็ค myRole === undefined ซึ่งเป็น undefined เสมอตอนไล่เข้าโฟลเดอร์ (endpoint parentId= ไม่ส่ง myRole มา) ทำให้ปุ่มแชร์โผล่ให้คนที่ไม่ใช่เจ้าของไฟล์นั้นจริงๆ (กดแล้วเจอ 403 เงียบๆ) — เปลี่ยนไปเช็ค isOwner ตรงๆ ที่ backend คำนวณมาให้ */}
                   {r.isOwner && <button onClick={() => setShareModal(r)} title="แชร์" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Share2 className="w-3.5 h-3.5" /></button>}
                   {canManage && <button onClick={() => void removeItem(r)} title="ลบ" className="p-1 rounded hover:bg-danger-50 text-dim hover:text-danger-600"><Trash2 className="w-3.5 h-3.5" /></button>}
@@ -340,7 +308,6 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
       )}
 
       {createFolderOpen && <CreateFolderModal parentId={folderId} onClose={() => setCreateFolderOpen(false)} onDone={() => { setCreateFolderOpen(false); reload() }} />}
-      {pageModal && <PageEditorModal file={pageModal} canEdit={pageModal.myRole !== 'viewer'} onClose={() => setPageModal(null)} onSaved={() => { setPageModal(null); reload() }} />}
       {shareModal && <ShareModal file={shareModal} onClose={() => setShareModal(null)} />}
     </div>
   )
