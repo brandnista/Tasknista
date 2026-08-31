@@ -1,6 +1,7 @@
-import { createDb, docLinks, notifications, projects, taskReferences, tasks } from '@seedoffice/db'
+import { createDb, docLinks, projects, taskReferences, tasks } from '@seedoffice/db'
 import { and, eq } from 'drizzle-orm'
 import { writeAudit } from './audit'
+import { notifyUser } from './notify'
 import { nextOriginRefCode } from './origin-code'
 import { nextSubTaskCode, nextTypedTaskCode, sanitizeCodePrefix } from './task-code'
 import type { BreakoutItemInput } from './doc-breakout-tasks'
@@ -154,7 +155,7 @@ export async function createSowTasksFromBreakoutItems(
       })
       // Pronista §My Work/Notification — assign ตั้งแต่ตอนอัปโหลด (ไม่ผ่าน PATCH) ก็ต้องแจ้งเตือนเหมือนกัน ไม่งั้นตัวนับ "Assign วันนี้" ใน MyTasks.tsx พลาดเคสนี้ไป
       if (sub.assigneeId) {
-        await db.insert(notifications).values({
+        await notifyUser(db, {
           userId: sub.assigneeId,
           type: 'subtask_assigned',
           taskId: createdSub.id,

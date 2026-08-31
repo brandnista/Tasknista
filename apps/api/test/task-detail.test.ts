@@ -101,3 +101,41 @@ describe('T10 — task detail: comments + attachments + activity', () => {
     expect(detail.activity.map((a) => a.action)).toEqual(['task.assign', 'task.status', 'task.create'])
   })
 })
+
+describe('Pronista §Notification overhaul (2026-08-27) — คอมเมนต์ในงานแจ้งเตือนผู้รับงาน+ผู้จ่ายงาน+คนที่เคยคอมเมนต์', () => {
+  it('แจ้งผู้รับงาน+ผู้จ่ายงาน+คนที่เคยคอมเมนต์มาก่อน ไม่แจ้งคนคอมเมนต์เอง · ติดขัด (isBlocked) ขึ้นต้นด้วย 🚩', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test') // ผู้จ่ายงาน (createdBy)
+    const pond = await loginAs(app, 'pond@example-co.test') // ผู้รับงาน (assignee)
+    const korn = await loginAs(app, 'korn@example-co.test') // ไม่เกี่ยวข้องเลย จนกว่าจะคอมเมนต์ — auto-provision ตอน login (id จริงเป็น uuid ไม่ใช่ 'u_korn')
+    const kornMe = (await (await app.request('/api/me', { headers: { cookie: korn } }, env)).json()) as { id: string }
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P-comment', type: 'project' }), env)).json()) as { id: string }
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: kornMe.id, positionId: 'pos_full_access' }), env)
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'G' }), env)).json()) as { id: string }
+    const t = (await (
+      await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานทดสอบคอมเมนต์', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+
+    // ไฟล์นี้ไม่ล้าง DB ระหว่าง it() แต่ละอัน — เทียบผลต่าง (delta) แทนค่านิ่ง กัน notification เก่าจาก test อื่นทับ
+    const notifCount = async (cookie: string) =>
+      ((await (await app.request('/api/notifications', { headers: { cookie } }, env)).json()) as { type: string }[]).filter((n) => n.type === 'task_commented').length
+    const before = { pond: await notifCount(pond), owner: await notifCount(owner), korn: await notifCount(korn) }
+
+    // กร (ไม่เกี่ยวข้องเลย) คอมเมนต์ก่อน — ผู้รับงาน (ปอนด์) + ผู้จ่ายงาน (owner) ต้องได้แจ้งเตือนเพิ่ม กรเองไม่ได้
+    await app.request(`/api/tasks/${t.id}/comments`, json(korn, { body: 'เห็นด้วยครับ' }), env)
+    expect(await notifCount(pond)).toBe(before.pond + 1)
+    expect(await notifCount(owner)).toBe(before.owner + 1)
+    expect(await notifCount(korn)).toBe(before.korn)
+
+    // owner คอมเมนต์ต่อ — ปอนด์ (assignee) + กร (เคยคอมเมนต์มาก่อน) ต้องได้เพิ่ม · owner เองไม่ได้แจ้งเตือนตัวเอง
+    await app.request(`/api/tasks/${t.id}/comments`, json(owner, { body: 'รับทราบ' }), env)
+    expect(await notifCount(pond)).toBe(before.pond + 2)
+    expect(await notifCount(korn)).toBe(before.korn + 1)
+    expect(await notifCount(owner)).toBe(before.owner + 1) // ไม่เพิ่มจากคอมเมนต์ตัวเอง
+
+    // ปอนด์คอมเมนต์แบบติดขัด (isBlocked) — owner ต้องเห็นข้อความขึ้นต้นด้วย 🚩
+    await app.request(`/api/tasks/${t.id}/comments`, json(pond, { body: 'ติดปัญหา API ต้นทาง', isBlocked: true }), env)
+    const ownerNotifs = (await (await app.request('/api/notifications', { headers: { cookie: owner } }, env)).json()) as { type: string; message: string }[]
+    expect(ownerNotifs.some((n) => n.type === 'task_commented' && n.message.startsWith('🚩'))).toBe(true)
+  })
+})

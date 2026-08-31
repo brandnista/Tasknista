@@ -232,3 +232,40 @@ describe('สถานะโปรเจกต์ปรับเองได้ 
     expect(cfg.projectStatuses.find((s) => s.id === 'design')?.name).toBe('ออกแบบ')
   })
 })
+
+describe('Pronista §Notification overhaul (2026-08-27) — เพิ่มเข้าโปรเจกต์แจ้งเตือน', () => {
+  const notifCount = async (cookie: string) =>
+    ((await (await app.request('/api/notifications', { headers: { cookie } }, env)).json()) as { type: string }[]).filter((n) => n.type === 'project_member_added').length
+
+  it('เพิ่มสมาชิกใหม่ตอนสร้างโปรเจกต์ → แจ้งเตือนทุกคนในลิสต์ members', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const before = await notifCount(pond)
+    const res = await createProject(owner, { name: 'P-notify-create', type: 'project', members: ['u_pond'] })
+    expect(res.status).toBe(201)
+    expect(await notifCount(pond)).toBe(before + 1)
+  })
+
+  it('เพิ่มสมาชิกใหม่ทีหลังผ่าน POST /:id/members → แจ้งเตือน · เรียกซ้ำ (แค่เปลี่ยนตำแหน่ง) ไม่แจ้งซ้ำ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const p = (await (await createProject(owner, { name: 'P-notify-add', type: 'project' })).json()) as { id: string }
+    const before = await notifCount(pond)
+
+    const addRes = await app.request(
+      `/api/projects/${p.id}/members`,
+      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_pond', positionId: 'pos_full_access' }) },
+      env,
+    )
+    expect(addRes.status).toBe(200)
+    expect(await notifCount(pond)).toBe(before + 1) // สมาชิกใหม่จริง → แจ้ง 1 ครั้ง
+
+    // เรียกซ้ำเปลี่ยนตำแหน่งเดิม (upsert) — ไม่ใช่สมาชิกใหม่ ไม่ควรแจ้งซ้ำ
+    await app.request(
+      `/api/projects/${p.id}/members`,
+      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_pond', positionId: 'pos_full_access' }) },
+      env,
+    )
+    expect(await notifCount(pond)).toBe(before + 1) // ยังคงเท่าเดิม ไม่เพิ่ม
+  })
+})

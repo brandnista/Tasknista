@@ -1,0 +1,1 @@
+ALTER TABLE `notifications` ADD `chat_channel_id` text REFERENCES chat_channels(id);

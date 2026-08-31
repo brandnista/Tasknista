@@ -58,6 +58,7 @@ import { healthOf } from './finance'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { notifyUser } from '../lib/notify'
 import { canEditProject, getProjectPermissions, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { ownerOnly, teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
@@ -450,8 +451,14 @@ export const projectRoutes = new Hono<AppEnv>()
     // สมาชิกในโปรเจกต์ (assign ได้หลายคน — Pronista §F1)
     // Pronista §Position-based permission fix — ต้องตั้ง positionId ตอนสร้างเลย ไม่งั้นค่าเริ่มต้นคือ NULL = ไม่มีสิทธิ์อะไรเลยในระบบตำแหน่งใหม่
     // (คนที่ถูกติ๊กเลือกตอนสร้างโปรเจกต์ ควรทำงานในโปรเจกต์ได้ทันที จึงให้ "เข้าถึงเต็มรูปแบบ" เป็นค่าเริ่มต้น ปรับลดทีหลังได้ที่หน้าแก้ไขโปรเจกต์)
-    if (d.members && d.members.length > 0)
+    if (d.members && d.members.length > 0) {
       await db.insert(projectMembers).values(d.members.map((userId) => ({ projectId: p.id, userId, positionId: POSITION_FULL_ACCESS_ID })))
+      // Pronista §Notification overhaul (2026-08-27) — ถูกเพิ่มเข้าโปรเจกต์ตั้งแต่ตอนสร้างเลย ก็ต้องแจ้งเตือนเหมือนกัน
+      for (const userId of d.members) {
+        if (userId === c.get('user').id) continue
+        await notifyUser(db, { userId, type: 'project_member_added', projectId: p.id, message: `คุณถูกเพิ่มเข้าโปรเจกต์ "${p.name}"` })
+      }
+    }
     await writeAudit(c.env, {
       actorId: c.get('user').id,
       action: 'project.create',
@@ -1041,6 +1048,8 @@ export const projectRoutes = new Hono<AppEnv>()
       if (!positionById(resolvePositions(cfg?.positions), body.data.positionId)) return c.json({ error: 'position_not_found' }, 404)
       positionId = body.data.positionId
     }
+    // Pronista §Notification overhaul (2026-08-27) — เช็คก่อน upsert ว่าเป็นสมาชิกใหม่จริง (ไม่ใช่แค่เปลี่ยนตำแหน่งของคนเดิม) ถึงจะแจ้งเตือน
+    const wasAlreadyMember = !!(await db.select({ userId: projectMembers.userId }).from(projectMembers).where(and(eq(projectMembers.projectId, project.id), eq(projectMembers.userId, targetUser.id))).limit(1))[0]
     const upserted = await db
       .insert(projectMembers)
       .values({ projectId: project.id, userId: targetUser.id, positionId })
@@ -1053,6 +1062,7 @@ export const projectRoutes = new Hono<AppEnv>()
       entityId: project.id,
       meta: { userId: targetUser.id, positionId },
     })
+    if (!wasAlreadyMember) await notifyUser(db, { userId: targetUser.id, type: 'project_member_added', projectId: project.id, message: `คุณถูกเพิ่มเข้าโปรเจกต์ "${project.name}"` })
     return c.json(upserted[0])
   })
 

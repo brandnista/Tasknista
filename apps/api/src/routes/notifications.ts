@@ -1,6 +1,8 @@
-import { createDb, notifications } from '@seedoffice/db'
+import { DEFAULT_MEETING_REMINDER_MINUTES } from '@seedoffice/core'
+import { createDb, notifications, users, NOTIFICATION_TYPES } from '@seedoffice/db'
 import { and, desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { AppEnv } from '../types'
 
 /**
@@ -38,4 +40,28 @@ export const notificationRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, me.id))
     return c.json({ ok: true })
+  })
+
+  // Pronista §Notification overhaul (2026-08-27) — ตั้งค่าส่วนตัว: ประเภทแจ้งเตือนที่ปิดไว้ (ว่าง = เปิดรับทุกประเภท)
+  // Pronista §Meeting Schedule Tab (2026-08-27) — เพิ่ม meetingReminderMinutes (นาทีล่วงหน้าก่อนประชุมเริ่ม ที่จะเตือน — null = ยังไม่ตั้ง ใช้ค่าเริ่มต้น 5 นาที)
+  .get('/notification-prefs', async (c) => {
+    const me = c.get('user')
+    return c.json({ disabledTypes: me.notificationPrefs ?? [], meetingReminderMinutes: me.meetingReminderMinutes ?? DEFAULT_MEETING_REMINDER_MINUTES })
+  })
+
+  .patch('/notification-prefs', async (c) => {
+    const body = z
+      .object({ disabledTypes: z.array(z.enum(NOTIFICATION_TYPES)).optional(), meetingReminderMinutes: z.number().int().min(1).max(120).optional() })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const patch: { notificationPrefs?: string[]; meetingReminderMinutes?: number } = {}
+    if (body.data.disabledTypes !== undefined) patch.notificationPrefs = body.data.disabledTypes
+    if (body.data.meetingReminderMinutes !== undefined) patch.meetingReminderMinutes = body.data.meetingReminderMinutes
+    await db.update(users).set(patch).where(eq(users.id, me.id))
+    return c.json({
+      disabledTypes: patch.notificationPrefs ?? me.notificationPrefs ?? [],
+      meetingReminderMinutes: patch.meetingReminderMinutes ?? me.meetingReminderMinutes ?? DEFAULT_MEETING_REMINDER_MINUTES,
+    })
   })

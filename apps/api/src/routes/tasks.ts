@@ -25,7 +25,7 @@ import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { notifyProjectPmAndBa } from '../lib/notify'
+import { notifyProjectPmAndBa, notifyUser } from '../lib/notify'
 import { notifyBoard } from '../lib/presence-notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
@@ -558,6 +558,8 @@ export const taskRoutes = new Hono<AppEnv>()
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
     // Pronista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
     if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) patch.dispatchedAt = null
+    // Pronista §Notification overhaul (2026-08-27) — แก้กำหนดส่งใหม่ → เคลียร์เกตกันเตือนซ้ำ ให้นับรอบเลยกำหนดใหม่ตามวันที่แก้ (mirror expiryNotifiedAt reset ใน routes/projects.ts)
+    if ('dueDate' in body.data && body.data.dueDate !== before.dueDate) patch.dueNotifiedAt = null
     // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N
     if (body.data.parentId) {
       const parent = (await db.select().from(tasks).where(eq(tasks.id, body.data.parentId)).limit(1))[0]
@@ -625,7 +627,7 @@ export const taskRoutes = new Hono<AppEnv>()
 
     // Pronista §Task lifecycle notifications — ไม่แจ้งเตือนตอนแค่ "ตั้งผู้รับผิดชอบ" เพราะงานยังไม่โผล่ใน "งานของฉัน" ของเขาจนกว่าจะถูก "จ่ายงาน" (เกตจ่ายงาน, ดู /dispatch ด้านล่าง) — แจ้งครั้งเดียวตอนนั้นแทน กันแจ้งซ้ำ 2 รอบสำหรับ 1 การจ่ายงาน
     if (body.data.status === 'done' && before.status !== 'done' && before.assignedBy) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: before.assignedBy,
         type: 'subtask_completed',
         taskId: before.id,
@@ -635,7 +637,7 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Task lifecycle notifications — ครบ flow ส่งงาน/อนุมัติ/ตีกลับ ทุก level (ไม่ใช่แค่ subtask เหมือน 2 อันบน)
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test' && before.assignedBy) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: before.assignedBy,
         type: 'task_submitted',
         taskId: before.id,
@@ -644,7 +646,7 @@ export const taskRoutes = new Hono<AppEnv>()
       })
     }
     if (body.data.status === 'done' && before.status === 'waiting_for_test' && before.assigneeId) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: before.assigneeId,
         type: 'task_approved',
         taskId: before.id,
@@ -654,7 +656,7 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §ดึงงานกลับ (2026-08-26) — assignee ดึงงานที่ส่งไปแล้วกลับมาแก้ต่อเอง ก่อนหัวหน้าอนุมัติ/ตีกลับ — แจ้งผู้จ่ายงานให้รู้ตัว
     if (body.data.status === 'on_processing' && before.status === 'waiting_for_test' && before.assignedBy) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: before.assignedBy,
         type: 'task_recalled',
         taskId: before.id,
@@ -663,7 +665,7 @@ export const taskRoutes = new Hono<AppEnv>()
       })
     }
     if (body.data.status === 'non_start' && before.status === 'waiting_for_test' && before.assigneeId) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: before.assigneeId,
         type: 'task_bounced',
         taskId: before.id,
@@ -692,7 +694,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
     const updated = await db.update(tasks).set({ dispatchedAt: new Date() }).where(eq(tasks.id, before.id)).returning()
     await writeAudit(c.env, { actorId: me.id, action: 'task.dispatch', entity: 'task', entityId: before.id, meta: { title: before.title, assigneeId: before.assigneeId } })
-    await db.insert(notifications).values({
+    await notifyUser(db, {
       userId: before.assigneeId,
       type: 'task_dispatched',
       taskId: before.id,

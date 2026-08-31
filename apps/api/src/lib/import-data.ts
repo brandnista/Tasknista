@@ -1,9 +1,10 @@
 import { unzipSync } from 'fflate'
-import { createDb, DOC_TYPES, docLinks, docs, notifications, tasks, users, type Project } from '@seedoffice/db'
+import { createDb, DOC_TYPES, docLinks, docs, tasks, users, type Project } from '@seedoffice/db'
 import { and, eq, isNotNull } from 'drizzle-orm'
 import { cellToIsoDateOrNull, cellToNumberOrNull, cellToText, parseXlsxSheet } from './xlsx-parse'
 import { nextTypedTaskCode, sanitizeCodePrefix } from './task-code'
 import { writeAudit } from './audit'
+import { notifyUser } from './notify'
 import { findOrCreateTemplateFolder } from '../routes/docs'
 
 /**
@@ -312,7 +313,7 @@ export async function createImportedItems(
       result.updatedTaskIds.push(updated.id)
       await writeAudit(env, { actorId: createdBy, action: 'task.update', entity: 'task', entityId: updated.id, meta: { title: updated.title, import: true, overwrite: true } })
       if (item.assigneeId && item.assigneeId !== before?.assigneeId) {
-        await db.insert(notifications).values({ userId: item.assigneeId, type: 'subtask_assigned', taskId: updated.id, projectId: project.id, message: `คุณได้รับมอบหมายงาน "${updated.title}"` })
+        await notifyUser(db, { userId: item.assigneeId, type: 'subtask_assigned', taskId: updated.id, projectId: project.id, message: `คุณได้รับมอบหมายงาน "${updated.title}"` })
       }
       return updated.id
     }
@@ -321,7 +322,7 @@ export async function createImportedItems(
     result.createdTaskIds.push(created.id)
     await writeAudit(env, { actorId: createdBy, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, import: true } })
     if (item.assigneeId) {
-      await db.insert(notifications).values({ userId: item.assigneeId, type: 'subtask_assigned', taskId: created.id, projectId: project.id, message: `คุณได้รับมอบหมายงาน "${created.title}"` })
+      await notifyUser(db, { userId: item.assigneeId, type: 'subtask_assigned', taskId: created.id, projectId: project.id, message: `คุณได้รับมอบหมายงาน "${created.title}"` })
     }
     return created.id
   }

@@ -104,3 +104,55 @@ describe('Pronista §Team Chat — channels & messages', () => {
     expect((await app.request(`/api/chat/messages/${msg.id}/convert-to-task`, json(pond, { projectId: p.id }), env)).status).toBe(403)
   })
 })
+
+describe('Pronista §Team Chat — unread count badge', () => {
+  async function channelUnread(cookie: string, channelId: string) {
+    const list = (await (await app.request('/api/chat/channels', { headers: { cookie } }, env)).json()) as { id: string; unreadCount: number }[]
+    return list.find((c) => c.id === channelId)!.unreadCount
+  }
+
+  it('ห้อง DM — ข้อความของอีกฝ่ายนับ unread ของเรา ข้อความตัวเองไม่นับ · เปิดอ่าน (POST /read) แล้วรีเซ็ตเป็น 0', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const dm = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+    // เคลียร์อ่านให้ทั้งคู่ก่อน กัน D1 state ค้างจากเทสต์ก่อนหน้าในไฟล์เดียวกัน (DM คู่ owner/pond อาจถูกสร้าง+มีข้อความไว้แล้ว)
+    await app.request(`/api/chat/channels/${dm.id}/read`, { method: 'POST', headers: { cookie: owner } }, env)
+    await app.request(`/api/chat/channels/${dm.id}/read`, { method: 'POST', headers: { cookie: pond } }, env)
+
+    await app.request(`/api/chat/channels/${dm.id}/messages`, json(owner, { body: 'ข้อความ 1' }), env)
+    await app.request(`/api/chat/channels/${dm.id}/messages`, json(owner, { body: 'ข้อความ 2' }), env)
+    expect(await channelUnread(pond, dm.id)).toBe(2)
+    expect(await channelUnread(owner, dm.id)).toBe(0) // ข้อความตัวเองไม่นับเป็น unread ของตัวเอง
+
+    expect((await app.request(`/api/chat/channels/${dm.id}/read`, { method: 'POST', headers: { cookie: pond } }, env)).status).toBe(200)
+    expect(await channelUnread(pond, dm.id)).toBe(0)
+
+    // มีข้อความใหม่มาอีก 1 หลังอ่านแล้ว → unread กลับมาเป็น 1 (นับเฉพาะหลัง lastReadAt)
+    await app.request(`/api/chat/channels/${dm.id}/messages`, json(owner, { body: 'ข้อความ 3' }), env)
+    expect(await channelUnread(pond, dm.id)).toBe(1)
+  })
+
+  it('ห้อง project — ไม่มีแถวสมาชิกมาก่อน (ยังไม่เคยเปิดอ่าน) นับข้อความทั้งหมดที่ไม่ใช่ของตัวเองเป็น unread · เปิดอ่านแล้วสร้างแถวสมาชิกให้อัตโนมัติและรีเซ็ตเป็น 0', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const p = await makeProject(owner, 'u_pond')
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const channelId = channels.find((c) => c.projectId === p.id)!.id
+
+    await app.request(`/api/chat/channels/${channelId}/messages`, json(owner, { body: 'งานอัปเดต 1' }), env)
+    await app.request(`/api/chat/channels/${channelId}/messages`, json(owner, { body: 'งานอัปเดต 2' }), env)
+    expect(await channelUnread(pond, channelId)).toBe(2)
+
+    expect((await app.request(`/api/chat/channels/${channelId}/read`, { method: 'POST', headers: { cookie: pond } }, env)).status).toBe(200)
+    expect(await channelUnread(pond, channelId)).toBe(0)
+  })
+
+  it('POST /read ห้องที่ไม่มีสิทธิ์เข้าถึง → 403 (กันสร้างแถวสมาชิกปลอมของห้องที่ไม่ใช่ของตัวเอง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test') // ไม่ได้ถูกเพิ่มเป็นสมาชิกโปรเจกต์นี้
+    const p = await makeProject(owner)
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const channelId = channels.find((c) => c.projectId === p.id)!.id
+    expect((await app.request(`/api/chat/channels/${channelId}/read`, { method: 'POST', headers: { cookie: pond } }, env)).status).toBe(403)
+  })
+})

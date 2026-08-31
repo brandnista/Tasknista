@@ -1,29 +1,10 @@
-import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { useNotifications } from '../lib/notifications-context'
 
-interface NotificationRow {
-  id: string
-  isRead: boolean
-}
-
-const POLL_MS = 45_000
-
-/** Pronista §My Work/Notification — badge จำนวนแจ้งเตือนที่ยังไม่อ่าน โผล่ข้างเมนู "งานของฉัน" ใน sidebar — poll เป็นระยะเหมือน timer.tsx/TeamBox.tsx (แอปนี้ไม่มี websocket) */
-export function NotificationBell() {
-  const [unread, setUnread] = useState(0)
-
-  useEffect(() => {
-    let cancelled = false
-    const load = () => {
-      api
-        .get<NotificationRow[]>('/api/notifications')
-        .then((rows) => { if (!cancelled) setUnread(rows.filter((r) => !r.isRead).length) })
-        .catch(() => {})
-    }
-    load()
-    const id = setInterval(load, POLL_MS)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [])
+/** Pronista §My Work/Notification — badge จำนวนแจ้งเตือนที่ยังไม่อ่าน โผล่ข้างเมนู sidebar — อ่านจาก NotificationsProvider กลาง (ไม่ poll ของตัวเองแล้ว)
+ * `types` = นับเฉพาะประเภทที่ระบุ (เช่น เมนู "ทีม" นับเฉพาะแจ้งเตือนแชท/ประชุม), `excludeTypes` = นับทุกประเภทยกเว้นที่ระบุ (กันนับซ้ำกับเมนูอื่นที่มี badge ของตัวเองแล้ว) — ไม่ใส่ทั้งคู่ = นับทุกประเภท */
+export function NotificationBell({ types, excludeTypes }: { types?: readonly string[]; excludeTypes?: ReadonlySet<string> } = {}) {
+  const { rows } = useNotifications()
+  const unread = (rows ?? []).filter((r) => !r.isRead && (!types || types.includes(r.type)) && (!excludeTypes || !excludeTypes.has(r.type))).length
 
   if (unread === 0) return null
   return (

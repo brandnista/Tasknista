@@ -19,6 +19,7 @@ import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { notifyUser } from '../lib/notify'
 import { canEditTask, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
@@ -269,6 +270,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!task) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
+    // Pronista §Notification overhaul (2026-08-27) — หาคนที่เคยคอมเมนต์ก่อน insert แถวใหม่ (ไม่งั้นคอมเมนต์ตัวเองจะติดมาด้วย)
+    const priorCommenters = await db.select({ userId: taskComments.userId }).from(taskComments).where(eq(taskComments.taskId, task.id))
     const inserted = await db
       .insert(taskComments)
       .values({ taskId: task.id, userId: me.id, body: body.data.body, isBlocked: body.data.isBlocked ?? false })
@@ -280,6 +283,13 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       entityId: task.id,
       meta: { preview: body.data.body.slice(0, 80) },
     })
+    // Pronista §Notification overhaul (2026-08-27) — แจ้งผู้รับงาน + ผู้จ่ายงาน (createdBy) + คนที่เคยคอมเมนต์มาก่อน ยกเว้นคนคอมเมนต์เอง — ติดขัด (isBlocked) ขึ้นต้นด้วย 🚩
+    const recipients = new Set([task.assigneeId, task.createdBy, ...priorCommenters.map((r) => r.userId)].filter((id): id is string => !!id && id !== me.id))
+    const preview = body.data.body.slice(0, 80)
+    const message = body.data.isBlocked ? `🚩 ${me.name} ติดขัดในงาน "${task.title}": "${preview}"` : `${me.name} คอมเมนต์ในงาน "${task.title}": "${preview}"`
+    for (const userId of recipients) {
+      await notifyUser(db, { userId, type: 'task_commented', taskId: task.id, projectId: task.projectId, message })
+    }
     return c.json({ ...inserted[0], userName: me.name }, 201)
   })
 

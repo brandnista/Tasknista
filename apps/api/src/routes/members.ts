@@ -1,9 +1,10 @@
-import { companyConfig, createDb, memberOrders, memberPayments, members, notifications, users } from '@seedoffice/db'
+import { companyConfig, createDb, memberOrders, memberPayments, members, users } from '@seedoffice/db'
 import { isNearExpiry } from '@seedoffice/core'
 import { and, desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { notifyUser } from '../lib/notify'
 import type { AppEnv } from '../types'
 
 /**
@@ -208,7 +209,7 @@ export async function notifyExpiringMembers(db: ReturnType<typeof createDb>, tod
     if (!isNearExpiry(m.endDate, m.notifyBeforeDays, today)) continue
     const owners = await db.select({ id: users.id }).from(users).where(eq(users.role, 'owner'))
     for (const o of owners) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: o.id,
         type: 'member_expiry_reminder',
         memberId: m.id,

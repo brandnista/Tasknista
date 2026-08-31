@@ -1,8 +1,9 @@
 import { chatChannelMembers, chatChannels, chatMessageAttachments, chatMessages, createDb, notifications, projectMembers, projects, users } from '@seedoffice/db'
-import { and, desc, eq, inArray, isNull, lt, ne } from 'drizzle-orm'
+import { and, count, desc, eq, gt, inArray, isNull, lt, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { notifyUser } from '../lib/notify'
 import { notifyChatChannel } from '../lib/presence-notify'
 import { getProjectPermissions } from '../lib/project-role'
 import { createQuickTask } from '../lib/quick-task'
@@ -43,6 +44,7 @@ chatRoutes
       ? await db.select({ ch: chatChannels, projectName: projects.name }).from(chatChannels).innerJoin(projects, eq(chatChannels.projectId, projects.id)).where(and(eq(chatChannels.kind, 'project'), inArray(chatChannels.projectId, pIds)))
       : []
     const myMemberships = await db.select().from(chatChannelMembers).where(eq(chatChannelMembers.userId, me.id))
+    const myLastReadByChannel = new Map(myMemberships.map((m) => [m.channelId, m.lastReadAt]))
     const otherChannelIds = myMemberships.map((m) => m.channelId)
     const otherChannels = otherChannelIds.length ? await db.select().from(chatChannels).where(inArray(chatChannels.id, otherChannelIds)) : []
 
@@ -65,10 +67,36 @@ chatRoutes
           )[0]
           displayName = other?.name ?? null
         }
-        return { ...ch, displayName: displayName ?? ch.projectName ?? null, lastMessageAt: last?.createdAt ?? null, lastMessagePreview: last?.body?.slice(0, 120) ?? null }
+        // Pronista §Team Chat unread badge (2026-08-28) — นับข้อความที่ยังไม่อ่านต่อห้อง: ไม่นับข้อความตัวเอง + หลัง lastReadAt (ไม่เคยอ่านเลย = นับทุกข้อความที่มี)
+        const myLastReadAt = myLastReadByChannel.get(ch.id) ?? null
+        const unreadConditions = [eq(chatMessages.channelId, ch.id), isNull(chatMessages.deletedAt), ne(chatMessages.senderId, me.id)]
+        if (myLastReadAt) unreadConditions.push(gt(chatMessages.createdAt, myLastReadAt))
+        const unreadCount = (await db.select({ n: count() }).from(chatMessages).where(and(...unreadConditions)))[0]?.n ?? 0
+        return { ...ch, displayName: displayName ?? ch.projectName ?? null, lastMessageAt: last?.createdAt ?? null, lastMessagePreview: last?.body?.slice(0, 120) ?? null, unreadCount }
       }),
     )
     return c.json(result)
+  })
+
+  // ลบห้อง dm/group ทิ้งทั้งห้อง (ข้อความ+ไฟล์แนบ+สมาชิก) — สมาชิกคนไหนก็ลบได้ ห้อง project ห้ามลบผ่านทางนี้ (ผูก 1:1 กับโปรเจกต์ ต้องลบที่โปรเจกต์)
+  .delete('/chat/channels/:id', teamOrMenu('team'), async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
+    if (!channel) return c.json({ error: 'not_found' }, 404)
+    if (channel.kind === 'project') return c.json({ error: 'cannot_delete_project_channel' }, 400)
+    if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    await db.delete(notifications).where(eq(notifications.chatChannelId, channel.id))
+    const messageIds = (await db.select({ id: chatMessages.id }).from(chatMessages).where(eq(chatMessages.channelId, channel.id))).map((r) => r.id)
+    if (messageIds.length) {
+      const attachments = await db.select().from(chatMessageAttachments).where(inArray(chatMessageAttachments.messageId, messageIds))
+      for (const a of attachments) if (a.r2Key) await c.env.FILES.delete(a.r2Key)
+      await db.delete(chatMessageAttachments).where(inArray(chatMessageAttachments.messageId, messageIds))
+    }
+    await db.delete(chatMessages).where(eq(chatMessages.channelId, channel.id))
+    await db.delete(chatChannelMembers).where(eq(chatChannelMembers.channelId, channel.id))
+    await db.delete(chatChannels).where(eq(chatChannels.id, channel.id))
+    return c.json({ ok: true })
   })
 
   // สร้างห้อง DM (idempotent ต่อคู่ userId) หรือ group (ตั้งชื่อ+เลือกสมาชิกเอง) — ห้อง project สร้างอัตโนมัติตอนสร้างโปรเจกต์ ไม่ผ่าน endpoint นี้
@@ -142,7 +170,17 @@ chatRoutes
           ? me.role === 'owner' || !!(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, channel.projectId!), eq(projectMembers.userId, userId))).limit(1))[0]
           : !!(await db.select().from(chatChannelMembers).where(and(eq(chatChannelMembers.channelId, channel.id), eq(chatChannelMembers.userId, userId))).limit(1))[0]
       if (!isMember) continue
-      await db.insert(notifications).values({ userId, type: 'chat_mention', message: `${me.name} กล่าวถึงคุณในแชท: "${body.data.body.slice(0, 80)}"` })
+      await notifyUser(db, { userId, type: 'chat_mention', chatChannelId: channel.id, message: `${me.name} กล่าวถึงคุณในแชท: "${body.data.body.slice(0, 80)}"` })
+    }
+
+    // Pronista §Team Chat (2026-08-27) — dm/group แจ้งเตือนสมาชิกทุกคนที่ยังไม่ถูก mention ด้านบนว่ามีข้อความใหม่ — ห้อง project ข้าม (คนเยอะ แจ้งทุกข้อความจะถี่เกินไป ดูจากห้องแชทเอาเอง)
+    if (channel.kind !== 'project') {
+      const members = await db.select({ userId: chatChannelMembers.userId }).from(chatChannelMembers).where(eq(chatChannelMembers.channelId, channel.id))
+      const groupLabel = channel.kind === 'group' && channel.name ? ` ในกลุ่ม "${channel.name}"` : ''
+      for (const { userId } of members) {
+        if (userId === me.id || mentioned.includes(userId)) continue
+        await notifyUser(db, { userId, type: 'chat_message', chatChannelId: channel.id, message: `${me.name} ส่งข้อความถึงคุณ${groupLabel}: "${body.data.body.slice(0, 80)}"` })
+      }
     }
 
     await notifyChatChannel(c.env, channel.id, { type: 'chat_message', message: { ...created, senderName: me.name, attachments: [] } })
@@ -166,6 +204,28 @@ chatRoutes
     const created = (await db.insert(chatMessageAttachments).values({ messageId: msg.id, r2Key, filename: safeName, mime: file.type || null, sizeBytes: file.size }).returning())[0]!
     await notifyChatChannel(c.env, msg.channelId, { type: 'chat_attachment', messageId: msg.id, attachment: created })
     return c.json(created, 201)
+  })
+
+  // โหลดไฟล์แนบในแชท — เดิม frontend ยิงไป /api/attachments/:id ซึ่งเป็น endpoint ของ Task attachment เท่านั้น หา chat attachment ไม่เจอเลย (404 ตลอด) จึงแยก path ของตัวเอง
+  .get('/chat/attachments/:id', teamOrMenu('team'), async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const att = (await db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, c.req.param('id'))).limit(1))[0]
+    if (!att || !att.r2Key) return c.json({ error: 'not_found' }, 404)
+    const msg = (await db.select().from(chatMessages).where(eq(chatMessages.id, att.messageId)).limit(1))[0]
+    if (!msg) return c.json({ error: 'not_found' }, 404)
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, msg.channelId)).limit(1))[0]
+    if (!channel || !(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    const obj = await c.env.FILES.get(att.r2Key)
+    if (!obj) return c.json({ error: 'object_missing' }, 404)
+    const inlineSafe = /^image\/(png|jpeg|gif|webp|avif)$/.test(att.mime ?? '')
+    return new Response(obj.body, {
+      headers: {
+        'content-type': inlineSafe && att.mime ? att.mime : 'application/octet-stream',
+        'content-disposition': `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(att.filename)}"`,
+        'cache-control': 'private, max-age=3600',
+      },
+    })
   })
 
   .patch('/chat/messages/:id', teamOrMenu('team'), async (c) => {
@@ -192,11 +252,19 @@ chatRoutes
     return c.json({ ok: true })
   })
 
-  // ปักหมุด "อ่านแล้วถึงตรงนี้" ต่อคนต่อห้อง (dm/group เท่านั้น — ห้อง project ยังไม่มี unread badge ในเฟสนี้)
+  // ปักหมุด "อ่านแล้วถึงตรงนี้" ต่อคนต่อห้อง (upsert chat_channel_members — ห้อง project ไม่มีแถวสมาชิกมาก่อน สร้างให้ตอนเปิดอ่านครั้งแรก) + mark แจ้งเตือน chat_mention/chat_message ของห้องนี้เป็นอ่านแล้วทุกแบบ
   .post('/chat/channels/:id/read', teamOrMenu('team'), async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    await db.update(chatChannelMembers).set({ lastReadAt: new Date() }).where(and(eq(chatChannelMembers.channelId, c.req.param('id')), eq(chatChannelMembers.userId, me.id)))
+    const channelId = c.req.param('id')
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, channelId)).limit(1))[0]
+    if (!channel) return c.json({ error: 'not_found' }, 404)
+    if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    await db
+      .insert(chatChannelMembers)
+      .values({ channelId, userId: me.id, lastReadAt: new Date() })
+      .onConflictDoUpdate({ target: [chatChannelMembers.channelId, chatChannelMembers.userId], set: { lastReadAt: new Date() } })
+    await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.userId, me.id), eq(notifications.chatChannelId, channelId)))
     return c.json({ ok: true })
   })
 

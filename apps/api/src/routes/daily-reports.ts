@@ -4,7 +4,6 @@ import {
   dailyReportComments,
   dailyReportItems,
   dailyReports,
-  notifications,
   projects,
   taskStars,
   tasks,
@@ -15,6 +14,7 @@ import { and, desc, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { notifyUser } from '../lib/notify'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -298,7 +298,7 @@ dailyReportRoutes
 
     if (report.status === 'submitted' && report.recipientId && me.id === report.recipientId) {
       await db.update(dailyReports).set({ status: 'reviewed', reviewedAt: new Date() }).where(eq(dailyReports.id, report.id))
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: report.userId,
         type: 'daily_report_reviewed',
         dailyReportId: report.id,
@@ -405,7 +405,7 @@ dailyReportRoutes
 
     await db.update(dailyReports).set({ status: 'submitted', submittedAt: new Date(), recipientId: recipient.id }).where(eq(dailyReports.id, report.id))
     await writeAudit(c.env, { actorId: me.id, action: 'daily_report.submit', entity: 'daily_report', entityId: report.id, meta: { reportDate: report.reportDate, recipientId: recipient.id } })
-    await db.insert(notifications).values({
+    await notifyUser(db, {
       userId: recipient.id,
       type: 'daily_report_submitted',
       dailyReportId: report.id,
@@ -441,7 +441,7 @@ dailyReportRoutes
     await writeAudit(c.env, { actorId: me.id, action: 'daily_report.comment', entity: 'daily_report', entityId: report.id, meta: { preview: body.data.body.slice(0, 80) } })
     const otherPartyId = me.id === report.userId ? report.recipientId : report.userId
     if (otherPartyId && otherPartyId !== me.id) {
-      await db.insert(notifications).values({
+      await notifyUser(db, {
         userId: otherPartyId,
         type: 'daily_report_commented',
         dailyReportId: report.id,

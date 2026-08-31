@@ -1,0 +1,1 @@
+ALTER TABLE `notifications` ADD `meeting_id` text REFERENCES meetings(id);

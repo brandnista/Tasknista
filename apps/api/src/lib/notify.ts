@@ -1,7 +1,54 @@
 import { createDb, companyConfig, notifications, projectMembers, projects, users } from '@seedoffice/db'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { NOTIFICATION_TYPES } from '@seedoffice/db'
 import { resolvePositions } from '@seedoffice/core'
+
+type Db = ReturnType<typeof createDb>
+
+export interface NotifyInput {
+  userId: string
+  type: (typeof NOTIFICATION_TYPES)[number]
+  message: string
+  taskId?: string | null
+  projectId?: string | null
+  dailyReportId?: string | null
+  memberId?: string | null
+  meetingId?: string | null
+  chatChannelId?: string | null
+  domainId?: string | null
+}
+
+/**
+ * Pronista §Notification overhaul (2026-08-27) — จุดรวมศูนย์เดียวที่ทุกแจ้งเตือนในระบบต้องไหลผ่าน (แทนที่ db.insert(notifications) ตรงๆ ที่กระจายอยู่ 18 จุดเดิม)
+ * ทำ 2 อย่าง: (1) เช็ค users.notificationPrefs — ถ้าปิดประเภทนี้ไว้ ไม่ insert เลย (2) ยุบ chat_message เป็นห้องละ 1 แถวที่ยังไม่อ่าน กันกระดิ่งเต็มไปด้วยแชท
+ */
+export async function notifyUser(db: Db, input: NotifyInput): Promise<void> {
+  const recipient = (await db.select({ notificationPrefs: users.notificationPrefs }).from(users).where(eq(users.id, input.userId)).limit(1))[0]
+  if (recipient?.notificationPrefs?.includes(input.type)) return // ปิดประเภทนี้ไว้ — ไม่ insert
+
+  if (input.type === 'chat_message' && input.chatChannelId) {
+    const existing = (
+      await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.userId, input.userId),
+            eq(notifications.type, 'chat_message'),
+            eq(notifications.chatChannelId, input.chatChannelId),
+            eq(notifications.isRead, false),
+          ),
+        )
+        .limit(1)
+    )[0]
+    if (existing) {
+      await db.update(notifications).set({ message: input.message, createdAt: new Date() }).where(eq(notifications.id, existing.id))
+      return
+    }
+  }
+
+  await db.insert(notifications).values(input)
+}
 
 /**
  * แจ้งเตือนชนเพดานชั่วโมง/วัน (SPEC §4.5: เตือนเว็บ + อีเมล — เจตนา: อยากให้ทีมพัก)
@@ -51,12 +98,6 @@ export async function notifyProjectPmAndBa(env: Env, input: NotifyProjectPmAndBa
   if (project[0]?.leadId) recipients.add(project[0].leadId)
   if (input.excludeUserId) recipients.delete(input.excludeUserId)
   for (const userId of recipients) {
-    await db.insert(notifications).values({
-      userId,
-      type: input.type,
-      projectId: input.projectId,
-      taskId: input.taskId ?? null,
-      message: input.message,
-    })
+    await notifyUser(db, { userId, type: input.type, projectId: input.projectId, taskId: input.taskId ?? null, message: input.message })
   }
 }

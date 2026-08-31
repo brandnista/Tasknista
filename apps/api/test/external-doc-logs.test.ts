@@ -21,6 +21,7 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM docs').run()
   await env.DB.prepare('DELETE FROM project_members').run()
   await env.DB.prepare('DELETE FROM chat_channels').run()
+  await env.DB.prepare('DELETE FROM notifications').run()
   await env.DB.prepare('DELETE FROM projects').run()
 })
 
