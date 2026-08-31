@@ -70,6 +70,10 @@ export const users = sqliteTable('users', {
   specialNote: text('special_note'), // สังกัดเดิม/ความเชี่ยวชาญพิเศษ/ข้อตกลงพิเศษ — เฉพาะประเภทวิสามัญบุคคล
   // Pronista §Employee Detail — รหัสพนักงาน auto-gen ตอนสร้าง (เฉพาะ role='owner'/'member')
   employeeCode: text('employee_code'),
+  // Pronista §Notification overhaul (2026-08-27) — เก็บ "ประเภทแจ้งเตือนที่ปิดไว้" (array ของ NOTIFICATION_TYPES) — null/ว่าง = เปิดรับทุกประเภท (ค่าเริ่มต้น)
+  notificationPrefs: text('notification_prefs', { mode: 'json' }).$type<string[]>(),
+  // Pronista §Meeting Schedule Tab (2026-08-27) — นาทีล่วงหน้าก่อนประชุมเริ่มที่จะเตือน (null = ใช้ค่าเริ่มต้น 5 นาที ใน core)
+  meetingReminderMinutes: integer('meeting_reminder_minutes'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -538,6 +542,8 @@ export const tasks = sqliteTable(
     quotationSatang: integer('quotation_satang'),
     startDate: text('start_date'), // YYYY-MM-DD → ไทม์ไลน์ต่อกลุ่ม
     dueDate: text('due_date'),
+    // Pronista §Notification overhaul (2026-08-27) — กันเตือนเลยกำหนดซ้ำทุกวัน เคลียร์กลับเป็น null ทุกครั้งที่แก้ dueDate (ดู routes/tasks.ts PATCH)
+    dueNotifiedAt: integer('due_notified_at', { mode: 'timestamp_ms' }),
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id),
@@ -851,6 +857,58 @@ export const docMembers = sqliteTable(
     role: text('role', { enum: DOC_MEMBER_ROLES }).notNull().default('viewer'),
   },
   (t) => [uniqueIndex('doc_members_uq_idx').on(t.docId, t.userId)],
+)
+
+// Pronista §My Files (2026-08-28) — ไดรฟ์ส่วนตัวของแต่ละคน แยกขาดจาก "เอกสาร" บริษัทเดิมทั้งระบบ (คนละตาราง คนละกติกาสิทธิ์)
+// ค่าเริ่มต้น = ส่วนตัวเห็นคนเดียว (ไม่มี owner-bypass เหมือน docs — เจตนา "ส่วนตัว" จริงๆ แม้แต่ Admin ก็เห็นไม่ได้ถ้าไม่ถูกแชร์) จนกว่าเจ้าของจะแชร์ผ่าน personalFileMembers
+export const PERSONAL_FILE_KINDS = ['file', 'page', 'folder'] as const
+export const PERSONAL_FILE_MEMBER_ROLES = ['viewer', 'editor'] as const
+
+export const personalFiles = sqliteTable(
+  'personal_files',
+  {
+    id: id(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    parentId: text('parent_id'), // self-ref (FK บังคับที่ API เหมือน docs.parentId) — null = อยู่ที่ root
+    kind: text('kind', { enum: PERSONAL_FILE_KINDS }).notNull().default('file'),
+    name: text('name').notNull(),
+    r2Key: text('r2_key'), // kind='file' เท่านั้น
+    mime: text('mime'), // kind='file' เท่านั้น
+    sizeBytes: integer('size_bytes'), // kind='file' เท่านั้น
+    contentMarkdown: text('content_markdown'), // kind='page' เท่านั้น
+    createdBy: text('created_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    updatedBy: text('updated_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('personal_files_parent_idx').on(t.parentId), index('personal_files_owner_idx').on(t.ownerId)],
+)
+
+// สิทธิ์แชร์ต่อไฟล์/โฟลเดอร์ — แชร์ที่ระดับโฟลเดอร์ = ลูกทุกชิ้นข้างในสืบสิทธิ์ต่อ (เดินขึ้น parent chain เช็คตอน resolve effective access ที่ lib/personal-files.ts)
+export const personalFileMembers = sqliteTable(
+  'personal_file_members',
+  {
+    id: id(),
+    fileId: text('file_id')
+      .notNull()
+      .references((): AnySQLiteColumn => personalFiles.id),
+    userId: text('user_id')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    role: text('role', { enum: PERSONAL_FILE_MEMBER_ROLES }).notNull().default('viewer'),
+  },
+  (t) => [uniqueIndex('personal_file_members_uq_idx').on(t.fileId, t.userId)],
 )
 
 // ผูกเอกสาร (ทุก kind รวมหน้าวิกิด้วย) กับ project/task/sub-task — ผูกได้ทีละอย่าง (projectId หรือ taskId)
@@ -1560,7 +1618,8 @@ export const gmailSyncState = sqliteTable(
 
 /**
  * [P3 §4.14 · E6] บัญชี Google Calendar ที่เชื่อมเพื่อ sync ขาเข้า (read-only)
- * ใช้ OAuth client (Internal) ตัวเดียวกับอีเมลกลางฝั่ง SeedWebs (scope calendar.readonly)
+ * ใช้ OAuth client (Internal) ตัวเดียวกับอีเมลกลางฝั่ง SeedWebs
+ * Pronista §Google Meet Integration (2026-08-28) — ตอนนี้ขอ scope calendar.events (เขียน) เพิ่มด้วย ให้สร้างนัดประชุม+ลิงก์ Meet ได้ (ดู lib/gcal-meet.ts) — เก็บ scope ที่ได้จริงไว้เช็คก่อนเรียกใช้ทุกครั้ง (connection เก่าก่อนอัปเดตนี้จะยังไม่มี calendar.events จนกว่าจะ reconnect)
  * event ที่ sync เข้ามาอยู่ใน calendar_events (source='gcal', gcalId) · syncToken = incremental
  */
 export const calendarConnections = sqliteTable('calendar_connections', {
@@ -1571,6 +1630,7 @@ export const calendarConnections = sqliteTable('calendar_connections', {
   googleEmail: text('google_email'),
   googleAccountId: text('google_account_id'),
   refreshTokenEnc: text('refresh_token_enc'),
+  scope: text('scope'), // scope ที่ได้รับจริงตอน consent (space-separated ตามที่ Google ส่งกลับ)
   status: text('status', { enum: ['connected', 'disconnected'] })
     .notNull()
     .default('disconnected'),
@@ -1661,6 +1721,8 @@ export const NOTIFICATION_TYPES = [
   // Pronista §Team Chat & Meeting (2026-08-26) — ถูก mention ในแชท / ถูกเชิญเข้าประชุมใหม่
   'chat_mention',
   'meeting_scheduled',
+  // Pronista §Team Chat (2026-08-27) — มีข้อความใหม่ใน dm/group ที่เราอยู่ (คนละอันจาก chat_mention ซึ่งเป็นการ @ เจาะจง)
+  'chat_message',
   // Pronista §Subscription Notify — เตือน Project Lead ก่อนโปรเจกต์ใกล้หมดอายุบริการ (คอลัมน์ TEXT ธรรมดา ไม่ต้อง migration)
   'expiry_reminder',
   // Pronista §Guest Backlog — แจ้งสมาชิกโปรเจกต์ทุกคนเมื่อลูกค้า (guest) คีย์ Backlog/Defect เอง
@@ -1671,6 +1733,17 @@ export const NOTIFICATION_TYPES = [
   'daily_report_reviewed',
   // Pronista §Membership — เตือนก่อนสมาชิกใกล้หมดอายุ (มิเรอร์ expiry_reminder ของ Subscription Notify)
   'member_expiry_reminder',
+  // Pronista §Notification overhaul (2026-08-27) — Batch A: จุดที่หายไปเดิม (คอมเมนต์งาน/เลยกำหนด/แก้ไข-ยกเลิกประชุม/เพิ่มเข้าโปรเจกต์)
+  'task_commented',
+  'task_overdue_reminder',
+  'meeting_updated',
+  'meeting_cancelled',
+  'project_member_added',
+  // Pronista §Meeting Schedule Tab (2026-08-27) — เตือนล่วงหน้าก่อนประชุมเริ่ม (นาทีตั้งได้ต่อคน ดู users.meetingReminderMinutes)
+  'meeting_reminder',
+  // Pronista §Domain Management (2026-08-27) — เตือนโดเมนใกล้หมดอายุ (หลายระดับ) / หมดอายุแล้ว
+  'domain_expiry_reminder',
+  'domain_expired',
 ] as const
 
 export const notifications = sqliteTable(
@@ -1687,6 +1760,12 @@ export const notifications = sqliteTable(
     dailyReportId: text('daily_report_id').references((): AnySQLiteColumn => dailyReports.id),
     // Pronista §Membership — deep-link ไปยังสมาชิกที่ใกล้หมดอายุ
     memberId: text('member_id').references((): AnySQLiteColumn => members.id),
+    // Pronista §Team Meeting (2026-08-27) — deep-link ตรงไปยังประชุมที่นัด (กันแจ้งเตือน meeting_scheduled พาไปหน้าแชทเฉยๆ)
+    meetingId: text('meeting_id').references((): AnySQLiteColumn => meetings.id),
+    // Pronista §Team Chat (2026-08-27) — deep-link ตรงไปยังห้องแชทที่มีข้อความ/ถูก mention
+    chatChannelId: text('chat_channel_id').references((): AnySQLiteColumn => chatChannels.id),
+    // Pronista §Domain Management (2026-08-27) — deep-link ตรงไปยังโดเมนที่ใกล้/หมดอายุ
+    domainId: text('domain_id').references((): AnySQLiteColumn => domains.id),
     message: text('message').notNull(),
     isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1795,6 +1874,45 @@ export const notes = sqliteTable(
   (t) => [index('notes_user_idx').on(t.userId)],
 )
 
+// Pronista §My Note sharing (2026-08-28) — แชร์บันทึกได้เหมือนกติกา personalFileMembers (viewer/editor) — ไม่มี parent chain แบบไฟล์ (note ไม่มีลูก) จึงเช็คตรงจุดเดียวพอ
+export const NOTE_MEMBER_ROLES = ['viewer', 'editor'] as const
+export const noteMembers = sqliteTable(
+  'note_members',
+  {
+    id: id(),
+    noteId: text('note_id')
+      .notNull()
+      .references((): AnySQLiteColumn => notes.id),
+    userId: text('user_id')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    role: text('role', { enum: NOTE_MEMBER_ROLES }).notNull().default('viewer'),
+  },
+  (t) => [uniqueIndex('note_members_uq_idx').on(t.noteId, t.userId)],
+)
+
+// Pronista §My Note attachments (2026-08-28) — ไฟล์แนบต่อบันทึก เก็บใน R2 bucket เดียวกับ personalFiles (bucket FILES) คนละ prefix — ไม่ใช่ personalFiles item แยก กันสับสนเรื่องความเป็นเจ้าของ/สิทธิ์ซ้อนกัน 2 ระบบ
+export const noteAttachments = sqliteTable(
+  'note_attachments',
+  {
+    id: id(),
+    noteId: text('note_id')
+      .notNull()
+      .references((): AnySQLiteColumn => notes.id),
+    r2Key: text('r2_key').notNull(),
+    name: text('name').notNull(),
+    mime: text('mime'),
+    sizeBytes: integer('size_bytes').notNull(),
+    uploadedBy: text('uploaded_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('note_attachments_note_idx').on(t.noteId)],
+)
+
 // Pronista §Team Chat — ห้องสนทนา: kind='project' สร้างอัตโนมัติคู่กับโปรเจกต์ (projectId ไม่ว่าง) · 'dm'/'group' ตั้งชื่อเองหรือไม่ก็ได้ (name ว่าง = ใช้รายชื่อสมาชิกแสดงแทน)
 export const chatChannels = sqliteTable(
   'chat_channels',
@@ -1886,6 +2004,8 @@ export const meetings = sqliteTable(
     externalMeetingUrl: text('external_meeting_url'),
     agenda: text('agenda'),
     notes: text('notes'),
+    // Pronista §Google Meet Integration (2026-08-28) — id ของ event บน Google Calendar ที่สร้างคู่กัน (null = สร้างตอนยังไม่ได้เชื่อมต่อ Google Calendar หรือแปะลิงก์เอง) ใช้อัปเดต/ยกเลิก event ต้นทางเมื่อเลื่อน/ยกเลิกประชุมในระบบ
+    gcalEventId: text('gcal_event_id'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -1904,6 +2024,8 @@ export const meetingParticipants = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id),
+    // Pronista §Meeting Schedule Tab (2026-08-27) — กันเตือนซ้ำ (ต่อคน เพราะนาทีล่วงหน้าตั้งได้ต่อคน) — null = ยังไม่เตือน
+    remindedAt: integer('reminded_at', { mode: 'timestamp_ms' }),
   },
   (t) => [uniqueIndex('meeting_participants_meeting_user_idx').on(t.meetingId, t.userId)],
 )
@@ -1926,6 +2048,53 @@ export const meetingActionItems = sqliteTable(
   (t) => [index('meeting_action_items_meeting_idx').on(t.meetingId)],
 )
 
+// Pronista §Domain Management (2026-08-27) — ทะเบียนโดเมนของบริษัท ติดตามวันหมดอายุ + แจ้งเตือนล่วงหน้าหลายระดับ (owner-only ดู index.ts /api/admin/*)
+export const domains = sqliteTable(
+  'domains',
+  {
+    id: id(),
+    name: text('name').notNull(), // เช่น pronista.com
+    registeredDate: text('registered_date'), // YYYY-MM-DD — ไม่บังคับ
+    expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
+    provider: text('provider'), // ผู้ให้บริการ/ผู้จดทะเบียน (แสดงเป็น "Registrar" ใน UI)
+    responsibleUserId: text('responsible_user_id').references((): AnySQLiteColumn => users.id),
+    projectId: text('project_id').references(() => projects.id),
+    // นาทีล่วงหน้า/ระดับที่เตือนไปแล้ว (เช่น [30,15]) — null/ว่าง = ยังไม่เคยเตือนเลย กันเตือนซ้ำเมื่อ cron รันทุกวัน
+    notifiedTiers: text('notified_tiers', { mode: 'json' }).$type<number[]>(),
+    // เตือน "หมดอายุแล้ว" แยกจากเตือนล่วงหน้า — ครั้งเดียวไม่ซ้ำเหมือนกัน
+    expiredNotifiedAt: integer('expired_notified_at', { mode: 'timestamp_ms' }),
+    // Pronista §Domain Detail Page (2026-08-28) — หน้ารายละเอียดโดเมนแบบแท็บ (Nameservers/Forwarding/DNS/Privacy/Google Workspace/DS)
+    // ทุกฟิลด์ด้านล่างเป็น "บันทึกข้อมูลไว้ในระบบเรา" เท่านั้น — ไม่ได้ยิงไปเปลี่ยนค่าจริงที่ registrar (ตกลงกับเจ้าของแล้ว)
+    notifyEnabled: integer('notify_enabled', { mode: 'boolean' }).notNull().default(true),
+    nameservers: text('nameservers', { mode: 'json' }).$type<string[]>(),
+    forwardingUrl: text('forwarding_url'),
+    forwardingType: text('forwarding_type'), // '301' | '302' | 'masked'
+    dnsRecords: text('dns_records', { mode: 'json' }).$type<
+      { id: string; type: string; host: string; value: string; ttl: number }[]
+    >(),
+    privacyProtectionEnabled: integer('privacy_protection_enabled', { mode: 'boolean' }).notNull().default(false),
+    googleWorkspaceVerified: integer('google_workspace_verified', { mode: 'boolean' }).notNull().default(false),
+    googleWorkspaceNotes: text('google_workspace_notes'),
+    dsRecords: text('ds_records', { mode: 'json' }).$type<
+      { id: string; keyTag: string; algorithm: string; digestType: string; digest: string }[]
+    >(),
+    createdBy: text('created_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('domains_expiry_idx').on(t.expiryDate)],
+)
+
+export type Domain = typeof domains.$inferSelect
+export type DomainDnsRecord = NonNullable<Domain['dnsRecords']>[number]
+export type DomainDsRecord = NonNullable<Domain['dsRecords']>[number]
 export type User = typeof users.$inferSelect
 export type Session = typeof sessions.$inferSelect
 export type ApiToken = typeof apiTokens.$inferSelect
@@ -1973,6 +2142,8 @@ export type Member = typeof members.$inferSelect
 export type MemberOrder = typeof memberOrders.$inferSelect
 export type MemberPayment = typeof memberPayments.$inferSelect
 export type Note = typeof notes.$inferSelect
+export type NoteMember = typeof noteMembers.$inferSelect
+export type NoteAttachment = typeof noteAttachments.$inferSelect
 export type ChatChannel = typeof chatChannels.$inferSelect
 export type ChatChannelMember = typeof chatChannelMembers.$inferSelect
 export type ChatMessage = typeof chatMessages.$inferSelect

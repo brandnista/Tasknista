@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { requireAuth, requireAuthOrToken } from './middleware/auth'
-import { ceilingMenu, ownerOnly, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
+import { ceilingMenu, ownerOnly, requireRole, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
 import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
@@ -24,8 +24,10 @@ import { payrollRoutes } from './routes/payroll'
 import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
 import { dailyReportRoutes } from './routes/daily-reports'
+import { domainRoutes } from './routes/domains'
 import { memberRoutes } from './routes/members'
 import { meetingRoutes } from './routes/meetings'
+import { myFileRoutes } from './routes/my-files'
 import { myNoteRoutes } from './routes/my-notes'
 import { projectReleaseRoutes } from './routes/project-releases'
 import { projectChangelogRoutes } from './routes/project-changelogs'
@@ -36,6 +38,7 @@ import { taskRoutes } from './routes/tasks'
 import { timeRoutes } from './routes/time'
 import { meTodayRoutes } from './routes/me-today'
 import { notificationRoutes } from './routes/notifications'
+import { searchRoutes } from './routes/search'
 import { profileRoutes } from './routes/profile'
 import { tokenRoutes } from './routes/tokens'
 import { userRoutes } from './routes/users'
@@ -69,6 +72,7 @@ app.use('/api/admin/*', requireAuth, async (c, next) => {
 })
 app.route('/api/admin', adminRoutes)
 app.route('/api/admin', payrollAdminRoutes)
+app.route('/api/admin', domainRoutes)
 // Pronista §Menu Restructure — จัดการสมาชิก เปิดให้ non-owner เข้าได้ถ้าเพดานเมนู "members" ของหมวดตัวเองอนุญาต (เดิม owner-only ล้วนๆ)
 app.use('/api/members', requireAuth, ceilingMenu('members'))
 app.use('/api/members/*', requireAuth, ceilingMenu('members'))
@@ -137,7 +141,12 @@ app.route('/api', sprintRoutes)
 // Pronista §My Work/Notification — แจ้งเตือนส่วนตัว ไม่ได้อยู่ใต้ /api/tasks/* หรือ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
 app.use('/api/notifications', requireAuth)
 app.use('/api/notifications/*', requireAuth)
+// Pronista §Notification overhaul (2026-08-27) — คนละ path prefix จาก /api/notifications/* (ไม่ผ่าน wildcard เดิม) ต้องแยก requireAuth ของตัวเอง
+app.use('/api/notification-prefs', requireAuth)
 app.route('/api', notificationRoutes)
+// Pronista §Navbar enrichment (2026-08-27) — ค้นหาด่วนข้ามระบบ
+app.use('/api/search', requireAuth)
+app.route('/api', searchRoutes)
 app.route('/api', taskDetailRoutes)
 app.route('/api', overviewRoutes)
 app.route('/api', timeRoutes)
@@ -172,6 +181,10 @@ app.route('/api', dailyReportRoutes)
 app.use('/api/my-notes', requireAuth)
 app.use('/api/my-notes/*', requireAuth)
 app.route('/api', myNoteRoutes)
+// Pronista §My Files (2026-08-28) — owner/member/vendor เข้าได้ (ตกลงกับพี่แล้ว ไม่รวม guest)
+app.use('/api/my-files', requireAuth, requireRole('owner', 'member', 'vendor'))
+app.use('/api/my-files/*', requireAuth, requireRole('owner', 'member', 'vendor'))
+app.route('/api', myFileRoutes)
 // Pronista §Team Chat (2026-08-26) — เพดานเมนู "team" คุมเองต่อ route ใน chat.ts (teamOrMenu) ที่นี่แค่ requireAuth ตั้ง c.get('user') ให้
 app.use('/api/chat/*', requireAuth)
 app.route('/api', chatRoutes)
