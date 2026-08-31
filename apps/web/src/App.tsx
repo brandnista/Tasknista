@@ -5,6 +5,9 @@ import { Layout } from './components/Layout'
 import { AuthProvider, useAuth, type Me, type MenuKey } from './lib/auth'
 import { AdminPage } from './pages/Admin'
 import { AdminCostPage } from './pages/AdminCost'
+import { AdminDomainsPage } from './pages/AdminDomains'
+import { DomainDetailPage } from './pages/DomainDetail'
+import { AdminNotificationsPage } from './pages/AdminNotifications'
 import { AdminPermissionsPage } from './pages/AdminPermissions'
 import { BoardPage } from './pages/Board'
 import { ClientDetailPage } from './pages/ClientDetail'
@@ -23,13 +26,19 @@ import { MemberOrdersPage } from './pages/MemberOrders'
 import { MemberPaymentsPage } from './pages/MemberPayments'
 import { MemberSettingsPage } from './pages/MemberSettings'
 import { MembersPage } from './pages/Members'
+import { MyFilesPage } from './pages/MyFiles'
 import { MyTasksPage } from './pages/MyTasks'
+import { MyTasksDailyReportPage } from './pages/MyTasksDailyReport'
+import { MyTasksDispatchedPage } from './pages/MyTasksDispatched'
+import { MyTasksMeetingsPage } from './pages/MyTasksMeetings'
+import { MyTasksNotesPage } from './pages/MyTasksNotes'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { ProjectEditPage } from './pages/ProjectEdit'
 import { PayrollPage } from './pages/Payroll'
 import { ProfilePage } from './pages/Profile'
 import { ProjectsPage } from './pages/Projects'
 import { PartnerDetailPage } from './pages/PartnerDetail'
+import { SharedFilesPage } from './pages/SharedFiles'
 import { SprintSnapshotPage } from './pages/SprintSnapshot'
 import { TaskDetailPage } from './pages/TaskDetail'
 import { TeamPage } from './pages/Team'
@@ -80,6 +89,13 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardGate /> },
       { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
+      { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
+      { path: 'my-tasks/daily-report', element: <Protected menuKey="myTasks"><MyTasksDailyReportPage /></Protected> },
+      { path: 'my-tasks/notes', element: <Protected menuKey="myTasks"><MyTasksNotesPage /></Protected> },
+      { path: 'my-tasks/meetings', element: <Protected menuKey="myTasks"><MyTasksMeetingsPage /></Protected> },
+      // Pronista §My Files (2026-08-28) — owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
+      { path: 'my-tasks/files', element: <Protected menuKey="myTasks" roles={['owner', 'member', 'vendor']}><MyFilesPage /></Protected> },
+      { path: 'my-tasks/shared-files', element: <Protected menuKey="myTasks" roles={['owner', 'member', 'vendor']}><SharedFilesPage /></Protected> },
       { path: 'workspace', element: <Protected menuKey="workspace"><WorkspaceRoomsPage /></Protected> },
       { path: 'workspace/:workspaceId', element: <Protected menuKey="workspace"><WorkspacePage /></Protected> },
       { path: 'workspace/:workspaceId/sprints/:sprintId/board', element: <Protected menuKey="workspace"><WorkspaceBoardPage /></Protected> },
@@ -275,10 +291,34 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: 'admin/notifications',
+        element: (
+          <Protected roles={['owner']}>
+            <AdminNotificationsPage />
+          </Protected>
+        ),
+      },
+      {
         path: 'admin/cost',
         element: (
           <Protected roles={['owner']}>
             <AdminCostPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'admin/domains',
+        element: (
+          <Protected roles={['owner']}>
+            <AdminDomainsPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'admin/domains/:id',
+        element: (
+          <Protected roles={['owner']}>
+            <DomainDetailPage />
           </Protected>
         ),
       },

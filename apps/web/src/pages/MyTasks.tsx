@@ -1,27 +1,23 @@
 import {
-  Bell,
   CheckCircle2,
   ClipboardList,
   Copy,
   LayoutGrid,
-  NotebookPen,
   Rows3,
   Search,
-  Send,
   X,
   Zap,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
-import { DailyReportTab } from '../components/DailyReportTab'
-import { MyNoteTab } from '../components/MyNoteTab'
+import { useNavigate } from 'react-router'
 import { MyWorkSummary, taskTypeLabel } from '../components/MyWorkSummary'
 import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
-import { TASK_STATUS_BADGE, TASK_STATUS_DOT, TASK_STATUS_LABEL } from '../lib/task-status'
+import { useNotifications } from '../lib/notifications-context'
+import { TASK_STATUS_DOT, TASK_STATUS_LABEL } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
@@ -37,35 +33,6 @@ interface MyTask extends KanbanTask {
   submittedAt: string | number | null
   sprintId: string | null
 }
-interface DispatchedRow extends KanbanTask {
-  projectId: string
-  projectName: string
-}
-interface NotificationRow {
-  id: string
-  type:
-    | 'subtask_assigned'
-    | 'subtask_completed'
-    | 'task_dispatched'
-    | 'task_submitted'
-    | 'task_approved'
-    | 'task_bounced'
-    | 'task_recalled'
-    | 'chat_mention'
-    | 'meeting_scheduled'
-    | 'expiry_reminder'
-    | 'daily_report_submitted'
-    | 'daily_report_commented'
-    | 'daily_report_reviewed'
-  taskId: string | null
-  projectId: string | null
-  // Pronista §Daily Report — deep-link ไปยัง Daily Report ที่เกี่ยวข้อง (ว่างสำหรับ notification type อื่น)
-  dailyReportId: string | null
-  message: string
-  isRead: boolean
-  createdAt: number
-}
-
 const PRIORITY_ORDER: Record<MyTask['priority'], number> = { high: 0, normal: 1, low: 2 }
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 // Pronista §My Work UX — completedAt/submittedAt มาจาก API เป็น ISO string (Date ถูก serialize ผ่าน JSON) ต้อง +7h ก่อนตัดเป็นวันที่ไทย
@@ -126,72 +93,6 @@ function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-/** Pronista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
-function DispatchedByMeTab({ tasks, onOpenTask, soonDays }: { tasks: DispatchedRow[]; onOpenTask: (id: string) => void; soonDays?: number }) {
-  if (tasks.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีงานที่จ่ายให้คนอื่น</div>
-  return (
-    <div className="bg-white rounded-lg shadow-xs divide-y divide-divider overflow-hidden">
-      {tasks.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => onOpenTask(t.id)}
-          className={`w-full flex items-center gap-3 px-4 py-3 text-left ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="text-sm text-body truncate">
-              {t.title}
-              {checklistLabel(t.checklistDone, t.checklistTotal) && (
-                <span className="ml-2 text-[11px] text-dim">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>
-              )}
-            </div>
-            <div className="text-[11px] text-muted mt-0.5">{t.projectName}{t.assigneeName ? ` · ${t.assigneeName}` : ''}</div>
-          </div>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-/** Pronista §My Work/Notification — รายการแจ้งเตือน assign/complete Subtask (ในระบบเท่านั้น ไม่ส่งอีเมล) */
-function NotificationsTab({ notifications, onRead }: { notifications: NotificationRow[]; onRead: (id: string) => void }) {
-  if (notifications.length === 0) return <div className="text-center text-sm text-muted py-8">ยังไม่มีการแจ้งเตือน</div>
-  return (
-    <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
-      {notifications.map((n) => {
-        // Pronista §Notification back-button fix (2026-08-26) — เดิมเปิดด้วย target="_blank" ทำให้ได้แท็บใหม่ที่ไม่มีประวัติหน้าก่อนหน้าเลย
-        // กด "กลับ" ในหน้า Task Detail จึงย้อนไปไหนไม่ได้ — เปลี่ยนเป็น client-side navigate ในแท็บเดิมเหมือนลิงก์ภายในทุกจุดอื่นของแอป
-        const href = n.dailyReportId
-          ? `/my-tasks?tab=dailyReport&report=${n.dailyReportId}`
-          : n.type === 'chat_mention' || n.type === 'meeting_scheduled'
-            ? '/team'
-            : n.projectId
-              ? (n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`)
-              : undefined
-        const content = (
-          <>
-            <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.isRead ? 'bg-transparent' : 'bg-info-500'}`} />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm text-body">{n.message}</div>
-              <div className="text-[11px] text-muted mt-0.5">{new Date(n.createdAt).toLocaleString('th-TH')}</div>
-            </div>
-          </>
-        )
-        const rowClass = `flex items-start gap-3 px-4 py-3 hover:bg-hover ${n.isRead ? '' : 'bg-info-50/40'}`
-        return href ? (
-          <Link key={n.id} to={href} onClick={() => { if (!n.isRead) onRead(n.id) }} className={rowClass}>
-            {content}
-          </Link>
-        ) : (
-          <div key={n.id} className={rowClass}>
-            {content}
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -369,15 +270,10 @@ export function MyTasksPage() {
   const { data, reload } = useLoad<MyTask[]>(() => api.get('/api/tasks/mine'))
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
   const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
-  const { data: notifData, reload: reloadNotifications } = useLoad<NotificationRow[]>(() => api.get('/api/notifications'))
-  const { data: dispatchedData, reload: reloadDispatched } = useLoad<DispatchedRow[]>(() => api.get('/api/tasks/dispatched-by-me'))
+  // Pronista §Notification overhaul (2026-08-27) — ย้ายมาอ่านจาก NotificationsProvider กลาง (แท็บ "แจ้งเตือน" ในหน้านี้ถูกถอดออกแล้ว เพราะมีกระดิ่งที่ Navbar เป็นจุดเข้าถึงหลักแทน)
+  const { rows: notifRows } = useNotifications()
   const tasks = data ?? []
-  const notifications = notifData ?? []
-  const dispatchedByMe = dispatchedData ?? []
-  const unreadCount = notifications.filter((n) => !n.isRead).length
-  const [searchParams] = useSearchParams()
-  const deepLinkReportId = searchParams.get('report')
-  const [tab, setTab] = useState<'work' | 'notifications' | 'dispatched' | 'dailyReport' | 'myNote'>(deepLinkReportId ? 'dailyReport' : 'work')
+  const notifications = notifRows ?? []
 
   // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
   const [search, setSearch] = useState('')
@@ -396,11 +292,6 @@ export function MyTasksPage() {
     await api.post(`/api/tasks/${taskId}/accept`, {})
     await reload()
   }
-  const markRead = async (id: string) => {
-    await api.post(`/api/notifications/${id}/read`, {})
-    await reloadNotifications()
-  }
-
   const today = bkkToday()
   const isDoneToday = (t: MyTask) => t.status === 'done' && !!t.completedAt && bkkDay(t.completedAt) === today
   const isSubmittedToday = (t: MyTask) => !!t.submittedAt && bkkDay(t.submittedAt) === today
@@ -461,26 +352,7 @@ export function MyTasksPage() {
         </button>
       </div>
 
-      <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit mb-4">
-        <button onClick={() => setTab('work')} className={`px-3 py-1.5 rounded-md ${tab === 'work' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>งานของฉัน</button>
-        <button onClick={() => { setTab('dispatched'); void reloadDispatched() }} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'dispatched' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-          <Send className="w-3.5 h-3.5" /> งานที่จ่ายให้คนอื่น
-        </button>
-        <button onClick={() => setTab('notifications')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'notifications' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-          <Bell className="w-3.5 h-3.5" /> แจ้งเตือน
-          {unreadCount > 0 && <span className="text-[10px] bg-danger-500 text-white rounded-full w-4 h-4 grid place-items-center">{unreadCount}</span>}
-        </button>
-        <button onClick={() => setTab('dailyReport')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'dailyReport' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-          <ClipboardList className="w-3.5 h-3.5" /> Daily Report
-        </button>
-        <button onClick={() => setTab('myNote')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${tab === 'myNote' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-          <NotebookPen className="w-3.5 h-3.5" /> My Note
-        </button>
-      </div>
-
-      {tab === 'work' ? (
-        <>
-          <StatStrip stats={stats} />
+      <StatStrip stats={stats} />
 
           <div className="sticky top-0 z-10 -mx-3 sm:-mx-6 px-3 sm:px-6 py-2.5 mb-3 border-b border-divider grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center" style={{ background: 'var(--page)' }}>
             <div className="flex items-center gap-1.5 bg-white border border-border rounded-lg px-2.5 h-9 col-span-2 sm:flex-1 sm:min-w-[180px]">
@@ -549,17 +421,6 @@ export function MyTasksPage() {
               <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
             )}
           </div>
-        </>
-      ) : tab === 'dispatched' ? (
-        <DispatchedByMeTab tasks={dispatchedByMe} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
-      ) : tab === 'dailyReport' ? (
-        <DailyReportTab initialReportId={deepLinkReportId} />
-      ) : tab === 'myNote' ? (
-        <MyNoteTab />
-      ) : (
-        <NotificationsTab notifications={notifications} onRead={markRead} />
-      )}
-
       <DailySummaryModal
         open={summaryOpen}
         onClose={() => setSummaryOpen(false)}
