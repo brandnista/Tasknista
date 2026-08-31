@@ -343,7 +343,7 @@ function MessageRow({ m, mine, onDeleted, onConvert }: { m: ChatMessage; mine: b
     onDeleted()
   }
   return (
-    <div className={`flex items-start gap-2 group ${mine ? 'flex-row-reverse justify-end' : ''}`}>
+    <div className={`flex items-start gap-2 group ${mine ? 'flex-row-reverse justify-start' : ''}`}>
       {!mine && <Avatar name={m.senderName} className="w-7 h-7 text-xs mt-0.5 shrink-0" colorClass={avatarColor(m.senderName)} />}
       <div className={`min-w-0 max-w-[75%] flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
         <div className={`flex items-baseline gap-1.5 ${mine ? 'flex-row-reverse' : ''}`}>
