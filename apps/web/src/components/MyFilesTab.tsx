@@ -3,10 +3,11 @@
  * แยกขาดจากระบบ "เอกสาร" บริษัทเดิมทั้งหมด (คนละ endpoint คนละกติกาสิทธิ์ — ไม่มี owner-bypass ที่นี่ เป็นพื้นที่ส่วนตัวจริงๆ)
  * component เดียวใช้ทั้ง 2 แท็บผ่าน prop `root` — "own" เริ่มที่ root ของตัวเอง (เข้าโฟลเดอร์ได้ปกติ), "shared" เริ่มที่ลิสต์แบนของที่ถูกแชร์มา (กดเข้าโฟลเดอร์ที่แชร์แล้วสลับไปโหมด browse เหมือนกัน)
  */
-import { ChevronLeft, File, FileText, Folder, FolderPlus, Image as ImageIcon, Pencil, Share2, Trash2, Upload, X } from 'lucide-react'
+import { ChevronLeft, File, FileText, Folder, FolderInput, FolderPlus, Image as ImageIcon, Pencil, Share2, Trash2, Upload, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
 
 type Kind = 'file' | 'page' | 'folder'
@@ -158,8 +159,78 @@ export function ShareModal({ file, onClose }: { file: { id: string; name: string
   )
 }
 
+interface DocNodeOpt { id: string; title: string; parentId: string | null; kind: string }
+
+// Pronista §My Files → เอกสาร (2026-08-31) — คัดลอกไฟล์/เอกสารเดี่ยวจาก "ไฟล์ของฉัน" เข้าเมนู "เอกสาร" บริษัท (เลือกโฟลเดอร์ปลายทางได้)
+function ShareToDocsModal({ file, onClose }: { file: FileRow; onClose: () => void }) {
+  const { alertDialog } = useDialog()
+  const { data: docNodes } = useLoad<DocNodeOpt[]>(() => api.get('/api/docs'))
+  const [parentId, setParentId] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const folders = useMemo(() => {
+    const all = (docNodes ?? []).filter((d) => d.kind === 'folder')
+    const byId = new Map(all.map((f) => [f.id, f]))
+    const depthOf = (f: DocNodeOpt): number => {
+      let depth = 0
+      let cur = f.parentId
+      while (cur) {
+        depth++
+        cur = byId.get(cur)?.parentId ?? null
+      }
+      return depth
+    }
+    return all.map((f) => ({ ...f, depth: depthOf(f) })).sort((a, b) => a.title.localeCompare(b.title))
+  }, [docNodes])
+
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const doc = await api.post<{ id: string }>(`/api/my-files/${file.id}/share-to-docs`, { parentId: parentId || null })
+      onClose()
+      window.open(`/docs/${doc.id}`, '_blank', 'noopener')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'แชร์ไปเอกสารไม่สำเร็จ' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold text-ink text-sm">แชร์ "{file.name}" ไปเอกสาร</div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
+        </div>
+        <p className="text-xs text-muted">
+          คัดลอกเข้าเมนู "เอกสาร" — ใครก็ตามที่มีสิทธิ์เข้าเมนูเอกสารจะเห็นไฟล์นี้ทั้งหมด · ต้นฉบับใน "ไฟล์ของฉัน" ยังอยู่เหมือนเดิม (คัดลอก ไม่ใช่ย้าย)
+        </p>
+        <div>
+          <label className="text-[11px] text-muted block mb-0.5">โฟลเดอร์ปลายทางในเอกสาร</label>
+          <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden">
+            <option value="">— หน้าแรกของเอกสาร (root) —</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>{'　'.repeat(f.depth)}{f.title}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
+          <button onClick={() => void submit()} disabled={busy} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40">
+            {busy ? 'กำลังแชร์...' : 'แชร์ไปเอกสาร'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
   const { confirmDialog, alertDialog } = useDialog()
+  const { user } = useAuth()
+  // เมนู "เอกสาร" เป็น teamOnly — vendor/guest กด "แชร์ไปเอกสาร" ไปก็เจอ 403 ที่ server อยู่ดี ซ่อนปุ่มไปเลยดีกว่า
+  const canShareToDocs = user?.role === 'owner' || user?.role === 'member'
   const [folderId, setFolderId] = useState<string | null>(null) // null ที่ root === "own" (root ของตัวเอง) — ที่ root === "shared" หมายถึงลิสต์แชร์แบบแบน
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
@@ -167,6 +238,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
   const [shareModal, setShareModal] = useState<FileRow | null>(null)
+  const [shareToDocsModal, setShareToDocsModal] = useState<FileRow | null>(null)
   const [uploading, setUploading] = useState(false)
 
   const browsingShared = root === 'shared' && folderId === null
@@ -299,6 +371,9 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
                   {r.kind === 'page' && canManage && <button onClick={() => openPage(r.id)} title="แก้ไข" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>}
                   {/* Pronista §My Files bug fix (2026-08-28) — เดิมเช็ค myRole === undefined ซึ่งเป็น undefined เสมอตอนไล่เข้าโฟลเดอร์ (endpoint parentId= ไม่ส่ง myRole มา) ทำให้ปุ่มแชร์โผล่ให้คนที่ไม่ใช่เจ้าของไฟล์นั้นจริงๆ (กดแล้วเจอ 403 เงียบๆ) — เปลี่ยนไปเช็ค isOwner ตรงๆ ที่ backend คำนวณมาให้ */}
                   {r.isOwner && <button onClick={() => setShareModal(r)} title="แชร์" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Share2 className="w-3.5 h-3.5" /></button>}
+                  {r.isOwner && r.kind !== 'folder' && canShareToDocs && (
+                    <button onClick={() => setShareToDocsModal(r)} title="แชร์ไปเอกสาร" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><FolderInput className="w-3.5 h-3.5" /></button>
+                  )}
                   {canManage && <button onClick={() => void removeItem(r)} title="ลบ" className="p-1 rounded hover:bg-danger-50 text-dim hover:text-danger-600"><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
               </div>
@@ -309,6 +384,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
 
       {createFolderOpen && <CreateFolderModal parentId={folderId} onClose={() => setCreateFolderOpen(false)} onDone={() => { setCreateFolderOpen(false); reload() }} />}
       {shareModal && <ShareModal file={shareModal} onClose={() => setShareModal(null)} />}
+      {shareToDocsModal && <ShareToDocsModal file={shareToDocsModal} onClose={() => setShareToDocsModal(null)} />}
     </div>
   )
 }

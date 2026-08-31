@@ -198,3 +198,61 @@ describe('Pronista §My Files — ย้าย (กัน cycle) + ลบ (soft-
     expect(root.items.some((i) => i.id === a.id)).toBe(false)
   })
 })
+
+describe('Pronista §My Files → เอกสาร (2026-08-31) — คัดลอกไฟล์ส่วนตัวเข้าเมนู "เอกสาร" บริษัท', () => {
+  it('เจ้าของ page คัดลอกเข้าเอกสาร (root) ได้ · ต้นฉบับใน "ไฟล์ของฉัน" ยังอยู่ · เอกสารใหม่เห็นเป็น team (ทุกคนเห็น)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (await (await app.request('/api/my-files', json(pond, { kind: 'page', name: 'สรุปประชุม', contentMarkdown: '# หัวข้อ' }), env)).json()) as { id: string }
+
+    const res = await app.request(`/api/my-files/${created.id}/share-to-docs`, json(pond, { parentId: null }), env)
+    expect(res.status).toBe(201)
+    const doc = (await res.json()) as { id: string; title: string; kind: string; contentMarkdown: string; visibility: string }
+    expect(doc).toMatchObject({ title: 'สรุปประชุม', kind: 'page', contentMarkdown: '# หัวข้อ', visibility: 'team' })
+
+    // ต้นฉบับยังอยู่ใน "ไฟล์ของฉัน" — คัดลอก ไม่ใช่ย้าย
+    expect((await app.request(`/api/my-files/${created.id}`, { headers: { cookie: pond } }, env)).status).toBe(200)
+    // owner (คนละคนกับเจ้าของ) เห็นเอกสารใหม่ผ่านเมนู "เอกสาร" ได้เลย เพราะ visibility='team'
+    const ownerDoc = await app.request(`/api/docs/${doc.id}`, { headers: { cookie: owner } }, env)
+    expect(ownerDoc.status).toBe(200)
+  })
+
+  it('คัดลอกไฟล์ (kind=file) เข้าเอกสารได้ — คนละ R2 key กับต้นฉบับ ดาวน์โหลดได้เนื้อหาเดียวกัน', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const form = new FormData()
+    form.set('file', new File(['เนื้อหาไฟล์ต้นฉบับ'], 'สัญญา.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
+    const created = (await (await app.request('/api/my-files/upload', { method: 'POST', headers: { cookie: pond }, body: form }, env)).json()) as { id: string; r2Key: string }
+
+    const doc = (await (await app.request(`/api/my-files/${created.id}/share-to-docs`, json(pond, { parentId: null }), env)).json()) as { id: string; r2Key: string; filename: string }
+    expect(doc.filename).toBe('สัญญา.docx')
+    expect(doc.r2Key).not.toBe(created.r2Key)
+    const raw = await app.request(`/api/docs/${doc.id}/raw`, { headers: { cookie: pond } }, env)
+    expect(await raw.text()).toBe('เนื้อหาไฟล์ต้นฉบับ')
+  })
+
+  it('ไม่ใช่เจ้าของไฟล์ (แค่ถูกแชร์มาเป็น editor) คัดลอกเข้าเอกสารไม่ได้ (403)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const somchai = await loginAs(app, 'somchai@example.com')
+    const created = (await (await app.request('/api/my-files', json(pond, { kind: 'page', name: 'ของปอนด์', contentMarkdown: 'x' }), env)).json()) as { id: string }
+    await app.request(`/api/my-files/${created.id}/members`, json(pond, { userId: 'u_somchai', role: 'editor' }), env)
+    expect((await app.request(`/api/my-files/${created.id}/share-to-docs`, json(somchai, { parentId: null }), env)).status).toBe(403)
+  })
+
+  it('vendor คัดลอกเข้าเอกสารไม่ได้แม้เป็นเจ้าของไฟล์เอง (เมนูเอกสารเป็น teamOnly ไม่รวม vendor)', async () => {
+    const somchai = await loginAs(app, 'somchai@example.com')
+    const created = (await (await app.request('/api/my-files', json(somchai, { kind: 'page', name: 'ของสมชาย', contentMarkdown: 'x' }), env)).json()) as { id: string }
+    expect((await app.request(`/api/my-files/${created.id}/share-to-docs`, json(somchai, { parentId: null }), env)).status).toBe(403)
+  })
+
+  it('เลือกโฟลเดอร์เอกสารปลายทาง → ไปอยู่ใต้โฟลเดอร์นั้นจริง · แชร์โฟลเดอร์ทั้งก้อนไม่ได้ (400)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const folder = (await (await app.request('/api/docs/folder', json(pond, { title: 'โฟลเดอร์ปลายทาง' }), env)).json()) as { id: string }
+    const created = (await (await app.request('/api/my-files', json(pond, { kind: 'page', name: 'ลงโฟลเดอร์', contentMarkdown: 'x' }), env)).json()) as { id: string }
+
+    const doc = (await (await app.request(`/api/my-files/${created.id}/share-to-docs`, json(pond, { parentId: folder.id }), env)).json()) as { parentId: string }
+    expect(doc.parentId).toBe(folder.id)
+
+    const fld = (await (await app.request('/api/my-files', json(pond, { kind: 'folder', name: 'จะแชร์ทั้งก้อน' }), env)).json()) as { id: string }
+    expect((await app.request(`/api/my-files/${fld.id}/share-to-docs`, json(pond, { parentId: null }), env)).status).toBe(400)
+  })
+})

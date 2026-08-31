@@ -1,8 +1,9 @@
-import { createDb, personalFileMembers, personalFiles, users, PERSONAL_FILE_MEMBER_ROLES } from '@seedoffice/db'
+import { createDb, docs, personalFileMembers, personalFiles, users, PERSONAL_FILE_MEMBER_ROLES } from '@seedoffice/db'
 import { and, eq, isNull, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { canEditDoc, getDocAccess } from '../lib/doc-acl'
 import { INLINE_SAFE_MIME } from '../lib/file-safety'
 import { canEditPersonalFile, canViewPersonalFile, getPersonalFileAccess } from '../lib/personal-files'
 import type { AppEnv } from '../types'
@@ -262,4 +263,58 @@ myFileRoutes
     await db.delete(personalFileMembers).where(and(eq(personalFileMembers.fileId, fileId), eq(personalFileMembers.userId, c.req.param('userId'))))
     await writeAudit(c.env, { actorId: me.id, action: 'personal_file.unshare', entity: 'personal_file', entityId: fileId, meta: { userId: c.req.param('userId') } })
     return c.json({ ok: true })
+  })
+
+  // Pronista §My Files → เอกสาร (2026-08-31) — เจ้าของไฟล์/เอกสารเดี่ยว (ไม่รวมโฟลเดอร์) คัดลอกเข้าเมนู "เอกสาร" บริษัทได้ (ไปโฟลเดอร์ที่เลือก หรือ root)
+  // คัดลอก ไม่ใช่ย้าย — ต้นฉบับใน "ไฟล์ของฉัน" ยังอยู่เหมือนเดิม · visibility default 'team' (POST /docs เดิม) = ทุกคนที่เข้าเมนูเอกสารได้เห็น
+  .post('/my-files/:id/share-to-docs', async (c) => {
+    const body = z.object({ parentId: z.string().nullable().optional() }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    // เมนู "เอกสาร" เป็น teamOnly (vendor/guest เข้าไม่ได้เลย) — endpoint นี้อยู่นอก /api/docs/* (ไม่ผ่าน teamOrMenu ตรงนั้น) เลยต้องเช็คเองตรงนี้ mirror POST /docs เดิม
+    if (me.role !== 'owner' && me.role !== 'member') return c.json({ error: 'forbidden' }, 403)
+    const file = (await db.select().from(personalFiles).where(and(eq(personalFiles.id, c.req.param('id')), isNull(personalFiles.deletedAt))).limit(1))[0]
+    if (!file) return c.json({ error: 'not_found' }, 404)
+    if (file.kind === 'folder') return c.json({ error: 'folder_not_supported', message: 'แชร์ได้เฉพาะไฟล์/เอกสารเดี่ยว ไม่รวมทั้งโฟลเดอร์' }, 400)
+    // เฉพาะเจ้าของไฟล์เท่านั้น — เผยแพร่สู่เมนูเอกสารทั้งบริษัทเป็นการตัดสินใจของเจ้าของไฟล์ ไม่ใช่คนที่แค่ถูกแชร์มาเป็น editor
+    const access = await getPersonalFileAccess(db, file.id, me.id)
+    if (access !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    const targetParentId = body.data.parentId ?? null
+    if (targetParentId) {
+      const targetAccess = await getDocAccess(db, targetParentId, me.id, me.role)
+      if (!canEditDoc(targetAccess)) return c.json({ error: 'forbidden' }, 403)
+    }
+    let newR2Key: string | null = null
+    if (file.kind === 'file' && file.r2Key) {
+      const obj = await c.env.FILES.get(file.r2Key)
+      if (!obj) return c.json({ error: 'object_missing' }, 404)
+      newR2Key = `docs/${crypto.randomUUID()}-${file.name}`
+      await c.env.FILES.put(newR2Key, obj.body, { httpMetadata: { contentType: file.mime ?? undefined } })
+    }
+    const siblings = await db
+      .select({ id: docs.id })
+      .from(docs)
+      .where(and(targetParentId ? eq(docs.parentId, targetParentId) : isNull(docs.parentId), isNull(docs.deletedAt)))
+    const inserted = (
+      await db
+        .insert(docs)
+        .values({
+          parentId: targetParentId,
+          sortOrder: siblings.length,
+          title: file.name,
+          kind: file.kind,
+          contentMarkdown: file.kind === 'page' ? (file.contentMarkdown ?? '') : '',
+          r2Key: newR2Key,
+          filename: file.kind === 'file' ? file.name : null,
+          mime: file.mime,
+          sizeBytes: file.sizeBytes,
+          ownerId: me.id,
+          createdBy: me.id,
+          updatedBy: me.id,
+        })
+        .returning()
+    )[0]!
+    await writeAudit(c.env, { actorId: me.id, action: 'personal_file.share_to_docs', entity: 'personal_file', entityId: file.id, meta: { docId: inserted.id, parentId: targetParentId } })
+    return c.json(inserted, 201)
   })
