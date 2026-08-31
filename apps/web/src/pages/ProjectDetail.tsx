@@ -2162,7 +2162,7 @@ export function ProjectDetailPage() {
       {view === 'assets' && id && <DocumentHistoryTable projectId={id} projectName={project.name} canEdit={canEdit} />}
 
       {view === 'meetings' && id && (
-        <div className="h-[calc(100dvh-14rem)]">
+        <div className="h-[calc(100dvh-18rem)]">
           <MeetingsTab projectIdFilter={id} />
         </div>
       )}
