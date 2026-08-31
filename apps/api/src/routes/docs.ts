@@ -95,8 +95,9 @@ export const docRoutes = new Hono<AppEnv>()
       .select({ docId: docMembers.docId, role: docMembers.role })
       .from(docMembers)
       .where(eq(docMembers.userId, me.id))
-    const updaterNames = await db.select({ id: users.id, name: users.name }).from(users)
+    const updaterNames = await db.select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl }).from(users)
     const nameOfUser = new Map(updaterNames.map((u) => [u.id, u.name]))
+    const avatarOfUser = new Map(updaterNames.map((u) => [u.id, u.avatarUrl]))
     // Pronista §Document Traceability — โปรเจกต์แรกที่เอกสารนี้ผูกไว้ (ถ้ามีหลายอัน เอาแค่อันแรกพอสำหรับฟิลเตอร์)
     const projectLinks = await db.select({ docId: docLinks.docId, projectId: docLinks.projectId }).from(docLinks).where(isNotNull(docLinks.projectId))
     const projectIdOf = new Map<string, string>()
@@ -114,6 +115,7 @@ export const docRoutes = new Hono<AppEnv>()
         myAccess: roleOf(r),
         linkedProjectId: projectIdOf.get(r.id) ?? null,
         updatedByName: r.updatedBy ? (nameOfUser.get(r.updatedBy) ?? null) : null,
+        updatedByAvatarUrl: r.updatedBy ? (avatarOfUser.get(r.updatedBy) ?? null) : null,
       }))
       .filter((r) => r.myAccess !== 'none')
     return c.json(visible)

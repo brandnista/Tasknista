@@ -3,6 +3,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
 import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
@@ -11,6 +12,7 @@ import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
+import { avatarColor } from './ProjectDetail'
 
 // เท่ากับฝั่ง backend (apps/api/src/routes/docs.ts) — ใช้กรองไฟล์ก่อนอัปโหลดตอน "อัปโหลดโฟลเดอร์" กันยิง request ที่รู้อยู่แล้วว่าจะโดนปฏิเสธ
 const UPLOAD_ACCEPTED_MIME = new Set([
@@ -42,6 +44,7 @@ interface DocNode {
   // Pronista §Document Management MVP — Grid view โชว์ "แก้ไขล่าสุดโดยใคร/เมื่อไร"
   updatedAt: string | null
   updatedByName: string | null
+  updatedByAvatarUrl: string | null
 }
 interface ProjectOpt {
   id: string
@@ -291,8 +294,9 @@ function DocGridCard({ n, projectName, onMenu }: { n: DocNode; projectName: stri
         {projectName && <span className="text-xs text-muted truncate">{projectName}</span>}
       </div>
       {(updated || n.updatedByName) && (
-        <div className="text-xs text-muted truncate">
-          {n.updatedByName ? `${n.updatedByName} แก้ไข` : 'แก้ไข'}{updated ? ` • ${updated}` : ''}
+        <div className="flex items-center gap-1.5 text-xs text-muted truncate">
+          {n.updatedByName && <Avatar name={n.updatedByName} avatarUrl={n.updatedByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(n.updatedByName)} />}
+          <span className="truncate">{n.updatedByName ? `${n.updatedByName} แก้ไข` : 'แก้ไข'}{updated ? ` • ${updated}` : ''}</span>
         </div>
       )}
     </a>
@@ -313,6 +317,12 @@ function DocListRow({ n, projectName, onMenu }: { n: DocNode; projectName: strin
     >
       <DocRowIcon n={n} />
       <span className="flex-1 min-w-0 truncate text-sm text-body">{n.templateDocNumber ?? n.title}</span>
+      {n.updatedByName && (
+        <span title={`${n.updatedByName} แก้ไขล่าสุด`} className="flex items-center gap-1 text-xs text-muted shrink-0 hidden sm:flex">
+          <Avatar name={n.updatedByName} avatarUrl={n.updatedByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(n.updatedByName)} />
+          <span className="max-w-24 truncate">{n.updatedByName}</span>
+        </span>
+      )}
       {projectName && <span className="text-xs text-muted shrink-0 hidden sm:inline">{projectName}</span>}
       {n.docType && <span className={DOC_TYPE_BADGE}>{n.docType}</span>}
       {onMenu && (
