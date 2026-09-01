@@ -112,23 +112,6 @@ describe('Pronista §My Note sharing (2026-08-28) — mirror กติกาไ�
     expect(pondOwn.myRole).toBeUndefined()
   })
 
-  it('GET /my-notes/:id — เปิดบันทึกเดี่ยวได้ทั้งของตัวเองและที่ถูกแชร์มา (สำหรับ deep link) · คนนอกเข้าไม่ได้ (403)', async () => {
-    const pond = await loginAs(app, 'pond@example-co.test')
-    const somchai = await loginAs(app, 'somchai@example.com')
-    const owner = await loginAs(app, 'owner@example-co.test')
-    const created = (await (
-      await app.request('/api/my-notes', json(pond, { title: 'เปิดเดี่ยว', body: { mode: 'text', text: 'x' } }), env)
-    ).json()) as { id: string }
-
-    expect((await app.request(`/api/my-notes/${created.id}`, { headers: { cookie: pond } }, env)).status).toBe(200)
-    expect((await app.request(`/api/my-notes/${created.id}`, { headers: { cookie: owner } }, env)).status).toBe(403)
-
-    await app.request(`/api/my-notes/${created.id}/members`, json(pond, { userId: 'u_somchai', role: 'viewer' }), env)
-    const res = await app.request(`/api/my-notes/${created.id}`, { headers: { cookie: somchai } }, env)
-    expect(res.status).toBe(200)
-    expect((await res.json()) as { ownerName: string | null }).toMatchObject({ ownerName: 'ปอนด์' })
-  })
-
   it('เฉพาะเจ้าของเท่านั้นที่แชร์/ถอนแชร์ได้ (editor ทำไม่ได้)', async () => {
     const pond = await loginAs(app, 'pond@example-co.test')
     const somchai = await loginAs(app, 'somchai@example.com')

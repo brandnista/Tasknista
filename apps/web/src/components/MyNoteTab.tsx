@@ -7,7 +7,7 @@
  */
 import { Check, Download, Link2, ListTodo, Paperclip, Pencil, Pin, Plus, Repeat, Share2, Trash2, Type, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link } from 'react-router'
 import { useDialog } from './Dialog'
 import { RichTextEditor } from './RichTextEditor'
 import { api, ApiError } from '../lib/api'
@@ -518,7 +518,21 @@ function PostIt({ note, meId, isNew, onOpenConvert, onEdit, onDelete }: { note: 
   )
 }
 
-function NoteBoard({ notes, meId, onOpenConvert, onEdit, onDelete }: { notes: Note[]; meId: string; onOpenConvert: (n: Note) => void; onEdit: (n: Note) => void; onDelete: (n: Note) => void }) {
+type BoardTab = 'own' | 'shared'
+
+// Pronista §My Note board tabs (2026-09-01) — เดิมย้ายบันทึกที่แชร์มาไปหน้า "แชร์กับฉัน" แยกต่างหาก พี่แจ้งว่าไม่ใช่ที่ที่ควรอยู่
+// ย้ายกลับมาที่ My Note เหมือนเดิม แต่แยกเป็นแท็บในบอร์ดฝั่งขวาแทนที่จะปนกับบันทึกของตัวเองบนบอร์ดเดียว
+function NoteBoard({
+  tab, onTabChange, notes, meId, onOpenConvert, onEdit, onDelete,
+}: {
+  tab: BoardTab
+  onTabChange: (t: BoardTab) => void
+  notes: Note[]
+  meId: string
+  onOpenConvert: (n: Note) => void
+  onEdit: (n: Note) => void
+  onDelete: (n: Note) => void
+}) {
   const prevIds = useRef<Set<string> | null>(null)
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
@@ -539,10 +553,20 @@ function NoteBoard({ notes, meId, onOpenConvert, onEdit, onDelete }: { notes: No
   return (
     <div className="note-board relative flex-1 min-w-0 w-full rounded-2xl border border-border-subtle p-5 sm:p-6 min-h-[420px]">
       <div className="flex items-center gap-1.5 text-xs font-medium text-dim mb-4">
-        <Pin className="w-3.5 h-3.5" /> บอร์ดบันทึกของฉัน
+        <Pin className="w-3.5 h-3.5 shrink-0" />
+        <div className="flex bg-divider rounded-lg p-0.5 w-fit">
+          <button onClick={() => onTabChange('own')} className={`px-3 py-1 rounded-md ${tab === 'own' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+            บอร์ดบันทึกของฉัน
+          </button>
+          <button onClick={() => onTabChange('shared')} className={`px-3 py-1 rounded-md ${tab === 'shared' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+            บอร์ดที่แชร์กับฉัน
+          </button>
+        </div>
       </div>
       {notes.length === 0 ? (
-        <div className="grid place-items-center h-64 text-sm text-muted">บันทึกแรกของคุณจะแปะที่นี่ ✨</div>
+        <div className="grid place-items-center h-64 text-sm text-muted">
+          {tab === 'own' ? 'บันทึกแรกของคุณจะแปะที่นี่ ✨' : 'ยังไม่มีใครแชร์บันทึกมาให้'}
+        </div>
       ) : (
         <div className="flex flex-wrap gap-6 sm:gap-7 pb-2">
           {notes.map((n) => (
@@ -559,25 +583,21 @@ export function MyNoteTab() {
   const meId = user?.id ?? ''
   const { confirmDialog } = useDialog()
   const { data: notesList, reload } = useLoad<Note[]>(() => api.get('/api/my-notes'))
+  // Pronista §My Note board tabs (2026-09-01) — บอร์ดที่แชร์กับฉัน (บันทึกที่คนอื่นแชร์มาหรือฉันแชร์ออกไป) — ดึงคู่กับของตัวเองเสมอ สลับแค่ว่าจะโชว์อันไหนบนบอร์ด
+  const { data: sharedNotesList, reload: reloadShared } = useLoad<Note[]>(() => api.get('/api/my-notes/shared'))
+  const [boardTab, setBoardTab] = useState<'own' | 'shared'>('own')
   const [convertingNote, setConvertingNote] = useState<Note | null>(null)
   // Pronista §My Note Edit (2026-08-27) — note ที่กำลังแก้ไขอยู่ (null = ฟอร์มบนสุดอยู่ในโหมด "สร้างใหม่")
   const [editingNote, setEditingNote] = useState<Note | null>(null)
 
-  // Pronista §My Note shared split (2026-09-01) — deep link "?open=<id>" จากเมนู "แชร์กับฉัน" เปิดบันทึก (ของตัวเองหรือที่ถูกแชร์มาก็ได้) เข้าฟอร์มแก้ไขทันที
-  const [searchParams, setSearchParams] = useSearchParams()
-  useEffect(() => {
-    const openId = searchParams.get('open')
-    if (!openId) return
-    void api.get<Note>(`/api/my-notes/${openId}`).then((n) => setEditingNote(n)).catch(() => {})
-    setSearchParams((p) => { p.delete('open'); return p }, { replace: true })
-  }, [])
+  const reloadAll = () => { void reload(); void reloadShared() }
 
   const remove = async (n: Note) => {
     const ok = await confirmDialog({ title: 'ลบบันทึกนี้?', message: n.title || notePreview(parseBody(n.body)), confirmLabel: 'ลบ', danger: true })
     if (!ok) return
     if (editingNote?.id === n.id) setEditingNote(null)
     await api.delete(`/api/my-notes/${n.id}`)
-    await reload()
+    reloadAll()
   }
 
   return (
@@ -590,9 +610,9 @@ export function MyNoteTab() {
           onCancel={() => setEditingNote(null)}
           onSaved={() => {
             setEditingNote(null)
-            void reload()
+            reloadAll()
           }}
-          onDraftCreated={() => void reload()}
+          onDraftCreated={reloadAll}
         />
 
         {!notesList ? (
@@ -651,13 +671,21 @@ export function MyNoteTab() {
         )}
       </div>
 
-      <NoteBoard notes={notesList ?? []} meId={meId} onOpenConvert={setConvertingNote} onEdit={setEditingNote} onDelete={(n) => void remove(n)} />
+      <NoteBoard
+        tab={boardTab}
+        onTabChange={setBoardTab}
+        notes={(boardTab === 'own' ? notesList : sharedNotesList) ?? []}
+        meId={meId}
+        onOpenConvert={setConvertingNote}
+        onEdit={setEditingNote}
+        onDelete={(n) => void remove(n)}
+      />
 
       {convertingNote && (
         <ConvertModal
           note={convertingNote}
           onClose={() => setConvertingNote(null)}
-          onDone={() => { setConvertingNote(null); void reload() }}
+          onDone={() => { setConvertingNote(null); reloadAll() }}
         />
       )}
     </div>

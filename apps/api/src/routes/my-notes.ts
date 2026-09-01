@@ -54,17 +54,6 @@ myNoteRoutes
     return c.json(rows.map((r) => ({ ...r.note, ownerName: r.ownerName, myRole: r.myRole })).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
   })
 
-  // เปิดบันทึกเดี่ยว — ใช้กับ deep link "?open=" จากเมนู "แชร์กับฉัน" (ต้องเข้าได้ทั้งของตัวเองและที่ถูกแชร์มา)
-  .get('/my-notes/:id', async (c) => {
-    const db = createDb(c.env.DB)
-    const me = c.get('user')
-    const access = await getNoteAccess(db, c.req.param('id'), me.id)
-    if (!canViewNote(access)) return c.json({ error: 'forbidden' }, 403)
-    const note = (await db.select().from(notes).where(eq(notes.id, c.req.param('id'))).limit(1))[0]!
-    const ownerName = access === 'owner' ? null : (await db.select({ name: users.name }).from(users).where(eq(users.id, note.userId)).limit(1))[0]?.name ?? null
-    return c.json({ ...note, ownerName, myRole: access === 'owner' ? undefined : access })
-  })
-
   .post('/my-notes', async (c) => {
     const body = z.object({ title: z.string().max(200).nullable().optional(), body: bodyPayload }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)

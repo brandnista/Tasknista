@@ -98,23 +98,29 @@ function CreateFolderModal({ parentId, onClose, onDone }: { parentId: string | n
   )
 }
 
+// Pronista §My Files multi-share (2026-09-01) — เดิมเลือกได้ทีละคน ต้องกด "เพิ่ม" ซ้ำทีละคน — เปลี่ยนเป็นติ๊กเลือกได้หลายคนแล้วกดครั้งเดียว
 export function ShareModal({ file, onClose }: { file: { id: string; name: string; ownerId: string }; onClose: () => void }) {
   const { alertDialog } = useDialog()
   const { data: members, reload } = useLoad<MemberRow[]>(() => api.get(`/api/my-files/${file.id}/members`), [file.id])
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
-  const [pickUserId, setPickUserId] = useState('')
+  const [pickUserIds, setPickUserIds] = useState<Set<string>>(new Set())
   const [pickRole, setPickRole] = useState<'viewer' | 'editor'>('viewer')
+  const [adding, setAdding] = useState(false)
   const memberIds = new Set((members ?? []).map((m) => m.id))
   const options = (users ?? []).filter((u) => !memberIds.has(u.id) && u.id !== file.ownerId)
+  const toggleUser = (id: string) => setPickUserIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
 
   const add = async () => {
-    if (!pickUserId) return
+    if (pickUserIds.size === 0) return
+    setAdding(true)
     try {
-      await api.post(`/api/my-files/${file.id}/members`, { userId: pickUserId, role: pickRole })
-      setPickUserId('')
+      await Promise.all([...pickUserIds].map((userId) => api.post(`/api/my-files/${file.id}/members`, { userId, role: pickRole })))
+      setPickUserIds(new Set())
       await reload()
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'แชร์ไม่สำเร็จ' })
+    } finally {
+      setAdding(false)
     }
   }
   const remove = async (userId: string) => {
@@ -133,16 +139,24 @@ export function ShareModal({ file, onClose }: { file: { id: string; name: string
           <div className="font-semibold text-ink text-sm">แชร์ "{file.name}"</div>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
+        {options.length > 0 && (
+          <div className="space-y-0.5 max-h-32 overflow-y-auto border border-border-subtle rounded-lg p-1.5">
+            {options.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 text-sm px-1.5 py-1 rounded-md hover:bg-hover cursor-pointer">
+                <input type="checkbox" checked={pickUserIds.has(u.id)} onChange={() => toggleUser(u.id)} className="rounded" />
+                <span className="truncate">{u.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
-          <select value={pickUserId} onChange={(e) => setPickUserId(e.target.value)} className="flex-1 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
-            <option value="">— เลือกคน —</option>
-            {options.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-          <select value={pickRole} onChange={(e) => setPickRole(e.target.value as 'viewer' | 'editor')} className="text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
+          <select value={pickRole} onChange={(e) => setPickRole(e.target.value as 'viewer' | 'editor')} className="flex-1 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
             <option value="viewer">ดูอย่างเดียว</option>
             <option value="editor">แก้ไขได้</option>
           </select>
-          <button onClick={() => void add()} disabled={!pickUserId} className="text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-2 rounded-lg disabled:opacity-40">เพิ่ม</button>
+          <button onClick={() => void add()} disabled={pickUserIds.size === 0 || adding} className="text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-2 rounded-lg disabled:opacity-40 whitespace-nowrap">
+            {adding ? 'กำลังแชร์...' : pickUserIds.size > 0 ? `เพิ่ม (${pickUserIds.size})` : 'เพิ่ม'}
+          </button>
         </div>
         <div className="space-y-1 max-h-48 overflow-y-auto">
           {(members ?? []).length === 0 && <div className="text-xs text-muted text-center py-4">ยังไม่ได้แชร์ให้ใคร</div>}

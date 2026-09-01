@@ -1,5 +1,5 @@
 import { canJoinMeeting } from '@seedoffice/core'
-import { Check, ExternalLink, Plus, Trash2, Video, X } from 'lucide-react'
+import { Check, Copy, ExternalLink, Plus, Trash2, Video, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -138,8 +138,10 @@ export function MeetingsTab({ projectIdFilter, initialMeetingId }: { projectIdFi
         <CreateMeetingModal
           defaultProjectId={projectIdFilter}
           onClose={() => setCreateOpen(false)}
-          onCreated={() => {
+          onCreated={(id) => {
             setCreateOpen(false)
+            // Pronista §Meeting link copy (2026-09-01) — เปิด detail ให้ทันทีหลังนัดสำเร็จ จะได้เห็น+คัดลอกลิงก์ประชุมไปให้ลูกค้า/คนนอกได้เลยไม่ต้องไปหาในลิสต์
+            setDetailId(id)
             void reload()
           }}
         />
@@ -149,7 +151,7 @@ export function MeetingsTab({ projectIdFilter, initialMeetingId }: { projectIdFi
   )
 }
 
-function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultProjectId?: string; onClose: () => void; onCreated: () => void }) {
+function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultProjectId?: string; onClose: () => void; onCreated: (id: string) => void }) {
   const { alertDialog } = useDialog()
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
@@ -171,7 +173,7 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
     if (!title.trim()) return
     setBusy(true)
     try {
-      await api.post('/api/meetings', {
+      const created = await api.post<{ id: string }>('/api/meetings', {
         title: title.trim(),
         meetingType,
         projectId: projectId || null,
@@ -181,7 +183,7 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
         agenda: agenda.trim() || null,
         participantIds: [...participantIds],
       })
-      onCreated()
+      onCreated(created.id)
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'นัดประชุมไม่สำเร็จ' })
     } finally {
@@ -264,6 +266,14 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
   const [convertItem, setConvertItem] = useState<MeetingActionItem | null>(null)
   const isOrganizerOrOwner = !!meeting && !!user && (user.role === 'owner' || meeting.organizerId === user.id)
   const now = useNowTick()
+  // Pronista §Meeting link copy (2026-09-01) — เดิมลิงก์โผล่แค่ในช่วงกดเข้าร่วมได้ (5 นาทีก่อนเริ่ม-จบ) คัดลอกไปให้ลูกค้า/คนนอกล่วงหน้าไม่ได้เลย
+  const [linkCopied, setLinkCopied] = useState(false)
+  const copyLink = async () => {
+    if (!meeting?.externalMeetingUrl) return
+    await navigator.clipboard.writeText(meeting.externalMeetingUrl)
+    setLinkCopied(true)
+    setTimeout(() => setLinkCopied(false), 1500)
+  }
 
   const saveNotes = async () => {
     if (notesDraft === null || notesDraft === (meeting?.notes ?? '')) { setNotesDraft(null); return }
@@ -311,11 +321,23 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
           </div>
         </div>
         <div className="p-4 space-y-4 overflow-y-auto">
-          {/* Pronista §Meeting Schedule Tab (2026-08-27) — กดเข้าร่วมได้เฉพาะช่วงก่อนเริ่ม 5 นาที ถึงเวลาสิ้นสุดนัดหมาย (เหมือนปุ่มในรายการ) */}
-          {meeting.externalMeetingUrl && canJoinMeeting(new Date(meeting.startAt).getTime(), new Date(meeting.endAt).getTime(), now) && (
-            <a href={meeting.externalMeetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-white bg-success-600 hover:bg-success-700 px-3 py-2 rounded-lg font-medium">
-              <ExternalLink className="w-4 h-4" /> เข้าร่วมประชุม
-            </a>
+          {meeting.externalMeetingUrl && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Pronista §Meeting Schedule Tab (2026-08-27) — กดเข้าร่วมได้เฉพาะช่วงก่อนเริ่ม 5 นาที ถึงเวลาสิ้นสุดนัดหมาย (เหมือนปุ่มในรายการ) */}
+              {canJoinMeeting(new Date(meeting.startAt).getTime(), new Date(meeting.endAt).getTime(), now) && (
+                <a href={meeting.externalMeetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-white bg-success-600 hover:bg-success-700 px-3 py-2 rounded-lg font-medium">
+                  <ExternalLink className="w-4 h-4" /> เข้าร่วมประชุม
+                </a>
+              )}
+              {/* Pronista §Meeting link copy (2026-09-01) — คัดลอกลิงก์ได้ตลอดเวลา ไม่ต้องรอถึงช่วงเข้าร่วม เอาไปแปะให้ลูกค้า/คนนอกล่วงหน้าได้ */}
+              <button onClick={() => void copyLink()} className="inline-flex items-center gap-1.5 text-sm text-body border border-border-subtle hover:bg-hover px-3 py-2 rounded-lg font-medium">
+                {linkCopied ? (
+                  <><Check className="w-4 h-4 text-success-600" /> คัดลอกแล้ว</>
+                ) : (
+                  <><Copy className="w-4 h-4" /> คัดลอกลิงก์ประชุม</>
+                )}
+              </button>
+            </div>
           )}
           <div className="flex flex-wrap gap-1">
             {meeting.participants.map((p) => (
