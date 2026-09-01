@@ -55,6 +55,17 @@ const canEditAccess = (a: DocNode['myAccess']) => a === 'owner' || a === 'editor
 const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
 type DocType = (typeof DOC_TYPES)[number]
 
+// Pronista §Document Management — ฟิลเตอร์ "ชนิดไฟล์" แบบ Google Drive (โฟลเดอร์/เอกสาร/Template/ลิงก์/PDF/Word) — คนละแกนกับ "ประเภทเอกสาร" (MOM/SOW/...) ด้านบน ซึ่งเป็นหมวดธุรกิจ ไม่ใช่ชนิดไฟล์
+type FileKindFilter = 'all' | 'folder' | 'page' | 'template' | 'link' | 'pdf' | 'word'
+const FILE_KIND_LABEL: Record<FileKindFilter, string> = {
+  all: 'ทุกชนิดไฟล์', folder: 'โฟลเดอร์', page: 'เอกสาร', template: 'Template', link: 'ลิงก์ Google Docs', pdf: 'PDF', word: 'Word',
+}
+// kind='file' ใน Docs อัปโหลดได้แค่ PDF/Word เท่านั้น (ดู ACCEPTED_FILE_MIME ฝั่ง API) — mime ที่ไม่ใช่ PDF จึงเป็น Word เสมอ
+const fileKindOf = (n: DocNode): FileKindFilter => {
+  if (n.kind === 'folder' || n.kind === 'page' || n.kind === 'template' || n.kind === 'link') return n.kind
+  return n.mime === 'application/pdf' ? 'pdf' : 'word'
+}
+
 /** เมนู "+ เพิ่ม" เดียว (โฟลเดอร์ใหม่/ลิงก์ Google Docs/อัปโหลดไฟล์/เอกสาร Template/อัปโหลดแตกเป็น Task) แทนปุ่มกระจัดกระจาย — ลอยตรงตำแหน่งที่กด
  * Pronista §My Files → เอกสาร (2026-09-01) — ตัด "หน้าใหม่" ออก ซ้ำกับ "สร้างเอกสาร" ในเมนู "ไฟล์ของฉัน" อยู่แล้ว (สร้างที่นั่นแล้วกด "แชร์ไปเอกสาร" แทน) */
 function AddMenu({ x, y, onClose, onLink, onUpload, onUploadFolder, onTemplate, onUploadBreakout, onFolder }: {
@@ -357,6 +368,7 @@ export function DocsPage() {
   const [search, setSearch] = useState('')
   const [docTypeFilters, setDocTypeFilters] = useState<Set<DocType>>(new Set())
   const [projectFilter, setProjectFilter] = useState('')
+  const [fileKindFilter, setFileKindFilter] = useState<FileKindFilter>('all')
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   // Pronista §Document Management MVP — แบ่งหน้า: ค่าเริ่มต้น 20 เอกสาร/หน้า แก้ได้
@@ -374,20 +386,21 @@ export function DocsPage() {
     if (q) setSearch(q)
   }, [searchParams])
 
-  const filtersActive = search.trim() !== '' || docTypeFilters.size > 0 || projectFilter !== ''
+  const filtersActive = search.trim() !== '' || docTypeFilters.size > 0 || projectFilter !== '' || fileKindFilter !== 'all'
   const toggleDocTypeFilter = (t: DocType) =>
     setDocTypeFilters((s) => { const next = new Set(s); if (next.has(t)) next.delete(t); else next.add(t); return next })
-  const clearFilters = () => { setSearch(''); setDocTypeFilters(new Set()); setProjectFilter('') }
+  const clearFilters = () => { setSearch(''); setDocTypeFilters(new Set()); setProjectFilter(''); setFileKindFilter('all') }
 
   const filteredList = useMemo(() => {
     if (!filtersActive) return []
     const q = search.trim().toLowerCase()
     return (nodes ?? [])
-      .filter((n) => n.kind !== 'folder')
+      .filter((n) => (fileKindFilter === 'folder' ? n.kind === 'folder' : n.kind !== 'folder'))
       .filter((n) => !q || n.title.toLowerCase().includes(q) || (n.templateDocNumber ?? '').toLowerCase().includes(q))
       .filter((n) => docTypeFilters.size === 0 || (n.docType && docTypeFilters.has(n.docType)))
       .filter((n) => !projectFilter || n.linkedProjectId === projectFilter)
-  }, [nodes, search, docTypeFilters, projectFilter, filtersActive])
+      .filter((n) => fileKindFilter === 'all' || fileKindOf(n) === fileKindFilter)
+  }, [nodes, search, docTypeFilters, projectFilter, fileKindFilter, filtersActive])
 
   const projectNameOf = useCallback(
     (id: string | null) => (id ? (projectOpts ?? []).find((p) => p.id === id)?.name ?? null : null),
@@ -443,7 +456,7 @@ export function DocsPage() {
   const visibleDocs = filtersActive ? filteredList : mainDocs
   const pageDocs = useMemo(() => visibleDocs.slice((page - 1) * pageSize, page * pageSize), [visibleDocs, page, pageSize])
   // กลับหน้าแรกเมื่อเงื่อนไข/มุมมองเปลี่ยน
-  useEffect(() => { setPage(1) }, [search, docTypeFilters, projectFilter, activeFolder, pageSize])
+  useEffect(() => { setPage(1) }, [search, docTypeFilters, projectFilter, fileKindFilter, activeFolder, pageSize])
 
   const addFolder = useCallback(
     async (parentId: string | null) => {
@@ -634,9 +647,9 @@ export function DocsPage() {
           </div>
           <button
             onClick={() => setFiltersOpen((v) => !v)}
-            className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border ${filtersOpen || docTypeFilters.size > 0 || projectFilter ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-border-subtle text-dim hover:bg-hover'}`}
+            className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border ${filtersOpen || docTypeFilters.size > 0 || projectFilter || fileKindFilter !== 'all' ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-border-subtle text-dim hover:bg-hover'}`}
           >
-            <Filter className="w-3.5 h-3.5" /> ฟิลเตอร์{docTypeFilters.size + (projectFilter ? 1 : 0) > 0 ? ` (${docTypeFilters.size + (projectFilter ? 1 : 0)})` : ''}
+            <Filter className="w-3.5 h-3.5" /> ฟิลเตอร์{docTypeFilters.size + (projectFilter ? 1 : 0) + (fileKindFilter !== 'all' ? 1 : 0) > 0 ? ` (${docTypeFilters.size + (projectFilter ? 1 : 0) + (fileKindFilter !== 'all' ? 1 : 0)})` : ''}
           </button>
           {filtersActive && (
             <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-muted hover:text-danger-600">
@@ -662,8 +675,18 @@ export function DocsPage() {
           </div>
           {filtersOpen && (
             <div className="w-full flex flex-wrap items-center gap-3 pt-2 border-t border-divider">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted">ชนิดไฟล์:</span>
+                <select
+                  value={fileKindFilter}
+                  onChange={(e) => setFileKindFilter(e.target.value as FileKindFilter)}
+                  className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 focus:outline-hidden"
+                >
+                  {(Object.keys(FILE_KIND_LABEL) as FileKindFilter[]).map((k) => <option key={k} value={k}>{FILE_KIND_LABEL[k]}</option>)}
+                </select>
+              </div>
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-muted mr-1">ประเภท:</span>
+                <span className="text-xs text-muted mr-1">ประเภทเอกสาร:</span>
                 {DOC_TYPES.map((t) => (
                   <button
                     key={t}
