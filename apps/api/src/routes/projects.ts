@@ -684,9 +684,14 @@ export const projectRoutes = new Hono<AppEnv>()
 
   // Pronista §Project Estimate v2 — ต้นทุนต่อ Task ของ "ทุก" task ในโปรเจกต์ (ไม่มี checkbox เลือกอีกต่อไป — PEP ต้องคิดจากงานทั้งหมดเสมอ)
   // เห็นเฉพาะ owner: เผยต้นทุน/margin ของทีมทั้งหมด ไม่ใช่แค่งบรวมของโปรเจกต์ · Role ต่อ task มาจาก company_config.parameterRoles ไม่ผูกกับตำแหน่งสิทธิ์ของสมาชิกโปรเจกต์
-  .get('/:id/estimate', ownerOnly, async (c) => {
+  // Pronista §Project Estimate permission (2026-09-01) — เดิม ownerOnly ล้วน BA/PM เข้าไม่ได้เลยแม้แต่จะดู เปลี่ยนเป็นคุมผ่านตำแหน่ง+เพดานเหมือน releases/changeLog
+  // tabs.estimate มองเห็นได้ (ยังไม่แก้อะไร) · actions.estimate.{create,edit,delete} แก้ตัวเลขได้ — vendor/guest ยังเจอ teamOnly กันไว้ชั้นนอกเสมอ (ข้อมูลต้นทุน/margin)
+  .get('/:id/estimate', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.tabs.estimate) return c.json({ error: 'forbidden' }, 403)
 
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
@@ -719,9 +724,12 @@ export const projectRoutes = new Hono<AppEnv>()
   // Pronista §Project Estimate v2 — Tab "Task Group": รวม task ทั้งหมดตาม Task Type/Sub-type (catalog เดียวกับ ตั้งค่า > ประเภทงาน)
   // กลุ่มที่มี task จริง → รวมอัตโนมัติ (อ่านอย่างเดียว) · กลุ่มที่ PM เลือกเพิ่มเองผ่านแถว custom (estimate_group_overrides) → กรอกเอง
   // Task Group ไม่ auto-list ทุก sub-type ในแคตตาล็อกอีกต่อไป — โชว์เฉพาะกลุ่มที่มี task จริง หรือกลุ่มที่ PM กดเพิ่มแถวเองเท่านั้น
-  .get('/:id/estimate/groups', ownerOnly, async (c) => {
+  .get('/:id/estimate/groups', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.tabs.estimate) return c.json({ error: 'forbidden' }, 403)
 
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
@@ -863,7 +871,7 @@ export const projectRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §Project Estimate v2 — บันทึกค่าที่ PM กรอกเองสำหรับ Task Group ที่กดเพิ่มแถวเอง (upsert บน projectId+taskTypeId+subTaskTypeId)
-  .put('/:id/estimate/groups/override', ownerOnly, async (c) => {
+  .put('/:id/estimate/groups/override', teamOnly, async (c) => {
     const body = z
       .object({
         taskTypeId: z.string(),
@@ -878,7 +886,10 @@ export const projectRoutes = new Hono<AppEnv>()
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.estimate.edit) return c.json({ error: 'forbidden' }, 403)
     const { taskTypeId, subTaskTypeId, ...rest } = body.data
     const existing = (
       await db
@@ -902,12 +913,15 @@ export const projectRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §Project Estimate v2 — ลบแถว Task Group ที่ PM กดเพิ่มเองออก (แถวที่มี task จริงอยู่แล้วลบไม่ได้ตรงนี้ ต้องลบที่ Task)
-  .delete('/:id/estimate/groups/override', ownerOnly, async (c) => {
+  .delete('/:id/estimate/groups/override', teamOnly, async (c) => {
     const taskTypeId = c.req.query('taskTypeId')
     const subTaskTypeId = c.req.query('subTaskTypeId')
     if (!taskTypeId || !subTaskTypeId) return c.json({ error: 'taskTypeId และ subTaskTypeId จำเป็น' }, 400)
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.estimate.delete) return c.json({ error: 'forbidden' }, 403)
     await db
       .delete(estimateGroupOverrides)
       .where(
@@ -921,9 +935,12 @@ export const projectRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §Project Estimate v2 — Tab "Phase": รวม Estimate Day จาก Tab Task Group ตามหัวข้อหลัก (Task Type)
-  .get('/:id/estimate/phases', ownerOnly, async (c) => {
+  .get('/:id/estimate/phases', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.tabs.estimate) return c.json({ error: 'forbidden' }, 403)
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
     const cfg = (await db.select().from(companyConfig).limit(1))[0]
@@ -970,25 +987,32 @@ export const projectRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §Project Estimate v2 — Grid ค่าใช้จ่ายนอกระบบใน Tab Task Group แยกหัวข้อ AEX/OPEX รวมเข้ายอดรวมเสมอ
-  .get('/:id/estimate/extra-costs', ownerOnly, async (c) => {
+  .get('/:id/estimate/extra-costs', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.tabs.estimate) return c.json({ error: 'forbidden' }, 403)
     const cfg = (await db.select().from(companyConfig).limit(1))[0]
     if (!cfg) return c.json({ error: 'config_missing' }, 500)
     const rows = await db
       .select()
       .from(estimateExtraCosts)
-      .where(eq(estimateExtraCosts.projectId, c.req.param('id')))
+      .where(eq(estimateExtraCosts.projectId, projectId))
       .orderBy(asc(estimateExtraCosts.sortOrder), asc(estimateExtraCosts.createdAt))
     return c.json(rows.map((x) => ({ id: x.id, category: x.category, name: x.name, ...computeExtraCost(x, cfg) })))
   })
 
-  .post('/:id/estimate/extra-costs', ownerOnly, async (c) => {
+  .post('/:id/estimate/extra-costs', teamOnly, async (c) => {
     const body = z.object({ category: z.enum(['aex', 'opex']), name: z.string().min(1).max(200) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.estimate.create) return c.json({ error: 'forbidden' }, 403)
     const cfg = (await db.select().from(companyConfig).limit(1))[0]
     if (!cfg) return c.json({ error: 'config_missing' }, 500)
-    const projectId = c.req.param('id')
     const maxSort = (
       await db.select({ sortOrder: estimateExtraCosts.sortOrder }).from(estimateExtraCosts).where(eq(estimateExtraCosts.projectId, projectId))
     ).reduce((max, r) => Math.max(max, r.sortOrder), -1)
@@ -1001,7 +1025,7 @@ export const projectRoutes = new Hono<AppEnv>()
     return c.json({ id: created.id, category: created.category, name: created.name, ...computeExtraCost(created, cfg) })
   })
 
-  .patch('/:id/estimate/extra-costs/:costId', ownerOnly, async (c) => {
+  .patch('/:id/estimate/extra-costs/:costId', teamOnly, async (c) => {
     const body = z
       .object({
         category: z.enum(['aex', 'opex']).optional(),
@@ -1012,18 +1036,26 @@ export const projectRoutes = new Hono<AppEnv>()
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.estimate.edit) return c.json({ error: 'forbidden' }, 403)
     await db
       .update(estimateExtraCosts)
       .set(body.data)
-      .where(and(eq(estimateExtraCosts.id, c.req.param('costId')), eq(estimateExtraCosts.projectId, c.req.param('id'))))
+      .where(and(eq(estimateExtraCosts.id, c.req.param('costId')), eq(estimateExtraCosts.projectId, projectId)))
     return c.json({ ok: true })
   })
 
-  .delete('/:id/estimate/extra-costs/:costId', ownerOnly, async (c) => {
+  .delete('/:id/estimate/extra-costs/:costId', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const projectId = c.req.param('id')
+    const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
+    if (!permissions.actions.estimate.delete) return c.json({ error: 'forbidden' }, 403)
     await db
       .delete(estimateExtraCosts)
-      .where(and(eq(estimateExtraCosts.id, c.req.param('costId')), eq(estimateExtraCosts.projectId, c.req.param('id'))))
+      .where(and(eq(estimateExtraCosts.id, c.req.param('costId')), eq(estimateExtraCosts.projectId, projectId)))
     return c.json({ ok: true })
   })
 

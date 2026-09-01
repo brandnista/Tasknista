@@ -8,13 +8,13 @@
 /** ตรงกับแท็บจริงใน ProjectDetail.tsx วันนี้ — top-level (sprint/docs/assets/releases/changeLog/meetings) + sub-tab ใน Backlog (backlog*)
  * เพิ่มแท็บใหม่ที่นี่ทุกครั้งที่เพิ่มแท็บระดับโปรเจกต์ใหม่ใน ProjectDetail.tsx — ไม่งั้นแท็บนั้นจะไม่มีใน myPermissions.tabs เลย ทำให้ filter (`?? true`) fail-open เห็นได้ไม่จำกัด ไม่ผ่านทั้งตำแหน่งและเพดานสิทธิ์ (พบเคสจริงกับแท็บ "ประชุม" — เพิ่มแท็บแล้วลืมเพิ่มที่นี่) */
 export const PERMISSION_TAB_KEYS = [
-  'sprint', 'docs', 'assets', 'releases', 'changeLog', 'meetings',
+  'sprint', 'docs', 'assets', 'releases', 'changeLog', 'meetings', 'estimate',
   'backlogEpic', 'backlogStory', 'backlogTask', 'backlogDefect', 'backlogCr', 'backlogSummary',
 ] as const
 export type PermissionTabKey = (typeof PERMISSION_TAB_KEYS)[number]
 
 /** Epic/Story ไม่มี action ของตัวเอง (fold เข้า task — เป็นแถวใน tasks table เดียวกัน ไม่มี endpoint แยก) */
-export const PERMISSION_RESOURCE_KEYS = ['task', 'doc', 'sprint', 'defect', 'cr', 'release', 'changeLog'] as const
+export const PERMISSION_RESOURCE_KEYS = ['task', 'doc', 'sprint', 'defect', 'cr', 'release', 'changeLog', 'estimate'] as const
 export type PermissionResourceKey = (typeof PERMISSION_RESOURCE_KEYS)[number]
 
 export interface ResourceActions {
@@ -46,7 +46,9 @@ function allActions(value: ResourceActions): Record<PermissionResourceKey, Resou
 }
 
 export const FULL_ACCESS_PERMISSIONS: PositionPermissions = { tabs: allTabs(true), actions: allActions(ALL_ACTIONS_TRUE) }
-export const VIEW_ONLY_PERMISSIONS: PositionPermissions = { tabs: allTabs(true), actions: allActions(ALL_ACTIONS_FALSE) }
+// Pronista §Project Estimate permission (2026-09-01) — VIEW_ONLY เห็นได้ "ทุกแท็บ" โดยดีไซน์ ยกเว้น estimate (ข้อมูลต้นทุน/margin ละเอียดอ่อนกว่าแท็บอื่น)
+// ใช้เป็นทั้งค่าเริ่มต้นของตำแหน่ง "ดูอย่างเดียว" และ fallback ของ member ที่ยังไม่ได้ตั้งตำแหน่ง — ต้องกด "เข้าถึงเต็มรูปแบบ" หรือเปิด estimate เองในตำแหน่งถึงจะเห็น
+export const VIEW_ONLY_PERMISSIONS: PositionPermissions = { tabs: { ...allTabs(true), estimate: false }, actions: allActions(ALL_ACTIONS_FALSE) }
 
 export const POSITION_FULL_ACCESS_ID = 'pos_full_access'
 export const POSITION_VIEW_ONLY_ID = 'pos_view_only'

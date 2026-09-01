@@ -24,6 +24,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   releases: 'Version Release',
   changeLog: 'Change Log',
   meetings: 'ประชุม',
+  estimate: 'Project Estimate',
   backlogEpic: 'Backlog: Epic',
   backlogStory: 'Backlog: Story',
   backlogTask: 'Backlog: Task',
@@ -40,6 +41,7 @@ const RESOURCE_LABEL: Record<PermissionResourceKey, string> = {
   cr: 'CR',
   release: 'Version Release',
   changeLog: 'Change Log',
+  estimate: 'Project Estimate',
 }
 
 const DENY_ALL_PERMISSIONS = (): Position['permissions'] => ({

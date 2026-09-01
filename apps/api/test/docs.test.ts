@@ -85,6 +85,52 @@ describe('D1 — docs tree CRUD', () => {
     const tree = (await (await app.request('/api/docs', { headers: { cookie: m } }, env)).json()) as { id: string; kind: string; sizeBytes: number | null }[]
     expect(tree.find((n) => n.id === uploaded.id)).toMatchObject({ kind: 'file', sizeBytes: uploaded.sizeBytes })
   })
+
+  // Pronista §Document Versioning fix (2026-09-01) — เดิม docNumber/docVersion เซ็ตได้แค่ตอนระบบ gen เอง (breakout/SRS import) กรอกเองไม่ได้เลย
+  it('อัปโหลดไฟล์พร้อมระบุเลขที่เอกสาร+เวอร์ชันได้เลย', async () => {
+    const m = await loginAs(app, 'pond@example-co.test')
+    const fd = new FormData()
+    fd.set('file', new File(['x'], 'สัญญา.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
+    fd.set('docNumber', 'BNT-MOM-2026-014')
+    fd.set('docVersion', '1.0')
+    const uploaded = (await (await app.request('/api/docs/upload', { method: 'POST', headers: { cookie: m }, body: fd }, env)).json()) as { docNumber: string | null; docVersion: string | null }
+    expect(uploaded).toMatchObject({ docNumber: 'BNT-MOM-2026-014', docVersion: '1.0' })
+  })
+
+  it('PATCH /api/docs/:id ตั้ง/แก้เลขที่เอกสาร+เวอร์ชันทีหลังได้ · ส่งค่าว่างเคลียร์กลับเป็น null', async () => {
+    const m = await loginAs(app, 'pond@example-co.test')
+    const doc = await makeDoc(m, 'เอกสารยังไม่มีเลขที่')
+
+    const patched = (await (
+      await app.request(`/api/docs/${doc.id}`, { ...json(m, { docNumber: 'BNT-BRD-2026-002', docVersion: '2.1' }), method: 'PATCH' }, env)
+    ).json()) as { docNumber: string | null; docVersion: string | null }
+    expect(patched).toMatchObject({ docNumber: 'BNT-BRD-2026-002', docVersion: '2.1' })
+
+    const cleared = (await (
+      await app.request(`/api/docs/${doc.id}`, { ...json(m, { docNumber: '', docVersion: '' }), method: 'PATCH' }, env)
+    ).json()) as { docNumber: string | null; docVersion: string | null }
+    expect(cleared).toMatchObject({ docNumber: null, docVersion: null })
+  })
+
+  it('เอกสาร 2 ไฟล์เลขที่เดียวกัน ต่างเวอร์ชัน → GET /docs เห็นทั้งคู่จับกลุ่มด้วย docNumber เดียวกัน', async () => {
+    const m = await loginAs(app, 'pond@example-co.test')
+    const fd1 = new FormData()
+    fd1.set('file', new File(['v1'], 'v1.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
+    fd1.set('docNumber', 'BNT-SOW-2026-001')
+    fd1.set('docVersion', '1.0')
+    const v1 = (await (await app.request('/api/docs/upload', { method: 'POST', headers: { cookie: m }, body: fd1 }, env)).json()) as { id: string }
+
+    const fd2 = new FormData()
+    fd2.set('file', new File(['v2'], 'v2.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
+    fd2.set('docNumber', 'BNT-SOW-2026-001')
+    fd2.set('docVersion', '1.1')
+    const v2 = (await (await app.request('/api/docs/upload', { method: 'POST', headers: { cookie: m }, body: fd2 }, env)).json()) as { id: string }
+
+    const tree = (await (await app.request('/api/docs', { headers: { cookie: m } }, env)).json()) as { id: string; docNumber: string | null; docVersion: string | null }[]
+    const versions = tree.filter((d) => d.docNumber === 'BNT-SOW-2026-001')
+    expect(versions.map((d) => d.id).sort()).toEqual([v1.id, v2.id].sort())
+    expect(versions.map((d) => d.docVersion).sort()).toEqual(['1.0', '1.1'])
+  })
 })
 
 describe('D3 — docs images', () => {

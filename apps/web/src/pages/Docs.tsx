@@ -103,10 +103,13 @@ function AddMenu({ x, y, onClose, onLink, onUpload, onUploadFolder, onTemplate, 
 /** เลือกแท็กประเภทเอกสาร (ไม่บังคับ) หลังเลือกไฟล์แล้ว ก่อนอัปโหลดจริง — ใช้เพื่อให้ฟิลเตอร์หน้าเอกสารหาไฟล์ที่อัปโหลดเองเจอ */
 // Pronista §Document project link fix — เอกสารที่อัปโหลดผ่านทางนี้เดิมผูกโปรเจกต์ไม่ได้เลย (ไม่มีช่องให้เลือก) ทำให้ไม่โผล่ "ประวัติเอกสาร"
 // (หน้านั้นกรองเอาเฉพาะเอกสารที่มี docLinks ผูกโปรเจกต์) — เพิ่มช่องเลือกโปรเจกต์แบบพิมพ์ค้นหา (ไม่บังคับ ตามแพตเทิร์นเดียวกับ TemplatePickerModal)
-function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string; onClose: () => void; onConfirm: (docType: DocType | null, projectId: string | null) => void }) {
+function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string; onClose: () => void; onConfirm: (docType: DocType | null, projectId: string | null, docNumber: string | null, docVersion: string | null) => void }) {
   const [docType, setDocType] = useState<DocType | ''>('')
   const { data: projectOpts } = useLoad<{ id: string; name: string }[]>(() => api.get('/api/projects'))
   const [projectId, setProjectId] = useState('')
+  // Pronista §Document Versioning fix (2026-09-01) — ระบุเลขที่เอกสาร/เวอร์ชันได้ตั้งแต่ตอนอัปโหลด (ไม่บังคับ) เอกสารที่มีเลขที่เดียวกันจะถูกจับกลุ่มเป็น "เล่มเดียวกัน หลายเวอร์ชัน" ในหน้าประวัติเอกสาร/เปรียบเทียบเอกสาร
+  const [docNumber, setDocNumber] = useState('')
+  const [docVersion, setDocVersion] = useState('')
   const [projectQuery, setProjectQuery] = useState('')
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
   const selectedProject = (projectOpts ?? []).find((p) => p.id === projectId)
@@ -127,6 +130,17 @@ function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string
             <option value="">ไม่ระบุประเภท</option>
             {DOC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <div className="flex gap-2 mb-3">
+            <div className="flex-1">
+              <label className="text-xs font-medium text-muted mb-1 block">เลขที่เอกสาร (ไม่บังคับ)</label>
+              <input value={docNumber} onChange={(e) => setDocNumber(e.target.value)} placeholder="เช่น BNT-MOM-2026-014" className={input} />
+            </div>
+            <div className="w-28">
+              <label className="text-xs font-medium text-muted mb-1 block">เวอร์ชัน</label>
+              <input value={docVersion} onChange={(e) => setDocVersion(e.target.value)} placeholder="เช่น 1.0" className={input} />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted -mt-2 mb-3">เอกสารที่มีเลขที่เดียวกันจะถูกจับกลุ่มเป็น "เล่มเดียวกัน หลายเวอร์ชัน" — เปรียบเทียบเอกสารกันได้ในหน้าประวัติเอกสาร</p>
           <div className="relative mb-4">
             <label className="text-xs font-medium text-muted mb-1 block">โปรเจกต์ (ไม่บังคับ — ผูกแล้วจะโผล่ในประวัติเอกสารของโปรเจกต์นั้น)</label>
             <input
@@ -156,7 +170,7 @@ function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
-            <button onClick={() => onConfirm(docType || null, projectId || null)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">อัปโหลด</button>
+            <button onClick={() => onConfirm(docType || null, projectId || null, docNumber.trim() || null, docVersion.trim() || null)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">อัปโหลด</button>
           </div>
         </div>
       </div>
@@ -337,24 +351,29 @@ function DocListRow({ n, projectName, onMenu }: { n: DocNode; projectName: strin
     >
       <DocRowIcon n={n} />
       <span className="flex-1 min-w-0 truncate text-sm text-body">{n.templateDocNumber ?? n.title}</span>
-      {n.updatedByName && (
-        <span title={`${n.updatedByName} แก้ไขล่าสุด`} className="flex items-center gap-1 text-xs text-muted shrink-0 hidden sm:flex">
-          <Avatar name={n.updatedByName} avatarUrl={n.updatedByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(n.updatedByName)} />
-          <span className="max-w-24 truncate">{n.updatedByName}</span>
-        </span>
-      )}
-      {projectName && <span className="text-xs text-muted shrink-0 hidden sm:inline">{projectName}</span>}
-      <span className="text-xs text-muted shrink-0 hidden sm:inline w-14 text-right">{n.kind === 'file' ? fmtSize(n.sizeBytes) : ''}</span>
-      {n.docType && <span className={DOC_TYPE_BADGE}>{n.docType}</span>}
-      {onMenu && (
-        <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMenu(e.currentTarget.getBoundingClientRect()) }}
-          title="จัดการเอกสาร"
-          className="w-6 h-6 grid place-items-center rounded text-muted hover:bg-border shrink-0 opacity-0 group-hover:opacity-100"
-        >
-          <MoreVertical className="w-3.5 h-3.5" />
-        </button>
-      )}
+      {/* Pronista §Document Management — คอลัมน์ท้ายแถวทุกอันต้อง "กว้างคงที่ + render เสมอ" ไม่ใช่แค่ conditional (เดิม conditional ล้วน ทำให้ความกว้างจริงต่อแถวไม่เท่ากัน คอลัมน์ที่อยู่หลังจากนั้นเลยเบี้ยว เพราะชื่อเอกสาร flex-1 ไปกินพื้นที่ต่างกันในแต่ละแถว) */}
+      <span title={n.updatedByName ? `${n.updatedByName} แก้ไขล่าสุด` : undefined} className="hidden sm:flex items-center gap-1 text-xs text-muted shrink-0 w-28">
+        {n.updatedByName && (
+          <>
+            <Avatar name={n.updatedByName} avatarUrl={n.updatedByAvatarUrl} className="w-4 h-4 text-[8px] shrink-0" colorClass={avatarColor(n.updatedByName)} />
+            <span className="truncate">{n.updatedByName}</span>
+          </>
+        )}
+      </span>
+      <span className="hidden sm:inline text-xs text-muted shrink-0 w-20 truncate">{projectName ?? ''}</span>
+      <span className="hidden sm:inline text-xs text-muted shrink-0 w-14 text-right">{n.kind === 'file' ? fmtSize(n.sizeBytes) : ''}</span>
+      <span className="shrink-0 w-14 flex justify-center">{n.docType && <span className={DOC_TYPE_BADGE}>{n.docType}</span>}</span>
+      <span className="shrink-0 w-6 h-6 grid place-items-center">
+        {onMenu && (
+          <button
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMenu(e.currentTarget.getBoundingClientRect()) }}
+            title="จัดการเอกสาร"
+            className="w-6 h-6 grid place-items-center rounded text-muted hover:bg-border opacity-0 group-hover:opacity-100"
+          >
+            <MoreVertical className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </span>
     </a>
   )
 }
@@ -548,7 +567,7 @@ export function DocsPage() {
     uploadParent.current = parentId
     uploadRef.current?.click()
   }
-  const confirmUpload = async (docType: DocType | null, projectId: string | null) => {
+  const confirmUpload = async (docType: DocType | null, projectId: string | null, docNumber: string | null, docVersion: string | null) => {
     const file = pendingUpload
     setPendingUpload(null)
     if (!file) return
@@ -558,6 +577,8 @@ export function DocsPage() {
     if (uploadParent.current) form.append('parentId', uploadParent.current)
     if (docType) form.append('docType', docType)
     if (projectId) form.append('projectId', projectId)
+    if (docNumber) form.append('docNumber', docNumber)
+    if (docVersion) form.append('docVersion', docVersion)
     const res = await fetch('/api/docs/upload', { method: 'POST', body: form })
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { message?: string }
@@ -858,7 +879,7 @@ export function DocsPage() {
         onChange={(e) => { const files = e.target.files; if (files && files.length) void handleFolderUpload(files); e.target.value = '' }}
       />
       {pendingUpload && (
-        <UploadDocTypeModal filename={pendingUpload.name} onClose={() => setPendingUpload(null)} onConfirm={(docType, projectId) => void confirmUpload(docType, projectId)} />
+        <UploadDocTypeModal filename={pendingUpload.name} onClose={() => setPendingUpload(null)} onConfirm={(docType, projectId, docNumber, docVersion) => void confirmUpload(docType, projectId, docNumber, docVersion)} />
       )}
       {folderUploadProgress && (
         <div className="fixed bottom-4 right-4 z-[60] bg-white shadow-2xl border border-border-subtle rounded-lg px-4 py-3 text-sm text-body">

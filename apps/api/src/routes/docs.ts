@@ -248,6 +248,11 @@ export const docRoutes = new Hono<AppEnv>()
     // Pronista §Document Traceability — ผู้ใช้เลือกแท็กประเภทเอกสารตอนอัปโหลดไฟล์ทั่วไปได้ (ไม่บังคับ) เพื่อใช้ฟิลเตอร์หน้าเอกสาร
     const docTypeRaw = form.get('docType')
     const docType = typeof docTypeRaw === 'string' && DOC_TYPES.includes(docTypeRaw as (typeof DOC_TYPES)[number]) ? (docTypeRaw as (typeof DOC_TYPES)[number]) : null
+    // Pronista §Document Versioning fix (2026-09-01) — ระบุเลขที่เอกสาร/เวอร์ชันได้ตั้งแต่ตอนอัปโหลด (ไม่บังคับ) เพื่อให้จับกลุ่ม "เล่มเดียวกัน หลายเวอร์ชัน" ในหน้าประวัติเอกสาร/เปรียบเทียบเอกสารได้ทันที
+    const docNumberRaw = form.get('docNumber')
+    const docNumber = typeof docNumberRaw === 'string' && docNumberRaw.trim() ? docNumberRaw.trim().slice(0, 100) : null
+    const docVersionRaw = form.get('docVersion')
+    const docVersion = typeof docVersionRaw === 'string' && docVersionRaw.trim() ? docVersionRaw.trim().slice(0, 30) : null
     // Pronista §Document project link fix — อัปโหลดไฟล์ทั่วไปเดิมไม่มีทางผูกโปรเจกต์ได้เลย (ไม่มีช่องให้เลือก + endpoint ไม่รับ projectId)
     // ผลคือเอกสารที่อัปด้วยทางนี้ไม่โผล่ "ประวัติเอกสาร" เพราะหน้านั้นกรองเอาเฉพาะเอกสารที่ผูกโปรเจกต์ (ผ่าน docLinks) เท่านั้น — ไม่บังคับ (ไม่ใช่ทุกไฟล์ต้องผูกโปรเจกต์)
     const projectIdRaw = form.get('projectId')
@@ -287,6 +292,8 @@ export const docRoutes = new Hono<AppEnv>()
         sizeBytes: file.size,
         isTemplate,
         docType,
+        docNumber,
+        docVersion,
         ownerId: me.id,
         createdBy: me.id,
         updatedBy: me.id,
@@ -574,6 +581,10 @@ export const docRoutes = new Hono<AppEnv>()
         parentId: z.string().nullable().optional(),
         // Pronista §Document Traceability fix (2026-09-01) — ตอนอัปโหลดตอนแรกเลือกไม่ทัน/ไม่ได้เลือก ยังกลับมาแท็กทีหลังได้ ไม่งั้นเข้า "ประวัติเอกสาร"/เปรียบเทียบเอกสารไม่ได้เลยตลอดไป
         docType: z.enum(DOC_TYPES).nullable().optional(),
+        // Pronista §Document Versioning fix (2026-09-01) — เดิม docNumber/docVersion เซ็ตได้แค่ตอนระบบ gen เอง (breakout/SRS import) กรอกเองไม่ได้เลย
+        // ทำให้ไฟล์ที่อัปโหลด/สร้างเองปกตินับเป็น "เล่มเดี่ยว" ตลอดไป จับคู่เข้าเล่มเดียวกันในหน้าประวัติเอกสาร/เปรียบเทียบเอกสารไม่ได้ — เปิดให้กรอกเองได้แล้ว
+        docNumber: z.string().max(100).trim().nullable().optional().transform((v) => (v === '' ? null : v)),
+        docVersion: z.string().max(30).trim().nullable().optional().transform((v) => (v === '' ? null : v)),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)

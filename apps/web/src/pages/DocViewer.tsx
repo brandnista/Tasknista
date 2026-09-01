@@ -30,6 +30,9 @@ interface DocNode {
   myAccess: 'owner' | 'editor' | 'viewer'
   // Pronista §Document Traceability fix (2026-09-01) — ตอนอัปโหลดยังไม่แท็ก/ยังไม่ผูกโปรเจกต์ = ไม่โผล่ "ประวัติเอกสาร" เลย (เปรียบเทียบเอกสารไม่ได้ตลอดไป) แก้ทีหลังตรงนี้ได้แล้ว
   docType: DocType | null
+  // Pronista §Document Versioning fix (2026-09-01) — เลขที่เอกสาร (ระบุ "เล่ม") + เวอร์ชัน แก้ทีหลังได้แล้ว (เดิมตั้งได้แค่ตอนระบบ gen เอง) เอกสารเลขที่เดียวกัน = เล่มเดียวกัน หลายเวอร์ชัน เปรียบเทียบกันได้
+  docNumber: string | null
+  docVersion: string | null
 }
 interface DocFull extends DocNode {
   contentMarkdown: string
@@ -442,7 +445,7 @@ function DocPermissionModal({ doc, onClose, onChanged }: { doc: DocNode; onClose
 export function DocViewerPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { confirmDialog } = useDialog()
+  const { confirmDialog, promptDialog } = useDialog()
   const { data: doc, reload: reloadDoc } = useLoad<DocFull | null>(() => (id ? api.get(`/api/docs/${id}`) : Promise.resolve(null)), [id])
   const [linking, setLinking] = useState(false)
   const [managingPermission, setManagingPermission] = useState(false)
@@ -484,6 +487,17 @@ export function DocViewerPage() {
     [doc, reloadDoc],
   )
 
+  // Pronista §Document Versioning fix (2026-09-01) — ตั้ง/แก้เลขที่เอกสาร+เวอร์ชันทีหลังได้ (เดิมตั้งได้แค่ตอนระบบ gen เอง) — 2 ขั้นตอนเหมือน addLink ใน Docs.tsx
+  const editDocVersion = useCallback(async () => {
+    if (!doc) return
+    const docNumber = await promptDialog({ title: 'เลขที่เอกสาร (ระบุ "เล่ม")', message: 'เอกสารเลขที่เดียวกัน = เล่มเดียวกัน หลายเวอร์ชัน เปรียบเทียบกันได้ในหน้าประวัติเอกสาร', initialValue: doc.docNumber ?? '', placeholder: 'เช่น BNT-MOM-2026-014', confirmLabel: 'ถัดไป' })
+    if (docNumber === null) return
+    const docVersion = await promptDialog({ title: 'เวอร์ชัน', initialValue: doc.docVersion ?? '', placeholder: 'เช่น 1.0', confirmLabel: 'บันทึก' })
+    if (docVersion === null) return
+    await api.patch(`/api/docs/${doc.id}`, { docNumber: docNumber.trim() || null, docVersion: docVersion.trim() || null })
+    await reloadDoc()
+  }, [doc, reloadDoc, promptDialog])
+
   if (!doc) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
   if (doc.kind === 'file' && !isWordFile) return <div className="p-6 text-sm text-muted">กำลังเปิดไฟล์…</div>
 
@@ -507,6 +521,15 @@ export function DocViewerPage() {
               <option value="">ไม่ระบุประเภท</option>
               {DOC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
+          )}
+          {canEdit && doc.kind !== 'folder' && (
+            <button
+              onClick={() => void editDocVersion()}
+              title='เลขที่เอกสาร/เวอร์ชัน — ตั้งไว้เพื่อจับกลุ่ม "เล่มเดียวกัน หลายเวอร์ชัน" ในหน้าประวัติเอกสาร/เปรียบเทียบเอกสาร'
+              className="text-xs bg-white border border-border rounded-lg px-2 py-1.5 hover:bg-hover text-body whitespace-nowrap"
+            >
+              {doc.docNumber ? `${doc.docNumber}${doc.docVersion ? ` · v${doc.docVersion}` : ''}` : 'เลขที่เอกสาร'}
+            </button>
           )}
           <button onClick={() => void duplicateNode()} className="p-1.5 rounded-lg text-dim hover:bg-divider" title="ทำสำเนา"><Copy className="w-4 h-4" /></button>
           <button onClick={() => setLinking(true)} className="p-1.5 rounded-lg text-dim hover:bg-divider" title="ผูกกับโปรเจกต์/Task"><Link2 className="w-4 h-4" /></button>

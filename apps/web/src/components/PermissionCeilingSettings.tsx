@@ -28,6 +28,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   releases: 'Version Release',
   changeLog: 'Change Log',
   meetings: 'ประชุม',
+  estimate: 'Project Estimate',
   backlogEpic: 'Backlog: Epic',
   backlogStory: 'Backlog: Story',
   backlogTask: 'Backlog: Task',
@@ -36,7 +37,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   backlogSummary: 'Backlog: ภาพรวมโครงสร้าง',
 }
 const RESOURCE_LABEL: Record<PermissionResourceKey, string> = {
-  task: 'Task', doc: 'เอกสาร', sprint: 'Sprint', defect: 'Defect', cr: 'CR', release: 'Version Release', changeLog: 'Change Log',
+  task: 'Task', doc: 'เอกสาร', sprint: 'Sprint', defect: 'Defect', cr: 'CR', release: 'Version Release', changeLog: 'Change Log', estimate: 'Project Estimate',
 }
 const CATEGORY_DESC: Record<PermissionCategory, string> = {
   staff: 'ครอบสิทธิ์ตำแหน่งอีกชั้น (position × เพดานนี้) — ตำแหน่งเปิดได้เท่าที่เพดานอนุญาต',

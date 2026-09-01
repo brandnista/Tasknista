@@ -1,3 +1,5 @@
+import type { Position } from '@seedoffice/core'
+import { VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
 import { env } from 'cloudflare:test'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
@@ -276,5 +278,69 @@ describe('T?? — Project Estimate v2: GET /api/projects/:id/estimate/phases (Ta
     expect(body.extraCostTotals.aex.estimateCostSatang).toBe(130000) // +30% margin
     expect(body.extraCostTotals.opex.netCostSatang).toBe(50000)
     expect(body.extraCostTotals.opex.estimateCostSatang).toBe(65000)
+  })
+})
+
+describe('Pronista §Project Estimate permission (2026-09-01) — เปิดให้ BA/PM เข้าถึงผ่านตำแหน่งได้ ไม่ใช่ owner-only ล้วน', () => {
+  const assignPosition = (cookie: string, projectId: string, userId: string, positionId: string) =>
+    app.request(`/api/projects/${projectId}/members`, json(cookie, { userId, positionId }), env)
+  const savePositions = (cookie: string, positions: Position[]) =>
+    app.request('/api/admin/positions', putJson(cookie, { positions }), env)
+
+  it('member ไม่มีตำแหน่ง (ไม่ได้ถูกเพิ่มเข้าโปรเจกต์เลย) → ยัง 403 เหมือนเดิม (ค่าเริ่มต้นปลอดภัย ไม่เปิดกว้างเกิน)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
+    const member = await loginAs(app, 'pond@example-co.test')
+    expect((await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: member } }, env)).status).toBe(403)
+  })
+
+  it('member ถูก assign ตำแหน่ง "ดูอย่างเดียว" (built-in) → ยังเข้า Estimate ไม่ได้ (View Only เห็นได้ทุกแท็บยกเว้น estimate — ข้อมูลต้นทุน/margin ละเอียดอ่อนกว่าแท็บอื่น)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
+    const member = await loginAs(app, 'pond@example-co.test')
+    expect((await assignPosition(owner, projectId, 'u_pond', 'pos_view_only')).status).toBe(200)
+    expect((await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: member } }, env)).status).toBe(403)
+  })
+
+  it('member ถูก assign ตำแหน่ง "เข้าถึงเต็มรูปแบบ" (built-in) → เข้า Estimate ได้ทั้งดูและแก้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
+    const member = await loginAs(app, 'pond@example-co.test')
+    expect((await assignPosition(owner, projectId, 'u_pond', 'pos_full_access')).status).toBe(200)
+    expect((await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: member } }, env)).status).toBe(200)
+    expect(
+      (
+        await app.request(
+          `/api/projects/${projectId}/estimate/extra-costs`,
+          json(member, { category: 'aex', name: 'Cloud Hosting' }),
+          env,
+        )
+      ).status,
+    ).toBe(200)
+  })
+
+  it('ตำแหน่งกำหนดเอง — เปิดแค่ tabs.estimate (ดูได้) แต่ actions.estimate ปิดหมด → ดูได้ แก้ไม่ได้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { projectId } = await setupProjectWithTask(owner, 'u_pond', 100)
+    const member = await loginAs(app, 'pond@example-co.test')
+    const custom: Position = {
+      id: 'pos_ba',
+      name: 'BA',
+      sortOrder: 2,
+      permissions: { ...VIEW_ONLY_PERMISSIONS, tabs: { ...VIEW_ONLY_PERMISSIONS.tabs, estimate: true } },
+    }
+    expect((await savePositions(owner, [...(await (await app.request('/api/admin/positions', { headers: { cookie: owner } }, env)).json() as { positions: Position[] }).positions, custom])).status).toBe(200)
+    expect((await assignPosition(owner, projectId, 'u_pond', 'pos_ba')).status).toBe(200)
+
+    expect((await app.request(`/api/projects/${projectId}/estimate`, { headers: { cookie: member } }, env)).status).toBe(200)
+    expect(
+      (
+        await app.request(
+          `/api/projects/${projectId}/estimate/extra-costs`,
+          json(member, { category: 'aex', name: 'ควรโดนกัน' }),
+          env,
+        )
+      ).status,
+    ).toBe(403)
   })
 })
