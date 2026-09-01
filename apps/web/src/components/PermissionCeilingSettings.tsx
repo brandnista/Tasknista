@@ -27,6 +27,7 @@ const TAB_LABEL: Record<PermissionTabKey, string> = {
   assets: 'ประวัติเอกสาร',
   releases: 'Version Release',
   changeLog: 'Change Log',
+  meetings: 'ประชุม',
   backlogEpic: 'Backlog: Epic',
   backlogStory: 'Backlog: Story',
   backlogTask: 'Backlog: Task',

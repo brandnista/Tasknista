@@ -5,9 +5,10 @@
  * ยังไม่ตั้ง → ใช้ DEFAULT (เข้าถึงเต็มรูปแบบ/ดูอย่างเดียว) · pure ล้วน ใช้ทั้ง API + web (mirror project-status.ts/board-preset.ts)
  */
 
-/** ตรงกับแท็บจริงใน ProjectDetail.tsx วันนี้ — top-level (sprint/docs/assets/releases) + sub-tab ใน Backlog (backlog*) */
+/** ตรงกับแท็บจริงใน ProjectDetail.tsx วันนี้ — top-level (sprint/docs/assets/releases/changeLog/meetings) + sub-tab ใน Backlog (backlog*)
+ * เพิ่มแท็บใหม่ที่นี่ทุกครั้งที่เพิ่มแท็บระดับโปรเจกต์ใหม่ใน ProjectDetail.tsx — ไม่งั้นแท็บนั้นจะไม่มีใน myPermissions.tabs เลย ทำให้ filter (`?? true`) fail-open เห็นได้ไม่จำกัด ไม่ผ่านทั้งตำแหน่งและเพดานสิทธิ์ (พบเคสจริงกับแท็บ "ประชุม" — เพิ่มแท็บแล้วลืมเพิ่มที่นี่) */
 export const PERMISSION_TAB_KEYS = [
-  'sprint', 'docs', 'assets', 'releases', 'changeLog',
+  'sprint', 'docs', 'assets', 'releases', 'changeLog', 'meetings',
   'backlogEpic', 'backlogStory', 'backlogTask', 'backlogDefect', 'backlogCr', 'backlogSummary',
 ] as const
 export type PermissionTabKey = (typeof PERMISSION_TAB_KEYS)[number]
