@@ -240,6 +240,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
   const [shareModal, setShareModal] = useState<FileRow | null>(null)
   const [shareToDocsModal, setShareToDocsModal] = useState<FileRow | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
   const browsingShared = root === 'shared' && folderId === null
   const { data: listData, reload: reloadList } = useLoad<ListResponse>(
@@ -301,6 +302,17 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
     reload()
   }
 
+  // ลากไฟล์/เอกสารวางบนโฟลเดอร์ = ย้ายเข้าไป (Pronista §My Files drag-drop, 2026-09-01)
+  const moveItem = async (id: string, parentId: string) => {
+    if (id === parentId) return
+    try {
+      await api.post(`/api/my-files/${id}/move`, { parentId })
+      reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ย้ายไฟล์ไม่สำเร็จ' })
+    }
+  }
+
   const currentFolderName = listData?.folder?.name
 
   return (
@@ -358,8 +370,23 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
         <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
           {items.map((r) => {
             const canManage = !browsingShared && (r.myRole === 'editor' || r.myRole === undefined) && (listData?.folder ? listData.folder.access !== 'viewer' : true)
+            const isDropTarget = r.kind === 'folder' && dragOverId === r.id
             return (
-              <div key={r.id} className="flex items-center gap-2.5 px-4 py-2.5 hover:bg-hover group">
+              <div
+                key={r.id}
+                draggable={canManage}
+                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id) }}
+                onDragOver={(e) => { if (r.kind !== 'folder' || !canManage) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverId(r.id) }}
+                onDragLeave={() => setDragOverId((cur) => (cur === r.id ? null : cur))}
+                onDrop={(e) => {
+                  if (r.kind !== 'folder' || !canManage) return
+                  e.preventDefault()
+                  setDragOverId(null)
+                  const draggedId = e.dataTransfer.getData('text/plain')
+                  if (draggedId) void moveItem(draggedId, r.id)
+                }}
+                className={`flex items-center gap-2.5 px-4 py-2.5 group ${isDropTarget ? 'bg-brand-100 ring-2 ring-inset ring-brand-300' : 'hover:bg-hover'}`}
+              >
                 <button onClick={() => openItem(r)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
                   {iconFor(r)}
                   <span className="text-sm text-body truncate">{r.name}</span>
