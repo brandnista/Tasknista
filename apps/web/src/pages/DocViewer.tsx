@@ -10,6 +10,9 @@ import { SrsLinkedTasksSection } from '../components/SrsLinkedTasksSection'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
+const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
+type DocType = (typeof DOC_TYPES)[number]
+
 interface DocNode {
   id: string
   parentId: string | null
@@ -25,6 +28,8 @@ interface DocNode {
   ownerId: string | null
   visibility: 'private' | 'team'
   myAccess: 'owner' | 'editor' | 'viewer'
+  // Pronista §Document Traceability fix (2026-09-01) — ตอนอัปโหลดยังไม่แท็ก/ยังไม่ผูกโปรเจกต์ = ไม่โผล่ "ประวัติเอกสาร" เลย (เปรียบเทียบเอกสารไม่ได้ตลอดไป) แก้ทีหลังตรงนี้ได้แล้ว
+  docType: DocType | null
 }
 interface DocFull extends DocNode {
   contentMarkdown: string
@@ -468,6 +473,17 @@ export function DocViewerPage() {
     navigate('/docs')
   }, [doc, confirmDialog, navigate])
 
+  // Pronista §Document Traceability fix (2026-09-01) — ตั้ง/แก้ "ประเภทเอกสาร" ทีหลังได้ (ตอนอัปโหลดเป็นแค่ตัวเลือกไม่บังคับ พลาดแล้วไม่มีทางแก้เดิม)
+  // ต้องมีทั้งอันนี้ + ผูกโปรเจกต์ (ปุ่ม 🔗) ถึงจะโผล่ใน "ประวัติเอกสาร" และเปิดเปรียบเทียบเอกสารได้
+  const setDocType = useCallback(
+    async (docType: DocType | '') => {
+      if (!doc) return
+      await api.patch(`/api/docs/${doc.id}`, { docType: docType || null })
+      await reloadDoc()
+    },
+    [doc, reloadDoc],
+  )
+
   if (!doc) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
   if (doc.kind === 'file' && !isWordFile) return <div className="p-6 text-sm text-muted">กำลังเปิดไฟล์…</div>
 
@@ -480,7 +496,18 @@ export function DocViewerPage() {
         <Link to="/docs" className="flex items-center gap-1.5 text-sm text-dim hover:text-strong">
           <ArrowLeft className="w-4 h-4" /> กลับไปเอกสารทั้งหมด
         </Link>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-2">
+          {canEdit && doc.kind !== 'folder' && (
+            <select
+              value={doc.docType ?? ''}
+              onChange={(e) => void setDocType(e.target.value as DocType | '')}
+              title="ประเภทเอกสาร — ต้องเลือกไว้ (พร้อมผูกโปรเจกต์) ถึงจะโผล่ใน &quot;ประวัติเอกสาร&quot; และเปรียบเทียบเอกสารได้"
+              className="text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden"
+            >
+              <option value="">ไม่ระบุประเภท</option>
+              {DOC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
           <button onClick={() => void duplicateNode()} className="p-1.5 rounded-lg text-dim hover:bg-divider" title="ทำสำเนา"><Copy className="w-4 h-4" /></button>
           <button onClick={() => setLinking(true)} className="p-1.5 rounded-lg text-dim hover:bg-divider" title="ผูกกับโปรเจกต์/Task"><Link2 className="w-4 h-4" /></button>
           {canManage && <button onClick={() => setManagingPermission(true)} className="p-1.5 rounded-lg text-dim hover:bg-divider" title="จัดการสิทธิ์"><Lock className="w-4 h-4" /></button>}

@@ -571,6 +571,8 @@ export const docRoutes = new Hono<AppEnv>()
         visibility: z.enum(['private', 'team']).optional(),
         isTemplate: z.boolean().optional(),
         parentId: z.string().nullable().optional(),
+        // Pronista §Document Traceability fix (2026-09-01) — ตอนอัปโหลดตอนแรกเลือกไม่ทัน/ไม่ได้เลือก ยังกลับมาแท็กทีหลังได้ ไม่งั้นเข้า "ประวัติเอกสาร"/เปรียบเทียบเอกสารไม่ได้เลยตลอดไป
+        docType: z.enum(DOC_TYPES).nullable().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
