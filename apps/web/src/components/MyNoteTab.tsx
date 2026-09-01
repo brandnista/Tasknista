@@ -13,6 +13,7 @@ import { NotificationBell } from './NotificationBell'
 import { RichTextEditor } from './RichTextEditor'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { useNotifications } from '../lib/notifications-context'
 import { useLoad } from '../lib/useLoad'
 
 export type NoteBody = { mode: 'text'; text: string } | { mode: 'checklist'; items: { id: string; text: string; done: boolean }[] }
@@ -591,7 +592,13 @@ export function MyNoteTab() {
   const { data: notesList, reload } = useLoad<Note[]>(() => api.get('/api/my-notes'))
   // Pronista §My Note board tabs (2026-09-01) — บอร์ดที่แชร์กับฉัน (บันทึกที่คนอื่นแชร์มาหรือฉันแชร์ออกไป) — ดึงคู่กับของตัวเองเสมอ สลับแค่ว่าจะโชว์อันไหนบนบอร์ด
   const { data: sharedNotesList, reload: reloadShared } = useLoad<Note[]>(() => api.get('/api/my-notes/shared'))
+  const { markTypeRead } = useNotifications()
   const [boardTab, setBoardTab] = useState<'own' | 'shared'>('own')
+  // Pronista §My Note badge (2026-09-01) — เปิดแท็บ "บอร์ดที่แชร์กับฉัน" แล้ว mark note_shared อ่านทันที กัน badge ค้างหลังกดเข้ามาดูแล้ว
+  const changeBoardTab = (t: 'own' | 'shared') => {
+    setBoardTab(t)
+    if (t === 'shared') void markTypeRead('note_shared')
+  }
   const [convertingNote, setConvertingNote] = useState<Note | null>(null)
   // Pronista §My Note Edit (2026-08-27) — note ที่กำลังแก้ไขอยู่ (null = ฟอร์มบนสุดอยู่ในโหมด "สร้างใหม่")
   const [editingNote, setEditingNote] = useState<Note | null>(null)
@@ -679,7 +686,7 @@ export function MyNoteTab() {
 
       <NoteBoard
         tab={boardTab}
-        onTabChange={setBoardTab}
+        onTabChange={changeBoardTab}
         notes={(boardTab === 'own' ? notesList : sharedNotesList) ?? []}
         meId={meId}
         onOpenConvert={setConvertingNote}

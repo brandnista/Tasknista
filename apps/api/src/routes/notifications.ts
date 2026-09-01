@@ -42,6 +42,16 @@ export const notificationRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
+  // Pronista §My Note badge (2026-09-01) — เปิดแท็บ/หน้าที่มี badge เฉพาะประเภทแล้ว mark อ่านทั้งประเภทนั้นทันที (mirror markChannelRead ของแชท แต่ generic ด้วย type แทน channel)
+  .post('/notifications/mark-type-read', async (c) => {
+    const body = z.object({ type: z.enum(NOTIFICATION_TYPES) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.userId, me.id), eq(notifications.type, body.data.type)))
+    return c.json({ ok: true })
+  })
+
   // Pronista §Notification overhaul (2026-08-27) — ตั้งค่าส่วนตัว: ประเภทแจ้งเตือนที่ปิดไว้ (ว่าง = เปิดรับทุกประเภท)
   // Pronista §Meeting Schedule Tab (2026-08-27) — เพิ่ม meetingReminderMinutes (นาทีล่วงหน้าก่อนประชุมเริ่ม ที่จะเตือน — null = ยังไม่ตั้ง ใช้ค่าเริ่มต้น 5 นาที)
   .get('/notification-prefs', async (c) => {
