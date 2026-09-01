@@ -1,5 +1,5 @@
 import {
-  FilePlus, FileText, Filter, Folder, FolderInput, FolderPlus, FolderUp, Grid2x2, Image as ImageIcon, List, ListTree, Link2, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X,
+  FileText, Filter, Folder, FolderInput, FolderPlus, FolderUp, Grid2x2, Image as ImageIcon, List, ListTree, Link2, MoreVertical, Pencil, Plus, Search, Trash2, Upload, X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
@@ -55,12 +55,12 @@ const canEditAccess = (a: DocNode['myAccess']) => a === 'owner' || a === 'editor
 const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
 type DocType = (typeof DOC_TYPES)[number]
 
-/** เมนู "+ เพิ่ม" เดียว (หน้าใหม่/ลิงก์ Google Docs/อัปโหลดไฟล์/เอกสาร Template/อัปโหลดแตกเป็น Task/โฟลเดอร์ใหม่) แทนปุ่มกระจัดกระจาย — ลอยตรงตำแหน่งที่กด */
-function AddMenu({ x, y, onClose, onPage, onLink, onUpload, onUploadFolder, onTemplate, onUploadBreakout, onFolder }: {
+/** เมนู "+ เพิ่ม" เดียว (โฟลเดอร์ใหม่/ลิงก์ Google Docs/อัปโหลดไฟล์/เอกสาร Template/อัปโหลดแตกเป็น Task) แทนปุ่มกระจัดกระจาย — ลอยตรงตำแหน่งที่กด
+ * Pronista §My Files → เอกสาร (2026-09-01) — ตัด "หน้าใหม่" ออก ซ้ำกับ "สร้างเอกสาร" ในเมนู "ไฟล์ของฉัน" อยู่แล้ว (สร้างที่นั่นแล้วกด "แชร์ไปเอกสาร" แทน) */
+function AddMenu({ x, y, onClose, onLink, onUpload, onUploadFolder, onTemplate, onUploadBreakout, onFolder }: {
   x: number
   y: number
   onClose: () => void
-  onPage: () => void
   onLink: () => void
   onUpload: () => void
   onUploadFolder: () => void
@@ -76,7 +76,6 @@ function AddMenu({ x, y, onClose, onPage, onLink, onUpload, onUploadFolder, onTe
         style={{ left: x, top: y }}
         className="absolute w-56 bg-white rounded-lg shadow-2xl border border-border-subtle p-1.5"
       >
-        <button className={item} onClick={() => { onPage(); onClose() }}><FilePlus className="w-4 h-4 text-muted" /> หน้าใหม่</button>
         <button className={item} onClick={() => { onFolder(); onClose() }}><FolderPlus className="w-4 h-4 text-muted" /> โฟลเดอร์ใหม่</button>
         <button className={item} onClick={() => { onLink(); onClose() }}><Link2 className="w-4 h-4 text-muted" /> ลิงก์ Google Docs</button>
         <button className={item} onClick={() => { onUpload(); onClose() }}><Upload className="w-4 h-4 text-muted" /> อัปโหลดไฟล์ (Word/PDF)</button>
@@ -446,21 +445,6 @@ export function DocsPage() {
   // กลับหน้าแรกเมื่อเงื่อนไข/มุมมองเปลี่ยน
   useEffect(() => { setPage(1) }, [search, docTypeFilters, projectFilter, activeFolder, pageSize])
 
-  const addPage = useCallback(
-    async (parentId: string | null) => {
-      const title = await promptDialog({
-        title: parentId ? 'เพิ่มหน้าย่อย' : 'หน้าใหม่',
-        placeholder: 'ชื่อหน้า เช่น คู่มือพนักงานใหม่...',
-        confirmLabel: 'สร้างหน้า',
-      })
-      if (!title?.trim()) return
-      const created = await api.post<{ id: string }>('/api/docs', { title: title.trim(), ...(parentId ? { parentId } : {}) })
-      await reloadTree()
-      window.open(`/docs/${created.id}`, '_blank', 'noopener')
-    },
-    [reloadTree, promptDialog],
-  )
-
   const addFolder = useCallback(
     async (parentId: string | null) => {
       const title = await promptDialog({ title: 'โฟลเดอร์ใหม่', placeholder: 'ชื่อโฟลเดอร์ เช่น MOM...', confirmLabel: 'สร้างโฟลเดอร์' })
@@ -822,7 +806,6 @@ export function DocsPage() {
           x={addMenu.x}
           y={addMenu.y}
           onClose={() => setAddMenu(null)}
-          onPage={() => void addPage(addMenu.parentId)}
           onLink={() => void addLink(addMenu.parentId)}
           onUpload={() => triggerUpload(addMenu.parentId)}
           onUploadFolder={() => triggerUploadFolder(addMenu.parentId)}
