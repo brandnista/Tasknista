@@ -169,3 +169,32 @@ describe('Pronista §My Note attachments (2026-08-28)', () => {
     expect((await app.request(`/api/my-notes/attachments/${att.id}/download`, { headers: { cookie: pond } }, env)).status).toBe(404)
   })
 })
+
+describe('Pronista §My Note link attachment (2026-09-01) — แนบลิงก์ Google Docs/Drive แทนไฟล์จริง', () => {
+  it('แนบลิงก์ได้ (owner) · list เห็น kind=link + externalUrl · ดาวน์โหลดไม่ได้ (404 ไม่ใช่ kind=file)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/my-notes', json(pond, { title: 'มีลิงก์แนบ', body: { mode: 'text', text: 'x' } }), env)
+    ).json()) as { id: string }
+
+    const res = await app.request(`/api/my-notes/${created.id}/attachments/link`, json(pond, { name: 'สเปกลูกค้า', externalUrl: 'https://docs.google.com/document/d/abc' }), env)
+    expect(res.status).toBe(201)
+    const att = (await res.json()) as { id: string; kind: string; externalUrl: string; sizeBytes: number | null }
+    expect(att).toMatchObject({ kind: 'link', externalUrl: 'https://docs.google.com/document/d/abc', sizeBytes: null })
+
+    const listRes = await app.request(`/api/my-notes/${created.id}/attachments`, { headers: { cookie: pond } }, env)
+    expect(((await listRes.json()) as { id: string; kind: string }[]).find((a) => a.id === att.id)).toMatchObject({ kind: 'link' })
+
+    expect((await app.request(`/api/my-notes/attachments/${att.id}/download`, { headers: { cookie: pond } }, env)).status).toBe(404)
+  })
+
+  it('ไม่ใช่ owner/editor แนบลิงก์ไม่ได้ (403) · externalUrl ไม่ใช่ URL ที่ถูกต้อง (400)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const somchai = await loginAs(app, 'somchai@example.com')
+    const created = (await (
+      await app.request('/api/my-notes', json(pond, { title: 'ของปอนด์', body: { mode: 'text', text: 'x' } }), env)
+    ).json()) as { id: string }
+    expect((await app.request(`/api/my-notes/${created.id}/attachments/link`, json(somchai, { name: 'แอบแนบ', externalUrl: 'https://x.test' }), env)).status).toBe(403)
+    expect((await app.request(`/api/my-notes/${created.id}/attachments/link`, json(pond, { name: 'พัง', externalUrl: 'not-a-url' }), env)).status).toBe(400)
+  })
+})

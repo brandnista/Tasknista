@@ -1,0 +1,1 @@
+ALTER TABLE `personal_files` ADD `external_url` text;

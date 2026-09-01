@@ -170,7 +170,25 @@ myNoteRoutes
     const created = (
       await db
         .insert(noteAttachments)
-        .values({ noteId, r2Key, name: safeName, mime: file.type || 'application/octet-stream', sizeBytes: file.size, uploadedBy: me.id })
+        .values({ noteId, kind: 'file', r2Key, name: safeName, mime: file.type || 'application/octet-stream', sizeBytes: file.size, uploadedBy: me.id })
+        .returning()
+    )[0]!
+    return c.json(created, 201)
+  })
+
+  // แนบลิงก์ Google Docs/Drive — mirror POST /docs/link (kind='link' ไม่มีไฟล์จริงใน R2)
+  .post('/my-notes/:id/attachments/link', async (c) => {
+    const body = z.object({ name: z.string().min(1).max(120), externalUrl: z.string().url() }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const noteId = c.req.param('id')
+    const access = await getNoteAccess(db, noteId, me.id)
+    if (!canEditNote(access)) return c.json({ error: 'forbidden' }, 403)
+    const created = (
+      await db
+        .insert(noteAttachments)
+        .values({ noteId, kind: 'link', externalUrl: body.data.externalUrl, name: body.data.name, uploadedBy: me.id })
         .returning()
     )[0]!
     return c.json(created, 201)
@@ -180,7 +198,7 @@ myNoteRoutes
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const att = (await db.select().from(noteAttachments).where(eq(noteAttachments.id, c.req.param('attId'))).limit(1))[0]
-    if (!att) return c.json({ error: 'not_found' }, 404)
+    if (!att || att.kind !== 'file' || !att.r2Key) return c.json({ error: 'not_found' }, 404)
     const access = await getNoteAccess(db, att.noteId, me.id)
     if (!canViewNote(access)) return c.json({ error: 'forbidden' }, 403)
     const obj = await c.env.FILES.get(att.r2Key)

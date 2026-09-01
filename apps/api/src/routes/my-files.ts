@@ -17,10 +17,11 @@ import type { AppEnv } from '../types'
 export const myFileRoutes = new Hono<AppEnv>()
 
 const createPayload = z.object({
-  kind: z.enum(['folder', 'page']),
+  kind: z.enum(['folder', 'page', 'link']),
   name: z.string().min(1).max(255),
   parentId: z.string().nullable().optional(),
   contentMarkdown: z.string().optional(), // kind='page' เท่านั้น
+  externalUrl: z.string().url().optional(), // kind='link' เท่านั้น
 })
 
 myFileRoutes
@@ -62,6 +63,7 @@ myFileRoutes
   .post('/my-files', async (c) => {
     const body = createPayload.safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
+    if (body.data.kind === 'link' && !body.data.externalUrl) return c.json({ error: 'external_url_required' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const parentId = body.data.parentId ?? null
@@ -78,6 +80,7 @@ myFileRoutes
           kind: body.data.kind,
           name: body.data.name,
           contentMarkdown: body.data.kind === 'page' ? (body.data.contentMarkdown ?? '') : null,
+          externalUrl: body.data.kind === 'link' ? body.data.externalUrl : null,
           createdBy: me.id,
           updatedBy: me.id,
         })
@@ -305,6 +308,7 @@ myFileRoutes
           title: file.name,
           kind: file.kind,
           contentMarkdown: file.kind === 'page' ? (file.contentMarkdown ?? '') : '',
+          externalUrl: file.kind === 'link' ? file.externalUrl : null,
           r2Key: newR2Key,
           filename: file.kind === 'file' ? file.name : null,
           mime: file.mime,

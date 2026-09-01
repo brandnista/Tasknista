@@ -256,3 +256,29 @@ describe('Pronista §My Files → เอกสาร (2026-08-31) — คัด�
     expect((await app.request(`/api/my-files/${fld.id}/share-to-docs`, json(pond, { parentId: null }), env)).status).toBe(400)
   })
 })
+
+describe('Pronista §My Files link (2026-09-01) — เพิ่มลิงก์ Google Docs/Drive', () => {
+  it('สร้าง kind=link พร้อม externalUrl ได้ · list เห็น externalUrl กลับมาด้วย', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = await app.request('/api/my-files', json(pond, { kind: 'link', name: 'สเปกลูกค้า', externalUrl: 'https://docs.google.com/document/d/abc' }), env)
+    expect(res.status).toBe(201)
+    const created = (await res.json()) as { id: string; kind: string; externalUrl: string }
+    expect(created).toMatchObject({ kind: 'link', externalUrl: 'https://docs.google.com/document/d/abc' })
+
+    const root = (await (await app.request('/api/my-files', { headers: { cookie: pond } }, env)).json()) as { items: { name: string; externalUrl: string | null }[] }
+    expect(root.items).toContainEqual(expect.objectContaining({ name: 'สเปกลูกค้า', externalUrl: 'https://docs.google.com/document/d/abc' }))
+  })
+
+  it('kind=link ไม่ส่ง externalUrl มา (400) · externalUrl ไม่ใช่ URL ที่ถูกต้อง (400)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    expect((await app.request('/api/my-files', json(pond, { kind: 'link', name: 'ไม่มีลิงก์' }), env)).status).toBe(400)
+    expect((await app.request('/api/my-files', json(pond, { kind: 'link', name: 'ลิงก์พัง', externalUrl: 'not-a-url' }), env)).status).toBe(400)
+  })
+
+  it('คัดลอกลิงก์เข้าเอกสารบริษัทได้ — externalUrl ติดไปด้วย', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/my-files', json(pond, { kind: 'link', name: 'ลิงก์ลูกค้า', externalUrl: 'https://docs.google.com/document/d/xyz' }), env)).json()) as { id: string }
+    const doc = (await (await app.request(`/api/my-files/${created.id}/share-to-docs`, json(pond, { parentId: null }), env)).json()) as { kind: string; externalUrl: string }
+    expect(doc).toMatchObject({ kind: 'link', externalUrl: 'https://docs.google.com/document/d/xyz' })
+  })
+})

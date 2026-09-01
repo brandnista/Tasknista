@@ -861,7 +861,8 @@ export const docMembers = sqliteTable(
 
 // Pronista §My Files (2026-08-28) — ไดรฟ์ส่วนตัวของแต่ละคน แยกขาดจาก "เอกสาร" บริษัทเดิมทั้งระบบ (คนละตาราง คนละกติกาสิทธิ์)
 // ค่าเริ่มต้น = ส่วนตัวเห็นคนเดียว (ไม่มี owner-bypass เหมือน docs — เจตนา "ส่วนตัว" จริงๆ แม้แต่ Admin ก็เห็นไม่ได้ถ้าไม่ถูกแชร์) จนกว่าเจ้าของจะแชร์ผ่าน personalFileMembers
-export const PERSONAL_FILE_KINDS = ['file', 'page', 'folder'] as const
+// Pronista §My Files link (2026-09-01) — เพิ่ม kind='link' (ลิงก์ Google Docs/Drive) mirror docs.kind='link' เดิม
+export const PERSONAL_FILE_KINDS = ['file', 'page', 'folder', 'link'] as const
 export const PERSONAL_FILE_MEMBER_ROLES = ['viewer', 'editor'] as const
 
 export const personalFiles = sqliteTable(
@@ -878,6 +879,7 @@ export const personalFiles = sqliteTable(
     mime: text('mime'), // kind='file' เท่านั้น
     sizeBytes: integer('size_bytes'), // kind='file' เท่านั้น
     contentMarkdown: text('content_markdown'), // kind='page' เท่านั้น
+    externalUrl: text('external_url'), // kind='link' เท่านั้น — Google Docs/Drive หรือ URL อื่นๆ
     createdBy: text('created_by')
       .notNull()
       .references((): AnySQLiteColumn => users.id),
@@ -1892,6 +1894,8 @@ export const noteMembers = sqliteTable(
 )
 
 // Pronista §My Note attachments (2026-08-28) — ไฟล์แนบต่อบันทึก เก็บใน R2 bucket เดียวกับ personalFiles (bucket FILES) คนละ prefix — ไม่ใช่ personalFiles item แยก กันสับสนเรื่องความเป็นเจ้าของ/สิทธิ์ซ้อนกัน 2 ระบบ
+// Pronista §My Note link attachment (2026-09-01) — เพิ่ม kind='link' (ลิงก์ Google Docs/Drive) mirror docs.kind='link' — r2Key/sizeBytes เลยเป็น nullable (ใช้เฉพาะ kind='file')
+export const NOTE_ATTACHMENT_KINDS = ['file', 'link'] as const
 export const noteAttachments = sqliteTable(
   'note_attachments',
   {
@@ -1899,10 +1903,12 @@ export const noteAttachments = sqliteTable(
     noteId: text('note_id')
       .notNull()
       .references((): AnySQLiteColumn => notes.id),
-    r2Key: text('r2_key').notNull(),
+    kind: text('kind', { enum: NOTE_ATTACHMENT_KINDS }).notNull().default('file'),
+    r2Key: text('r2_key'), // kind='file' เท่านั้น
+    externalUrl: text('external_url'), // kind='link' เท่านั้น
     name: text('name').notNull(),
     mime: text('mime'),
-    sizeBytes: integer('size_bytes').notNull(),
+    sizeBytes: integer('size_bytes'), // kind='file' เท่านั้น
     uploadedBy: text('uploaded_by')
       .notNull()
       .references((): AnySQLiteColumn => users.id),

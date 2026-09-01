@@ -36,7 +36,7 @@ interface ProjectOpt { id: string; code: string | null; name: string }
 interface TaskOpt { id: string; code: string | null; title: string; kind: string }
 interface MemberRow { id: string; name: string; role: 'viewer' | 'editor' }
 interface UserOpt { id: string; name: string }
-interface AttachmentRow { id: string; name: string; mime: string | null; sizeBytes: number; createdAt: number }
+interface AttachmentRow { id: string; kind: 'file' | 'link'; name: string; mime: string | null; sizeBytes: number | null; externalUrl: string | null; createdAt: number }
 
 const isNoteOwner = (n: Note, meId: string) => n.userId === meId
 const canEditNoteRow = (n: Note, meId: string) => isNoteOwner(n, meId) || n.myRole === 'editor'
@@ -204,7 +204,7 @@ function NoteShareModal({ note, onClose }: { note: Note; onClose: () => void }) 
 // Pronista §My Note attachments (2026-08-31) — แนบไฟล์ได้ตั้งแต่ตอนกำลังเขียนบันทึกใหม่ (ยังไม่กด "บันทึก")
 // noteId = null ตอนกำลังสร้างใหม่ → เรียก ensureNoteId() สร้างบันทึก (silent draft) ก่อน แล้วค่อยอัปโหลดแนบเข้าไป
 function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | null; canEdit: boolean; ensureNoteId?: () => Promise<string> }) {
-  const { alertDialog, confirmDialog } = useDialog()
+  const { alertDialog, confirmDialog, promptDialog } = useDialog()
   const [resolvedId, setResolvedId] = useState<string | null>(noteId)
   useEffect(() => { if (noteId) setResolvedId(noteId) }, [noteId])
   const { data: attachments, reload } = useLoad<AttachmentRow[]>(() => (resolvedId ? api.get(`/api/my-notes/${resolvedId}/attachments`) : Promise.resolve([])), [resolvedId])
@@ -238,6 +238,25 @@ function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | n
       setUploading(false)
     }
   }
+  // แนบลิงก์ Google Docs/Drive — mirror addLink ของ Docs.tsx/MyFilesTab.tsx (สร้าง draft ให้ก่อนถ้ายังไม่มี noteId เหมือน uploadFiles)
+  const addLink = async () => {
+    const name = await promptDialog({ title: 'ลิงก์ Google Docs / Drive', placeholder: 'ชื่อไฟล์…', confirmLabel: 'ถัดไป' })
+    if (!name?.trim()) return
+    const url = await promptDialog({ title: 'วางลิงก์', placeholder: 'https://docs.google.com/...', confirmLabel: 'แนบ' })
+    if (!url?.trim()) return
+    try {
+      let id = resolvedId
+      if (!id && ensureNoteId) {
+        id = await ensureNoteId()
+        setResolvedId(id)
+      }
+      if (!id) return
+      await api.post(`/api/my-notes/${id}/attachments/link`, { name: name.trim(), externalUrl: url.trim() })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'แนบลิงก์ไม่สำเร็จ' })
+    }
+  }
   const removeAttachment = async (a: AttachmentRow) => {
     const ok = await confirmDialog({ title: `ลบไฟล์แนบ "${a.name}"?`, confirmLabel: 'ลบ', danger: true })
     if (!ok) return
@@ -250,10 +269,15 @@ function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | n
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-dim flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" /> ไฟล์แนบ</span>
         {canEdit && (
-          <label className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-700 font-medium cursor-pointer">
-            <Upload className="w-3 h-3" /> {uploading ? 'กำลังแนบ...' : 'แนบไฟล์'}
-            <input type="file" multiple className="hidden" disabled={uploading} onChange={(e) => { const files = e.target.files; if (files && files.length > 0) void uploadFiles(files); e.target.value = '' }} />
-          </label>
+          <div className="flex items-center gap-2.5">
+            <label className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-700 font-medium cursor-pointer">
+              <Upload className="w-3 h-3" /> {uploading ? 'กำลังแนบ...' : 'แนบไฟล์'}
+              <input type="file" multiple className="hidden" disabled={uploading} onChange={(e) => { const files = e.target.files; if (files && files.length > 0) void uploadFiles(files); e.target.value = '' }} />
+            </label>
+            <button onClick={() => void addLink()} className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-700 font-medium">
+              <Link2 className="w-3 h-3" /> แนบลิงก์
+            </button>
+          </div>
         )}
       </div>
       {(attachments ?? []).length === 0 ? (
@@ -262,10 +286,16 @@ function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | n
         <div className="space-y-1">
           {(attachments ?? []).map((a) => (
             <div key={a.id} className="flex items-center gap-2 text-xs bg-hover rounded-lg px-2.5 py-1.5">
-              <a href={`/api/my-notes/attachments/${a.id}/download`} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-1.5 text-body hover:text-brand-700 truncate">
-                <Download className="w-3 h-3 shrink-0" /> <span className="truncate">{a.name}</span>
-              </a>
-              <span className="text-[10px] text-muted shrink-0">{fmtAttSize(a.sizeBytes)}</span>
+              {a.kind === 'link' ? (
+                <a href={a.externalUrl ?? '#'} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-1.5 text-body hover:text-brand-700 truncate">
+                  <Link2 className="w-3 h-3 shrink-0 text-info-500" /> <span className="truncate">{a.name}</span>
+                </a>
+              ) : (
+                <a href={`/api/my-notes/attachments/${a.id}/download`} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-1.5 text-body hover:text-brand-700 truncate">
+                  <Download className="w-3 h-3 shrink-0" /> <span className="truncate">{a.name}</span>
+                </a>
+              )}
+              {a.kind === 'file' && a.sizeBytes != null && <span className="text-[10px] text-muted shrink-0">{fmtAttSize(a.sizeBytes)}</span>}
               {canEdit && <button onClick={() => void removeAttachment(a)} className="text-border hover:text-danger-600 shrink-0"><Trash2 className="w-3 h-3" /></button>}
             </div>
           ))}

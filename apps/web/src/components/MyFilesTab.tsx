@@ -3,14 +3,14 @@
  * แยกขาดจากระบบ "เอกสาร" บริษัทเดิมทั้งหมด (คนละ endpoint คนละกติกาสิทธิ์ — ไม่มี owner-bypass ที่นี่ เป็นพื้นที่ส่วนตัวจริงๆ)
  * component เดียวใช้ทั้ง 2 แท็บผ่าน prop `root` — "own" เริ่มที่ root ของตัวเอง (เข้าโฟลเดอร์ได้ปกติ), "shared" เริ่มที่ลิสต์แบนของที่ถูกแชร์มา (กดเข้าโฟลเดอร์ที่แชร์แล้วสลับไปโหมด browse เหมือนกัน)
  */
-import { ChevronLeft, File, FileText, Folder, FolderInput, FolderPlus, Image as ImageIcon, Pencil, Share2, Trash2, Upload, X } from 'lucide-react'
+import { ChevronLeft, File, FileText, Folder, FolderInput, FolderPlus, Image as ImageIcon, Link2, Pencil, Share2, Trash2, Upload, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
 
-type Kind = 'file' | 'page' | 'folder'
+type Kind = 'file' | 'page' | 'folder' | 'link'
 interface FileRow {
   id: string
   ownerId: string
@@ -19,6 +19,7 @@ interface FileRow {
   name: string
   mime: string | null
   sizeBytes: number | null
+  externalUrl?: string | null
   updatedAt: number
   ownerName?: string | null
   myRole?: 'viewer' | 'editor'
@@ -29,21 +30,23 @@ interface ListResponse { folder: FolderMeta | null; items: FileRow[] }
 interface UserOpt { id: string; name: string }
 interface MemberRow { id: string; name: string; role: 'viewer' | 'editor' }
 
-type TypeFilter = 'all' | 'folder' | 'page' | 'image' | 'pdf' | 'other'
+type TypeFilter = 'all' | 'folder' | 'page' | 'link' | 'image' | 'pdf' | 'other'
 type DateFilter = 'all' | 'today' | 'week' | 'month'
 
 const fileType = (r: FileRow): TypeFilter => {
   if (r.kind === 'folder') return 'folder'
   if (r.kind === 'page') return 'page'
+  if (r.kind === 'link') return 'link'
   if (r.mime === 'application/pdf') return 'pdf'
   if (r.mime?.startsWith('image/')) return 'image'
   return 'other'
 }
-const TYPE_LABEL: Record<TypeFilter, string> = { all: 'ทุกประเภท', folder: 'โฟลเดอร์', page: 'เอกสาร', image: 'รูปภาพ', pdf: 'PDF', other: 'อื่นๆ' }
+const TYPE_LABEL: Record<TypeFilter, string> = { all: 'ทุกประเภท', folder: 'โฟลเดอร์', page: 'เอกสาร', link: 'ลิงก์', image: 'รูปภาพ', pdf: 'PDF', other: 'อื่นๆ' }
 const iconFor = (r: FileRow) => {
   const t = fileType(r)
   if (t === 'folder') return <Folder className="w-4 h-4 text-brand-500 shrink-0" />
   if (t === 'page') return <FileText className="w-4 h-4 text-info-600 shrink-0" />
+  if (t === 'link') return <Link2 className="w-4 h-4 text-info-500 shrink-0" />
   if (t === 'image') return <ImageIcon className="w-4 h-4 text-success-600 shrink-0" />
   return <File className="w-4 h-4 text-muted shrink-0" />
 }
@@ -227,7 +230,7 @@ function ShareToDocsModal({ file, onClose }: { file: FileRow; onClose: () => voi
 }
 
 export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
-  const { confirmDialog, alertDialog } = useDialog()
+  const { confirmDialog, alertDialog, promptDialog } = useDialog()
   const { user } = useAuth()
   // เมนู "เอกสาร" เป็น teamOnly — vendor/guest กด "แชร์ไปเอกสาร" ไปก็เจอ 403 ที่ server อยู่ดี ซ่อนปุ่มไปเลยดีกว่า
   const canShareToDocs = user?.role === 'owner' || user?.role === 'member'
@@ -270,7 +273,22 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
   const openItem = (r: FileRow) => {
     if (r.kind === 'folder') { setFolderId(r.id); return }
     if (r.kind === 'page') { openPage(r.id); return }
+    if (r.kind === 'link') { if (r.externalUrl) window.open(r.externalUrl, '_blank', 'noopener'); return }
     window.open(`/api/my-files/${r.id}/download`, '_blank')
+  }
+
+  // เพิ่มลิงก์ Google Docs/Drive — mirror addLink ใน Docs.tsx (เมนู "เอกสาร" บริษัท)
+  const addLink = async () => {
+    const title = await promptDialog({ title: 'ลิงก์ Google Docs / Drive', placeholder: 'ชื่อไฟล์…', confirmLabel: 'ถัดไป' })
+    if (!title?.trim()) return
+    const url = await promptDialog({ title: 'วางลิงก์', placeholder: 'https://docs.google.com/...', confirmLabel: 'เพิ่ม' })
+    if (!url?.trim()) return
+    try {
+      await api.post('/api/my-files', { kind: 'link', name: title.trim(), externalUrl: url.trim(), parentId: folderId })
+      reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มลิงก์ไม่สำเร็จ' })
+    }
   }
 
   // Pronista §My Files multi-upload (2026-08-28) — เลือกได้ทีละหลายไฟล์ ยิงทีละไฟล์ต่อ request (backend รับทีละไฟล์อยู่แล้ว) ไฟล์ไหนพังไม่บล็อกไฟล์ที่เหลือ
@@ -359,6 +377,9 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
           >
             <FileText className="w-3.5 h-3.5" /> สร้างเอกสาร
           </button>
+          <button onClick={() => void addLink()} className="inline-flex items-center gap-1.5 text-sm text-body border border-border-subtle hover:bg-hover px-3 py-1.5 rounded-lg">
+            <Link2 className="w-3.5 h-3.5" /> เพิ่มลิงก์
+          </button>
         </div>
       )}
 
@@ -391,8 +412,8 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
                   {iconFor(r)}
                   <span className="text-sm text-body truncate">{r.name}</span>
                 </button>
-                {r.ownerName && <span className="text-[11px] text-muted shrink-0 hidden sm:inline">{r.ownerName}</span>}
-                {r.kind === 'file' && <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-14 text-right">{fmtSize(r.sizeBytes)}</span>}
+                {r.ownerName && <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate text-right">{r.ownerName}</span>}
+                <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-14 text-right">{r.kind === 'file' ? fmtSize(r.sizeBytes) : ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden md:inline w-20 text-right">{new Date(r.updatedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>
                 <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                   {r.kind === 'page' && canManage && <button onClick={() => openPage(r.id)} title="แก้ไข" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>}
