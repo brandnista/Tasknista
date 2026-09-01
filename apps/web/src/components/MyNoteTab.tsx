@@ -9,6 +9,7 @@ import { Check, Download, Link2, ListTodo, Paperclip, Pencil, Pin, Plus, Repeat,
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router'
 import { useDialog } from './Dialog'
+import { NotificationBell } from './NotificationBell'
 import { RichTextEditor } from './RichTextEditor'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -558,8 +559,13 @@ function NoteBoard({
           <button onClick={() => onTabChange('own')} className={`px-3 py-1 rounded-md ${tab === 'own' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
             บอร์ดบันทึกของฉัน
           </button>
-          <button onClick={() => onTabChange('shared')} className={`px-3 py-1 rounded-md ${tab === 'shared' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <button
+            onClick={() => onTabChange('shared')}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md ${tab === 'shared' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}
+          >
             บอร์ดที่แชร์กับฉัน
+            {/* Pronista §My Note badge (2026-09-01) — เลขแจ้งเตือนบนแท็บเอง คู่กับ badge ที่เมนูข้าง (my-tasks/notes) */}
+            <NotificationBell types={['note_shared']} />
           </button>
         </div>
       </div>
