@@ -1746,6 +1746,8 @@ export const NOTIFICATION_TYPES = [
   // Pronista §Domain Management (2026-08-27) — เตือนโดเมนใกล้หมดอายุ (หลายระดับ) / หมดอายุแล้ว
   'domain_expiry_reminder',
   'domain_expired',
+  // Pronista §My Note badge (2026-09-01) — ถูกแชร์ Note มาใหม่ (เฉพาะตอนแชร์ครั้งแรก ไม่แจ้งซ้ำตอนแค่เปลี่ยนสิทธิ์ viewer/editor)
+  'note_shared',
 ] as const
 
 export const notifications = sqliteTable(

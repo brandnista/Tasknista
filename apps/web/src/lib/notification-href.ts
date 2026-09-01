@@ -17,6 +17,7 @@ export function notificationHref(n: NotificationLike): string | undefined {
     return n.meetingId ? `/my-tasks/meetings?meeting=${n.meetingId}` : '/my-tasks/meetings'
   if (n.type === 'chat_mention' || n.type === 'chat_message') return n.chatChannelId ? `/team?tab=chat&channel=${n.chatChannelId}` : '/team'
   if (n.type === 'member_expiry_reminder') return n.memberId ? `/members/${n.memberId}` : undefined
+  if (n.type === 'note_shared') return '/my-tasks/notes'
   if (n.type === 'domain_expiry_reminder' || n.type === 'domain_expired') return '/admin/domains'
   if (n.projectId) return n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`
   return undefined

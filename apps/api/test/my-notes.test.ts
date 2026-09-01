@@ -125,6 +125,35 @@ describe('Pronista §My Note sharing (2026-08-28) — mirror กติกาไ�
   })
 })
 
+describe('Pronista §My Note badge (2026-09-01) — แจ้งเตือนตอนถูกแชร์ Note', () => {
+  const notifCount = async (cookie: string) =>
+    ((await (await app.request('/api/notifications', { headers: { cookie } }, env)).json()) as { type: string }[]).filter((n) => n.type === 'note_shared').length
+
+  it('แชร์ครั้งแรก → คนที่ถูกแชร์ได้ note_shared 1 รายการ ข้อความมีชื่อ note · แชร์ซ้ำ/เปลี่ยนสิทธิ์ไม่แจ้งซ้ำ', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const somchai = await loginAs(app, 'somchai@example.com')
+    const created = (await (
+      await app.request('/api/my-notes', json(pond, { title: 'บันทึกที่จะแชร์', body: { mode: 'text', text: 'x' } }), env)
+    ).json()) as { id: string }
+
+    const before = await notifCount(somchai)
+    const idsBefore = new Set(
+      ((await (await app.request('/api/notifications', { headers: { cookie: somchai } }, env)).json()) as { id: string; type: string }[])
+        .filter((n) => n.type === 'note_shared')
+        .map((n) => n.id),
+    )
+    await app.request(`/api/my-notes/${created.id}/members`, json(pond, { userId: 'u_somchai', role: 'viewer' }), env)
+    expect(await notifCount(somchai)).toBe(before + 1)
+    const notifs = (await (await app.request('/api/notifications', { headers: { cookie: somchai } }, env)).json()) as { id: string; type: string; message: string }[]
+    const fresh = notifs.find((n) => n.type === 'note_shared' && !idsBefore.has(n.id))
+    expect(fresh?.message).toBe('ปอนด์ แชร์บันทึก "บันทึกที่จะแชร์" ให้คุณ')
+
+    // เปลี่ยนสิทธิ์เป็น editor — เป็นแค่แก้ role ของคนเดิม ไม่ใช่แชร์ใหม่ ไม่ควรแจ้งซ้ำ
+    await app.request(`/api/my-notes/${created.id}/members`, json(pond, { userId: 'u_somchai', role: 'editor' }), env)
+    expect(await notifCount(somchai)).toBe(before + 1)
+  })
+})
+
 describe('Pronista §My Note attachments (2026-08-28)', () => {
   it('แนบไฟล์ได้ (owner) · คนที่ถูกแชร์แบบ viewer ดาวน์โหลดได้แต่แนบ/ลบไม่ได้', async () => {
     const pond = await loginAs(app, 'pond@example-co.test')

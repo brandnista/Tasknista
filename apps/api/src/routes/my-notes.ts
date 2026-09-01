@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { INLINE_SAFE_MIME } from '../lib/file-safety'
+import { notifyUser } from '../lib/notify'
 import { canEditNote, canViewNote, getNoteAccess } from '../lib/notes-access'
 import type { AppEnv } from '../types'
 
@@ -126,6 +127,10 @@ myNoteRoutes
     const noteId = c.req.param('id')
     const access = await getNoteAccess(db, noteId, me.id)
     if (access !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    // Pronista §My Note badge (2026-09-01) — เช็คว่ามีอยู่ก่อนไหม กันแจ้งเตือนซ้ำตอนแค่เปลี่ยนสิทธิ์ viewer/editor (แจ้งเฉพาะแชร์ครั้งแรก)
+    const alreadyShared = (
+      await db.select({ userId: noteMembers.userId }).from(noteMembers).where(and(eq(noteMembers.noteId, noteId), eq(noteMembers.userId, body.data.userId))).limit(1)
+    )[0]
     const upserted = (
       await db
         .insert(noteMembers)
@@ -134,6 +139,10 @@ myNoteRoutes
         .returning()
     )[0]
     await writeAudit(c.env, { actorId: me.id, action: 'note.share', entity: 'note', entityId: noteId, meta: { userId: body.data.userId, role: body.data.role } })
+    if (!alreadyShared && body.data.userId !== me.id) {
+      const note = (await db.select({ title: notes.title }).from(notes).where(eq(notes.id, noteId)).limit(1))[0]
+      await notifyUser(db, { userId: body.data.userId, type: 'note_shared', message: `${me.name} แชร์บันทึก "${note?.title || 'ไม่มีชื่อ'}" ให้คุณ` })
+    }
     return c.json(upserted, 201)
   })
 

@@ -284,12 +284,14 @@ export function Layout() {
                       end={c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks'}
                       onClick={() => setNavOpen(false)}
                       className={({ isActive }) =>
-                        `block px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                        `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
                           isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
                         }`
                       }
                     >
                       {c.label}
+                      {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
+                      {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
                     </NavLink>
                   ))}
                 </div>
