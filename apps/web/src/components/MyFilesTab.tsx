@@ -412,10 +412,11 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
                   {iconFor(r)}
                   <span className="text-sm text-body truncate">{r.name}</span>
                 </button>
-                {r.ownerName && <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate text-right">{r.ownerName}</span>}
+                {/* Pronista §My Files column alignment fix (2026-09-01) — คอลัมน์ท้ายแถวทุกอันต้อง "กว้างคงที่ + render เสมอ" ไม่ใช่แค่ conditional ทั้งก้อน (เดิม owner render เฉพาะมี ownerName, ปุ่มจัดการ 2-4 ปุ่มไม่เท่ากันแต่ละแถว ไม่ได้ห่อความกว้างคงที่ — ทำให้ปุ่มไฟล์ชื่อ flex-1 กินพื้นที่ไม่เท่ากันต่อแถว คอลัมน์ owner/ขนาด/วันที่ ข้างหลังเลยเบี้ยว) */}
+                <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate text-right">{r.ownerName ?? ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-14 text-right">{r.kind === 'file' ? fmtSize(r.sizeBytes) : ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden md:inline w-20 text-right">{new Date(r.updatedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>
-                <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                <div className="flex items-center justify-end gap-1 shrink-0 w-28 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                   {r.kind === 'page' && canManage && <button onClick={() => openPage(r.id)} title="แก้ไข" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>}
                   {/* Pronista §My Files bug fix (2026-08-28) — เดิมเช็ค myRole === undefined ซึ่งเป็น undefined เสมอตอนไล่เข้าโฟลเดอร์ (endpoint parentId= ไม่ส่ง myRole มา) ทำให้ปุ่มแชร์โผล่ให้คนที่ไม่ใช่เจ้าของไฟล์นั้นจริงๆ (กดแล้วเจอ 403 เงียบๆ) — เปลี่ยนไปเช็ค isOwner ตรงๆ ที่ backend คำนวณมาให้ */}
                   {r.isOwner && <button onClick={() => setShareModal(r)} title="แชร์" className="p-1 rounded hover:bg-white text-dim hover:text-brand-700"><Share2 className="w-3.5 h-3.5" /></button>}

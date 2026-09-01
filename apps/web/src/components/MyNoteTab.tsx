@@ -295,7 +295,7 @@ function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | n
                   <Download className="w-3 h-3 shrink-0" /> <span className="truncate">{a.name}</span>
                 </a>
               )}
-              {a.kind === 'file' && a.sizeBytes != null && <span className="text-[10px] text-muted shrink-0">{fmtAttSize(a.sizeBytes)}</span>}
+              <span className="text-[10px] text-muted shrink-0 w-12 text-right">{a.kind === 'file' && a.sizeBytes != null ? fmtAttSize(a.sizeBytes) : ''}</span>
               {canEdit && <button onClick={() => void removeAttachment(a)} className="text-border hover:text-danger-600 shrink-0"><Trash2 className="w-3 h-3" /></button>}
             </div>
           ))}

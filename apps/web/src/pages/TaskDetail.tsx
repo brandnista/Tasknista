@@ -756,11 +756,15 @@ export function TaskDetailPage() {
                           <FileText className="w-4 h-4 text-muted shrink-0" /> <span className="truncate">{a.filename}</span>
                         </a>
                       )}
-                      {a.sizeBytes != null && <span className="text-[11px] text-muted shrink-0">{fmtAttSize(a.sizeBytes)}</span>}
-                      {canEdit && renamingAttachment?.id !== a.id && (
-                        <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
-                          <button onClick={() => setRenamingAttachment({ id: a.id, draft: a.filename })} className="p-1 rounded hover:bg-white text-dim hover:text-brand-700" title="เปลี่ยนชื่อ"><Pencil className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => void removeAttachment(a.id)} className="p-1 rounded hover:bg-white text-dim hover:text-danger-600" title="ลบ"><X className="w-3.5 h-3.5" /></button>
+                      <span className="text-[11px] text-muted shrink-0 w-14 text-right">{a.sizeBytes != null ? fmtAttSize(a.sizeBytes) : ''}</span>
+                      {renamingAttachment?.id !== a.id && (
+                        <div className="flex items-center justify-end gap-1 shrink-0 w-14 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                          {canEdit && (
+                            <>
+                              <button onClick={() => setRenamingAttachment({ id: a.id, draft: a.filename })} className="p-1 rounded hover:bg-white text-dim hover:text-brand-700" title="เปลี่ยนชื่อ"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => void removeAttachment(a.id)} className="p-1 rounded hover:bg-white text-dim hover:text-danger-600" title="ลบ"><X className="w-3.5 h-3.5" /></button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -775,14 +779,17 @@ export function TaskDetailPage() {
                   {attachMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
-                      <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setAttachMenuOpen(false); fileRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📎 อัปโหลดไฟล์</button>
+                      <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                        <div className="px-3 pt-1.5 pb-1 text-[10px] font-semibold text-muted uppercase tracking-wide">ไฟล์แนบทั่วไป</div>
+                        <button onClick={() => { setAttachMenuOpen(false); fileRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📎 อัปโหลดไฟล์แนบ</button>
                         <button onClick={() => { setAttachMenuOpen(false); void addLink() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">🔗 แนบลิงก์ (Google Docs/Figma/Canva)</button>
                         {!isAssignee && (
                           <>
                             <div className="border-t border-border-subtle my-1" />
+                            {/* Pronista §Task attachments (2026-09-01) — แยกกลุ่มให้ชัดจากไฟล์แนบทั่วไปด้านบน: 3 ปุ่มนี้สร้าง/ผูก "เอกสาร" จริงในระบบเอกสารบริษัท (มีเลขที่/เวอร์ชัน/ประวัติ ค้นหาเจอในเมนูเอกสาร) ไม่ใช่แค่ไฟล์แนบลอยๆ ของ task นี้ */}
+                            <div className="px-3 pt-1.5 pb-1 text-[10px] font-semibold text-muted uppercase tracking-wide">เอกสารทางการ (เข้าระบบ "เอกสาร")</div>
                             <button onClick={() => { setAttachMenuOpen(false); setTemplatePickerOpen(true) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📄 สร้างเอกสารจาก Template</button>
-                            <button onClick={() => { setAttachMenuOpen(false); docUploadRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">⬆️ อัปโหลดไฟล์เอกสาร (Word/PDF)</button>
+                            <button onClick={() => { setAttachMenuOpen(false); docUploadRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">⬆️ อัปโหลดเป็นเอกสาร (Word/PDF)</button>
                             <button onClick={() => { setAttachMenuOpen(false); setExistingDocPickerOpen(true) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">🔗 ผูกเอกสารที่มีอยู่แล้ว</button>
                           </>
                         )}
