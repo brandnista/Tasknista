@@ -287,6 +287,7 @@ const DELETE_TASK_ERROR_LABEL = {
   has_subtasks: 'ลบไม่ได้ เพราะยังมีงานย่อยอยู่ — ลบหรือย้ายงานย่อยออกก่อน',
 } as const
 const fmtWhen = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+const fmtAttSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`)
 
 /** Pronista §Task Detail redesign — หน้าเต็มหน้าแทน TaskDrawer เดิม (Drawer แคบไป ยัดทุกอย่างไว้ไม่มีที่หายใจ)
  * แบ่ง 2 คอลัมน์ + จัดลำดับ/เน้นเนื้อหาต่างกันอัตโนมัติตาม "ใครเปิดดู": assignee ของงานนี้ (t.assigneeId === user.id) vs คนอื่นที่แก้ไขได้ (ถือเป็นฝั่งคนจ่ายงาน)
@@ -326,8 +327,8 @@ export function TaskDetailPage() {
   const [newChecklistText, setNewChecklistText] = useState('')
   const [renamingAttachment, setRenamingAttachment] = useState<{ id: string; draft: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  // Pronista §Back to Basic — สร้าง/อัปโหลดเอกสารมีประเภท (MOM/BRD/SOW/SRS/PEP/UIR/CR) หรือผูกเอกสารที่มีอยู่แล้ว ตรงจากหน้านี้เลย
-  const [docMenuOpen, setDocMenuOpen] = useState(false)
+  // Pronista §Task attachments (2026-09-01) — เมนูเดียวรวมทุกวิธีแนบ (ไฟล์/ลิงก์/เอกสาร MOM/BRD/SOW/SRS/PEP/UIR/CR หรือผูกเอกสารที่มีอยู่แล้ว) แทนปุ่มกระจัดกระจาย
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
   const docUploadRef = useRef<HTMLInputElement>(null)
   const [docUploadPending, setDocUploadPending] = useState<File | null>(null)
@@ -726,11 +727,11 @@ export function TaskDetailPage() {
 
             <div>
               <div className="text-xs font-medium text-muted mb-2">ไฟล์แนบ{t.linkedDocuments.length > 0 ? ' / เอกสารที่เชื่อม' : ''}</div>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {t.attachments.map((a) => (
-                  <div key={a.id} className="group relative aspect-square rounded-lg bg-divider overflow-hidden">
-                    {renamingAttachment?.id === a.id ? (
-                      <div className="w-full h-full grid place-items-center p-2">
+              {t.attachments.length > 0 && (
+                <div className="space-y-1 mb-2">
+                  {t.attachments.map((a) => (
+                    <div key={a.id} className="group flex items-center gap-2.5 bg-hover rounded-lg px-2.5 py-2">
+                      {renamingAttachment?.id === a.id ? (
                         <input
                           autoFocus
                           value={renamingAttachment.draft}
@@ -740,52 +741,56 @@ export function TaskDetailPage() {
                             if (e.key === 'Escape') setRenamingAttachment(null)
                           }}
                           onBlur={() => void renameAttachment(a.id, renamingAttachment.draft).then(() => setRenamingAttachment(null))}
-                          className="w-full text-[11px] text-center bg-white border border-brand-400 rounded px-1 py-1 focus:outline-hidden"
+                          className="flex-1 min-w-0 text-sm bg-white border border-brand-400 rounded-lg px-2 py-1 focus:outline-hidden"
                         />
-                      </div>
-                    ) : a.externalUrl ? (
-                      <a href={a.externalUrl} target="_blank" rel="noreferrer" className="w-full h-full grid place-items-center text-muted p-2 text-center">
-                        <span><Link2 className="w-5 h-5 mx-auto mb-1" /><span className="text-[10px] break-all line-clamp-2">{a.filename}</span></span>
-                      </a>
-                    ) : a.mime?.startsWith('image/') ? (
-                      <a href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer"><img src={`/api/attachments/${a.id}`} alt={a.filename} className="w-full h-full object-cover" /></a>
-                    ) : (
-                      <a href={`/api/attachments/${a.id}`} className="w-full h-full grid place-items-center text-muted p-2 text-center">
-                        <span><FileText className="w-5 h-5 mx-auto mb-1" /><span className="text-[10px] break-all line-clamp-2">{a.filename}</span></span>
-                      </a>
-                    )}
-                    {canEdit && renamingAttachment?.id !== a.id && (
-                      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100">
-                        <button onClick={() => setRenamingAttachment({ id: a.id, draft: a.filename })} className="w-5 h-5 grid place-items-center rounded bg-ink/60 text-white" title="เปลี่ยนชื่อ"><Pencil className="w-3 h-3" /></button>
-                        <button onClick={() => void removeAttachment(a.id)} className="w-5 h-5 grid place-items-center rounded bg-ink/60 text-white" title="ลบ"><X className="w-3 h-3" /></button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {canEdit && (
-                  <button onClick={() => fileRef.current?.click()} className="aspect-square rounded-lg border-2 border-dashed border-border-subtle grid place-items-center text-muted hover:border-brand-300 hover:text-brand-600" title="แนบไฟล์"><Plus className="w-5 h-5" /></button>
-                )}
-                {canEdit && (
-                  <button onClick={() => void addLink()} className="aspect-square rounded-lg border-2 border-dashed border-border-subtle grid place-items-center text-muted hover:border-brand-300 hover:text-brand-600" title="แนบลิงก์ (Google Docs/Figma/Canva)"><Link2 className="w-5 h-5" /></button>
-                )}
-                {canEdit && !isAssignee && (
-                  <div className="relative aspect-square">
-                    <button onClick={() => setDocMenuOpen((v) => !v)} className="w-full h-full rounded-lg border-2 border-dashed border-border-subtle grid place-items-center text-muted hover:border-brand-300 hover:text-brand-600" title="สร้าง/ผูกเอกสาร MOM/BRD/SOW/SRS/PEP/UIR/CR">
-                      <FileText className="w-5 h-5" />
-                    </button>
-                    {docMenuOpen && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setDocMenuOpen(false)} />
-                        <div className="absolute left-0 top-full mt-1 w-52 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                          <button onClick={() => { setDocMenuOpen(false); setTemplatePickerOpen(true) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📄 สร้างจาก Template</button>
-                          <button onClick={() => { setDocMenuOpen(false); docUploadRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">⬆️ อัปโหลดไฟล์</button>
-                          <button onClick={() => { setDocMenuOpen(false); setExistingDocPickerOpen(true) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">🔗 ผูกเอกสารที่มีอยู่แล้ว</button>
+                      ) : a.externalUrl ? (
+                        <a href={a.externalUrl} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-2 text-sm text-body hover:text-brand-700">
+                          <Link2 className="w-4 h-4 text-info-500 shrink-0" /> <span className="truncate">{a.filename}</span>
+                        </a>
+                      ) : a.mime?.startsWith('image/') ? (
+                        <a href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-2 text-sm text-body hover:text-brand-700">
+                          <img src={`/api/attachments/${a.id}`} alt={a.filename} className="w-6 h-6 rounded object-cover shrink-0" /> <span className="truncate">{a.filename}</span>
+                        </a>
+                      ) : (
+                        <a href={`/api/attachments/${a.id}`} className="flex-1 min-w-0 flex items-center gap-2 text-sm text-body hover:text-brand-700">
+                          <FileText className="w-4 h-4 text-muted shrink-0" /> <span className="truncate">{a.filename}</span>
+                        </a>
+                      )}
+                      {a.sizeBytes != null && <span className="text-[11px] text-muted shrink-0">{fmtAttSize(a.sizeBytes)}</span>}
+                      {canEdit && renamingAttachment?.id !== a.id && (
+                        <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                          <button onClick={() => setRenamingAttachment({ id: a.id, draft: a.filename })} className="p-1 rounded hover:bg-white text-dim hover:text-brand-700" title="เปลี่ยนชื่อ"><Pencil className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => void removeAttachment(a.id)} className="p-1 rounded hover:bg-white text-dim hover:text-danger-600" title="ลบ"><X className="w-3.5 h-3.5" /></button>
                         </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {canEdit && (
+                <div className="relative inline-block">
+                  <button onClick={() => setAttachMenuOpen((v) => !v)} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 border-2 border-dashed border-border-subtle hover:border-brand-300 hover:bg-hover rounded-lg px-3 py-1.5">
+                    <Plus className="w-3.5 h-3.5" /> เพิ่มไฟล์แนบ
+                  </button>
+                  {attachMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setAttachMenuOpen(false)} />
+                      <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                        <button onClick={() => { setAttachMenuOpen(false); fileRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📎 อัปโหลดไฟล์</button>
+                        <button onClick={() => { setAttachMenuOpen(false); void addLink() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">🔗 แนบลิงก์ (Google Docs/Figma/Canva)</button>
+                        {!isAssignee && (
+                          <>
+                            <div className="border-t border-border-subtle my-1" />
+                            <button onClick={() => { setAttachMenuOpen(false); setTemplatePickerOpen(true) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📄 สร้างเอกสารจาก Template</button>
+                            <button onClick={() => { setAttachMenuOpen(false); docUploadRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">⬆️ อัปโหลดไฟล์เอกสาร (Word/PDF)</button>
+                            <button onClick={() => { setAttachMenuOpen(false); setExistingDocPickerOpen(true) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">🔗 ผูกเอกสารที่มีอยู่แล้ว</button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { const files = e.target.files; if (files && files.length) void uploadMany(files); e.target.value = '' }} />
               <input ref={docUploadRef} type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDocUploadPending(f); e.target.value = '' }} />
               {t.linkedDocuments.length > 0 && (

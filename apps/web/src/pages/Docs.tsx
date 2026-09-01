@@ -32,6 +32,7 @@ interface DocNode {
   externalUrl: string | null
   filename: string | null
   mime: string | null
+  sizeBytes: number | null
   isTemplate: boolean
   // Pronista §Document Template — เลขที่เอกสาร (โชว์แทนชื่อในทรีถ้ามี) — null ถ้าไม่ใช่ template หรือ template ที่ยังไม่ gen เลขที่
   templateDocNumber: string | null
@@ -273,6 +274,14 @@ function fmtUpdated(iso: string | null): string | null {
   return fmtThaiDate(bkkDateStr)
 }
 
+// Pronista §Document Management — คอลัมน์ "ขนาดไฟล์" (2026-09-01) — เฉพาะ kind='file' เท่านั้น (page/link/folder/template ไม่มี sizeBytes)
+function fmtSize(n: number | null): string {
+  if (!n) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 /** การ์ด Grid view แบบ Google Docs — ไอคอนตามประเภทไฟล์จริง + ใครแก้ไขล่าสุดเมื่อไร + ปุ่มจัดการ (⋮) ถ้าแก้ไขได้ + ลากเข้าโฟลเดอร์แนะนำได้ */
 function DocGridCard({ n, projectName, onMenu }: { n: DocNode; projectName: string | null; onMenu?: (rect: DOMRect) => void }) {
   const updated = fmtUpdated(n.updatedAt)
@@ -302,6 +311,7 @@ function DocGridCard({ n, projectName, onMenu }: { n: DocNode; projectName: stri
       <div className="flex items-center gap-1.5 flex-wrap">
         {n.docType && <span className={DOC_TYPE_BADGE}>{n.docType}</span>}
         {projectName && <span className="text-xs text-muted truncate">{projectName}</span>}
+        {n.kind === 'file' && n.sizeBytes != null && <span className="text-xs text-muted shrink-0">{fmtSize(n.sizeBytes)}</span>}
       </div>
       {(updated || n.updatedByName) && (
         <div className="flex items-center gap-1.5 text-xs text-muted truncate">
@@ -334,6 +344,7 @@ function DocListRow({ n, projectName, onMenu }: { n: DocNode; projectName: strin
         </span>
       )}
       {projectName && <span className="text-xs text-muted shrink-0 hidden sm:inline">{projectName}</span>}
+      <span className="text-xs text-muted shrink-0 hidden sm:inline w-14 text-right">{n.kind === 'file' ? fmtSize(n.sizeBytes) : ''}</span>
       {n.docType && <span className={DOC_TYPE_BADGE}>{n.docType}</span>}
       {onMenu && (
         <button

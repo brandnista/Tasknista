@@ -75,6 +75,7 @@ export const docRoutes = new Hono<AppEnv>()
         externalUrl: docs.externalUrl,
         filename: docs.filename,
         mime: docs.mime,
+        sizeBytes: docs.sizeBytes,
         isTemplate: docs.isTemplate,
         templateDocNumber: docs.templateDocNumber,
         // Pronista §Document Version History — เลขที่เอกสาร (เล่ม) + เวอร์ชัน

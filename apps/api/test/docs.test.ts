@@ -73,6 +73,18 @@ describe('D1 — docs tree CRUD', () => {
     const raw = await env.DB.prepare('SELECT COUNT(*) AS n FROM docs WHERE deleted_at IS NOT NULL').first<{ n: number }>()
     expect(raw?.n).toBe(3)
   })
+
+  // Pronista §Document Management — คอลัมน์ "ขนาดไฟล์" (2026-09-01) — GET /docs ต้องคืน sizeBytes ให้หน้าบ้านโชว์ได้ (เฉพาะ kind='file')
+  it('อัปโหลดไฟล์ (kind=file) → GET /docs เห็น sizeBytes ตรงกับไฟล์จริง', async () => {
+    const m = await loginAs(app, 'pond@example-co.test')
+    const fd = new FormData()
+    fd.set('file', new File(['เนื้อหาไฟล์ทดสอบ'], 'สัญญา.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
+    const uploaded = (await (await app.request('/api/docs/upload', { method: 'POST', headers: { cookie: m }, body: fd }, env)).json()) as { id: string; sizeBytes: number }
+    expect(uploaded.sizeBytes).toBeGreaterThan(0)
+
+    const tree = (await (await app.request('/api/docs', { headers: { cookie: m } }, env)).json()) as { id: string; kind: string; sizeBytes: number | null }[]
+    expect(tree.find((n) => n.id === uploaded.id)).toMatchObject({ kind: 'file', sizeBytes: uploaded.sizeBytes })
+  })
 })
 
 describe('D3 — docs images', () => {
