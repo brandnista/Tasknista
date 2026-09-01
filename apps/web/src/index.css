@@ -166,11 +166,13 @@ html, body {
 .doc-editor th, .doc-editor td { border: 1px solid var(--border-subtle); padding: 0.5rem 0.75rem; text-align: left; vertical-align: top; }
 .doc-editor th { background: var(--hover); font-weight: 600; color: var(--strong); }
 
-/* Pronista §Document Template — print-to-PDF (TemplatePrintView.tsx): ซ่อนแอปทั้งหมด โชว์แค่มุมมองพิมพ์ */
+/* Pronista §Document Template — print-to-PDF (TemplatePrintView.tsx): ซ่อนแอปทั้งหมด โชว์แค่มุมมองพิมพ์
+ * Pronista §Document Diff export (2026-09-01) — ใช้ marker class เดียวกันกับ DocumentCompare.tsx (.doc-compare-print-view) */
 @media print {
   body * { visibility: hidden; }
-  .template-print-view, .template-print-view * { visibility: visible; }
-  .template-print-view { position: absolute; left: 0; top: 0; width: 100%; }
+  .template-print-view, .template-print-view *,
+  .doc-compare-print-view, .doc-compare-print-view * { visibility: visible; }
+  .template-print-view, .doc-compare-print-view { position: absolute; left: 0; top: 0; width: 100%; }
 }
 
 /* ซ่อน scrollbar ทุกจุด (สไตล์ macOS) ยัง scroll ได้ — ตาม mockup */

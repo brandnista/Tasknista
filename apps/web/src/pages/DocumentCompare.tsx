@@ -1,5 +1,7 @@
 import { getDocTemplate, type TemplateData } from '@seedoffice/core'
 import { diffArrays, diffWords } from 'diff'
+import { ChevronDown, ChevronUp, Printer } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
@@ -132,11 +134,11 @@ function InlineDiff({ oldText, newText, side }: { oldText: string; newText: stri
   )
 }
 
-function ChangeRowView({ row }: { row: ChangeRow }) {
+function ChangeRowView({ row, id, active }: { row: ChangeRow; id?: string; active?: boolean }) {
   const badgeCls = row.kind === 'added' ? 'bg-success-100 text-success-700' : row.kind === 'removed' ? 'bg-danger-100 text-danger-700' : 'bg-warning-100 text-warning-800'
   const badgeLabel = row.kind === 'added' ? 'เพิ่ม' : row.kind === 'removed' ? 'ลบ' : 'แก้ไข'
   return (
-    <div className="border border-border-subtle rounded-lg overflow-hidden">
+    <div id={id} className={`border rounded-lg overflow-hidden ${active ? 'border-brand-400 ring-2 ring-brand-200' : 'border-border-subtle'}`}>
       <div className="flex items-center gap-2 px-3 py-1.5 bg-hover/60 border-b border-border-subtle">
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badgeCls}`}>{badgeLabel}</span>
         <span className="text-xs text-muted truncate">{row.label}</span>
@@ -153,11 +155,29 @@ function ChangeRowView({ row }: { row: ChangeRow }) {
   )
 }
 
-/** Pronista §Document Diff — หน้าเปรียบเทียบ 2 เวอร์ชันของเอกสารประเภทเดียวกัน (GitHub-style) — เก่าซ้าย/ใหม่ขวา แสดงเฉพาะจุดที่ต่างกัน */
+/** ป้ายเอกสารเก่า/ใหม่ ใช้ทั้งจอปกติและมุมมองพิมพ์ (ข้อความเดียวกัน ต่างแค่สไตล์รอบนอก) */
+function CompareHeaderInfo({ older, newer }: { older: DocDetail; newer: DocDetail }) {
+  return (
+    <div className="grid sm:grid-cols-2 gap-3">
+      <div>
+        <div className="text-[11px] text-muted mb-0.5">เวอร์ชันเก่า (ซ้าย)</div>
+        <div className="text-sm font-medium text-body">{older.title} <span className="text-muted font-mono">· v{(older.docVersion ?? '—').replace(/^v/i, '')}</span></div>
+      </div>
+      <div>
+        <div className="text-[11px] text-muted mb-0.5">เวอร์ชันใหม่ (ขวา)</div>
+        <div className="text-sm font-medium text-body">{newer.title} <span className="text-muted font-mono">· v{(newer.docVersion ?? '—').replace(/^v/i, '')}</span></div>
+      </div>
+    </div>
+  )
+}
+
+/** Pronista §Document Diff — หน้าเปรียบเทียบ 2 เวอร์ชันของเอกสารประเภทเดียวกัน (GitHub-style) — เก่าซ้าย/ใหม่ขวา แสดงเฉพาะจุดที่ต่างกัน
+ * Pronista §Document Diff nav/export (2026-09-01) — ปุ่มกระโดดไปจุดที่ต่างถัดไป/ก่อนหน้า + ดาวน์โหลด PDF (window.print() ล้อแพตเทิร์นเดิมของ TemplatePrintView.tsx) */
 export function DocumentComparePage() {
   const [params] = useSearchParams()
   const idA = params.get('a')
   const idB = params.get('b')
+  const [currentIndex, setCurrentIndex] = useState(0)
 
   const { data, loading, error } = useLoad(async () => {
     if (!idA || !idB) throw new Error('missing_ids')
@@ -177,9 +197,27 @@ export function DocumentComparePage() {
     return { older, newer, changes }
   }, [idA, idB])
 
+  useEffect(() => setCurrentIndex(0), [data])
+
+  const jumpTo = (i: number) => {
+    if (!data || data.changes.length === 0) return
+    const next = ((i % data.changes.length) + data.changes.length) % data.changes.length
+    setCurrentIndex(next)
+    document.getElementById(`change-${data.changes[next]!.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
   return (
     <>
-      <PageHeader title="เปรียบเทียบเอกสาร" />
+      <PageHeader
+        title="เปรียบเทียบเอกสาร"
+        action={
+          data && (
+            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 text-sm text-body border border-border-subtle hover:bg-hover px-3 py-1.5 rounded-lg" title="เปิดหน้าต่าง Print ของเบราว์เซอร์ — เลือก 'Save as PDF' เพื่อได้ไฟล์ PDF">
+              <Printer className="w-3.5 h-3.5" /> ดาวน์โหลด PDF
+            </button>
+          )
+        }
+      />
       <div className="p-3 sm:p-6">
         {!idA || !idB ? (
           <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-danger-600">ต้องระบุเอกสาร 2 ฉบับที่จะเปรียบเทียบ</div>
@@ -189,23 +227,35 @@ export function DocumentComparePage() {
           <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-danger-600">โหลดเอกสารไม่สำเร็จ</div>
         ) : (
           <>
-            <div className="bg-white rounded-lg shadow-xs p-4 mb-4 grid sm:grid-cols-2 gap-3">
-              <div>
-                <div className="text-[11px] text-muted mb-0.5">เวอร์ชันเก่า (ซ้าย)</div>
-                <div className="text-sm font-medium text-body">{data.older.title} <span className="text-muted font-mono">· v{(data.older.docVersion ?? '—').replace(/^v/i, '')}</span></div>
-              </div>
-              <div>
-                <div className="text-[11px] text-muted mb-0.5">เวอร์ชันใหม่ (ขวา)</div>
-                <div className="text-sm font-medium text-body">{data.newer.title} <span className="text-muted font-mono">· v{(data.newer.docVersion ?? '—').replace(/^v/i, '')}</span></div>
-              </div>
+            <div className="bg-white rounded-lg shadow-xs p-4 mb-4 print:hidden">
+              <CompareHeaderInfo older={data.older} newer={data.newer} />
             </div>
 
             {data.changes.length === 0 ? (
-              <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">ไม่พบความแตกต่างระหว่าง 2 เวอร์ชันนี้</div>
+              <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted print:hidden">ไม่พบความแตกต่างระหว่าง 2 เวอร์ชันนี้</div>
             ) : (
-              <div className="space-y-2">
-                {data.changes.map((row) => <ChangeRowView key={row.key} row={row} />)}
-              </div>
+              <>
+                {/* จอปกติ — เลื่อนดูเองได้ + กระโดดไปจุดที่ต่างถัดไป/ก่อนหน้า */}
+                <div className="space-y-2 print:hidden pb-16">
+                  {data.changes.map((row, i) => (
+                    <ChangeRowView key={row.key} row={row} id={`change-${row.key}`} active={i === currentIndex} />
+                  ))}
+                </div>
+                <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1 bg-white shadow-2xl border border-border-subtle rounded-full px-2 py-1.5 print:hidden">
+                  <button onClick={() => jumpTo(currentIndex - 1)} title="จุดก่อนหน้า" className="w-8 h-8 grid place-items-center rounded-full text-dim hover:bg-hover hover:text-brand-700"><ChevronUp className="w-4 h-4" /></button>
+                  <span className="text-xs text-muted tabular-nums px-1 w-16 text-center">จุดที่ {currentIndex + 1}/{data.changes.length}</span>
+                  <button onClick={() => jumpTo(currentIndex + 1)} title="จุดถัดไป" className="w-8 h-8 grid place-items-center rounded-full text-dim hover:bg-hover hover:text-brand-700"><ChevronDown className="w-4 h-4" /></button>
+                </div>
+
+                {/* มุมมองพิมพ์ — โชว์ทุกจุดเรียงกัน ไม่มีปุ่ม/ไฮไลต์ (ดู @media print ใน index.css) */}
+                <div className="doc-compare-print-view hidden print:block p-8 text-black text-sm">
+                  <h1 className="text-xl font-bold mb-3">เปรียบเทียบเอกสาร</h1>
+                  <div className="mb-6"><CompareHeaderInfo older={data.older} newer={data.newer} /></div>
+                  <div className="space-y-3">
+                    {data.changes.map((row) => <ChangeRowView key={row.key} row={row} />)}
+                  </div>
+                </div>
+              </>
             )}
           </>
         )}
