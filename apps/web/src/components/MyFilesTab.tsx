@@ -389,6 +389,15 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
+          {/* Pronista §My Files column headers (2026-09-01) — หัวตารางบอกว่าแต่ละคอลัมน์คืออะไร (ก่อนหน้านี้ไม่มีเลย ต้องเดาเอา) ความกว้างต้องตรงกับ span ใต้ทุกตัวเป๊ะๆ */}
+          <div className="hidden sm:flex items-center gap-2.5 px-4 py-2 text-[11px] font-medium text-muted">
+            <span className="flex-1 min-w-0">ชื่อ</span>
+            <span className="shrink-0 w-16">ประเภท</span>
+            <span className="shrink-0 w-16 text-right">เจ้าของ</span>
+            <span className="shrink-0 w-14 text-right">ขนาด</span>
+            <span className="shrink-0 w-20 text-right hidden md:inline">แก้ไขเมื่อ</span>
+            <span className="shrink-0 w-28" />
+          </div>
           {items.map((r) => {
             const canManage = !browsingShared && (r.myRole === 'editor' || r.myRole === undefined) && (listData?.folder ? listData.folder.access !== 'viewer' : true)
             const isDropTarget = r.kind === 'folder' && dragOverId === r.id
@@ -413,6 +422,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
                   <span className="text-sm text-body truncate">{r.name}</span>
                 </button>
                 {/* Pronista §My Files column alignment fix (2026-09-01) — คอลัมน์ท้ายแถวทุกอันต้อง "กว้างคงที่ + render เสมอ" ไม่ใช่แค่ conditional ทั้งก้อน (เดิม owner render เฉพาะมี ownerName, ปุ่มจัดการ 2-4 ปุ่มไม่เท่ากันแต่ละแถว ไม่ได้ห่อความกว้างคงที่ — ทำให้ปุ่มไฟล์ชื่อ flex-1 กินพื้นที่ไม่เท่ากันต่อแถว คอลัมน์ owner/ขนาด/วันที่ ข้างหลังเลยเบี้ยว) */}
+                <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate">{TYPE_LABEL[fileType(r)]}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate text-right">{r.ownerName ?? ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-14 text-right">{r.kind === 'file' ? fmtSize(r.sizeBytes) : ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden md:inline w-20 text-right">{new Date(r.updatedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>

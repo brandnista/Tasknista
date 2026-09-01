@@ -84,7 +84,8 @@ describe('Pronista §My Note — CRUD พื้นฐาน', () => {
 })
 
 describe('Pronista §My Note sharing (2026-08-28) — mirror กติกาไฟล์ของฉัน (viewer/editor)', () => {
-  it('แชร์แบบ viewer → เห็นในลิสต์รวม (ownerName+myRole) อ่านได้ แก้ไม่ได้ · แชร์แบบ editor → แก้ได้ด้วย', async () => {
+  // Pronista §My Note shared split (2026-09-01) — เดิม /my-notes รวมของฉัน+ที่ถูกแชร์มาเป็นลิสต์เดียว ตอนนี้แยกออกไป /my-notes/shared แล้ว (ดูเมนู "แชร์กับฉัน")
+  it('แชร์แบบ viewer → ไม่โผล่ใน /my-notes (ของฉันล้วน) แต่โผล่ใน /my-notes/shared (ownerName+myRole) อ่านได้ แก้ไม่ได้ · แชร์แบบ editor → แก้ได้ด้วย', async () => {
     const pond = await loginAs(app, 'pond@example-co.test')
     const somchai = await loginAs(app, 'somchai@example.com')
     const created = (await (
@@ -92,8 +93,12 @@ describe('Pronista §My Note sharing (2026-08-28) — mirror กติกาไ�
     ).json()) as { id: string }
 
     await app.request(`/api/my-notes/${created.id}/members`, json(pond, { userId: 'u_somchai', role: 'viewer' }), env)
-    const somchaiList = (await (await app.request('/api/my-notes', { headers: { cookie: somchai } }, env)).json()) as { id: string; ownerName: string | null; myRole?: string }[]
-    const row = somchaiList.find((n) => n.id === created.id)!
+
+    const somchaiOwn = (await (await app.request('/api/my-notes', { headers: { cookie: somchai } }, env)).json()) as { id: string }[]
+    expect(somchaiOwn.some((n) => n.id === created.id)).toBe(false)
+
+    const somchaiShared = (await (await app.request('/api/my-notes/shared', { headers: { cookie: somchai } }, env)).json()) as { id: string; ownerName: string | null; myRole?: string }[]
+    const row = somchaiShared.find((n) => n.id === created.id)!
     expect(row).toMatchObject({ ownerName: 'ปอนด์', myRole: 'viewer' })
     expect((await app.request(`/api/my-notes/${created.id}`, patch(somchai, { title: 'แอบแก้' }), env)).status).toBe(403)
 
@@ -105,6 +110,23 @@ describe('Pronista §My Note sharing (2026-08-28) — mirror กติกาไ�
     const pondOwn = pondList.find((n) => n.id === created.id)!
     expect(pondOwn.ownerName).toBeNull()
     expect(pondOwn.myRole).toBeUndefined()
+  })
+
+  it('GET /my-notes/:id — เปิดบันทึกเดี่ยวได้ทั้งของตัวเองและที่ถูกแชร์มา (สำหรับ deep link) · คนนอกเข้าไม่ได้ (403)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const somchai = await loginAs(app, 'somchai@example.com')
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (await (
+      await app.request('/api/my-notes', json(pond, { title: 'เปิดเดี่ยว', body: { mode: 'text', text: 'x' } }), env)
+    ).json()) as { id: string }
+
+    expect((await app.request(`/api/my-notes/${created.id}`, { headers: { cookie: pond } }, env)).status).toBe(200)
+    expect((await app.request(`/api/my-notes/${created.id}`, { headers: { cookie: owner } }, env)).status).toBe(403)
+
+    await app.request(`/api/my-notes/${created.id}/members`, json(pond, { userId: 'u_somchai', role: 'viewer' }), env)
+    const res = await app.request(`/api/my-notes/${created.id}`, { headers: { cookie: somchai } }, env)
+    expect(res.status).toBe(200)
+    expect((await res.json()) as { ownerName: string | null }).toMatchObject({ ownerName: 'ปอนด์' })
   })
 
   it('เฉพาะเจ้าของเท่านั้นที่แชร์/ถอนแชร์ได้ (editor ทำไม่ได้)', async () => {
