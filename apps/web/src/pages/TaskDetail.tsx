@@ -52,25 +52,50 @@ interface TimeRow {
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 /** Pronista §Task Detail redesign — จับเวลาวันนี้ (ย้ายมาจาก TaskDrawer.tsx เดิมทั้งดุ้น ไม่เปลี่ยน logic) ใช้ร่วมทั้งฝั่งคนถูก Assign (เด่นบน sidebar) และฝั่งคนจ่ายงาน (ย่อไว้เทียบกับประเมิน) */
-function TimeSection({ taskId, hasProject, rows, reload }: { taskId: string; hasProject: boolean; rows: TimeRow[]; reload: () => Promise<unknown> }) {
+function TimeSection({
+  taskId,
+  hasProject,
+  rows,
+  reload,
+  canManage,
+  assigneeId,
+  assigneeName,
+}: {
+  taskId: string
+  hasProject: boolean
+  rows: TimeRow[]
+  reload: () => Promise<unknown>
+  canManage: boolean
+  assigneeId: string | null
+  assigneeName: string | null
+}) {
   const { user } = useAuth()
   const timer = useTimer()
   const { confirmDialog } = useDialog()
   const [manualOpen, setManualOpen] = useState(false)
   const [mForm, setMForm] = useState({ date: bkkToday(), hours: '', note: '' })
+  const [forAssignee, setForAssignee] = useState(false)
   const [mError, setMError] = useState('')
   const [editRow, setEditRow] = useState<TimeRow | null>(null)
 
   const isRunningHere = timer.active?.taskId === taskId
   const taskSeconds = rows.filter((r) => r.userId === user?.id && r.workDate === bkkToday()).reduce((s, r) => s + r.minutes * 60, 0)
+  // Pronista §Retroactive Logging — owner/หัวหน้าโปรเจกต์คีย์เวลาแทนผู้รับผิดชอบได้ (แจ้งปากเปล่าไปแล้ว มาคีย์ log ย้อนหลัง)
+  const canLogForAssignee = canManage && !!assigneeId && assigneeId !== user?.id
 
   const addManual = async () => {
     try {
       setMError('')
       const minutes = Math.round(Number(mForm.hours) * 60)
-      await api.post(`/api/tasks/${taskId}/time`, { workDate: mForm.date, minutes, note: mForm.note || undefined })
+      await api.post(`/api/tasks/${taskId}/time`, {
+        workDate: mForm.date,
+        minutes,
+        note: mForm.note || undefined,
+        userId: canLogForAssignee && forAssignee ? assigneeId! : undefined,
+      })
       setManualOpen(false)
       setMForm({ date: bkkToday(), hours: '', note: '' })
+      setForAssignee(false)
       await reload()
       await timer.refresh()
     } catch (e) {
@@ -138,6 +163,12 @@ function TimeSection({ taskId, hasProject, rows, reload }: { taskId: string; has
             <input type="number" step="0.25" min="0" placeholder="ชม." value={mForm.hours} onChange={(e) => setMForm({ ...mForm, hours: e.target.value })} className="w-20 text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5" />
             <input placeholder="โน้ต (ทำอะไร)" value={mForm.note} onChange={(e) => setMForm({ ...mForm, note: e.target.value })} className="flex-1 min-w-0 text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5" />
           </div>
+          {canLogForAssignee && (
+            <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer">
+              <input type="checkbox" checked={forAssignee} onChange={(e) => setForAssignee(e.target.checked)} />
+              คีย์แทน {assigneeName} (Log ย้อนหลัง — เช่น แจ้งปากเปล่าแล้วแก้เสร็จจริง)
+            </label>
+          )}
           {mError && <div className="text-xs text-danger-600">{mError}</div>}
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted">manual ถูกบันทึก log และนับเข้า manual% เสมอ</span>
@@ -959,11 +990,14 @@ export function TaskDetailPage() {
               {/* Pronista §Meta panel redesign — จัดเป็นกริด label/ช่องกรอกคงที่แทน flex justify-between ที่แนวไม่ตรงกัน + เพิ่ม border ให้ทุกช่องกรอกได้ (เดิม bg-white ล้วนกลืนกับพื้นหลัง bg-hover/40 แยกไม่ออกว่ากรอกตรงไหนได้) */}
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
+                {t.kind === 'defect' && t.defectStatus && (
+                  <div className="text-[11px] text-muted mb-2">สถานะงาน = ขั้นตอนจ่าย/รับ/ส่ง/อนุมัติงาน (ผู้จ่ายงาน/ผู้รับงานอัปเดต) · ผลตรวจ Defect = สถานะแก้บั๊กฝั่ง QA (คนละเรื่องกัน อัปเดตแยกกันได้)</div>
+                )}
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
-                  <span className="text-dim">สถานะ</span>
+                  <span className="text-dim">สถานะงาน</span>
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
                   {canEditStatusFreely ? (
-                    <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะ" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
+                    <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะงาน" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
                       {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                     </select>
                   ) : (
@@ -972,9 +1006,9 @@ export function TaskDetailPage() {
 
                   {t.kind === 'defect' && t.defectStatus && (
                     <>
-                      <span className="text-dim">Defect</span>
+                      <span className="text-dim">ผลตรวจ Defect</span>
                       {canEditStatusFreely ? (
-                        <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="สถานะ Defect" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
+                        <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="ผลตรวจ Defect (QA)" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
                           {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
                         </select>
                       ) : (
@@ -1117,7 +1151,7 @@ export function TaskDetailPage() {
 
             {t.sprintActive ? (
               <div className="border-t border-border-subtle pt-4">
-                <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} />
+                <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
               </div>
             ) : (
               <div className="text-[11px] text-muted border-t border-border-subtle pt-4">ลงเวลาได้เมื่องานอยู่ใน Sprint ที่กด "เริ่ม Sprint" แล้วเท่านั้น</div>

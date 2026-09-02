@@ -166,6 +166,30 @@ describe('T12 — timer + manual + เพดาน + snapshot', () => {
     expect((await app.request(`/api/time/${mine.id}`, { ...json(v, { minutes: 1 }), method: 'PATCH' }, env)).status).toBe(403)
   })
 
+  it('§Retroactive Logging — owner คีย์เวลาแทนผู้รับผิดชอบได้ (userId) entry เป็นของ assignee จริง ไม่ใช่ของ owner', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask()
+    await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_pond' }), method: 'PATCH' }, env)
+
+    const res = await app.request(
+      `/api/tasks/${t.id}/time`,
+      json(owner, { workDate: '2026-06-09', minutes: 120, note: 'แจ้งปากเปล่าไปแล้ว คีย์ log ย้อนหลัง', userId: 'u_pond' }),
+      env,
+    )
+    expect(res.status).toBe(201)
+
+    const rows = (await (await app.request(`/api/tasks/${t.id}/time`, { headers: { cookie: owner } }, env)).json()) as { userName: string; minutes: number }[]
+    expect(rows[0]).toMatchObject({ userName: 'ปอนด์', minutes: 120 })
+  })
+
+  it('§Retroactive Logging — vendor (ไม่ใช่ owner/editor โปรเจกต์) คีย์เวลาแทนคนอื่นไม่ได้ (403)', async () => {
+    const t = await makeTask()
+    const v = await loginAs(app, 'somchai@example.com')
+
+    const res = await app.request(`/api/tasks/${t.id}/time`, json(v, { workDate: '2026-06-09', minutes: 60, userId: 'u_pond' }), env)
+    expect(res.status).toBe(403)
+  })
+
   it('ไม่มี rate → start/manual = 409 no_rate', async () => {
     const m = await loginAs(app, 'owner@example-co.test') // owner ไม่ได้ seed rate ในเทสต์นี้
     const t = await makeTask()

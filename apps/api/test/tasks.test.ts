@@ -31,6 +31,24 @@ async function setupProject(cookie: string, asEditorUserId?: string) {
   return { p, g1, g2 }
 }
 
+describe('§Defect field cleanup — /tasks/:id/convert ล้าง defectStatus เมื่อแปลงออกจาก Defect', () => {
+  it('แปลง task → defect (ได้ reported อัตโนมัติ) → แปลงออกเป็น story → defectStatus ต้องเป็น null (ไม่ค้าง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'บั๊กหน้า Login' }), env)).json()) as { id: string }
+
+    const asDefect = (await (
+      await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'defect' }), env)
+    ).json()) as { kind: string; defectStatus: string | null }
+    expect(asDefect).toMatchObject({ kind: 'defect', defectStatus: 'reported' })
+
+    const asStory = (await (
+      await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'story', targetProjectId: p.id }), env)
+    ).json()) as { kind: string; defectStatus: string | null }
+    expect(asStory).toMatchObject({ kind: 'task', defectStatus: null })
+  })
+})
+
 describe('T09 — groups/tasks/reorder/checkbox/timeline data', () => {
   it('สร้าง group + task → board ออกครบ · เช็คเสร็จ → done + completedAt · ติ๊กออก → todo', async () => {
     const m = await loginAs(app, 'pond@example-co.test')
