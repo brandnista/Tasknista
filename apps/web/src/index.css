@@ -17,6 +17,17 @@
   --color-brand-800: #1e40af;
 }
 
+/* Pronista §Mobile input auto-zoom fix (2026-09-02) — iOS Safari ซูมเข้าอัตโนมัติเมื่อโฟกัส input/select/textarea
+   ที่ font-size < 16px แล้วซูมออกเองตอน blur ทำให้สเกลหน้าจอเพี้ยน แก้ด้วยการบังคับ 16px เฉพาะตอนโฟกัสบนมือถือ
+   (ไม่แก้ font-size ทั้งแอปทุกจอ กัน desktop เพี้ยน — ผูก media query ไว้แค่ช่วงมือถือ) */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* Semantic design tokens — neutral ramp ทั้งชุด (map 1:1 กับ slate เดิม สีไม่เปลี่ยน)
    ปรับสีรวมที่ :root ที่เดียว · ใช้เป็น var(--border) ตรงๆ ได้ หรือผ่าน utility ที่ map ด้านล่าง
    (text-ink/strong/body/soft/dim/muted · border-border/border-subtle/divider · bg-hover ฯลฯ) */

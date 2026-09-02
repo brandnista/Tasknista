@@ -258,10 +258,17 @@ function buildFolderOptions(folders: DocNode[]): { id: string; label: string }[]
 
 const DOC_TYPE_BADGE = 'text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 bg-brand-50 text-brand-700'
 
+// Pronista §Document List View file-type indicator (2026-09-02) — เดิม List view เห็นแต่ไอคอนเอกสารสีเดียวหมด ไม่รู้ว่า Word/PDF/รูปภาพ
+// ต่างจาก Grid view ที่แยกสีตาม mime ชัดเจน (DocFileTile) — ทำให้เหมือนกันโดยใช้ badge เล็กแบบเดียวกัน (mime-aware) แทนไอคอนสีเดียว
 function DocRowIcon({ n }: { n: DocNode }) {
   if (n.icon) return <span className="shrink-0 text-sm leading-none">{n.icon}</span>
   if (n.kind === 'folder') return <Folder className="w-3.5 h-3.5 text-muted shrink-0" />
   if (n.kind === 'link') return <Link2 className="w-3.5 h-3.5 text-info-500 shrink-0" />
+  const mime = n.mime ?? ''
+  const base = 'w-5 h-5 rounded grid place-items-center shrink-0'
+  if (mime === 'application/pdf') return <div className={`${base} bg-danger-600 text-white text-[8px] font-bold`}>PDF</div>
+  if (mime.includes('word')) return <div className={`${base} bg-info-600 text-white text-[10px] font-bold`}>W</div>
+  if (mime.startsWith('image/')) return <div className={`${base} bg-warning-100 text-warning-700`}><ImageIcon className="w-3 h-3" /></div>
   return <FileText className="w-3.5 h-3.5 text-brand-500 shrink-0" />
 }
 

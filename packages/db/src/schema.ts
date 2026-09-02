@@ -1222,6 +1222,30 @@ export const dailyReports = sqliteTable(
   ],
 )
 
+// Pronista §Daily Report multi-recipient (2026-09-02) — ผู้รับหลายคนต่อ 1 รายงาน แต่ละคนมีสถานะ "อ่านแล้ว" ของตัวเอง แยกจาก dailyReports.status
+// (dailyReports.status/reviewedAt ยังคงไว้ = ล็อกการแก้ไขตอนมี "คนแรก" เปิดอ่าน — เหมือนเดิม ไม่ต้องรอทุกคนอ่านครบ)
+// dailyReports.recipientId เดิมยังอยู่เพื่อความเข้ากันได้กับรายงานเก่าก่อน migration นี้ — ของใหม่เขียนผ่านตารางนี้เท่านั้น
+export const dailyReportRecipients = sqliteTable(
+  'daily_report_recipients',
+  {
+    id: id(),
+    reportId: text('report_id')
+      .notNull()
+      .references(() => dailyReports.id),
+    recipientId: text('recipient_id')
+      .notNull()
+      .references(() => users.id),
+    reviewedAt: integer('reviewed_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('daily_report_recipients_report_recipient_uq_idx').on(t.reportId, t.recipientId),
+    index('daily_report_recipients_recipient_idx').on(t.recipientId),
+  ],
+)
+
 // รายการงานที่ทำวันนี้ — ผูกกับ task จริงก็ได้ (taskId มีค่า, ดึง title/status/project สดตอนแสดงผล ไม่ copy มา)
 // หรือคีย์เองแบบ freeform ก็ได้ (taskId=null, ต้องมี manualTitle+manualMinutes เช่น "ประชุมลูกค้า 2ชม.") — สองแบบแยกกันเด็ดขาดที่ระดับ API
 export const dailyReportItems = sqliteTable(
