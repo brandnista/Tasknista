@@ -108,7 +108,7 @@ export function ClientDetailPage() {
   const inputCls = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
 
   return (
-    <div className="p-3 sm:p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-4">
         <button onClick={() => navigate('/clients')} className="flex items-center gap-1.5 text-sm text-dim hover:text-strong">
           <ArrowLeft className="w-4 h-4" /> กลับ

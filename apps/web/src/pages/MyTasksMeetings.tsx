@@ -8,7 +8,7 @@ export function MyTasksMeetingsPage() {
   return (
     <>
       <PageHeader title="การประชุม" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <MeetingsTab initialMeetingId={searchParams.get('meeting') ?? undefined} />
       </div>
     </>

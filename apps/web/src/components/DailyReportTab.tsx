@@ -583,7 +583,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                 </section>
 
                 {/* Sticky footer */}
-                <div className="sticky bottom-4 mt-2 bg-white border border-border-subtle rounded-2xl shadow-md px-4.5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
+                {/* Pronista §Mobile safe-area (2026-09-02) — เพิ่ม margin-bottom กัน home-indicator ของ iPhone บัง ปุ่มส่งรายงาน (สเปก §9 "Submit Action เข้าถึงง่าย") */}
+                <div className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] mt-2 bg-white border border-border-subtle rounded-2xl shadow-md px-4.5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
                   <div className="text-sm text-dim">
                     <b className="text-strong tabular-nums">{report?.items.length ?? 0}</b> งาน · <b className="text-strong tabular-nums">{fmtMinutes(totalMinutes)}</b>
                     {report?.blockerHasIssue && <> · Blocker <b className="text-danger-600">1</b> รายการ</>}

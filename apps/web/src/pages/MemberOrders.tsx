@@ -18,7 +18,7 @@ export function MemberOrdersPage() {
   return (
     <>
       <PageHeader title="รายการสั่งซื้อ" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
           {!orders ? (
             <div className="p-8 text-center text-sm text-muted">กำลังโหลด…</div>

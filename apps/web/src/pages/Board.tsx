@@ -456,16 +456,21 @@ export function BoardPage() {
         )}
       </div>
 
-      <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit mb-4">
-        {([['kanban', 'Kanban'], ['timeline', 'Timeline']] as const).map(([v, lbl]) => (
-          <button key={v} onClick={() => setTab(v)} className={`px-3 py-1.5 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
-        ))}
+      {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — overflow-x-auto กันแท็บที่มาจาก .map() ล้นจอมือถือแล้วลากทั้งหน้า (ดู ProjectDetail.tsx) */}
+      <div className="overflow-x-auto mb-4">
+        <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit">
+          {([['kanban', 'Kanban'], ['timeline', 'Timeline']] as const).map(([v, lbl]) => (
+            <button key={v} onClick={() => setTab(v)} className={`px-3 py-1.5 rounded-md whitespace-nowrap ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit mb-3">
-        {SUB_VIEW_OPTIONS.map(([v, lbl]) => (
-          <button key={v} onClick={() => setSubView(v)} className={`px-2.5 py-1 rounded-md ${subView === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
-        ))}
+      <div className="overflow-x-auto mb-3">
+        <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit">
+          {SUB_VIEW_OPTIONS.map(([v, lbl]) => (
+            <button key={v} onClick={() => setSubView(v)} className={`px-2.5 py-1 rounded-md whitespace-nowrap ${subView === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
+          ))}
+        </div>
       </div>
 
       {tab === 'timeline' && (

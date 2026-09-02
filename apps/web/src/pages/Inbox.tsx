@@ -947,7 +947,7 @@ export function InboxPage() {
           </div>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {/* folder bar (segmented ใต้ h1 — SPEC §4.12) */}
         <div className="flex flex-nowrap items-center gap-1 bg-divider rounded-xl p-1 mb-4 w-full sm:w-fit overflow-x-auto">
           {FOLDERS.map((f) => {

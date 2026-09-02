@@ -6,7 +6,7 @@ export function MyFilesPage() {
   return (
     <>
       <PageHeader title="ไฟล์ของฉัน" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <MyFilesTab root="own" />
       </div>
     </>

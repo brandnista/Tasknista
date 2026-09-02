@@ -18,7 +18,7 @@ export function MemberPaymentsPage() {
   return (
     <>
       <PageHeader title="รายการชำระเงิน" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
           {!payments ? (
             <div className="p-8 text-center text-sm text-muted">กำลังโหลด…</div>

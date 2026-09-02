@@ -223,7 +223,7 @@ export function AdminDomainsPage() {
           </button>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {!data ? (
           <div className="text-center text-sm text-muted py-10">กำลังโหลด…</div>
         ) : domainsList.length === 0 ? (

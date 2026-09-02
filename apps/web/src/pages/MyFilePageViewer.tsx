@@ -62,7 +62,7 @@ export function MyFilePageViewerPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6">
+    <div className="p-4 sm:p-6">
       <div className="flex items-center gap-1 mb-3">
         <Link to="/my-tasks/files" className="flex items-center gap-1.5 text-sm text-dim hover:text-strong">
           <ArrowLeft className="w-4 h-4" /> กลับไปไฟล์ของฉัน

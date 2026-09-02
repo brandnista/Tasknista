@@ -672,7 +672,7 @@ export function DocsPage() {
           </button>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {/* แถบค้นหา/ฟิลเตอร์ แบบ Google Drive — ประเภทเอกสาร + โปรเจกต์ */}
         <div className="bg-white rounded-lg shadow-xs p-3 mb-4 flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-48">

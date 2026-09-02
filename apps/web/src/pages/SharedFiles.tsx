@@ -9,7 +9,7 @@ export function SharedFilesPage() {
   return (
     <>
       <PageHeader title="แชร์กับฉัน" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <MyFilesTab root="shared" />
       </div>
     </>

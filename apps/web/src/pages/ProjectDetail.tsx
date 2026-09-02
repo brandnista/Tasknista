@@ -1,4 +1,6 @@
-import { CheckCircle2, ChevronLeft, ChevronRight, FileText, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, FileText, Filter, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { ActionMenu } from '../components/ActionMenu'
+import { BottomSheet } from '../components/BottomSheet'
 import { minutesToHoursLabel, resolveTaskTypes, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -124,50 +126,81 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   // Pronista §System Requirements Update — ซ่อนรหัสงานเป็นค่าเริ่มต้น กดปุ่ม "แสดงรหัสงาน" ที่ header ของ Backlog panel ถึงจะโชว์
   showCode?: boolean
 }) {
-  return (
-    <div
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
+  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]
+  const originBadge = t.originRefCode && t.originDocId ? (
+    <a
+      href={`/docs/${t.originDocId}`}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`เปิดเอกสาร ${t.originDocType} ต้นทาง`}
+      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 hover:bg-info-200 shrink-0"
     >
-      {onToggleSelect && (
-        <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
-      )}
-      {draggable && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
-      <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
-      {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-      {t.originRefCode && t.originDocId ? (
-        <a
-          href={`/docs/${t.originDocId}`}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          title={`เปิดเอกสาร ${t.originDocType} ต้นทาง`}
-          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 hover:bg-info-200 shrink-0"
-        >
-          📄 {t.originRefCode}
-        </a>
-      ) : t.srsRefCode && t.srsDocId ? (
-        <a
-          href={`/api/docs/${t.srsDocId}/raw`}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          title="เปิดเอกสาร SRS ต้นทาง"
-          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 hover:bg-info-200 shrink-0"
-        >
-          📄 {t.srsRefCode}
-        </a>
-      ) : null}
-      <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-      {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
-      {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
-      {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-      <LabelChips catalog={labelCatalog} ids={t.labelIds} />
-      {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
-      <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
-    </div>
+      📄 {t.originRefCode}
+    </a>
+  ) : t.srsRefCode && t.srsDocId ? (
+    <a
+      href={`/api/docs/${t.srsDocId}/raw`}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title="เปิดเอกสาร SRS ต้นทาง"
+      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 hover:bg-info-200 shrink-0"
+    >
+      📄 {t.srsRefCode}
+    </a>
+  ) : null
+  return (
+    <>
+      {/* Pronista §Mobile Responsive Refactor (2026-09-02) — desktop: แถวเดียวยัดทุกอย่าง เหมือนเดิมเป๊ะ (sm: ขึ้นไป) */}
+      <div
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        className={`hidden sm:flex items-center gap-3 flex-wrap py-2.5 px-2 ${urgencyCls} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
+      >
+        {onToggleSelect && (
+          <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
+        )}
+        {draggable && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
+        <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
+        {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+        {originBadge}
+        <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+        {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
+        {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
+        {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+        <LabelChips catalog={labelCatalog} ids={t.labelIds} />
+        {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
+        <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
+      </div>
+
+      {/* Pronista §Mobile Responsive Refactor — มือถือ: การ์ด ไม่ใช่แถวบีบอัด (สเปก §6) — ชื่องานเด่นสุด, assignee/badge เป็นแถวรอง, เมนู (...) แยกมุม, ไม่มี drag handle (ลากด้วยนิ้วใช้ไม่ได้อยู่แล้ว) */}
+      <div className={`sm:hidden py-2.5 px-2 ${urgencyCls}`}>
+        <div className="flex items-start gap-2">
+          {onToggleSelect && (
+            <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer mt-1 w-4 h-4" />
+          )}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 min-w-0 text-left">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+              {originBadge}
+            </div>
+            <div className="text-sm text-body font-medium mt-0.5">{t.title}</div>
+          </button>
+          <div className="shrink-0 -mr-1">
+            <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap mt-1.5 pl-0.5">
+          {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
+          {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          <LabelChips catalog={labelCatalog} ids={t.labelIds} />
+          {t.assigneeName && <span className="text-[11px] text-muted ml-auto">👤 {t.assigneeName}</span>}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -215,6 +248,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   // Pronista §System Requirements Update (ต่อยอด) — ฟิลเตอร์ผู้จ่ายงาน/ผู้รับงาน (ชื่อ) เหมือนที่ Workspace.tsx มีอยู่แล้ว
   const [dispatcherFilter, setDispatcherFilter] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
+  // Pronista §Mobile Responsive Refactor (2026-09-02) — Filter บนมือถือย้ายเข้า Bottom Sheet แทน select แถวเดิม (สเปก §7)
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
@@ -416,34 +451,60 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         </div>
       )}
 
-      {activeListUnfiltered.length > 0 && (
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
-            <option value="all">ผู้จ่ายงานทั้งหมด</option>
-            {dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
-            <option value="all">ผู้รับงานทั้งหมด</option>
-            {assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <select
-            value={taskTypeFilter}
-            onChange={(e) => { setTaskTypeFilter(e.target.value); setSubTaskTypeFilter('all') }}
-            className="text-xs bg-white border border-border rounded-lg px-2 py-1"
-          >
-            <option value="all">ทุก Task Type</option>
-            {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
-          </select>
-          {taskTypeFilter !== 'all' && (
-            <select value={subTaskTypeFilter} onChange={(e) => setSubTaskTypeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
-              <option value="all">ทุก Sub-task Type</option>
-              {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === taskTypeFilter)?.subTypes ?? []).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+      {activeListUnfiltered.length > 0 && (() => {
+        // Pronista §Mobile Responsive Refactor (2026-09-02) — ตัวควบคุม filter เดียวกัน ใช้ทั้ง desktop (แถวเดิม) และมือถือ (ใน Bottom Sheet)
+        const filterControls = (
+          <>
+            <select value={dispatcherFilter} onChange={(e) => setDispatcherFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+              <option value="all">ผู้จ่ายงานทั้งหมด</option>
+              {dispatcherOptions.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
-          )}
-        </div>
-      )}
+            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+              <option value="all">ผู้รับงานทั้งหมด</option>
+              {assigneeOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select
+              value={taskTypeFilter}
+              onChange={(e) => { setTaskTypeFilter(e.target.value); setSubTaskTypeFilter('all') }}
+              className="text-xs bg-white border border-border rounded-lg px-2 py-1"
+            >
+              <option value="all">ทุก Task Type</option>
+              {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+            </select>
+            {taskTypeFilter !== 'all' && (
+              <select value={subTaskTypeFilter} onChange={(e) => setSubTaskTypeFilter(e.target.value)} className="text-xs bg-white border border-border rounded-lg px-2 py-1">
+                <option value="all">ทุก Sub-task Type</option>
+                {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === taskTypeFilter)?.subTypes ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+          </>
+        )
+        const activeFilterCount = [dispatcherFilter, assigneeFilter, taskTypeFilter, subTaskTypeFilter].filter((v) => v !== 'all').length
+        return (
+          <div className="mb-2">
+            <div className="hidden sm:flex items-center gap-2 flex-wrap">{filterControls}</div>
+            <button
+              onClick={() => setFilterSheetOpen(true)}
+              className="sm:hidden flex items-center gap-1.5 text-xs border rounded-lg px-3 py-2 min-h-11 text-dim border-border-subtle hover:bg-hover"
+            >
+              <Filter className="w-3.5 h-3.5" /> Filter
+              {activeFilterCount > 0 && <span className="text-[10px] font-bold bg-brand-600 text-white rounded-full w-4 h-4 grid place-items-center">{activeFilterCount}</span>}
+            </button>
+            {filterSheetOpen && (
+              <BottomSheet
+                title="Filter"
+                onClose={() => setFilterSheetOpen(false)}
+                onApply={() => setFilterSheetOpen(false)}
+                onClear={() => { setDispatcherFilter('all'); setAssigneeFilter('all'); setTaskTypeFilter('all'); setSubTaskTypeFilter('all') }}
+              >
+                <div className="flex flex-col gap-2">{filterControls}</div>
+              </BottomSheet>
+            )}
+          </div>
+        )
+      })()}
 
       {canEdit && activeList.length > 0 && (
         <div className="flex items-center gap-3 mb-2 text-xs">
@@ -2010,6 +2071,8 @@ export function ProjectDetailPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   // Pronista §Import Data — อัปงานเข้าระบบทีเดียวจาก Excel (+ เอกสารแนบ) วางไว้ข้างปุ่มอัปโหลด SOW ที่หัวโปรเจกต์ (เห็นได้ทุกแท็บ เพราะผลลัพธ์กระทบทั้ง Backlog และเอกสาร)
   const [importOpen, setImportOpen] = useState(false)
+  // Pronista §Mobile Responsive Refactor (2026-09-02) — More Menu (...) รวม action หัวโปรเจกต์บนมือถือ (สเปก §4)
+  const [headerMenuAnchor, setHeaderMenuAnchor] = useState<{ x: number; y: number } | null>(null)
   const [backlogRefreshKey, setBacklogRefreshKey] = useState(0)
   // Pronista §System Requirements Update — บังคับ SprintSection รีโหลดหลัง ProjectBacklogSection โยนงานเข้า Sprint เอง (checkbox bulk-add)
   const [sprintRefreshKey, setSprintRefreshKey] = useState(0)
@@ -2021,7 +2084,7 @@ export function ProjectDetailPage() {
   if (!project) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
   return (
-    <div className="p-3 sm:p-6">
+    <div className="p-4 sm:p-6">
       <Link to="/projects" className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
         <ChevronLeft className="w-4 h-4" /> โปรเจกต์ทั้งหมด
       </Link>
@@ -2033,45 +2096,56 @@ export function ProjectDetailPage() {
           </h2>
           <span className={`text-xs px-2 py-0.5 rounded-full ${statusChip(project.statusColor)}`}>{project.statusName}</span>
           {canEditProject && (
-            <div className="ml-auto flex items-center gap-3">
-              {user?.importDataEnabled && (
+            <>
+              {/* Pronista §Mobile Responsive Refactor (2026-09-02) — desktop เห็นปุ่มครบทุกอันเหมือนเดิม (sm: ขึ้นไป) */}
+              <div className="ml-auto hidden sm:flex items-center gap-3">
+                {user?.importDataEnabled && (
+                  <button
+                    onClick={() => setImportOpen(true)}
+                    title="อัปงานเข้าระบบทีเดียวจาก Excel + เอกสารแนบ"
+                    className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Import Data
+                  </button>
+                )}
                 <button
-                  onClick={() => setImportOpen(true)}
-                  title="อัปงานเข้าระบบทีเดียวจาก Excel + เอกสารแนบ"
+                  onClick={() => setUploadOpen(true)}
+                  title="อัปโหลดเอกสาร SOW มาแตกเป็น Task/Subtask"
                   className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
                 >
-                  <Upload className="w-3.5 h-3.5" /> Import Data
+                  <FileText className="w-3.5 h-3.5" /> อัปโหลดเอกสาร SOW
                 </button>
-              )}
-              <button
-                onClick={() => setUploadOpen(true)}
-                title="อัปโหลดเอกสาร SOW มาแตกเป็น Task/Subtask"
-                className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
-              >
-                <FileText className="w-3.5 h-3.5" /> อัปโหลดเอกสาร SOW
-              </button>
-              <Link
-                to={`/projects/${project.id}/edit`}
-                title="แก้ไขโปรเจกต์"
-                className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
-              >
-                <Pencil className="w-3.5 h-3.5" /> แก้ไข
-              </Link>
-              {/* Pronista §Project Refactor — ลบโปรเจกต์เฉพาะ Admin (owner) เท่านั้น */}
-              {user?.role === 'owner' && (
-                <button
-                  onClick={async () => {
-                    if (!(await confirmDialog({ title: `ลบโปรเจกต์ "${project.name}"?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', danger: true }))) return
-                    await api.delete(`/api/projects/${project.id}`)
-                    navigate('/projects')
-                  }}
-                  title="ลบโปรเจกต์"
-                  className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-danger-600 border-danger-200 hover:bg-danger-50"
+                <Link
+                  to={`/projects/${project.id}/edit`}
+                  title="แก้ไขโปรเจกต์"
+                  className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> ลบโปรเจกต์
-                </button>
-              )}
-            </div>
+                  <Pencil className="w-3.5 h-3.5" /> แก้ไข
+                </Link>
+                {/* Pronista §Project Refactor — ลบโปรเจกต์เฉพาะ Admin (owner) เท่านั้น */}
+                {user?.role === 'owner' && (
+                  <button
+                    onClick={async () => {
+                      if (!(await confirmDialog({ title: `ลบโปรเจกต์ "${project.name}"?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', danger: true }))) return
+                      await api.delete(`/api/projects/${project.id}`)
+                      navigate('/projects')
+                    }}
+                    title="ลบโปรเจกต์"
+                    className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-danger-600 border-danger-200 hover:bg-danger-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> ลบโปรเจกต์
+                  </button>
+                )}
+              </div>
+              {/* Pronista §Mobile Responsive Refactor — มือถือเหลือปุ่ม (...) เดียว รวม action ทั้งหมดไว้ใน More Menu (สเปก §4) */}
+              <button
+                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHeaderMenuAnchor({ x: r.right, y: r.bottom + 4 }) }}
+                title="เพิ่มเติม"
+                className="ml-auto sm:hidden p-2 -m-2 rounded-lg text-dim hover:bg-hover min-w-11 min-h-11 grid place-items-center"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            </>
           )}
         </div>
         {project.description && <p className="text-sm text-muted mt-1.5">{project.description}</p>}
@@ -2114,10 +2188,12 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Pronista §merge — สลับมุมมอง Sprint (default) / เอกสาร (เอกสารที่ผูกไว้กับโปรเจกต์นี้ — แทน Kanban/ตารางเดิม) */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit">
+      {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิม flex w-fit ไม่มี overflow-x-auto เลย พอมี 6-7 แท็บ (owner เห็น Project Estimate เพิ่ม) กว้างเกินจอมือถือ
+          ล้นออกไปนอกกรอบเงียบๆ แล้วลากทั้งหน้าให้เลื่อนซ้าย-ขวาได้ (iOS Safari quirk ที่ overflow-x:clip บน html/body เพียงอย่างเดียวเอาไม่อยู่ — ต้องครอบ overflow-x-auto ที่ตัวจริงเท่านั้น) */}
+      <div className="flex items-center gap-3 mb-4 overflow-x-auto">
+        <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit shrink-0">
           {tabs.map(([v, lbl]) => (
-            <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-md ${view === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
+            <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-md whitespace-nowrap ${view === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
           ))}
         </div>
       </div>
@@ -2205,6 +2281,33 @@ export function ProjectDetailPage() {
           project={{ id: project.id, code: project.code, name: project.name }}
           onClose={() => { setImportOpen(false); void reload(); setBacklogRefreshKey((k) => k + 1) }}
           onImported={() => { void reload(); setBacklogRefreshKey((k) => k + 1) }}
+        />
+      )}
+
+      {headerMenuAnchor && (
+        <ActionMenu
+          x={headerMenuAnchor.x}
+          y={headerMenuAnchor.y}
+          align="right"
+          onClose={() => setHeaderMenuAnchor(null)}
+          items={[
+            ...(user?.importDataEnabled ? [{ label: 'Import Data', icon: <Upload className="w-4 h-4 text-muted" />, onClick: () => setImportOpen(true) }] : []),
+            { label: 'อัปโหลดเอกสาร SOW', icon: <FileText className="w-4 h-4 text-muted" />, onClick: () => setUploadOpen(true) },
+            { label: 'แก้ไข', icon: <Pencil className="w-4 h-4 text-muted" />, onClick: () => navigate(`/projects/${project.id}/edit`) },
+            ...(user?.role === 'owner'
+              ? [{
+                  label: 'ลบโปรเจกต์',
+                  icon: <Trash2 className="w-4 h-4" />,
+                  danger: true,
+                  dividerBefore: true,
+                  onClick: async () => {
+                    if (!(await confirmDialog({ title: `ลบโปรเจกต์ "${project.name}"?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', danger: true }))) return
+                    await api.delete(`/api/projects/${project.id}`)
+                    navigate('/projects')
+                  },
+                }]
+              : []),
+          ]}
         />
       )}
     </div>

@@ -2,7 +2,8 @@
 <html lang="th">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Pronista §Mobile safe-area (2026-09-02) — viewport-fit=cover จำเป็นก่อน env(safe-area-inset-*) ใน CSS จะได้ค่าจริง (ไม่งั้น iOS คืน 0 เสมอ) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Pronista</title>
     <!-- PWA (P2): add-to-homescreen ให้กดจับเวลาจากมือถือสะดวก -->
     <link rel="manifest" href="/manifest.webmanifest" />

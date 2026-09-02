@@ -155,7 +155,7 @@ export function WorkspaceRoomsPage() {
           </div>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {allRooms.length === 0 ? (
           <div className="bg-white rounded-lg shadow-xs p-10 text-center">
             <Layers className="w-8 h-8 text-muted mx-auto mb-2" />

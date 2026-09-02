@@ -219,6 +219,14 @@ export function Layout() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Pronista §Mobile Drawer scroll lock (2026-09-02) — กัน background เลื่อนตามนิ้วขณะ drawer เปิดอยู่บนมือถือ (สเปก §3)
+  useEffect(() => {
+    if (!navOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [navOpen])
+
   // Pronista §System Requirements Update — ซ่อนเมนูตามเพดานสิทธิ์เมนูของหมวดผู้ใช้งาน (owner bypass เสมอ ไม่ผ่านเพดาน)
   const items = useMemo(
     () =>
@@ -245,8 +253,9 @@ export function Layout() {
   if (!user) return null
 
   const sidebar = (
+    // Pronista §Mobile safe-area (2026-09-02) — drawer ชิดขอบขวา/บน/ล่างจริงบนมือถือ ต้องกัน notch/home-indicator (สเปก §3) — desktop (lg:static) env() คืน 0 อยู่แล้วไม่กระทบ
     <aside
-      className={`fixed top-0 bottom-0 right-0 z-40 transition-transform duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col ${
+      className={`fixed top-0 bottom-0 right-0 z-40 transition-transform duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] ${
         navOpen ? 'translate-x-0' : 'translate-x-full'
       }`}
     >

@@ -341,7 +341,7 @@ export function MyTasksPage() {
   return (
     <>
       <PageHeader title="งานของฉัน" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
       <div className="flex items-start justify-between gap-3 mb-4">
         <p className="text-sm text-muted">สวัสดี {user?.name} — นี่คือสรุปงานที่คุณรับผิดชอบ</p>
         <button

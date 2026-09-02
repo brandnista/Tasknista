@@ -342,7 +342,7 @@ export function DocumentComparePage() {
           )
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {!idA || !idB ? (
           <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-danger-600">ต้องระบุเอกสาร 2 ฉบับที่จะเปรียบเทียบ</div>
         ) : loading ? (

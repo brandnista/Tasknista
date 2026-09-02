@@ -115,6 +115,15 @@ html, body {
   touch-action: pan-x;
 }
 
+/* Pronista §Mobile safe-area (2026-09-02) — ตัวแปรกลางสำหรับ iPhone notch/home-indicator (ต้องมี viewport-fit=cover ใน index.html คู่กัน)
+   ใช้เป็น padding เพิ่มบน element ที่ชิดขอบจอจริง (drawer, bottom sheet, sticky footer) — ไม่ได้บังคับใช้ทุกที่อัตโนมัติ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
 /* dialog animation — fade backdrop + pop card (เข้า/ออกสั้นๆ เรียบหรู) */
 @keyframes so-fade-in {
   from { opacity: 0; }

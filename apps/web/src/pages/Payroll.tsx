@@ -51,7 +51,7 @@ function SelfView() {
   const maxProjectMinutes = Math.max(1, ...d.byProject.map((p) => p.minutes))
 
   return (
-    <div className="p-3 sm:p-6">
+    <div className="p-4 sm:p-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-4xl items-start">
         {/* ซ้าย: สรุปเวลาของฉัน */}
         <div className="bg-white rounded-lg shadow-xs p-6">

@@ -158,7 +158,7 @@ export function DomainDetailPage() {
           </div>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <Link to="/admin/domains" className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
           <ChevronLeft className="w-4 h-4" /> โดเมนทั้งหมด
         </Link>
