@@ -106,6 +106,10 @@ body {
 html, body {
   overscroll-behavior: none;
   touch-action: pan-y;
+  /* Pronista §Mobile horizontal-scroll fix (2026-09-02) — safety net ระดับราก: element ไหนในแอปกว้างเกิน viewport
+     (ตารางที่ลืมใส่ min-w, การ์ด/แถวที่ยังไม่ได้ครอบ overflow-x-auto ฯลฯ) จะไม่ลากทั้งหน้าให้เลื่อนซ้าย-ขวาได้อีกต่อไป
+     ใช้ clip ไม่ใช่ hidden (เหมือนกฎ Hallmark mobile) — เนื้อหาที่ตั้งใจให้เลื่อนจริงต้องผ่าน .overflow-x-auto ของตัวเองเท่านั้น */
+  overflow-x: clip;
 }
 .overflow-x-auto {
   touch-action: pan-x;

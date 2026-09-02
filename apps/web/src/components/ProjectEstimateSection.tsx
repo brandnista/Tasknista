@@ -356,7 +356,9 @@ export function ProjectEstimateSection({
           </select>
         </div>
         {!memberId ? (
-          <table className="w-full text-sm">
+          // Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
             <thead>
               <tr>
                 <th className={`${colCell} text-left`}>สมาชิก</th>
@@ -379,6 +381,7 @@ export function ProjectEstimateSection({
               ))}
             </tbody>
           </table>
+          </div>
         ) : memberTasks.length === 0 ? (
           <div className="text-sm text-muted py-8 text-center border-t border-divider">ยังไม่มีงานที่ Assign ให้ {selectedMember?.name ?? 'คนนี้'} ในโปรเจกต์นี้</div>
         ) : (
@@ -387,7 +390,9 @@ export function ProjectEstimateSection({
               <Avatar name={selectedMember?.name ?? ''} avatarUrl={selectedMember?.avatarUrl} className="w-8 h-8 text-xs" colorClass={avatarColor(selectedMember?.name ?? '')} />
               <span className="text-sm font-medium text-strong">{selectedMember?.name}</span>
             </div>
-            <table className="w-full text-sm">
+            {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย */}
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-max text-sm">
               <thead>
                 <tr>
                   <th className={`${colCell} text-left`}>งาน</th>
@@ -412,6 +417,7 @@ export function ProjectEstimateSection({
                 </tr>
               </tfoot>
             </table>
+            </div>
           </>
         )}
       </div>
@@ -529,7 +535,9 @@ export function ProjectEstimateSection({
             <div className="p-4 sm:p-5 pb-3">
               <div className="text-sm font-semibold text-strong">Phase — รวม Estimate Day จาก Task Group ตามหัวข้อหลัก</div>
             </div>
-            <table className="w-full text-sm">
+            {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย */}
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-max text-sm">
               <thead>
                 <tr>
                   <th className={`${colCell} text-left`}>Phase</th>
@@ -551,13 +559,16 @@ export function ProjectEstimateSection({
                 </tr>
               </tfoot>
             </table>
+            </div>
           </div>
 
           <div className="bg-white rounded-lg shadow-xs">
             <div className="p-4 sm:p-5 pb-3">
               <div className="text-sm font-semibold text-strong">ค่าใช้จ่ายนอกระบบ — รวมตามหัวข้อ AEX / OPEX</div>
             </div>
-            <table className="w-full text-sm">
+            {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย */}
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-max text-sm">
               <thead>
                 <tr>
                   <th className={`${colCell} text-left`}>หัวข้อ</th>
@@ -580,6 +591,7 @@ export function ProjectEstimateSection({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

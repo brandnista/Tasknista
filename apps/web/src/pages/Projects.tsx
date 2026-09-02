@@ -278,7 +278,8 @@ function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
 
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm">
+      {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — w-full เดิมบีบตารางให้แคบลงจนตัวอักษรเบียดกัน แทนที่จะให้ wrapper overflow-x-auto เลื่อนได้ — min-w-max กันไม่ให้แคบกว่าความกว้างจริงของเนื้อหา */}
+      <table className="w-full min-w-max text-sm">
         <thead className="bg-hover text-dim text-xs">
           <tr>
             <th className="text-left font-medium px-5 py-3">ชื่อโปรเจกต์</th>
@@ -326,7 +327,8 @@ function TableView({ rows }: { rows: ProjectRow[] }) {
 
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm">
+      {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — เหมือนกับ ExpiringServicesTable ด้านบน: min-w-max กันตารางถูกบีบจนคอลัมน์ท้ายๆ (สุขภาพ/ความคืบหน้า/หัวหน้า) หลุดจอ */}
+      <table className="w-full min-w-max text-sm">
         <thead className="bg-hover text-dim text-xs">
           <tr>
             <th className="text-left font-medium px-5 py-3 w-14">#</th>

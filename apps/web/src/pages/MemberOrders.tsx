@@ -25,7 +25,9 @@ export function MemberOrdersPage() {
           ) : orders.length === 0 ? (
             <div className="p-10 text-center text-sm text-muted">ยังไม่มีรายการสั่งซื้อ — สร้างได้จากหน้ารายละเอียดสมาชิก</div>
           ) : (
-            <table className="w-full text-sm">
+            // Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย ตารางยอดเงิน/สถานะ ถูกบีบ/ล้นจอมือถือ
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-max text-sm">
               <thead className="bg-hover text-dim text-xs">
                 <tr>
                   <th className="text-left font-medium px-5 py-3">สมาชิก</th>
@@ -49,6 +51,7 @@ export function MemberOrdersPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
