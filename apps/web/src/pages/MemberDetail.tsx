@@ -5,6 +5,7 @@ import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
+import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
@@ -205,11 +206,11 @@ export function MemberDetailPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className={label}>วันเริ่มต้น</label>
-                <input type="date" defaultValue={m.startDate ?? ''} onBlur={onBlurText('startDate', m.startDate)} className={input} />
+                <DateInputTH defaultValue={m.startDate ?? ''} onBlur={onBlurText('startDate', m.startDate)} className={input} />
               </div>
               <div>
                 <label className={label}>วันหมดอายุ</label>
-                <input type="date" defaultValue={m.endDate ?? ''} onBlur={onBlurText('endDate', m.endDate)} className={input} />
+                <DateInputTH defaultValue={m.endDate ?? ''} onBlur={onBlurText('endDate', m.endDate)} className={input} />
               </div>
               <div>
                 <label className={label}>แจ้งเตือนล่วงหน้า (วัน)</label>

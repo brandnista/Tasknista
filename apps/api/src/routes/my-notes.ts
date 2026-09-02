@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { INLINE_SAFE_MIME } from '../lib/file-safety'
+import { notifyUser } from '../lib/notify'
 import { canEditNote, canViewNote, getNoteAccess } from '../lib/notes-access'
 import type { AppEnv } from '../types'
 
@@ -12,7 +13,8 @@ import type { AppEnv } from '../types'
  * เมานต์ที่ /api/my-notes (ไม่ใช้ /api/notes — path นั้นถูก crm-items.ts ใช้อยู่แล้วสำหรับ clientNotes)
  * body เก็บเป็น JSON string เสมอ: { mode: 'text', text } หรือ { mode: 'checklist', items: {id,text,done}[] }
  * Pronista §My Note sharing + attachments (2026-08-28) — แชร์ได้ (viewer/editor mirror ไฟล์ของฉัน) + แนบไฟล์ได้
- * /my-notes GET คืน "ของฉัน" รวมกับ "ที่ถูกแชร์มา" เป็นลิสต์เดียว (โชว์ปนกันบนบอร์ด มีป้ายชื่อเจ้าของกำกับของที่ไม่ใช่ของตัวเอง — ตกลงกับเจ้าของแล้ว)
+ * Pronista §My Note shared split (2026-09-01) — เดิม GET /my-notes รวม "ของฉัน" + "ที่ถูกแชร์มา" เป็นลิสต์เดียวบนบอร์ด แต่พี่แจ้งว่ากวนตา
+ * แยกแล้ว: /my-notes = ของฉันล้วน (สำหรับบอร์ด "บันทึกของฉัน"), /my-notes/shared = ที่ถูกแชร์มาล้วน (โชว์ที่เมนู "แชร์กับฉัน" แทน mirror ไฟล์ของฉัน)
  */
 export const myNoteRoutes = new Hono<AppEnv>()
 
@@ -36,18 +38,21 @@ myNoteRoutes
   .get('/my-notes', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const own = await db.select().from(notes).where(eq(notes.userId, me.id))
-    const shared = await db
+    const own = await db.select().from(notes).where(eq(notes.userId, me.id)).orderBy(desc(notes.updatedAt))
+    return c.json(own.map((n) => ({ ...n, ownerName: null as string | null, myRole: undefined as 'viewer' | 'editor' | undefined })))
+  })
+
+  // แชร์กับฉัน — เฉพาะบันทึกที่ถูกแชร์ตรงถึงตัวเอง (ไม่ใช่เจ้าของ) mirror GET /my-files/shared
+  .get('/my-notes/shared', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const rows = await db
       .select({ note: notes, ownerName: users.name, myRole: noteMembers.role })
       .from(noteMembers)
       .innerJoin(notes, eq(noteMembers.noteId, notes.id))
       .leftJoin(users, eq(notes.userId, users.id))
       .where(eq(noteMembers.userId, me.id))
-    const merged = [
-      ...own.map((n) => ({ ...n, ownerName: null as string | null, myRole: undefined as 'viewer' | 'editor' | undefined })),
-      ...shared.map((r) => ({ ...r.note, ownerName: r.ownerName, myRole: r.myRole })),
-    ].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-    return c.json(merged)
+    return c.json(rows.map((r) => ({ ...r.note, ownerName: r.ownerName, myRole: r.myRole })).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()))
   })
 
   .post('/my-notes', async (c) => {
@@ -122,6 +127,10 @@ myNoteRoutes
     const noteId = c.req.param('id')
     const access = await getNoteAccess(db, noteId, me.id)
     if (access !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    // Pronista §My Note badge (2026-09-01) — เช็คว่ามีอยู่ก่อนไหม กันแจ้งเตือนซ้ำตอนแค่เปลี่ยนสิทธิ์ viewer/editor (แจ้งเฉพาะแชร์ครั้งแรก)
+    const alreadyShared = (
+      await db.select({ userId: noteMembers.userId }).from(noteMembers).where(and(eq(noteMembers.noteId, noteId), eq(noteMembers.userId, body.data.userId))).limit(1)
+    )[0]
     const upserted = (
       await db
         .insert(noteMembers)
@@ -130,6 +139,10 @@ myNoteRoutes
         .returning()
     )[0]
     await writeAudit(c.env, { actorId: me.id, action: 'note.share', entity: 'note', entityId: noteId, meta: { userId: body.data.userId, role: body.data.role } })
+    if (!alreadyShared && body.data.userId !== me.id) {
+      const note = (await db.select({ title: notes.title }).from(notes).where(eq(notes.id, noteId)).limit(1))[0]
+      await notifyUser(db, { userId: body.data.userId, type: 'note_shared', message: `${me.name} แชร์บันทึก "${note?.title || 'ไม่มีชื่อ'}" ให้คุณ` })
+    }
     return c.json(upserted, 201)
   })
 

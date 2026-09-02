@@ -9,14 +9,16 @@ import { Check, Download, Link2, ListTodo, Paperclip, Pencil, Pin, Plus, Repeat,
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router'
 import { useDialog } from './Dialog'
+import { NotificationBell } from './NotificationBell'
 import { RichTextEditor } from './RichTextEditor'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { useNotifications } from '../lib/notifications-context'
 import { useLoad } from '../lib/useLoad'
 
-type NoteBody = { mode: 'text'; text: string } | { mode: 'checklist'; items: { id: string; text: string; done: boolean }[] }
+export type NoteBody = { mode: 'text'; text: string } | { mode: 'checklist'; items: { id: string; text: string; done: boolean }[] }
 type ConvertKind = 'epic' | 'story' | 'task' | 'subtask' | 'defect'
-interface Note {
+export interface Note {
   id: string
   userId: string
   title: string | null
@@ -44,7 +46,7 @@ const fmtAttSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n
 
 const CONVERT_LABEL: Record<ConvertKind, string> = { epic: 'Epic', story: 'Story', task: 'Task', subtask: 'Subtask', defect: 'Defect' }
 
-function parseBody(raw: string): NoteBody {
+export function parseBody(raw: string): NoteBody {
   try {
     const parsed = JSON.parse(raw)
     if (parsed && (parsed.mode === 'text' || parsed.mode === 'checklist')) return parsed
@@ -137,7 +139,8 @@ function ConvertModal({ note, onClose, onDone }: { note: Note; onClose: () => vo
 }
 
 // Pronista §My Note sharing (2026-08-28) — adapt จาก ShareModal ของ MyFilesTab.tsx (โครงเดียวกัน คนละ endpoint)
-function NoteShareModal({ note, onClose }: { note: Note; onClose: () => void }) {
+// Pronista §My Note share-before-save fix (2026-09-01) — type คลายจาก Note เต็มเป็นแค่ที่ใช้จริง เพื่อให้ note ที่ยังไม่บันทึก (แค่มี id จาก ensureNoteId) เปิดแชร์ได้ด้วย
+function NoteShareModal({ note, onClose }: { note: { id: string; title: string | null; userId: string }; onClose: () => void }) {
   const { alertDialog } = useDialog()
   const { data: members, reload } = useLoad<MemberRow[]>(() => api.get(`/api/my-notes/${note.id}/members`), [note.id])
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
@@ -336,6 +339,11 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
     onDraftCreated?.()
     return created.id
   }
+  // Pronista §My Note share-before-save fix (2026-09-01) — เดิมแชร์ได้แค่บันทึกที่บันทึกไปแล้ว (editing เท่านั้น) — สร้าง draft เงียบๆ ก่อนเปิดแชร์ เหมือน pattern การแนบไฟล์/ลิงก์
+  const openShare = async () => {
+    await ensureNoteId()
+    setShareOpen(true)
+  }
   const save = async () => {
     const body: NoteBody = mode === 'text' ? { mode: 'text', text } : { mode: 'checklist', items }
     if (mode === 'text' ? !text.trim() : items.length === 0) return
@@ -370,13 +378,21 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
       )}
       <input readOnly={readOnly} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="หัวข้อ (ไม่บังคับ)" className="w-full text-sm font-medium bg-hover rounded-lg px-3 py-2 outline-hidden disabled:opacity-70" />
       {!readOnly && (
-        <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit">
-          <button onClick={() => setMode('text')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${mode === 'text' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-            <Type className="w-3.5 h-3.5" /> ข้อความ
-          </button>
-          <button onClick={() => setMode('checklist')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${mode === 'checklist' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-            <ListTodo className="w-3.5 h-3.5" /> Checklist
-          </button>
+        <div className="flex items-center justify-between">
+          <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit">
+            <button onClick={() => setMode('text')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${mode === 'text' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+              <Type className="w-3.5 h-3.5" /> ข้อความ
+            </button>
+            <button onClick={() => setMode('checklist')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${mode === 'checklist' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+              <ListTodo className="w-3.5 h-3.5" /> Checklist
+            </button>
+          </div>
+          {/* Pronista §My Note share-before-save fix (2026-09-01) — แถบ "กำลังแก้ไขบันทึก" มีปุ่มแชร์ของตัวเองอยู่แล้วสำหรับบันทึกเดิม ปุ่มนี้ครอบเฉพาะตอนกำลังแต่งบันทึกใหม่ */}
+          {!editing && (
+            <button onClick={() => void openShare()} title="แชร์" className="text-xs text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1">
+              <Share2 className="w-3.5 h-3.5" /> แชร์
+            </button>
+          )}
         </div>
       )}
       {mode === 'text' ? (
@@ -417,7 +433,12 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
           </>
         )}
       </div>
-      {editing && shareOpen && <NoteShareModal note={editing} onClose={() => setShareOpen(false)} />}
+      {shareOpen && activeNoteId && (
+        <NoteShareModal
+          note={editing ? { id: editing.id, title: editing.title, userId: editing.userId } : { id: activeNoteId, title: title || null, userId: meId }}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   )
 }
@@ -438,26 +459,44 @@ function PostIt({ note, meId, isNew, onOpenConvert, onEdit, onDelete }: { note: 
   const body = parseBody(note.body)
   const palette = POSTIT_PALETTE[hashOf(note.id) % POSTIT_PALETTE.length]!
   const rotation = POSTIT_ROTATIONS[hashOf(`${note.id}r`) % POSTIT_ROTATIONS.length]!
-  const preview = notePreview(body)
   const canEdit = canEditNoteRow(note, meId)
+  // Pronista §My Note board fix (2026-09-01) — เดิม checklist ถูกรวมเป็นข้อความเดียวคั่นด้วย "·" อ่านเป็นพรืดไม่ออก แยกเป็นบรรทัดเหมือนลิสต์ฝั่งซ้าย (จำกัด 5 แถวแรก)
+  const MAX_CHECKLIST_ROWS = 5
   return (
     <div
       style={{ '--postit-rot': `${rotation}deg` } as CSSProperties}
-      className={`postit-note group relative w-56 shrink-0 rounded-sm ${palette.bg} shadow-md p-4 pt-5 ${isNew ? 'so-postit-drop' : ''}`}
+      onClick={onEdit}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter') onEdit() }}
+      className={`postit-note group relative w-56 shrink-0 rounded-sm ${palette.bg} shadow-md p-4 pt-5 cursor-pointer ${isNew ? 'so-postit-drop' : ''}`}
     >
       <span className={`absolute -top-2 left-1/2 -translate-x-1/2 w-10 h-4 rounded-xs rotate-1 ${palette.tape}`} />
       {/* ปุ่ม Convert/ลบ — โชว์ตลอดบนมือถือ (ไม่มี hover) ซ่อนไว้จนโฮเวอร์เฉพาะจอที่มีเมาส์จริง (sm ขึ้นไป) — บันทึกที่ถูกแชร์มาแบบดูอย่างเดียวเห็นแค่ไอคอนเปิดดู */}
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-        <button onClick={onEdit} title={canEdit ? 'แก้ไข' : 'ดูบันทึก'} className="text-ink/35 hover:text-brand-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
+        <button onClick={(e) => { e.stopPropagation(); onEdit() }} title={canEdit ? 'แก้ไข' : 'ดูบันทึก'} className="text-ink/35 hover:text-brand-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
         {canEdit && (
           <>
-            <button onClick={onOpenConvert} title="Convert เป็นงาน" className="text-ink/35 hover:text-brand-700 p-0.5"><Repeat className="w-3.5 h-3.5" /></button>
-            <button onClick={onDelete} title="ลบ" className="text-ink/35 hover:text-danger-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
+            <button onClick={(e) => { e.stopPropagation(); onOpenConvert() }} title="Convert เป็นงาน" className="text-ink/35 hover:text-brand-700 p-0.5"><Repeat className="w-3.5 h-3.5" /></button>
+            <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="ลบ" className="text-ink/35 hover:text-danger-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
           </>
         )}
       </div>
       {note.title && <div className="text-sm font-semibold text-ink/90 mb-1 pr-14 line-clamp-2">{note.title}</div>}
-      <div className="text-[13px] leading-snug text-ink/80 line-clamp-6 whitespace-pre-wrap min-h-10">{preview || 'ไม่มีเนื้อหา'}</div>
+      {body.mode === 'text' ? (
+        <div className="text-[13px] leading-snug text-ink/80 line-clamp-6 whitespace-pre-wrap min-h-10">{body.text.slice(0, 280) || 'ไม่มีเนื้อหา'}</div>
+      ) : (
+        <div className="text-[13px] leading-snug text-ink/80 min-h-10 space-y-0.5">
+          {body.items.length === 0 && <div className="text-ink/50">ไม่มีเนื้อหา</div>}
+          {body.items.slice(0, MAX_CHECKLIST_ROWS).map((it) => (
+            <div key={it.id} className={`flex items-start gap-1.5 ${it.done ? 'line-through text-ink/50' : ''}`}>
+              <span className="shrink-0">{it.done ? '☑' : '☐'}</span>
+              <span className="truncate">{it.text}</span>
+            </div>
+          ))}
+          {body.items.length > MAX_CHECKLIST_ROWS && <div className="text-ink/50">+{body.items.length - MAX_CHECKLIST_ROWS} รายการ</div>}
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-ink/10">
         <span className="text-[10px] text-ink/50">{new Date(note.updatedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>
         <div className="flex items-center gap-1">
@@ -481,7 +520,21 @@ function PostIt({ note, meId, isNew, onOpenConvert, onEdit, onDelete }: { note: 
   )
 }
 
-function NoteBoard({ notes, meId, onOpenConvert, onEdit, onDelete }: { notes: Note[]; meId: string; onOpenConvert: (n: Note) => void; onEdit: (n: Note) => void; onDelete: (n: Note) => void }) {
+type BoardTab = 'own' | 'shared'
+
+// Pronista §My Note board tabs (2026-09-01) — เดิมย้ายบันทึกที่แชร์มาไปหน้า "แชร์กับฉัน" แยกต่างหาก พี่แจ้งว่าไม่ใช่ที่ที่ควรอยู่
+// ย้ายกลับมาที่ My Note เหมือนเดิม แต่แยกเป็นแท็บในบอร์ดฝั่งขวาแทนที่จะปนกับบันทึกของตัวเองบนบอร์ดเดียว
+function NoteBoard({
+  tab, onTabChange, notes, meId, onOpenConvert, onEdit, onDelete,
+}: {
+  tab: BoardTab
+  onTabChange: (t: BoardTab) => void
+  notes: Note[]
+  meId: string
+  onOpenConvert: (n: Note) => void
+  onEdit: (n: Note) => void
+  onDelete: (n: Note) => void
+}) {
   const prevIds = useRef<Set<string> | null>(null)
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
@@ -502,10 +555,25 @@ function NoteBoard({ notes, meId, onOpenConvert, onEdit, onDelete }: { notes: No
   return (
     <div className="note-board relative flex-1 min-w-0 w-full rounded-2xl border border-border-subtle p-5 sm:p-6 min-h-[420px]">
       <div className="flex items-center gap-1.5 text-xs font-medium text-dim mb-4">
-        <Pin className="w-3.5 h-3.5" /> บอร์ดบันทึกของฉัน
+        <Pin className="w-3.5 h-3.5 shrink-0" />
+        <div className="flex bg-divider rounded-lg p-0.5 w-fit">
+          <button onClick={() => onTabChange('own')} className={`px-3 py-1 rounded-md ${tab === 'own' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+            บอร์ดบันทึกของฉัน
+          </button>
+          <button
+            onClick={() => onTabChange('shared')}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md ${tab === 'shared' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}
+          >
+            บอร์ดที่แชร์กับฉัน
+            {/* Pronista §My Note badge (2026-09-01) — เลขแจ้งเตือนบนแท็บเอง คู่กับ badge ที่เมนูข้าง (my-tasks/notes) */}
+            <NotificationBell types={['note_shared']} />
+          </button>
+        </div>
       </div>
       {notes.length === 0 ? (
-        <div className="grid place-items-center h-64 text-sm text-muted">บันทึกแรกของคุณจะแปะที่นี่ ✨</div>
+        <div className="grid place-items-center h-64 text-sm text-muted">
+          {tab === 'own' ? 'บันทึกแรกของคุณจะแปะที่นี่ ✨' : 'ยังไม่มีใครแชร์บันทึกมาให้'}
+        </div>
       ) : (
         <div className="flex flex-wrap gap-6 sm:gap-7 pb-2">
           {notes.map((n) => (
@@ -522,20 +590,32 @@ export function MyNoteTab() {
   const meId = user?.id ?? ''
   const { confirmDialog } = useDialog()
   const { data: notesList, reload } = useLoad<Note[]>(() => api.get('/api/my-notes'))
+  // Pronista §My Note board tabs (2026-09-01) — บอร์ดที่แชร์กับฉัน (บันทึกที่คนอื่นแชร์มาหรือฉันแชร์ออกไป) — ดึงคู่กับของตัวเองเสมอ สลับแค่ว่าจะโชว์อันไหนบนบอร์ด
+  const { data: sharedNotesList, reload: reloadShared } = useLoad<Note[]>(() => api.get('/api/my-notes/shared'))
+  const { markTypeRead } = useNotifications()
+  const [boardTab, setBoardTab] = useState<'own' | 'shared'>('own')
+  // Pronista §My Note badge (2026-09-01) — เปิดแท็บ "บอร์ดที่แชร์กับฉัน" แล้ว mark note_shared อ่านทันที กัน badge ค้างหลังกดเข้ามาดูแล้ว
+  const changeBoardTab = (t: 'own' | 'shared') => {
+    setBoardTab(t)
+    if (t === 'shared') void markTypeRead('note_shared')
+  }
   const [convertingNote, setConvertingNote] = useState<Note | null>(null)
   // Pronista §My Note Edit (2026-08-27) — note ที่กำลังแก้ไขอยู่ (null = ฟอร์มบนสุดอยู่ในโหมด "สร้างใหม่")
   const [editingNote, setEditingNote] = useState<Note | null>(null)
+
+  const reloadAll = () => { void reload(); void reloadShared() }
 
   const remove = async (n: Note) => {
     const ok = await confirmDialog({ title: 'ลบบันทึกนี้?', message: n.title || notePreview(parseBody(n.body)), confirmLabel: 'ลบ', danger: true })
     if (!ok) return
     if (editingNote?.id === n.id) setEditingNote(null)
     await api.delete(`/api/my-notes/${n.id}`)
-    await reload()
+    reloadAll()
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-5 lg:gap-6 items-start">
+    // Pronista §Menu Restructure (2026-09-02) — สลับฝั่ง: บอร์ดงานย้ายมาซ้าย, ฟอร์มเขียน+รายการเดิมไปขวา (DOM order = ลำดับซ้าย→ขวาใน flex-row)
+    <div className="flex flex-col lg:flex-row-reverse gap-5 lg:gap-6 items-start">
       <div className="w-full lg:w-[45%] lg:shrink-0 space-y-4">
         <NoteEditor
           key={editingNote?.id ?? 'new'}
@@ -544,9 +624,9 @@ export function MyNoteTab() {
           onCancel={() => setEditingNote(null)}
           onSaved={() => {
             setEditingNote(null)
-            void reload()
+            reloadAll()
           }}
-          onDraftCreated={() => void reload()}
+          onDraftCreated={reloadAll}
         />
 
         {!notesList ? (
@@ -559,7 +639,11 @@ export function MyNoteTab() {
               const body = parseBody(n.body)
               const canEdit = canEditNoteRow(n, meId)
               return (
-                <div key={n.id} className={`bg-white rounded-lg shadow-xs px-4 py-3 ${editingNote?.id === n.id ? 'ring-2 ring-brand-400' : ''}`}>
+                <div
+                  key={n.id}
+                  onClick={() => setEditingNote(n)}
+                  className={`bg-white rounded-lg shadow-xs px-4 py-3 cursor-pointer hover:shadow-sm ${editingNote?.id === n.id ? 'ring-2 ring-brand-400' : ''}`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-0.5">
@@ -583,13 +667,13 @@ export function MyNoteTab() {
                       <div className="text-[10px] text-muted mt-1">{new Date(n.updatedAt).toLocaleString('th-TH')}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <button onClick={() => setEditingNote(n)} title={canEdit ? 'แก้ไข' : 'ดูบันทึก'} className="text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingNote(n) }} title={canEdit ? 'แก้ไข' : 'ดูบันทึก'} className="text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>
                       {canEdit && (
                         <>
-                          <button onClick={() => setConvertingNote(n)} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
+                          <button onClick={(e) => { e.stopPropagation(); setConvertingNote(n) }} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
                             <Repeat className="w-3 h-3" /> Convert
                           </button>
-                          <button onClick={() => void remove(n)} className="text-border hover:text-danger-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={(e) => { e.stopPropagation(); void remove(n) }} className="text-border hover:text-danger-600"><Trash2 className="w-3.5 h-3.5" /></button>
                         </>
                       )}
                     </div>
@@ -601,13 +685,21 @@ export function MyNoteTab() {
         )}
       </div>
 
-      <NoteBoard notes={notesList ?? []} meId={meId} onOpenConvert={setConvertingNote} onEdit={setEditingNote} onDelete={(n) => void remove(n)} />
+      <NoteBoard
+        tab={boardTab}
+        onTabChange={changeBoardTab}
+        notes={(boardTab === 'own' ? notesList : sharedNotesList) ?? []}
+        meId={meId}
+        onOpenConvert={setConvertingNote}
+        onEdit={setEditingNote}
+        onDelete={(n) => void remove(n)}
+      />
 
       {convertingNote && (
         <ConvertModal
           note={convertingNote}
           onClose={() => setConvertingNote(null)}
-          onDone={() => { setConvertingNote(null); void reload() }}
+          onDone={() => { setConvertingNote(null); reloadAll() }}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { createDb, meetingActionItems, meetingParticipants, meetings, notifications, projectMembers, projects, users } from '@seedoffice/db'
+import { createDb, meetingActionItems, meetingExternalInvitees, meetingParticipants, meetings, members, notifications, projectMembers, projects, users } from '@seedoffice/db'
 import { and, asc, eq, gte, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -66,6 +66,10 @@ meetingRoutes
         externalMeetingUrl: z.string().url().nullable().optional(),
         agenda: z.string().nullable().optional(),
         participantIds: z.array(z.string()).default([]),
+        // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญ "สมาชิก" (members table — ไม่มี login) เข้าประชุมด้วยได้ แยกจาก participantIds (users.id)
+        externalInviteeMemberIds: z.array(z.string()).default([]),
+        // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญคนนอกระบบด้วยอีเมล เอง (ไม่มีแม้แต่ใน members) เช่น ลูกค้า/คนภายนอกที่ไม่เคยอยู่ในระบบเลย
+        externalInviteeEmails: z.array(z.object({ name: z.string().min(1).max(120), email: z.string().email() })).default([]),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
@@ -104,6 +108,18 @@ meetingRoutes
     )[0]!
     const participantIds = new Set([me.id, ...body.data.participantIds])
     await db.insert(meetingParticipants).values([...participantIds].map((userId) => ({ meetingId: created.id, userId })))
+    // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญสมาชิก (members table) ด้วยถ้ามีเลือกมา — snapshot name/email ไว้ ยังไม่ส่งอีเมลเชิญจริงออกนอกระบบ (ต้องถามเจ้าของก่อน)
+    const externalInviteeIds = [...new Set(body.data.externalInviteeMemberIds)]
+    if (externalInviteeIds.length > 0) {
+      const memberRows = await db.select({ id: members.id, name: members.name, email: members.email }).from(members).where(inArray(members.id, externalInviteeIds))
+      if (memberRows.length > 0) {
+        await db.insert(meetingExternalInvitees).values(memberRows.map((m) => ({ meetingId: created.id, memberId: m.id, name: m.name, email: m.email })))
+      }
+    }
+    // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง (คนนอกระบบทั้งหมด ไม่มีแม้แต่ใน members) — memberId เป็น null
+    if (body.data.externalInviteeEmails.length > 0) {
+      await db.insert(meetingExternalInvitees).values(body.data.externalInviteeEmails.map((e) => ({ meetingId: created.id, memberId: null, name: e.name, email: e.email })))
+    }
     // Pronista §Meeting Schedule Tab (2026-08-27) — popup แจ้งเตือนต้องโชว์ครบ: ชื่อประชุม, เวลา, Agenda, ผู้เข้าร่วม
     const participantNames = (await db.select({ name: users.name }).from(users).where(inArray(users.id, [...participantIds]))).map((u) => u.name)
     const message = formatMeetingDetailMessage(`${me.name} นัดประชุม "${created.title}"`, created, participantNames)
@@ -122,9 +138,14 @@ meetingRoutes
     if (!meeting) return c.json({ error: 'not_found' }, 404)
     if (!(await canAccessMeeting(db, meeting, me))) return c.json({ error: 'forbidden' }, 403)
     const participantRows = await db.select({ userId: meetingParticipants.userId, name: users.name }).from(meetingParticipants).innerJoin(users, eq(meetingParticipants.userId, users.id)).where(eq(meetingParticipants.meetingId, meeting.id))
+    // Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็น "สมาชิก" (ไม่มี login) แยกจาก participants ปกติ
+    const externalInviteeRows = await db
+      .select({ id: meetingExternalInvitees.id, memberId: meetingExternalInvitees.memberId, name: meetingExternalInvitees.name, email: meetingExternalInvitees.email })
+      .from(meetingExternalInvitees)
+      .where(eq(meetingExternalInvitees.meetingId, meeting.id))
     const actionItems = await db.select().from(meetingActionItems).where(eq(meetingActionItems.meetingId, meeting.id)).orderBy(asc(meetingActionItems.createdAt))
     const project = meeting.projectId ? (await db.select({ name: projects.name }).from(projects).where(eq(projects.id, meeting.projectId)).limit(1))[0] : null
-    return c.json({ ...meeting, projectName: project?.name ?? null, participants: participantRows, actionItems })
+    return c.json({ ...meeting, projectName: project?.name ?? null, participants: participantRows, externalInvitees: externalInviteeRows, actionItems })
   })
 
   .patch('/meetings/:id', teamOrMenu('team'), async (c) => {
@@ -195,6 +216,7 @@ meetingRoutes
     await db.delete(notifications).where(eq(notifications.meetingId, before.id))
     await db.delete(meetingActionItems).where(eq(meetingActionItems.meetingId, before.id))
     await db.delete(meetingParticipants).where(eq(meetingParticipants.meetingId, before.id))
+    await db.delete(meetingExternalInvitees).where(eq(meetingExternalInvitees.meetingId, before.id))
     await db.delete(meetings).where(eq(meetings.id, before.id))
     await writeAudit(c.env, { actorId: me.id, action: 'meeting.delete', entity: 'meeting', entityId: before.id, meta: { title: before.title } })
     for (const p of participants) {

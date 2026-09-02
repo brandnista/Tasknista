@@ -17,6 +17,8 @@ interface NotificationsValue {
   markAllRead: () => Promise<void>
   /** Pronista §Notification overhaul (2026-08-27) — เปิดห้องแชทแล้ว mark แจ้งเตือนของห้องนั้นอ่านทันที (chat_mention/chat_message) กัน badge เมนู "ทีม" ค้าง */
   markChannelRead: (channelId: string) => Promise<void>
+  /** Pronista §My Note badge (2026-09-01) — เปิดแท็บ/หน้าที่มี badge เฉพาะประเภทแล้ว mark อ่านทั้งประเภทนั้น (เช่น เปิดแท็บ "บอร์ดที่แชร์กับฉัน" → mark note_shared ทั้งหมดอ่าน) */
+  markTypeRead: (type: string) => Promise<void>
 }
 
 const NotificationsContext = createContext<NotificationsValue>({
@@ -26,6 +28,7 @@ const NotificationsContext = createContext<NotificationsValue>({
   markRead: async () => {},
   markAllRead: async () => {},
   markChannelRead: async () => {},
+  markTypeRead: async () => {},
 })
 
 const POLL_MS = 30_000
@@ -67,8 +70,13 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     await api.post(`/api/chat/channels/${channelId}/read`)
   }, [])
 
+  const markTypeRead = useCallback(async (type: string) => {
+    setRows((prev) => prev?.map((r) => (r.type === type ? { ...r, isRead: true } : r)) ?? prev)
+    await api.post('/api/notifications/mark-type-read', { type })
+  }, [])
+
   return (
-    <NotificationsContext.Provider value={{ rows, loadError, reload, markRead, markAllRead, markChannelRead }}>
+    <NotificationsContext.Provider value={{ rows, loadError, reload, markRead, markAllRead, markChannelRead, markTypeRead }}>
       {children}
     </NotificationsContext.Provider>
   )

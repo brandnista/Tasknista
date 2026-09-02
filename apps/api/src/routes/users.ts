@@ -8,10 +8,20 @@ import type { AppEnv } from '../types'
 export const userRoutes = new Hono<AppEnv>()
 
   // รายชื่อ user active — ใช้กับ assignee picker (ไม่มีข้อมูลเงิน)
+  // Pronista §Meeting Attendee Filter (2026-09-02) — เพิ่ม email/jobTitle/businessName/specialty ให้พอ disambiguate ชื่อซ้ำได้ตอนเลือกผู้เข้าร่วมประชุม (แสดง "[ชื่อ] - [ตำแหน่ง/สังกัด] ([อีเมล])")
   .get('/users', async (c) => {
     const db = createDb(c.env.DB)
     const list = await db
-      .select({ id: users.id, name: users.name, role: users.role, avatarUrl: users.avatarUrl })
+      .select({
+        id: users.id,
+        name: users.name,
+        role: users.role,
+        avatarUrl: users.avatarUrl,
+        email: users.email,
+        jobTitle: users.jobTitle,
+        businessName: users.businessName,
+        specialty: users.specialty,
+      })
       .from(users)
       .where(eq(users.status, 'active'))
       .orderBy(asc(users.name))

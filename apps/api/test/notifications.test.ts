@@ -133,3 +133,39 @@ describe('Pronista §Notification overhaul (2026-08-27) — เปิดห้�
     expect(after.some((n) => n.chatChannelId === channelId && !n.isRead)).toBe(false)
   })
 })
+
+describe('Pronista §My Note badge (2026-09-01) — POST /notifications/mark-type-read', () => {
+  it('mark เฉพาะประเภทที่ระบุเป็นอ่านแล้ว ไม่กระทบประเภทอื่น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    // เทสต์ก่อนหน้าในไฟล์นี้ปิด meeting_scheduled ของปอนด์ไว้ (seedUsers ไม่รีเซ็ต notificationPrefs — onConflictDoNothing) เปิดกลับก่อนกันชนกัน
+    await app.request('/api/notification-prefs', patch(pond, { disabledTypes: [] }), env)
+    const created = (await (
+      await app.request('/api/my-notes', json(owner, { title: 'สำหรับ mark-type-read', body: { mode: 'text', text: 'x' } }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/my-notes/${created.id}/members`, json(owner, { userId: 'u_pond', role: 'viewer' }), env)
+    const startAt = Date.now() + 3_600_000
+    await app.request(
+      '/api/meetings',
+      json(owner, { title: 'ประชุมคู่กัน', startAt, endAt: startAt + 3_600_000, externalMeetingUrl: 'https://meet.jit.si/test-fixed-url', participantIds: ['u_pond'] }),
+      env,
+    )
+
+    const before = (await (await app.request('/api/notifications', { headers: { cookie: pond } }, env)).json()) as { type: string; isRead: boolean }[]
+    expect(before.some((n) => n.type === 'note_shared' && !n.isRead)).toBe(true)
+    expect(before.some((n) => n.type === 'meeting_scheduled' && !n.isRead)).toBe(true)
+
+    const res = await app.request('/api/notifications/mark-type-read', json(pond, { type: 'note_shared' }), env)
+    expect(res.status).toBe(200)
+
+    const after = (await (await app.request('/api/notifications', { headers: { cookie: pond } }, env)).json()) as { type: string; isRead: boolean }[]
+    expect(after.some((n) => n.type === 'note_shared' && !n.isRead)).toBe(false)
+    expect(after.some((n) => n.type === 'meeting_scheduled' && !n.isRead)).toBe(true)
+  })
+
+  it('ประเภทไม่รู้จัก → 400 · ไม่ login → 401', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    expect((await app.request('/api/notifications/mark-type-read', json(owner, { type: 'ไม่มีจริง' }), env)).status).toBe(400)
+    expect((await app.request('/api/notifications/mark-type-read', { method: 'POST' }, env)).status).toBe(401)
+  })
+})

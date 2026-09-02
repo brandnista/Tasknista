@@ -98,23 +98,29 @@ function CreateFolderModal({ parentId, onClose, onDone }: { parentId: string | n
   )
 }
 
+// Pronista §My Files multi-share (2026-09-01) — เดิมเลือกได้ทีละคน ต้องกด "เพิ่ม" ซ้ำทีละคน — เปลี่ยนเป็นติ๊กเลือกได้หลายคนแล้วกดครั้งเดียว
 export function ShareModal({ file, onClose }: { file: { id: string; name: string; ownerId: string }; onClose: () => void }) {
   const { alertDialog } = useDialog()
   const { data: members, reload } = useLoad<MemberRow[]>(() => api.get(`/api/my-files/${file.id}/members`), [file.id])
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
-  const [pickUserId, setPickUserId] = useState('')
+  const [pickUserIds, setPickUserIds] = useState<Set<string>>(new Set())
   const [pickRole, setPickRole] = useState<'viewer' | 'editor'>('viewer')
+  const [adding, setAdding] = useState(false)
   const memberIds = new Set((members ?? []).map((m) => m.id))
   const options = (users ?? []).filter((u) => !memberIds.has(u.id) && u.id !== file.ownerId)
+  const toggleUser = (id: string) => setPickUserIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
 
   const add = async () => {
-    if (!pickUserId) return
+    if (pickUserIds.size === 0) return
+    setAdding(true)
     try {
-      await api.post(`/api/my-files/${file.id}/members`, { userId: pickUserId, role: pickRole })
-      setPickUserId('')
+      await Promise.all([...pickUserIds].map((userId) => api.post(`/api/my-files/${file.id}/members`, { userId, role: pickRole })))
+      setPickUserIds(new Set())
       await reload()
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'แชร์ไม่สำเร็จ' })
+    } finally {
+      setAdding(false)
     }
   }
   const remove = async (userId: string) => {
@@ -133,16 +139,24 @@ export function ShareModal({ file, onClose }: { file: { id: string; name: string
           <div className="font-semibold text-ink text-sm">แชร์ "{file.name}"</div>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
+        {options.length > 0 && (
+          <div className="space-y-0.5 max-h-32 overflow-y-auto border border-border-subtle rounded-lg p-1.5">
+            {options.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 text-sm px-1.5 py-1 rounded-md hover:bg-hover cursor-pointer">
+                <input type="checkbox" checked={pickUserIds.has(u.id)} onChange={() => toggleUser(u.id)} className="rounded" />
+                <span className="truncate">{u.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
-          <select value={pickUserId} onChange={(e) => setPickUserId(e.target.value)} className="flex-1 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
-            <option value="">— เลือกคน —</option>
-            {options.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-          <select value={pickRole} onChange={(e) => setPickRole(e.target.value as 'viewer' | 'editor')} className="text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
+          <select value={pickRole} onChange={(e) => setPickRole(e.target.value as 'viewer' | 'editor')} className="flex-1 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
             <option value="viewer">ดูอย่างเดียว</option>
             <option value="editor">แก้ไขได้</option>
           </select>
-          <button onClick={() => void add()} disabled={!pickUserId} className="text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-2 rounded-lg disabled:opacity-40">เพิ่ม</button>
+          <button onClick={() => void add()} disabled={pickUserIds.size === 0 || adding} className="text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-2 rounded-lg disabled:opacity-40 whitespace-nowrap">
+            {adding ? 'กำลังแชร์...' : pickUserIds.size > 0 ? `เพิ่ม (${pickUserIds.size})` : 'เพิ่ม'}
+          </button>
         </div>
         <div className="space-y-1 max-h-48 overflow-y-auto">
           {(members ?? []).length === 0 && <div className="text-xs text-muted text-center py-4">ยังไม่ได้แชร์ให้ใคร</div>}
@@ -389,6 +403,15 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow-xs divide-y divide-divider">
+          {/* Pronista §My Files column headers (2026-09-01) — หัวตารางบอกว่าแต่ละคอลัมน์คืออะไร (ก่อนหน้านี้ไม่มีเลย ต้องเดาเอา) ความกว้างต้องตรงกับ span ใต้ทุกตัวเป๊ะๆ */}
+          <div className="hidden sm:flex items-center gap-2.5 px-4 py-2 text-[11px] font-medium text-muted">
+            <span className="flex-1 min-w-0">ชื่อ</span>
+            <span className="shrink-0 w-16">ประเภท</span>
+            <span className="shrink-0 w-16 text-right">เจ้าของ</span>
+            <span className="shrink-0 w-14 text-right">ขนาด</span>
+            <span className="shrink-0 w-20 text-right hidden md:inline">แก้ไขเมื่อ</span>
+            <span className="shrink-0 w-28" />
+          </div>
           {items.map((r) => {
             const canManage = !browsingShared && (r.myRole === 'editor' || r.myRole === undefined) && (listData?.folder ? listData.folder.access !== 'viewer' : true)
             const isDropTarget = r.kind === 'folder' && dragOverId === r.id
@@ -413,6 +436,7 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
                   <span className="text-sm text-body truncate">{r.name}</span>
                 </button>
                 {/* Pronista §My Files column alignment fix (2026-09-01) — คอลัมน์ท้ายแถวทุกอันต้อง "กว้างคงที่ + render เสมอ" ไม่ใช่แค่ conditional ทั้งก้อน (เดิม owner render เฉพาะมี ownerName, ปุ่มจัดการ 2-4 ปุ่มไม่เท่ากันแต่ละแถว ไม่ได้ห่อความกว้างคงที่ — ทำให้ปุ่มไฟล์ชื่อ flex-1 กินพื้นที่ไม่เท่ากันต่อแถว คอลัมน์ owner/ขนาด/วันที่ ข้างหลังเลยเบี้ยว) */}
+                <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate">{TYPE_LABEL[fileType(r)]}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-16 truncate text-right">{r.ownerName ?? ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden sm:inline w-14 text-right">{r.kind === 'file' ? fmtSize(r.sizeBytes) : ''}</span>
                 <span className="text-[11px] text-muted shrink-0 hidden md:inline w-20 text-right">{new Date(r.updatedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>

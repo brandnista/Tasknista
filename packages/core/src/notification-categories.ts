@@ -29,5 +29,9 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
   { key: 'chat_message', label: 'มีข้อความใหม่ในแชท', types: ['chat_message'] },
   { key: 'meeting', label: 'ประชุม', types: ['meeting_scheduled', 'meeting_updated', 'meeting_cancelled', 'meeting_reminder'] },
   { key: 'daily_report', label: 'Daily Report', types: ['daily_report_submitted', 'daily_report_commented', 'daily_report_reviewed'] },
-  { key: 'system', label: 'ระบบ/อื่นๆ', types: ['expiry_reminder', 'member_expiry_reminder', 'project_member_added', 'domain_expiry_reminder', 'domain_expired'] },
+  {
+    key: 'system',
+    label: 'ระบบ/อื่นๆ',
+    types: ['expiry_reminder', 'member_expiry_reminder', 'project_member_added', 'domain_expiry_reminder', 'domain_expired', 'note_shared'],
+  },
 ] as const

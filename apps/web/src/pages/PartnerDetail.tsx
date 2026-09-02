@@ -5,6 +5,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
+import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -144,7 +145,7 @@ export function PartnerDetailPage() {
             </div>
             <div>
               <label className={label}>วันหมดสัญญา</label>
-              <input type="date" defaultValue={p.contractExpiryDate ?? ''} onBlur={(ev) => { const v = ev.target.value; if (v !== (p.contractExpiryDate ?? '')) void save({ contractExpiryDate: v || null }) }} className={input} />
+              <DateInputTH defaultValue={p.contractExpiryDate ?? ''} onBlur={(ev) => { const v = ev.target.value; if (v !== (p.contractExpiryDate ?? '')) void save({ contractExpiryDate: v || null }) }} className={input} />
             </div>
             {!isJuristic && (
               <div>

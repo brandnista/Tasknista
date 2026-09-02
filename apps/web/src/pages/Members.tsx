@@ -5,6 +5,7 @@ import { SquarePen, UserPlus } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
+import { DateInputTH } from '../components/DateInputTH'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 import { CLASSIFICATION_TYPE_LABEL, ClassificationFields, fieldInput, fieldLabel, ModalShell, type ClassificationFieldValues, type ClassificationType } from './UserSettings'
@@ -101,8 +102,8 @@ function AddMemberForm({ tiers, onClose, onCreated }: { tiers: OrgSizeTier[]; on
       </div>
       {form.membershipMode === 'dated' && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div><label className={fieldLabel}>วันเริ่มต้น</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={fieldInput} /></div>
-          <div><label className={fieldLabel}>วันหมดอายุ</label><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className={fieldInput} /></div>
+          <div><label className={fieldLabel}>วันเริ่มต้น</label><DateInputTH value={form.startDate} onChange={(v) => setForm({ ...form, startDate: v })} className={fieldInput} /></div>
+          <div><label className={fieldLabel}>วันหมดอายุ</label><DateInputTH value={form.endDate} onChange={(v) => setForm({ ...form, endDate: v })} className={fieldInput} /></div>
           <div><label className={fieldLabel}>แจ้งเตือนล่วงหน้า (วัน)</label><input type="number" min={0} value={form.notifyBeforeDays} onChange={(e) => setForm({ ...form, notifyBeforeDays: e.target.value })} className={fieldInput} /></div>
         </div>
       )}

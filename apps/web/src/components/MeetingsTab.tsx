@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from '../pages/ProjectDetail'
 import { Avatar } from './Avatar'
+import { DateTimeInputTH } from './DateTimeInputTH'
 import { useDialog } from './Dialog'
 
 interface MeetingRow {
@@ -29,15 +30,46 @@ interface MeetingDetail extends MeetingRow {
   agenda: string | null
   notes: string | null
   participants: { userId: string; name: string }[]
+  // Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็น "สมาชิก" (memberId ไม่ว่าง) หรือเชิญด้วยอีเมลเอง (memberId ว่าง = คนนอกระบบทั้งหมด)
+  externalInvitees: { id: string; memberId: string | null; name: string; email: string | null }[]
   actionItems: MeetingActionItem[]
 }
 interface ProjectOpt {
   id: string
   name: string
 }
+// Pronista §Meeting Attendee Filter (2026-09-02) — role + jobTitle/businessName/specialty ใช้ disambiguate ชื่อซ้ำ: "[ชื่อ] - [ตำแหน่ง/สังกัด] ([อีเมล])"
 interface UserOpt {
   id: string
   name: string
+  role: 'owner' | 'member' | 'vendor' | 'guest'
+  email: string
+  jobTitle: string | null
+  businessName: string | null
+  specialty: string | null
+}
+interface MemberOpt {
+  id: string
+  name: string
+  businessName: string | null
+  email: string | null
+}
+
+type AttendeeFilter = 'employee' | 'partner' | 'client' | 'member'
+const ATTENDEE_FILTER_LABEL: Record<AttendeeFilter, string> = { employee: 'พนักงาน', partner: 'พาร์ทเนอร์', client: 'ลูกค้า', member: 'สมาชิก' }
+const attendeeFilterRole: Record<Exclude<AttendeeFilter, 'member'>, UserOpt['role'][]> = {
+  employee: ['owner', 'member'],
+  partner: ['vendor'],
+  client: ['guest'],
+}
+/** ป้ายแสดงผลกันชื่อซ้ำ: [ชื่อ] - [ตำแหน่ง/สังกัด] ([อีเมล]) — ตำแหน่งดึงตามประเภทผู้ใช้ (SPEC §3.2) */
+function userAttendeeLabel(u: UserOpt): string {
+  const affiliation =
+    u.role === 'owner' || u.role === 'member' ? u.jobTitle || 'พนักงาน' : u.role === 'vendor' ? u.specialty || u.businessName || 'พาร์ทเนอร์' : u.businessName || 'ลูกค้า'
+  return `${u.name} - ${affiliation} (${u.email})`
+}
+function memberAttendeeLabel(m: MemberOpt): string {
+  return `${m.name} - ${m.businessName || 'สมาชิก'} (${m.email || '—'})`
 }
 
 const MEETING_TYPE_LABEL: Record<string, string> = {
@@ -155,6 +187,7 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
   const { alertDialog } = useDialog()
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
+  const { data: members } = useLoad<MemberOpt[]>(() => api.get('/api/members'))
   const [title, setTitle] = useState('')
   const [meetingType, setMeetingType] = useState('team')
   const [projectId, setProjectId] = useState(defaultProjectId ?? '')
@@ -165,9 +198,26 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
   const [externalMeetingUrl, setExternalMeetingUrl] = useState('')
   const [agenda, setAgenda] = useState('')
   const [participantIds, setParticipantIds] = useState<Set<string>>(new Set())
+  // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญ "สมาชิก" (members table) แยกจาก participantIds
+  const [externalInviteeIds, setExternalInviteeIds] = useState<Set<string>>(new Set())
+  // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง (คนนอกระบบทั้งหมด ไม่มีแม้แต่ใน members)
+  const [manualInvitees, setManualInvitees] = useState<{ name: string; email: string }[]>([])
+  const [manualName, setManualName] = useState('')
+  const [manualEmail, setManualEmail] = useState('')
+  const [attendeeFilter, setAttendeeFilter] = useState<AttendeeFilter>('employee')
   const [busy, setBusy] = useState(false)
 
   const toggleParticipant = (id: string) => setParticipantIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const toggleExternalInvitee = (id: string) => setExternalInviteeIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const addManualInvitee = () => {
+    const name = manualName.trim()
+    const email = manualEmail.trim()
+    if (!name || !email) return
+    setManualInvitees((prev) => [...prev, { name, email }])
+    setManualName('')
+    setManualEmail('')
+  }
+  const removeManualInvitee = (idx: number) => setManualInvitees((prev) => prev.filter((_, i) => i !== idx))
 
   const create = async () => {
     if (!title.trim()) return
@@ -182,6 +232,8 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
         externalMeetingUrl: externalMeetingUrl.trim() || null,
         agenda: agenda.trim() || null,
         participantIds: [...participantIds],
+        externalInviteeMemberIds: [...externalInviteeIds],
+        externalInviteeEmails: manualInvitees,
       })
       onCreated(created.id)
     } catch (e) {
@@ -221,11 +273,11 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] text-muted block mb-0.5">เริ่ม</label>
-              <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
+              <DateTimeInputTH value={startAt} onChange={setStartAt} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
             </div>
             <div>
               <label className="text-[11px] text-muted block mb-0.5">ถึง</label>
-              <input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
+              <DateTimeInputTH value={endAt} onChange={setEndAt} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
             </div>
           </div>
           <div>
@@ -237,14 +289,77 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
             <textarea value={agenda} onChange={(e) => setAgenda(e.target.value)} rows={2} className="w-full text-sm bg-hover rounded-lg px-3 py-2 resize-none focus:outline-hidden" />
           </div>
           <div>
-            <label className="text-[11px] text-muted block mb-1">ผู้เข้าร่วม</label>
-            <div className="max-h-32 overflow-y-auto space-y-0.5 border border-border-subtle rounded-lg p-1.5">
-              {(users ?? []).map((u) => (
-                <label key={u.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-hover cursor-pointer">
-                  <input type="checkbox" checked={participantIds.has(u.id)} onChange={() => toggleParticipant(u.id)} />
-                  <span className="text-xs text-body">{u.name}</span>
-                </label>
+            <label className="text-[11px] text-muted flex items-center justify-between mb-1">
+              <span>ผู้เข้าร่วม</span>
+              {participantIds.size + externalInviteeIds.size + manualInvitees.length > 0 && (
+                <span className="text-brand-600 font-medium">เลือกแล้ว {participantIds.size + externalInviteeIds.size + manualInvitees.length}</span>
+              )}
+            </label>
+            {/* Pronista §Meeting Attendee Filter (2026-09-02) — ตัวกรอง 4 ประเภทผู้ใช้งาน (พนักงาน/พาร์ทเนอร์/ลูกค้า/สมาชิก) — สมาชิกไม่มี login คนละ list/state กับ 3 ประเภทแรก */}
+            <div className="flex bg-divider p-0.5 rounded-lg text-[11px] font-medium mb-1.5 w-fit">
+              {(Object.keys(ATTENDEE_FILTER_LABEL) as AttendeeFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setAttendeeFilter(f)}
+                  className={`px-2.5 py-1 rounded-md ${attendeeFilter === f ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}
+                >
+                  {ATTENDEE_FILTER_LABEL[f]}
+                </button>
               ))}
+            </div>
+            <div className="max-h-32 overflow-y-auto space-y-0.5 border border-border-subtle rounded-lg p-1.5">
+              {attendeeFilter === 'member'
+                ? (members ?? []).map((m) => (
+                    <label key={m.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-hover cursor-pointer">
+                      <input type="checkbox" checked={externalInviteeIds.has(m.id)} onChange={() => toggleExternalInvitee(m.id)} />
+                      <span className="text-xs text-body">{memberAttendeeLabel(m)}</span>
+                    </label>
+                  ))
+                : (users ?? []).filter((u) => attendeeFilterRole[attendeeFilter].includes(u.role)).map((u) => (
+                    <label key={u.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-hover cursor-pointer">
+                      <input type="checkbox" checked={participantIds.has(u.id)} onChange={() => toggleParticipant(u.id)} />
+                      <span className="text-xs text-body">{userAttendeeLabel(u)}</span>
+                    </label>
+                  ))}
+            </div>
+            {/* Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง สำหรับคนภายนอกที่ไม่มีอยู่ในระบบเลย (ไม่ใช่แม้แต่ "สมาชิก") */}
+            <div className="mt-2">
+              <label className="text-[11px] text-muted block mb-1">เชิญด้วยอีเมล (คนภายนอก)</label>
+              <div className="flex gap-1.5">
+                <input
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="ชื่อ"
+                  className="w-1/3 text-xs bg-hover rounded-lg px-2 py-1.5 focus:outline-hidden"
+                />
+                <input
+                  value={manualEmail}
+                  onChange={(e) => setManualEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualInvitee() } }}
+                  placeholder="อีเมล"
+                  type="email"
+                  className="flex-1 text-xs bg-hover rounded-lg px-2 py-1.5 focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={addManualInvitee}
+                  disabled={!manualName.trim() || !manualEmail.trim()}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-border-subtle hover:bg-hover disabled:opacity-40 shrink-0"
+                >
+                  เพิ่ม
+                </button>
+              </div>
+              {manualInvitees.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {manualInvitees.map((inv, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 text-[11px] rounded-full pl-2 pr-1 py-0.5">
+                      {inv.name} ({inv.email})
+                      <button type="button" onClick={() => removeManualInvitee(i)} className="hover:text-brand-900"><X className="w-3 h-3" /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -344,6 +459,13 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
               <span key={p.userId} className="inline-flex items-center gap-1 bg-hover rounded-full pl-0.5 pr-2 py-0.5">
                 <Avatar name={p.name} className="w-4 h-4 text-[8px]" colorClass={avatarColor(p.name)} />
                 <span className="text-[11px] text-body">{p.name}</span>
+              </span>
+            ))}
+            {/* Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็นคนนอกระบบ — "สมาชิก" (มี memberId) หรือ "ภายนอก" (เชิญด้วยอีเมลเอง ไม่มีแม้แต่ใน members) */}
+            {meeting.externalInvitees.map((inv) => (
+              <span key={inv.id} className="inline-flex items-center gap-1 bg-brand-50 rounded-full pl-0.5 pr-2 py-0.5">
+                <Avatar name={inv.name} className="w-4 h-4 text-[8px]" colorClass={avatarColor(inv.name)} />
+                <span className="text-[11px] text-brand-700">{inv.name} · {inv.memberId ? 'สมาชิก' : 'ภายนอก'}</span>
               </span>
             ))}
           </div>
