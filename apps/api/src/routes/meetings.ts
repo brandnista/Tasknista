@@ -68,6 +68,8 @@ meetingRoutes
         participantIds: z.array(z.string()).default([]),
         // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญ "สมาชิก" (members table — ไม่มี login) เข้าประชุมด้วยได้ แยกจาก participantIds (users.id)
         externalInviteeMemberIds: z.array(z.string()).default([]),
+        // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญคนนอกระบบด้วยอีเมล เอง (ไม่มีแม้แต่ใน members) เช่น ลูกค้า/คนภายนอกที่ไม่เคยอยู่ในระบบเลย
+        externalInviteeEmails: z.array(z.object({ name: z.string().min(1).max(120), email: z.string().email() })).default([]),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
@@ -113,6 +115,10 @@ meetingRoutes
       if (memberRows.length > 0) {
         await db.insert(meetingExternalInvitees).values(memberRows.map((m) => ({ meetingId: created.id, memberId: m.id, name: m.name, email: m.email })))
       }
+    }
+    // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง (คนนอกระบบทั้งหมด ไม่มีแม้แต่ใน members) — memberId เป็น null
+    if (body.data.externalInviteeEmails.length > 0) {
+      await db.insert(meetingExternalInvitees).values(body.data.externalInviteeEmails.map((e) => ({ meetingId: created.id, memberId: null, name: e.name, email: e.email })))
     }
     // Pronista §Meeting Schedule Tab (2026-08-27) — popup แจ้งเตือนต้องโชว์ครบ: ชื่อประชุม, เวลา, Agenda, ผู้เข้าร่วม
     const participantNames = (await db.select({ name: users.name }).from(users).where(inArray(users.id, [...participantIds]))).map((u) => u.name)

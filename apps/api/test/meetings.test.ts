@@ -66,6 +66,19 @@ describe('Pronista §Team Meeting — schedule, notes, action items', () => {
     expect((await app.request(`/api/meetings/${created.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
   })
 
+  it('Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง (คนนอกระบบ ไม่มีแม้แต่ใน members) ได้ด้วย memberId เป็น null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (await (
+      await app.request('/api/meetings', json(owner, nextMeetingPayload({ externalInviteeEmails: [{ name: 'ลูกค้าภายนอก', email: 'external@client.test' }] })), env)
+    ).json()) as { id: string }
+
+    const detail = (await (await app.request(`/api/meetings/${created.id}`, { headers: { cookie: owner } }, env)).json()) as {
+      externalInvitees: { memberId: string | null; name: string; email: string | null }[]
+    }
+    expect(detail.externalInvitees).toHaveLength(1)
+    expect(detail.externalInvitees[0]).toMatchObject({ memberId: null, name: 'ลูกค้าภายนอก', email: 'external@client.test' })
+  })
+
   it('Pronista §Meeting Schedule Tab — แจ้งเตือน meeting_scheduled มีครบ 4 ฟิลด์ในข้อความ (ชื่อ/เวลา/Agenda/ผู้เข้าร่วม)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')

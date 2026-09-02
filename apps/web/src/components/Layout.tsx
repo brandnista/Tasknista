@@ -170,7 +170,9 @@ export function Layout() {
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const s = new Set<string>()
     for (const n of NAV) {
-      if (n.children?.some((c) => location.pathname === c.to || (c.to !== '/admin' && location.pathname.startsWith(`${c.to}/`)))) s.add(n.to)
+      // c.to === n.to = child ที่เป็นแค่ "ลิงก์ตัวเองของเมนูแม่" (เช่น /admin ใน "ตั้งค่า", /my-tasks ใน "งานของฉัน") ไม่ใช่ prefix ของ route ย่อยจริง
+      // ห้ามเอามา startsWith match ไม่งั้นเมนูอื่นที่ path ขึ้นต้นด้วยของเดิม (เช่น /my-tasks/files ของเมนู "ไฟล์ของฉัน" แยกใหม่) จะกางเมนูแม่ผิดตัวไปด้วย
+      if (n.children?.some((c) => location.pathname === c.to || (c.to !== n.to && location.pathname.startsWith(`${c.to}/`)))) s.add(n.to)
     }
     return s
   })
@@ -184,7 +186,7 @@ export function Layout() {
   // เปลี่ยนหน้าไปยัง route ที่อยู่ใต้เมนูแม่ตัวไหน (เช่น ลิงก์ตรงจากที่อื่นในแอป) ให้กาง sub-menu นั้นให้อัตโนมัติ
   useEffect(() => {
     const matches = NAV.filter((n) =>
-      n.children?.some((c) => location.pathname === c.to || (c.to !== '/admin' && location.pathname.startsWith(`${c.to}/`))),
+      n.children?.some((c) => location.pathname === c.to || (c.to !== n.to && location.pathname.startsWith(`${c.to}/`))),
     )
     if (matches.length === 0) return
     setOpenGroups((s) => {

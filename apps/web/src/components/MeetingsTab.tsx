@@ -30,8 +30,8 @@ interface MeetingDetail extends MeetingRow {
   agenda: string | null
   notes: string | null
   participants: { userId: string; name: string }[]
-  // Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็น "สมาชิก" (members table — ไม่มี login)
-  externalInvitees: { id: string; memberId: string; name: string; email: string | null }[]
+  // Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็น "สมาชิก" (memberId ไม่ว่าง) หรือเชิญด้วยอีเมลเอง (memberId ว่าง = คนนอกระบบทั้งหมด)
+  externalInvitees: { id: string; memberId: string | null; name: string; email: string | null }[]
   actionItems: MeetingActionItem[]
 }
 interface ProjectOpt {
@@ -200,11 +200,24 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
   const [participantIds, setParticipantIds] = useState<Set<string>>(new Set())
   // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญ "สมาชิก" (members table) แยกจาก participantIds
   const [externalInviteeIds, setExternalInviteeIds] = useState<Set<string>>(new Set())
+  // Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง (คนนอกระบบทั้งหมด ไม่มีแม้แต่ใน members)
+  const [manualInvitees, setManualInvitees] = useState<{ name: string; email: string }[]>([])
+  const [manualName, setManualName] = useState('')
+  const [manualEmail, setManualEmail] = useState('')
   const [attendeeFilter, setAttendeeFilter] = useState<AttendeeFilter>('employee')
   const [busy, setBusy] = useState(false)
 
   const toggleParticipant = (id: string) => setParticipantIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const toggleExternalInvitee = (id: string) => setExternalInviteeIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const addManualInvitee = () => {
+    const name = manualName.trim()
+    const email = manualEmail.trim()
+    if (!name || !email) return
+    setManualInvitees((prev) => [...prev, { name, email }])
+    setManualName('')
+    setManualEmail('')
+  }
+  const removeManualInvitee = (idx: number) => setManualInvitees((prev) => prev.filter((_, i) => i !== idx))
 
   const create = async () => {
     if (!title.trim()) return
@@ -220,6 +233,7 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
         agenda: agenda.trim() || null,
         participantIds: [...participantIds],
         externalInviteeMemberIds: [...externalInviteeIds],
+        externalInviteeEmails: manualInvitees,
       })
       onCreated(created.id)
     } catch (e) {
@@ -277,7 +291,9 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
           <div>
             <label className="text-[11px] text-muted flex items-center justify-between mb-1">
               <span>ผู้เข้าร่วม</span>
-              {participantIds.size + externalInviteeIds.size > 0 && <span className="text-brand-600 font-medium">เลือกแล้ว {participantIds.size + externalInviteeIds.size}</span>}
+              {participantIds.size + externalInviteeIds.size + manualInvitees.length > 0 && (
+                <span className="text-brand-600 font-medium">เลือกแล้ว {participantIds.size + externalInviteeIds.size + manualInvitees.length}</span>
+              )}
             </label>
             {/* Pronista §Meeting Attendee Filter (2026-09-02) — ตัวกรอง 4 ประเภทผู้ใช้งาน (พนักงาน/พาร์ทเนอร์/ลูกค้า/สมาชิก) — สมาชิกไม่มี login คนละ list/state กับ 3 ประเภทแรก */}
             <div className="flex bg-divider p-0.5 rounded-lg text-[11px] font-medium mb-1.5 w-fit">
@@ -306,6 +322,44 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
                       <span className="text-xs text-body">{userAttendeeLabel(u)}</span>
                     </label>
                   ))}
+            </div>
+            {/* Pronista §Meeting Attendee Filter (2026-09-02) — เชิญด้วยอีเมลเอง สำหรับคนภายนอกที่ไม่มีอยู่ในระบบเลย (ไม่ใช่แม้แต่ "สมาชิก") */}
+            <div className="mt-2">
+              <label className="text-[11px] text-muted block mb-1">เชิญด้วยอีเมล (คนภายนอก)</label>
+              <div className="flex gap-1.5">
+                <input
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="ชื่อ"
+                  className="w-1/3 text-xs bg-hover rounded-lg px-2 py-1.5 focus:outline-hidden"
+                />
+                <input
+                  value={manualEmail}
+                  onChange={(e) => setManualEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualInvitee() } }}
+                  placeholder="อีเมล"
+                  type="email"
+                  className="flex-1 text-xs bg-hover rounded-lg px-2 py-1.5 focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={addManualInvitee}
+                  disabled={!manualName.trim() || !manualEmail.trim()}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-border-subtle hover:bg-hover disabled:opacity-40 shrink-0"
+                >
+                  เพิ่ม
+                </button>
+              </div>
+              {manualInvitees.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {manualInvitees.map((inv, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 text-[11px] rounded-full pl-2 pr-1 py-0.5">
+                      {inv.name} ({inv.email})
+                      <button type="button" onClick={() => removeManualInvitee(i)} className="hover:text-brand-900"><X className="w-3 h-3" /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -407,11 +461,11 @@ export function MeetingDetailModal({ meetingId, onClose, onChanged }: { meetingI
                 <span className="text-[11px] text-body">{p.name}</span>
               </span>
             ))}
-            {/* Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็น "สมาชิก" (ไม่มี login) — ติดป้าย "สมาชิก" กันสับสนกับ user ปกติ */}
+            {/* Pronista §Meeting Attendee Filter (2026-09-02) — ผู้เข้าร่วมที่เป็นคนนอกระบบ — "สมาชิก" (มี memberId) หรือ "ภายนอก" (เชิญด้วยอีเมลเอง ไม่มีแม้แต่ใน members) */}
             {meeting.externalInvitees.map((inv) => (
               <span key={inv.id} className="inline-flex items-center gap-1 bg-brand-50 rounded-full pl-0.5 pr-2 py-0.5">
                 <Avatar name={inv.name} className="w-4 h-4 text-[8px]" colorClass={avatarColor(inv.name)} />
-                <span className="text-[11px] text-brand-700">{inv.name} · สมาชิก</span>
+                <span className="text-[11px] text-brand-700">{inv.name} · {inv.memberId ? 'สมาชิก' : 'ภายนอก'}</span>
               </span>
             ))}
           </div>
