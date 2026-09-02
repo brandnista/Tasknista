@@ -578,6 +578,10 @@ export const taskRoutes = new Hono<AppEnv>()
     if (body.data.kind === 'defect' && before.kind !== 'defect' && body.data.defectStatus === undefined) {
       patch.defectStatus = 'reported'
     }
+    // Pronista §Defect field cleanup — mirror เดียวกับ /tasks/:id/convert (path ตรงนี้ครอบ PATCH ที่ตั้ง kind ตรงๆ เช่นกัน)
+    if (body.data.kind && body.data.kind !== 'defect' && before.kind === 'defect') {
+      patch.defectStatus = null
+    }
     // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด: ต้องอยู่ใน sprint อยู่แล้ว + คอลัมน์ต้องมีจริงใน preset ของ sprint นั้น
     if (body.data.sprintStatus !== undefined && body.data.sprintStatus !== null) {
       if (!before.sprintId) return c.json({ error: 'not_in_sprint' }, 400)
@@ -766,6 +770,8 @@ export const taskRoutes = new Hono<AppEnv>()
       const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
       const prefix = sanitizeCodePrefix(project?.code, 'TASK')
       if (body.data.to === 'defect' && before.kind !== 'defect') patch.defectStatus = 'reported'
+      // Pronista §Defect field cleanup — แปลง Defect ออกไปเป็นประเภทอื่น ต้องล้าง defectStatus เดิมทิ้งด้วย กันค่าค้าง (โผล่กลับมาถ้ามีคนแปลงกลับเป็น Defect อีกครั้ง)
+      if (body.data.to !== 'defect' && before.kind === 'defect') patch.defectStatus = null
       patch.code = await nextTypedTaskCode(db, prefix, body.data.to === 'cr' ? 'CR' : body.data.to === 'defect' ? 'Defect' : 'Story')
     } else if (body.data.to === 'subtask') {
       // subtask — ต้องเลือก parent (Task) จาก picker เสมอ (โครงสร้างข้อมูลกำหนด subtask ด้วยความลึกของ parent chain ไม่มี kind แยกต่างหาก จึงไม่มีทาง "ลอย" เป็น subtask ได้จริง)

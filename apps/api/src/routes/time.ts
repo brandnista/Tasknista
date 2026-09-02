@@ -7,6 +7,7 @@ import { writeAudit } from '../lib/audit'
 import { teamOnly } from '../middleware/roles'
 import { isCycleClosed } from '../lib/payroll-core'
 import { notifyPresence } from '../lib/presence-notify'
+import { canEditProject, getProjectRole } from '../lib/project-role'
 import { closeSession, getCapMinutes, loggedMinutes, rateFor } from '../lib/time-core'
 import type { AppEnv } from '../types'
 
@@ -88,12 +89,14 @@ export const timeRoutes = new Hono<AppEnv>()
   })
 
   // ลง manual — ย้อนหลังได้ ลงเกินเพดานได้ (escape hatch ตามที่เคาะ) · ทุกครั้งถูก audit
+  // Pronista §Retroactive Logging — owner/editor โปรเจกต์คีย์แทนผู้รับผิดชอบได้ (ระบุ userId) กรณีแจ้งปากเปล่าไปแล้วมาคีย์ log ย้อนหลัง
   .post('/tasks/:id/time', async (c) => {
     const body = z
       .object({
         workDate: isoDate,
         minutes: z.number().int().min(1).max(24 * 60),
         note: z.string().max(500).optional(),
+        userId: z.string().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -103,16 +106,25 @@ export const timeRoutes = new Hono<AppEnv>()
     if (!task) return c.json({ error: 'not_found' }, 404)
     if (!task.projectId)
       return c.json({ error: 'no_project', message: 'ต้องผูกโปรเจกต์ก่อนถึงจะลงเวลาได้ (งานนี้ยังอยู่ใน Backlog)' }, 409)
+
+    const targetUserId = body.data.userId ?? me.id
+    if (targetUserId !== me.id) {
+      const role = me.role === 'owner' ? 'owner' : await getProjectRole(db, task.projectId, me.id, me.role)
+      if (!canEditProject(role)) return c.json({ error: 'forbidden', message: 'ต้องเป็น owner/หัวหน้าโปรเจกต์ถึงจะคีย์เวลาแทนคนอื่นได้' }, 403)
+      const targetUser = (await db.select({ id: users.id }).from(users).where(eq(users.id, targetUserId)).limit(1))[0]
+      if (!targetUser) return c.json({ error: 'user_not_found' }, 404)
+    }
+
     if (await isCycleClosed(c.env, body.data.workDate))
       return c.json({ error: 'cycle_closed', message: 'งวดนั้นปิดแล้ว ลงเวลาย้อนหลังไม่ได้' }, 409)
-    const rate = await rateFor(c.env, me.id, body.data.workDate)
+    const rate = await rateFor(c.env, targetUserId, body.data.workDate)
     if (rate === null)
       return c.json({ error: 'no_rate', message: 'ยังไม่มี rate มีผล ณ วันที่นั้น' }, 409)
 
     const inserted = await db
       .insert(timeEntries)
       .values({
-        userId: me.id,
+        userId: targetUserId,
         taskId: task.id,
         projectId: task.projectId,
         workDate: body.data.workDate,
@@ -127,10 +139,10 @@ export const timeRoutes = new Hono<AppEnv>()
       action: 'time_entry.create',
       entity: 'time_entry',
       entityId: inserted[0]?.id ?? '',
-      meta: { source: 'manual', taskId: task.id, workDate: body.data.workDate, minutes: body.data.minutes },
+      meta: { source: 'manual', taskId: task.id, workDate: body.data.workDate, minutes: body.data.minutes, onBehalfOf: targetUserId !== me.id ? targetUserId : undefined },
     })
     const capMinutes = await getCapMinutes(c.env)
-    const dayTotal = await loggedMinutes(c.env, me.id, body.data.workDate)
+    const dayTotal = await loggedMinutes(c.env, targetUserId, body.data.workDate)
     return c.json({ ...inserted[0], overCap: dayTotal > capMinutes }, 201)
   })
 
