@@ -123,44 +123,67 @@ function buildParagraphFlow(older: string[], newer: string[]): DiffCell[] {
   return flow
 }
 
-// ---------- render ไฮไลต์ในเนื้อเอกสาร (Pronista §Document Diff redesign 2026-09-01 — ไฮไลต์ตรงจุดในเอกสารจริง แทนการ์ดแยกเก่า/ใหม่คนละคอลัมน์) ----------
+// ---------- render: Side-by-Side split view (Pronista §Document Diff side-by-side 2026-09-02 — กลับไปใช้ 2 คอลัมน์ซ้าย-ขวาแบบ GitHub ตามสเปกใหม่
+// เดิม (2026-09-01) เคยตัดสินใจใช้ "เอกสารไหลเดียว" (Word Track Changes style) แทน side-by-side เพราะรู้ตำแหน่ง/บรรทัดตรงกว่า
+// ตอนนี้พี่ขอ split view ตาม reference GitHub ชัดเจน — คง data model เดิม (DiffCell/TemplateFlowSection) ไว้ทั้งหมด เปลี่ยนแค่ชั้น render เป็น 2 คอลัมน์
+// ใช้ <table> จริง (ไม่ใช่ flex/grid) ให้ browser จัดความสูงแถวซ้าย-ขวาเท่ากันเองต่อแถว กันปัญหาคอลัมน์เบี้ยว (เหมือน DocumentHistoryTable) ----------
 const AddMark = ({ children }: { children: React.ReactNode }) => <mark className="bg-success-100 text-success-800 rounded px-0.5 underline decoration-success-600 decoration-2 font-medium">{children}</mark>
 const DelMark = ({ children }: { children: React.ReactNode }) => <mark className="bg-danger-100 text-danger-700 rounded px-0.5 line-through decoration-danger-600">{children}</mark>
 
-/** ไฮไลต์ระดับคำ (diffWords) เฉพาะตอนข้อความยังคล้ายกันพอ — diffWords ตัดคำด้วยช่องว่าง ภาษาไทยไม่มีช่องว่างระหว่างคำ
- * พอข้อความเปลี่ยนไปเยอะ (เช่น "กำลังทำ" → "เสร็จแล้ว") มันจะไปจับตัวอักษรที่บังเอิญซ้ำกันแล้วสลับสีมั่วอ่านไม่ออก — ถ้าส่วนที่เหมือนกันจริงน้อยกว่าเกณฑ์ ให้ตัดทั้งท่อนแทนดีกว่า */
-function InlineWordDiff({ oldText, newText }: { oldText: string; newText: string }) {
+/** เนื้อหาฝั่งเดียว (old=คอลัมน์ซ้าย, new=คอลัมน์ขวา) ของ cell หนึ่ง
+ * same=ข้อความปกติทั้งคู่ · added=โชว์เฉพาะฝั่งใหม่ (เขียว) ฝั่งเก่าว่าง · removed=โชว์เฉพาะฝั่งเก่า (แดง) ฝั่งใหม่ว่าง · modified=word-diff แยกฝั่ง (ลบสีแดงอยู่ฝั่งเก่า, เพิ่มสีเขียวอยู่ฝั่งใหม่) */
+function DiffCellSide({ cell, side }: { cell: DiffCell; side: 'old' | 'new' }) {
+  if (cell.kind === 'same') return <>{side === 'old' ? cell.oldText : cell.newText}</>
+  if (cell.kind === 'added') return side === 'new' ? <AddMark>{cell.newText}</AddMark> : null
+  if (cell.kind === 'removed') return side === 'old' ? <DelMark>{cell.oldText}</DelMark> : null
+  // modified — diffWords ตัดคำด้วยช่องว่าง ภาษาไทยไม่มีช่องว่างระหว่างคำ พอข้อความเปลี่ยนไปเยอะจะไปจับตัวอักษรที่บังเอิญซ้ำกันแล้วสลับสีมั่วอ่านไม่ออก
+  // ถ้าส่วนที่เหมือนกันจริงน้อยกว่าเกณฑ์ ให้ตัดทั้งท่อนแทน (ฝั่งเก่าแดงทั้งท่อน/ฝั่งใหม่เขียวทั้งท่อน) ดีกว่า
+  const oldText = cell.oldText ?? ''
+  const newText = cell.newText ?? ''
   const parts = diffWords(oldText, newText)
   const unchangedLen = parts.filter((p) => !p.added && !p.removed).reduce((s, p) => s + p.value.length, 0)
   const totalLen = oldText.length + newText.length
-  if (totalLen > 0 && (unchangedLen * 2) / totalLen < 0.35) {
-    return <><DelMark>{oldText}</DelMark> <AddMark>{newText}</AddMark></>
-  }
-  return (
-    <>
-      {parts.map((p, i) => (p.added ? <AddMark key={i}>{p.value}</AddMark> : p.removed ? <DelMark key={i}>{p.value}</DelMark> : <span key={i}>{p.value}</span>))}
-    </>
-  )
+  if (totalLen > 0 && (unchangedLen * 2) / totalLen < 0.35) return side === 'old' ? <DelMark>{oldText}</DelMark> : <AddMark>{newText}</AddMark>
+  if (side === 'old') return <>{parts.filter((p) => !p.added).map((p, i) => (p.removed ? <DelMark key={i}>{p.value}</DelMark> : <span key={i}>{p.value}</span>))}</>
+  return <>{parts.filter((p) => !p.removed).map((p, i) => (p.added ? <AddMark key={i}>{p.value}</AddMark> : <span key={i}>{p.value}</span>))}</>
 }
 
-/** เนื้อหา cell เดียว ไฮไลต์ตามจุด: same=ข้อความเฉยๆ, modified=คำที่ต่างสีในบรรทัดเดียว, added=เขียวขีดเส้นใต้ทั้งท่อน, removed=แดงขีดทับทั้งท่อน */
-function DiffCellContent({ cell }: { cell: DiffCell }) {
-  if (cell.kind === 'same') return <>{cell.newText}</>
-  if (cell.kind === 'added') return <AddMark>{cell.newText}</AddMark>
-  if (cell.kind === 'removed') return <DelMark>{cell.oldText}</DelMark>
-  return <InlineWordDiff oldText={cell.oldText ?? ''} newText={cell.newText ?? ''} />
+/** สีพื้นหลังกล่องต่อฝั่ง — ฝั่งที่ "ไม่มีเนื้อหา" (เช่น added → ฝั่งเก่า, removed → ฝั่งใหม่) ทาสีเทาอ่อนเป็น gutter ว่างให้เห็นชัดว่าไม่มีบรรทัดนี้ */
+function sideBgCls(cell: DiffCell, side: 'old' | 'new'): string {
+  if (cell.kind === 'same') return ''
+  if (cell.kind === 'added') return side === 'new' ? 'bg-success-50' : 'bg-hover/60'
+  if (cell.kind === 'removed') return side === 'old' ? 'bg-danger-50' : 'bg-hover/60'
+  return side === 'old' ? 'bg-danger-50/50' : 'bg-success-50/50' // modified
 }
 
 const changeRingCls = (active: boolean) => (active ? 'outline outline-2 outline-brand-400 outline-offset-4 rounded' : '')
 
+/** หัวคอลัมน์ "เวอร์ชันเก่า/เวอร์ชันใหม่" ใช้ซ้ำได้ทั้ง paragraph/fields/list mode (ตารางแบบ 2 คอลัมน์) */
+function SplitColHeader({ leftLabel = 'เวอร์ชันเก่า', rightLabel = 'เวอร์ชันใหม่' }: { leftLabel?: string; rightLabel?: string }) {
+  return (
+    <thead>
+      <tr>
+        <th className="border border-border-subtle px-3 py-1.5 bg-hover text-left text-[11px] font-medium text-muted w-1/2">{leftLabel}</th>
+        <th className="border border-border-subtle px-3 py-1.5 bg-hover text-left text-[11px] font-medium text-muted w-1/2">{rightLabel}</th>
+      </tr>
+    </thead>
+  )
+}
+
 function ParagraphDocView({ flow, activeId }: { flow: DiffCell[]; activeId: string | null }) {
   return (
-    <div className="bg-white rounded-xl shadow-xs px-8 sm:px-14 py-10 text-sm leading-[1.9] text-body">
-      {flow.map((cell) => (
-        <p key={cell.key} id={cell.kind !== 'same' ? `diff-${cell.key}` : undefined} className={`mb-3.5 whitespace-pre-line ${cell.kind !== 'same' ? changeRingCls(activeId === cell.key) : ''}`}>
-          <DiffCellContent cell={cell} />
-        </p>
-      ))}
+    <div className="bg-white rounded-xl shadow-xs overflow-hidden">
+      <table className="w-full border-collapse table-fixed text-sm leading-[1.9] text-body">
+        <SplitColHeader />
+        <tbody>
+          {flow.map((cell) => (
+            <tr key={cell.key} id={cell.kind !== 'same' ? `diff-${cell.key}` : undefined} className={cell.kind !== 'same' ? changeRingCls(activeId === cell.key) : ''}>
+              <td className={`border border-border-subtle px-4 sm:px-6 py-2.5 align-top whitespace-pre-line ${sideBgCls(cell, 'old')}`}><DiffCellSide cell={cell} side="old" /></td>
+              <td className={`border border-border-subtle px-4 sm:px-6 py-2.5 align-top whitespace-pre-line ${sideBgCls(cell, 'new')}`}><DiffCellSide cell={cell} side="new" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -168,50 +191,78 @@ function ParagraphDocView({ flow, activeId }: { flow: DiffCell[]; activeId: stri
 function TemplateDocView({ sections, activeId }: { sections: TemplateFlowSection[]; activeId: string | null }) {
   const cellTd = 'border border-border-subtle px-3 py-2 align-top text-sm'
   return (
-    <div className="bg-white rounded-xl shadow-xs px-8 sm:px-14 py-10 text-sm text-body">
+    <div className="bg-white rounded-xl shadow-xs px-4 sm:px-8 py-8 text-sm text-body">
       {sections.map((section) => (
         <div key={section.id} className="mb-8">
           <h3 className="text-sm font-semibold text-ink pb-2 mb-3 border-b-2 border-brand-200">{section.title}</h3>
           {section.kind === 'fields' && (
-            <table className="w-full border-collapse">
+            <table className="w-full border-collapse table-fixed">
+              <thead>
+                <tr>
+                  <th className={`${cellTd} bg-hover text-left text-[11px] font-medium text-muted w-1/4`}>ฟิลด์</th>
+                  <th className={`${cellTd} bg-hover text-left text-[11px] font-medium text-muted w-[37.5%]`}>เวอร์ชันเก่า</th>
+                  <th className={`${cellTd} bg-hover text-left text-[11px] font-medium text-muted w-[37.5%]`}>เวอร์ชันใหม่</th>
+                </tr>
+              </thead>
               <tbody>
                 {section.rows.map((r) => (
-                  <tr key={r.key} id={r.kind !== 'same' ? `diff-${r.key}` : undefined}>
-                    <td className={`${cellTd} w-1/3 bg-hover font-medium text-strong`}>{r.key.split('.').slice(1).join('.')}</td>
-                    <td className={`${cellTd} whitespace-pre-line ${r.kind !== 'same' ? changeRingCls(activeId === r.key) : ''}`}><DiffCellContent cell={r} /></td>
+                  <tr key={r.key} id={r.kind !== 'same' ? `diff-${r.key}` : undefined} className={r.kind !== 'same' ? changeRingCls(activeId === r.key) : ''}>
+                    <td className={`${cellTd} bg-hover font-medium text-strong`}>{r.key.split('.').slice(1).join('.')}</td>
+                    <td className={`${cellTd} whitespace-pre-line ${sideBgCls(r, 'old')}`}><DiffCellSide cell={r} side="old" /></td>
+                    <td className={`${cellTd} whitespace-pre-line ${sideBgCls(r, 'new')}`}><DiffCellSide cell={r} side="new" /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-          {section.kind === 'table' && (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr>{section.columns.map((c) => <th key={c.key} className={`${cellTd} bg-hover text-left font-medium text-strong`}>{c.label}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {section.rows.map((row, i) => (
-                    <tr key={i}>
-                      {row.map((cell) => (
-                        <td key={cell.key} id={cell.kind !== 'same' ? `diff-${cell.key}` : undefined} className={`${cellTd} whitespace-pre-line ${cell.kind !== 'same' ? changeRingCls(activeId === cell.key) : ''}`}>
-                          <DiffCellContent cell={cell} />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {section.kind === 'table' &&
+            (() => {
+              // ตารางมีหลายคอลัมน์ของตัวเองอยู่แล้ว (เช่น No/Item/Qty/Price) — วางเป็น 2 ตารางเต็มรูปแบบซ้าย-ขวาแทนการยัดคอลัมน์ซ้อนในแถวเดียว
+              // แถวที่ "ถูกเพิ่มทั้งแถว" (ทุก cell kind=added) ไม่โชว์ในตารางฝั่งเก่า, แถวที่ "ถูกลบทั้งแถว" ไม่โชว์ในตารางฝั่งใหม่
+              const oldRows = section.rows.filter((row) => !row.every((c) => c.kind === 'added'))
+              const newRows = section.rows.filter((row) => !row.every((c) => c.kind === 'removed'))
+              const sideTable = (rows: DiffCell[][], side: 'old' | 'new', label: string) => (
+                <div>
+                  <div className="text-[11px] text-muted font-medium mb-1.5">{label}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr>{section.columns.map((c) => <th key={c.key} className={`${cellTd} bg-hover text-left text-[11px] font-medium text-muted`}>{c.label}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, i) => (
+                          <tr key={i}>
+                            {row.map((cell) => (
+                              <td key={cell.key} id={cell.kind !== 'same' ? `diff-${cell.key}` : undefined} className={`${cellTd} whitespace-pre-line ${cell.kind !== 'same' ? changeRingCls(activeId === cell.key) : ''} ${sideBgCls(cell, side)}`}>
+                                <DiffCellSide cell={cell} side={side} />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+              return (
+                <div className="grid lg:grid-cols-2 gap-4">
+                  {sideTable(oldRows, 'old', 'เวอร์ชันเก่า')}
+                  {sideTable(newRows, 'new', 'เวอร์ชันใหม่')}
+                </div>
+              )
+            })()}
           {section.kind === 'list' && (
-            <ul className="list-disc pl-5 space-y-1.5">
-              {section.items.map((item) => (
-                <li key={item.key} id={item.kind !== 'same' ? `diff-${item.key}` : undefined} className={item.kind !== 'same' ? changeRingCls(activeId === item.key) : ''}>
-                  <DiffCellContent cell={item} />
-                </li>
-              ))}
-            </ul>
+            <table className="w-full border-collapse table-fixed">
+              <SplitColHeader />
+              <tbody>
+                {section.items.map((item) => (
+                  <tr key={item.key} id={item.kind !== 'same' ? `diff-${item.key}` : undefined} className={item.kind !== 'same' ? changeRingCls(activeId === item.key) : ''}>
+                    <td className={`${cellTd} whitespace-pre-line ${sideBgCls(item, 'old')}`}><DiffCellSide cell={item} side="old" /></td>
+                    <td className={`${cellTd} whitespace-pre-line ${sideBgCls(item, 'new')}`}><DiffCellSide cell={item} side="new" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       ))}
@@ -241,8 +292,8 @@ function CompareHeaderInfo({ older, newer }: { older: DocDetail; newer: DocDetai
   )
 }
 
-/** Pronista §Document Diff redesign (2026-09-01) — เอกสารไหลเดียว ไฮไลต์สีตรงจุดในเนื้อเอกสารจริง (แทนของเดิมที่แยกจุดต่างเป็นการ์ดคนละที่กับบริบท)
- * ต้นแบบเทียบกับ Draftable ที่ให้ดู แต่ตัดสินใจใช้ "เอกสารเดียว" (Word Track Changes style) แทน side-by-side เพราะช่วยรู้ตำแหน่ง/บรรทัดในเอกสารได้ตรงกว่า */
+/** Pronista §Document Diff side-by-side (2026-09-02) — เปลี่ยนกลับมาเป็น split view 2 คอลัมน์ซ้าย(เก่า)-ขวา(ใหม่) แบบ GitHub ตามสเปกใหม่
+ * (เดิม 2026-09-01 เคยเปลี่ยนเป็น "เอกสารไหลเดียว" Word Track Changes style — พี่ขอกลับมาเป็น side-by-side อีกครั้ง) */
 export function DocumentComparePage() {
   const [params] = useSearchParams()
   const idA = params.get('a')
@@ -299,7 +350,8 @@ export function DocumentComparePage() {
         ) : error || !data ? (
           <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-danger-600">โหลดเอกสารไม่สำเร็จ</div>
         ) : (
-          <div className="max-w-4xl mx-auto">
+          // Pronista §Document Diff side-by-side (2026-09-02) — กว้างขึ้นจาก max-w-4xl เดิม (single-flow) เพราะ 2 คอลัมน์ต้องการที่มากกว่า
+          <div className="max-w-7xl mx-auto">
             <div className="bg-white rounded-lg shadow-xs p-4 mb-4 print:hidden">
               <CompareHeaderInfo older={data.older} newer={data.newer} />
             </div>
