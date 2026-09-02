@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from '../pages/ProjectDetail'
 import { Avatar } from './Avatar'
+import { DateTimeInputTH } from './DateTimeInputTH'
 import { useDialog } from './Dialog'
 
 interface MeetingRow {
@@ -221,11 +222,11 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] text-muted block mb-0.5">เริ่ม</label>
-              <input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
+              <DateTimeInputTH value={startAt} onChange={setStartAt} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
             </div>
             <div>
               <label className="text-[11px] text-muted block mb-0.5">ถึง</label>
-              <input type="datetime-local" value={endAt} onChange={(e) => setEndAt(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
+              <DateTimeInputTH value={endAt} onChange={setEndAt} className="w-full text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden" />
             </div>
           </div>
           <div>

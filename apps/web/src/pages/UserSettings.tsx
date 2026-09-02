@@ -8,6 +8,7 @@ import { Plus, SquarePen, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
+import { DateInputTH } from '../components/DateInputTH'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
@@ -163,7 +164,7 @@ function AddStaffForm({ memberDomain, teamsList, staffOpts, onClose, onCreated }
             {staffOpts.map((s) => <option key={s.id} value={s.id}>{s.name} ({ROLE_LABEL[s.role]})</option>)}
           </select>
         </div>
-        <div><label className={fieldLabel}>วันเริ่มงาน</label><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>วันเริ่มงาน</label><DateInputTH value={form.startDate} onChange={(v) => setForm({ ...form, startDate: v })} className={fieldInput} /></div>
         <div><label className={fieldLabel}>เลขบัตรประชาชน</label><input value={form.idCardNumber} onChange={(e) => setForm({ ...form, idCardNumber: e.target.value })} className={fieldInput} /></div>
         <div className="sm:col-span-2"><label className={fieldLabel}>ที่อยู่</label><textarea rows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className={fieldInput} /></div>
         <div><label className={fieldLabel}>ผู้ติดต่อฉุกเฉิน (ชื่อ)</label><input value={form.emergencyContactName} onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })} className={fieldInput} /></div>
@@ -301,7 +302,7 @@ function AddOutsourceForm({ onClose, onCreated }: { onClose: () => void; onCreat
         <div><label className={fieldLabel}>ความเชี่ยวชาญ</label><input value={form.specialty} onChange={(e) => setForm({ ...form, specialty: e.target.value })} placeholder="เช่น Frontend, UI/UX" className={fieldInput} /></div>
         <div><label className={fieldLabel}>บัญชีธนาคาร (สำหรับจ่ายเงิน)</label><input value={form.bankAccount} onChange={(e) => setForm({ ...form, bankAccount: e.target.value })} placeholder="ธนาคาร + เลขบัญชี" className={fieldInput} /></div>
         <div><label className={fieldLabel}>เงื่อนไขสัญญาจ้าง</label><input value={form.contractType} onChange={(e) => setForm({ ...form, contractType: e.target.value })} placeholder="เช่น รายโปรเจกต์, รายเดือน" className={fieldInput} /></div>
-        <div><label className={fieldLabel}>วันหมดสัญญา</label><input type="date" value={form.contractExpiryDate} onChange={(e) => setForm({ ...form, contractExpiryDate: e.target.value })} className={fieldInput} /></div>
+        <div><label className={fieldLabel}>วันหมดสัญญา</label><DateInputTH value={form.contractExpiryDate} onChange={(v) => setForm({ ...form, contractExpiryDate: v })} className={fieldInput} /></div>
       </div>
       <ClassificationFields classificationType={form.classificationType} values={form} onChange={(patch) => setForm({ ...form, ...patch })} />
       <p className="text-[11px] text-muted">ผู้รับจ้าง = allowlist อีเมลภายนอก</p>

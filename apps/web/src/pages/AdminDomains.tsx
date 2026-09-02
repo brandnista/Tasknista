@@ -8,6 +8,7 @@ import { AlertTriangle, Globe, Plus, RefreshCw, Search, Settings, X } from 'luci
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
+import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { api, ApiError } from '../lib/api'
 import { URGENCY_BORDER_CLASS, dueUrgency } from '../lib/due-urgency'
@@ -89,11 +90,11 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[11px] text-muted block mb-0.5">วันที่จดทะเบียน (ไม่บังคับ)</label>
-              <input type="date" value={registeredDate} onChange={(e) => setRegisteredDate(e.target.value)} className={input} />
+              <DateInputTH value={registeredDate} onChange={setRegisteredDate} className={input} />
             </div>
             <div>
               <label className="text-[11px] text-muted block mb-0.5">วันหมดอายุ</label>
-              <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className={input} />
+              <DateInputTH value={expiryDate} onChange={setExpiryDate} className={input} />
             </div>
           </div>
           <div>
@@ -157,7 +158,7 @@ export function RenewDomainModal({ domain, onClose, onDone }: { domain: DomainRo
         <div className="p-4 space-y-2">
           <p className="text-xs text-muted">ต่ออายุกับ registrar เรียบร้อยแล้ว → อัปเดตวันหมดอายุใหม่ที่นี่ (ระบบจะเริ่มนับรอบแจ้งเตือนใหม่ให้อัตโนมัติ)</p>
           <label className="text-[11px] text-muted block mb-0.5">วันหมดอายุใหม่</label>
-          <input type="date" autoFocus value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
+          <DateInputTH autoFocus value={expiryDate} onChange={setExpiryDate} className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle">
           <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>

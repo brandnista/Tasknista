@@ -5,6 +5,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
+import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -140,7 +141,7 @@ export function EmployeeDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={label}>วันเริ่มงาน</label>
-              <input type="date" defaultValue={e.startDate ?? ''} onBlur={onBlurText('startDate', e.startDate)} className={input} />
+              <DateInputTH defaultValue={e.startDate ?? ''} onBlur={onBlurText('startDate', e.startDate)} className={input} />
             </div>
             <div>
               <label className={label}>เลขบัตรประชาชน</label>
