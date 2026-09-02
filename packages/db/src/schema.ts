@@ -2038,6 +2038,24 @@ export const meetingParticipants = sqliteTable(
   (t) => [uniqueIndex('meeting_participants_meeting_user_idx').on(t.meetingId, t.userId)],
 )
 
+// Pronista §Meeting Attendee Filter (2026-09-02) — เชิญ "สมาชิก" (members table — ไม่มี login/ไม่ใช่ user ของ Pronista) เข้าประชุมได้ แยกจาก meetingParticipants (อ้าง users.id)
+// เก็บ snapshot name/email ตอนเชิญ กันชื่อ/อีเมลเพี้ยนถ้า Member แก้ข้อมูลทีหลัง — ยังไม่ส่งอีเมลเชิญจริงออกนอกระบบ (ต้องถามเจ้าของก่อนตาม SPEC §11)
+export const meetingExternalInvitees = sqliteTable(
+  'meeting_external_invitees',
+  {
+    id: id(),
+    meetingId: text('meeting_id')
+      .notNull()
+      .references(() => meetings.id),
+    memberId: text('member_id')
+      .notNull()
+      .references(() => members.id),
+    name: text('name').notNull(),
+    email: text('email'),
+  },
+  (t) => [uniqueIndex('meeting_external_invitees_meeting_member_idx').on(t.meetingId, t.memberId)],
+)
+
 // Pronista §Team Meeting — Action Item ต่อการประชุม · taskId ไม่ว่าง = ถูกแปลงเป็น Task จริงแล้ว
 export const meetingActionItems = sqliteTable(
   'meeting_action_items',

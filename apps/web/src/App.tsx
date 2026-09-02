@@ -95,9 +95,9 @@ const router = createBrowserRouter([
       { path: 'my-tasks/notes', element: <Protected menuKey="myTasks"><MyTasksNotesPage /></Protected> },
       { path: 'my-tasks/meetings', element: <Protected menuKey="myTasks"><MyTasksMeetingsPage /></Protected> },
       // Pronista §My Files (2026-08-28) — owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
-      { path: 'my-tasks/files', element: <Protected menuKey="myTasks" roles={['owner', 'member', 'vendor']}><MyFilesPage /></Protected> },
-      { path: 'my-tasks/files/:id', element: <Protected menuKey="myTasks" roles={['owner', 'member', 'vendor']}><MyFilePageViewerPage /></Protected> },
-      { path: 'my-tasks/shared-files', element: <Protected menuKey="myTasks" roles={['owner', 'member', 'vendor']}><SharedFilesPage /></Protected> },
+      { path: 'my-tasks/files', element: <Protected menuKey="myFiles" roles={['owner', 'member', 'vendor']}><MyFilesPage /></Protected> },
+      { path: 'my-tasks/files/:id', element: <Protected menuKey="myFiles" roles={['owner', 'member', 'vendor']}><MyFilePageViewerPage /></Protected> },
+      { path: 'my-tasks/shared-files', element: <Protected menuKey="myFiles" roles={['owner', 'member', 'vendor']}><SharedFilesPage /></Protected> },
       { path: 'workspace', element: <Protected menuKey="workspace"><WorkspaceRoomsPage /></Protected> },
       { path: 'workspace/:workspaceId', element: <Protected menuKey="workspace"><WorkspacePage /></Protected> },
       { path: 'workspace/:workspaceId/sprints/:sprintId/board', element: <Protected menuKey="workspace"><WorkspaceBoardPage /></Protected> },

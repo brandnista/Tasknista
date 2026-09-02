@@ -1,6 +1,8 @@
 import {
+  Briefcase,
   ChevronDown,
   ClipboardList,
+  Folder,
   FolderKanban,
   Handshake,
   History,
@@ -62,9 +64,19 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
       { to: '/my-tasks/daily-report', label: 'Daily Report' },
       { to: '/my-tasks/notes', label: 'My Note' },
       { to: '/my-tasks/meetings', label: 'การประชุม' },
-      // Pronista §My Files (2026-08-28) — owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
-      { to: '/my-tasks/files', label: 'ไฟล์ของฉัน', roles: ['owner', 'member', 'vendor'] },
-      { to: '/my-tasks/shared-files', label: 'แชร์กับฉัน', roles: ['owner', 'member', 'vendor'] },
+    ],
+  },
+  // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจาก "งานของฉัน" เป็นเมนูหลักของตัวเอง "แชร์กับฉัน" ย้ายมาเป็นเมนูย่อยของมันแทน (เดิมเป็นพี่น้องกันใต้งานของฉัน)
+  // owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
+  {
+    to: '/my-tasks/files',
+    label: 'ไฟล์ของฉัน',
+    icon: Folder,
+    roles: ['owner', 'member', 'vendor'],
+    menuKey: 'myFiles',
+    children: [
+      { to: '/my-tasks/files', label: 'ไฟล์ของฉัน' },
+      { to: '/my-tasks/shared-files', label: 'แชร์กับฉัน' },
     ],
   },
   // Pronista §Workspace — Sprint/Backlog รวมทุกโปรเจกต์ (สิทธิ์เห็นเนื้อหาจริงคุมด้วย tabs.sprint ต่อโปรเจกต์อยู่แล้ว เหมือนแท็บ Sprint เดิม)
@@ -73,6 +85,14 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   { to: '/team', label: 'ทีม', icon: MessageSquare, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'team' },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docs' },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docsHistory' },
+  // Pronista §Menu Restructure (2026-09-02) — เมนูหลักใหม่ "บริการ" ย้าย "จัดการโดเมน" มาจากใต้ "ตั้งค่า" (ยัง owner-only ไม่มี menuKey เหมือนเดิม — เป็นข้อมูลโครงสร้างพื้นฐานบริษัท ไม่ผ่านเพดานเมนู)
+  {
+    to: '/admin/domains',
+    label: 'บริการ',
+    icon: Briefcase,
+    roles: ['owner'],
+    children: [{ to: '/admin/domains', label: 'จัดการโดเมน' }],
+  },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
   {
     to: '/admin',
@@ -84,7 +104,6 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
       { to: '/admin/permissions', label: 'ตั้งค่าสิทธิ์ผู้ใช้งาน' },
       { to: '/admin/notifications', label: 'ตั้งค่าการแจ้งเตือน' },
       { to: '/admin/cost', label: 'กำหนดต้นทุน' },
-      { to: '/admin/domains', label: 'จัดการโดเมน' },
     ],
   },
   // Pronista §Menu Restructure — แยกออกจาก "ตั้งค่าผู้ใช้งาน" เดิม (เคยเป็น 3 แท็บในหน้าเดียว) เป็นเมนูหลักคนละอันตามสเปก
@@ -281,7 +300,7 @@ export function Layout() {
                     <NavLink
                       key={c.to}
                       to={c.to}
-                      end={c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks'}
+                      end={c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
                       onClick={() => setNavOpen(false)}
                       className={({ isActive }) =>
                         `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${

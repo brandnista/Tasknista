@@ -614,7 +614,8 @@ export function MyNoteTab() {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-5 lg:gap-6 items-start">
+    // Pronista §Menu Restructure (2026-09-02) — สลับฝั่ง: บอร์ดงานย้ายมาซ้าย, ฟอร์มเขียน+รายการเดิมไปขวา (DOM order = ลำดับซ้าย→ขวาใน flex-row)
+    <div className="flex flex-col lg:flex-row-reverse gap-5 lg:gap-6 items-start">
       <div className="w-full lg:w-[45%] lg:shrink-0 space-y-4">
         <NoteEditor
           key={editingNote?.id ?? 'new'}

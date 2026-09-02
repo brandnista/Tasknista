@@ -47,6 +47,25 @@ describe('Pronista §Team Meeting — schedule, notes, action items', () => {
     expect(notifs.some((n) => n.type === 'meeting_scheduled')).toBe(true)
   })
 
+  it('Pronista §Meeting Attendee Filter (2026-09-02) — เชิญ "สมาชิก" (members table ไม่มี login) เข้าประชุมได้ แยกจากผู้เข้าร่วมปกติ · ลบประชุมแล้วลบ external invitee ทิ้งด้วย', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const member = (await (
+      await app.request('/api/members', json(owner, { name: 'บริษัท ทดสอบ จำกัด', classificationType: 'ordinary_juristic', businessName: 'Taladi', email: 'contact@taladi.test' }), env)
+    ).json()) as { id: string }
+
+    const created = (await (
+      await app.request('/api/meetings', json(owner, nextMeetingPayload({ externalInviteeMemberIds: [member.id] })), env)
+    ).json()) as { id: string }
+
+    const detail = (await (await app.request(`/api/meetings/${created.id}`, { headers: { cookie: owner } }, env)).json()) as {
+      externalInvitees: { memberId: string; name: string; email: string | null }[]
+    }
+    expect(detail.externalInvitees).toHaveLength(1)
+    expect(detail.externalInvitees[0]).toMatchObject({ memberId: member.id, name: 'บริษัท ทดสอบ จำกัด', email: 'contact@taladi.test' })
+
+    expect((await app.request(`/api/meetings/${created.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
+  })
+
   it('Pronista §Meeting Schedule Tab — แจ้งเตือน meeting_scheduled มีครบ 4 ฟิลด์ในข้อความ (ชื่อ/เวลา/Agenda/ผู้เข้าร่วม)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')
