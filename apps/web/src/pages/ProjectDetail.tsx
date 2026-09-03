@@ -1297,6 +1297,9 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
     setTitle('')
     void reload()
   }
+  // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'task' | 'cr' } | null>(null)
   return (
     <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-3">
@@ -1372,9 +1375,28 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
                 <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
               )}
               {canEdit && (
-                <button onClick={() => setLinkingId(t.id)} title="เชื่อมโยงกับ Story/Task/Defect/CR อื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
-                  🔗
-                </button>
+                <div className="relative shrink-0">
+                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </button>
+                  {menuFor === t.id && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                      <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                        <button onClick={() => { setMenuFor(null); setLinkingId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                          🔗 เชื่อมโยงกับงานอื่น
+                        </button>
+                        {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
+                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                          {CONVERT_LABEL.task}
+                        </button>
+                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                          {CONVERT_LABEL.cr}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           ))}
@@ -1391,6 +1413,16 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       )}
       {linkingId && (
         <TaskPickerModal title="เชื่อมโยงกับ Story/Task/Defect/CR อื่น" tasks={linkCandidates} onPick={(item) => void addReference(item.id)} onClose={() => setLinkingId(null)} />
+      )}
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          currentProjectId={projectId}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reload() }}
+        />
       )}
     </div>
   )
@@ -1735,6 +1767,8 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
     setLinkTaskId(null)
     void reload()
   }
+  // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'task' | 'defect' | 'cr' } | null>(null)
 
   return (
     <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
@@ -1843,9 +1877,27 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
                 </div>
               )}
               {level === 'cr' && canEdit && (
-                <button onClick={() => setLinkingRefId(t.id)} title="เชื่อมโยงกับ Story/Task/Defect/CR อื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
-                  🔗
-                </button>
+                <div className="relative shrink-0">
+                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </button>
+                  {menuFor === t.id && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                        <button onClick={() => { setMenuFor(null); setLinkingRefId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                          🔗 เชื่อมโยงกับงานอื่น
+                        </button>
+                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                          {CONVERT_LABEL.task}
+                        </button>
+                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                          {CONVERT_LABEL.defect}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               {level === 'task' && canEdit && (
                 <div className="relative shrink-0">
@@ -1861,6 +1913,13 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
                         </button>
                         <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
                           🔗 เชื่อมกับ Epic
+                        </button>
+                        {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
+                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                          {CONVERT_LABEL.defect}
+                        </button>
+                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                          {CONVERT_LABEL.cr}
                         </button>
                       </div>
                     </>
@@ -1914,6 +1973,16 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           onCreateNew={(t) => void createStoryForTask(t)}
           onPickExisting={(item) => void linkTaskToStory(item.id)}
           onClose={() => setLinkTaskId(null)}
+        />
+      )}
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          currentProjectId={projectId}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reload() }}
         />
       )}
     </div>
