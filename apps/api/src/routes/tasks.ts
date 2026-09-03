@@ -548,6 +548,24 @@ export const taskRoutes = new Hono<AppEnv>()
       if (body.data.locked !== undefined) return c.json({ error: 'forbidden' }, 403)
       if (before.locked) return c.json({ error: 'locked' }, 403)
     }
+    // Pronista §Assign/Accept audit (2026-09-03) — ผู้รับผิดชอบใหม่ต้อง active และ (ถ้างานอยู่ในโปรเจกต์) ต้องเป็นสมาชิกโปรเจกต์นั้นจริง
+    // กันยิง API ตรงข้าม UI dropdown ที่กรองไว้แล้ว (เดิมไม่เช็คฝั่ง server เลย)
+    if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) {
+      const target = (await db.select({ status: users.status, role: users.role }).from(users).where(eq(users.id, body.data.assigneeId)).limit(1))[0]
+      if (!target || target.status !== 'active')
+        return c.json({ error: 'assignee_not_eligible', message: 'ผู้รับผิดชอบต้องเป็นบัญชีที่ยังใช้งานอยู่' }, 400)
+      // owner เข้าถึงทุกโปรเจกต์ได้อยู่แล้วโดยไม่ต้องเป็นสมาชิกจริง (ตรงกับ canEditProject/canEditTask ที่ owner bypass เช็คนี้เหมือนกัน) — ยกเว้นให้ owner เท่านั้น
+      if (before.projectId && target.role !== 'owner') {
+        const isMember = (
+          await db
+            .select({ userId: projectMembers.userId })
+            .from(projectMembers)
+            .where(and(eq(projectMembers.projectId, before.projectId), eq(projectMembers.userId, body.data.assigneeId)))
+            .limit(1)
+        )[0]
+        if (!isMember) return c.json({ error: 'assignee_not_eligible', message: 'ผู้รับผิดชอบต้องเป็นสมาชิกของโปรเจกต์นี้ก่อน' }, 400)
+      }
+    }
 
     const patch: Record<string, unknown> = { ...body.data }
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
@@ -557,7 +575,14 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
     // Pronista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
-    if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) patch.dispatchedAt = null
+    // Pronista §Assign/Accept audit (2026-09-03) — งานที่ไปไกลกว่า non_start แล้วก็ต้องรีเซ็ตสถานะกลับด้วย กันคนใหม่โดนข้ามขั้นตอน "รับงาน" ไปเลย (ยืนยันแล้วว่าต้องการแบบนี้ตาม QA test script ASSIGN-007)
+    if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) {
+      patch.dispatchedAt = null
+      if (before.status !== 'non_start') {
+        patch.status = 'non_start'
+        patch.completedAt = null
+      }
+    }
     // Pronista §Notification overhaul (2026-08-27) — แก้กำหนดส่งใหม่ → เคลียร์เกตกันเตือนซ้ำ ให้นับรอบเลยกำหนดใหม่ตามวันที่แก้ (mirror expiryNotifiedAt reset ใน routes/projects.ts)
     if ('dueDate' in body.data && body.data.dueDate !== before.dueDate) patch.dueNotifiedAt = null
     // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N
@@ -629,6 +654,28 @@ export const taskRoutes = new Hono<AppEnv>()
       },
     })
 
+    // Pronista §Assign/Accept audit (2026-09-03) — reassign (เปลี่ยน assigneeId บนงานที่เคย dispatch ไปแล้ว) แจ้งทั้งคนเก่า (ถ้ามี) และคนใหม่ (ถ้ามี) แยกข้อความ
+    // ต่างจากตั้งผู้รับผิดชอบครั้งแรก (assign เฉยๆ ยังไม่เคย dispatch) ซึ่งยังไม่ต้องแจ้ง — คนเก่าไม่เคยถูกแจ้งมาก่อนก็ไม่มีอะไรต้องบอก, คนใหม่จะได้แจ้งตอน dispatch ตามปกติอยู่แล้ว
+    if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId && before.dispatchedAt) {
+      if (before.assigneeId) {
+        await notifyUser(db, {
+          userId: before.assigneeId,
+          type: 'task_reassigned',
+          taskId: before.id,
+          projectId: before.projectId,
+          message: `งาน "${before.title}" ถูกโยกให้คนอื่นดูแลแทนแล้ว`,
+        })
+      }
+      if (body.data.assigneeId) {
+        await notifyUser(db, {
+          userId: body.data.assigneeId,
+          type: 'task_reassigned',
+          taskId: before.id,
+          projectId: before.projectId,
+          message: `คุณได้รับมอบหมายงาน "${before.title}"`,
+        })
+      }
+    }
     // Pronista §Task lifecycle notifications — ไม่แจ้งเตือนตอนแค่ "ตั้งผู้รับผิดชอบ" เพราะงานยังไม่โผล่ใน "งานของฉัน" ของเขาจนกว่าจะถูก "จ่ายงาน" (เกตจ่ายงาน, ดู /dispatch ด้านล่าง) — แจ้งครั้งเดียวตอนนั้นแทน กันแจ้งซ้ำ 2 รอบสำหรับ 1 การจ่ายงาน
     if (body.data.status === 'done' && before.status !== 'done' && before.assignedBy) {
       await notifyUser(db, {
@@ -680,7 +727,8 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(updated[0])
   })
 
-  // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: เฉพาะผู้จ่ายงาน (ไม่ใช่ assignee เอง) กดได้ ต้องมีผู้รับผิดชอบตั้งไว้แล้ว
+  // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องมีผู้รับผิดชอบตั้งไว้แล้ว
+  // (2026-09-03) แก้ comment เดิมที่บอกว่ากันคนจ่ายงานจ่ายให้ตัวเอง — ตรวจแล้วโค้ดไม่เคยกันจริง และยืนยันแล้วว่าเป็นพฤติกรรมที่ตั้งใจ (self-dispatch ทำได้ตามปกติ)
   .post('/tasks/:id/dispatch', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
     const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
@@ -696,7 +744,13 @@ export const taskRoutes = new Hono<AppEnv>()
       return c.json({ error: 'forbidden' }, 403)
     }
     // Pronista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
-    const updated = await db.update(tasks).set({ dispatchedAt: new Date() }).where(eq(tasks.id, before.id)).returning()
+    // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB (ไม่ใช่แค่ check-then-act ข้างบน) กัน race จากการกดซ้ำ/พร้อมกันจริงๆ
+    const updated = await db
+      .update(tasks)
+      .set({ dispatchedAt: new Date() })
+      .where(and(eq(tasks.id, before.id), isNull(tasks.dispatchedAt)))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 409)
     await writeAudit(c.env, { actorId: me.id, action: 'task.dispatch', entity: 'task', entityId: before.id, meta: { title: before.title, assigneeId: before.assigneeId } })
     await notifyUser(db, {
       userId: before.assigneeId,
@@ -717,8 +771,61 @@ export const taskRoutes = new Hono<AppEnv>()
     if (before.assigneeId !== me.id) return c.json({ error: 'forbidden' }, 403)
     if (!before.dispatchedAt) return c.json({ error: 'not_dispatched', message: 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ' }, 400)
     if (before.status !== 'non_start') return c.json({ error: 'already_accepted' }, 400)
-    const updated = await db.update(tasks).set({ status: 'on_processing' }).where(eq(tasks.id, before.id)).returning()
+    // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB กัน race จากการกดซ้ำ/พร้อมกัน
+    const updated = await db
+      .update(tasks)
+      .set({ status: 'on_processing' })
+      .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start')))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
     await writeAudit(c.env, { actorId: me.id, action: 'task.accept', entity: 'task', entityId: before.id, meta: { title: before.title } })
+    // Pronista §Assign/Accept audit (2026-09-03) — เดิมคนจ่ายงานไม่เคยรู้เลยว่า assignee รับงานแล้ว (deferred gap จาก Flow Audit รอบก่อน)
+    if (before.assignedBy && before.assignedBy !== me.id) {
+      await notifyUser(db, {
+        userId: before.assignedBy,
+        type: 'task_accepted',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `"${me.name}" รับงาน "${before.title}" แล้ว`,
+      })
+    }
+    return c.json(updated[0])
+  })
+
+  // Pronista §Assign/Accept audit (2026-09-03) — assignee ปฏิเสธงานที่จ่ายมา (ก่อนกด "รับงาน") พร้อมเหตุผลบังคับ
+  // เคลียร์เกตจ่ายงานกลับไปรอผู้จ่ายงานจัดการต่อ — ไม่แตะ assigneeId เผื่อผู้จ่ายงานแก้ scope แล้วจ่ายให้คนเดิมใหม่ได้เลย (ตรงกับ QA test script ACCEPT-006)
+  .post('/tasks/:id/reject', teamOnly, async (c) => {
+    const body = z.object({ reason: z.string().min(1) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid', message: 'ต้องระบุเหตุผลที่ปฏิเสธ' }, 400)
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (before.assigneeId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    if (!before.dispatchedAt) return c.json({ error: 'not_dispatched', message: 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ' }, 400)
+    if (before.status !== 'non_start') return c.json({ error: 'already_accepted' }, 409)
+    const updated = await db
+      .update(tasks)
+      .set({ dispatchedAt: null })
+      .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start'), isNotNull(tasks.dispatchedAt)))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
+    await writeAudit(c.env, {
+      actorId: me.id,
+      action: 'task.reject',
+      entity: 'task',
+      entityId: before.id,
+      meta: { title: before.title, reason: body.data.reason },
+    })
+    if (before.assignedBy) {
+      await notifyUser(db, {
+        userId: before.assignedBy,
+        type: 'task_rejected',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `"${me.name}" ปฏิเสธงาน "${before.title}": ${body.data.reason}`,
+      })
+    }
     return c.json(updated[0])
   })
 

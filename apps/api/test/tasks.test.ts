@@ -137,3 +137,142 @@ describe('T09 — groups/tasks/reorder/checkbox/timeline data', () => {
     expect(row?.openTodo).toMatchObject({ title: 'อัปเดตเมนู', assigneeName: 'ปอนด์' })
   })
 })
+
+// Pronista §Assign/Accept audit (2026-09-03) — ตาม QA test script: จ่ายงาน→รับงาน→ปฏิเสธ/reassign ครบ flow
+describe('§Assign/Accept audit — dispatch/accept/reject/reassign', () => {
+  const notifCountFor = async (userId: string, type: string) =>
+    (
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?')
+        .bind(userId, type)
+        .first<{ n: number }>()
+    )?.n ?? 0
+
+  it('reassign งาน on_processing ไปคนใหม่ → status รีเซ็ตเป็น non_start, dispatchedAt null, ทั้งคนเก่า/คนใหม่ได้ task_reassigned', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานทดสอบ reassign' }), env)
+    ).json()) as { id: string }
+    // PATCH ตั้ง assigneeId แยก (ไม่ใช่ตอนสร้าง) — endpoint สร้าง task ไม่ตั้ง assignedBy ให้ ต้องผ่าน PATCH ถึงจะมี assignedBy จริง
+    await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_pond' }), method: 'PATCH' }, env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+
+    const beforeOld = await notifCountFor('u_pond', 'task_reassigned')
+    const beforeNew = await notifCountFor('u_owner', 'task_reassigned')
+    const res = await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_owner' }), method: 'PATCH' }, env)
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { status: string; dispatchedAt: number | null; assigneeId: string }
+    expect(updated).toMatchObject({ status: 'non_start', dispatchedAt: null, assigneeId: 'u_owner' })
+    expect(await notifCountFor('u_pond', 'task_reassigned')).toBe(beforeOld + 1) // คนเก่า
+    expect(await notifCountFor('u_owner', 'task_reassigned')).toBe(beforeNew + 1) // คนใหม่
+  })
+
+  it('reassign ให้ user ที่ถูก deactivate (u_gone) → 400 assignee_not_eligible', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_gone' }), method: 'PATCH' }, env)
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('assignee_not_eligible')
+  })
+
+  it('reassign ให้ user ที่ไม่ใช่สมาชิกโปรเจกต์นี้ → 400 assignee_not_eligible', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner) // u_somchai ไม่ได้ถูกเพิ่มเป็นสมาชิก
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_somchai' }), method: 'PATCH' }, env)
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('assignee_not_eligible')
+  })
+
+  it('reassign backlog task (ไม่มี projectId) ให้ใครก็ได้ที่ active — ไม่เช็ค membership เพราะไม่มีโปรเจกต์ผูก', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = (await (
+      await app.request('/api/tasks/backlog', json(owner, { title: 'Backlog งาน' }), env)
+    ).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_somchai' }), method: 'PATCH' }, env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { assigneeId: string }).assigneeId).toBe('u_somchai')
+  })
+
+  it('accept สำเร็จ → assignedBy (คนจ่ายงาน) ได้ task_accepted', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_pond' }), method: 'PATCH' }, env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const before = await notifCountFor('u_owner', 'task_accepted')
+    const res = await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    expect(res.status).toBe(200)
+    expect(await notifCountFor('u_owner', 'task_accepted')).toBe(before + 1)
+  })
+
+  it('reject: reason ว่าง = 400 · สำเร็จ = dispatchedAt null + assigneeId ไม่เปลี่ยน + assignedBy ได้ task_rejected · user อื่น reject = 403 · reject หลัง accept แล้ว = 409', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_pond' }), method: 'PATCH' }, env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+
+    expect((await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: '' }), env)).status).toBe(400)
+    expect((await app.request(`/api/tasks/${t.id}/reject`, json(owner, { reason: 'ไม่ใช่ของฉัน' }), env)).status).toBe(403)
+
+    const beforeRejectNotif = await notifCountFor('u_owner', 'task_rejected')
+    const res = await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'scope ไม่ตรง' }), env)
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { dispatchedAt: number | null; assigneeId: string }
+    expect(updated).toMatchObject({ dispatchedAt: null, assigneeId: 'u_pond' })
+    expect(await notifCountFor('u_owner', 'task_rejected')).toBe(beforeRejectNotif + 1)
+    const auditRow = await env.DB.prepare("SELECT meta FROM audit_logs WHERE entity_id = ? AND action = 'task.reject'").bind(t.id).first<{ meta: string }>()
+    expect(JSON.parse(auditRow!.meta as string).reason).toBe('scope ไม่ตรง')
+
+    // ตอนนี้ dispatchedAt กลับเป็น null แล้ว — reject ซ้ำต้อง not_dispatched ไม่ใช่ 409 already_accepted
+    expect((await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'ลองอีกที' }), env)).status).toBe(400)
+
+    // จ่ายใหม่ → accept → reject ซ้ำ (สถานะไม่ใช่ non_start แล้ว) ต้อง 409
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    expect((await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'สายไปแล้ว' }), env)).status).toBe(409)
+  })
+
+  it('dispatch ซ้อนกัน → ตัวที่สอง 409 already_dispatched · accept ซ้อนกัน → ตัวที่สอง 409 already_accepted', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+
+    const d1 = await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const d2 = await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    expect(d1.status).toBe(200)
+    expect(d2.status).toBe(400) // app-level check-then-act จับได้ตั้งแต่ทางนี้แล้ว (dispatchedAt ไม่ null)
+    expect(((await d2.json()) as { error: string }).error).toBe('already_dispatched')
+
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const a1 = await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    const a2 = await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    expect(a1.status).toBe(200)
+    expect(a2.status).toBe(400)
+    expect(((await a2.json()) as { error: string }).error).toBe('already_accepted')
+  })
+
+  it('self-dispatch (คนจ่ายงาน = assignee เอง) ยังคงทำได้ตามเดิม', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    const pond = await loginAs(app, 'pond@example-co.test')
+    // u_pond ต้องเป็น project editor ถึงจะ dispatch ได้ (setupProject ตั้ง positionId เต็มสิทธิ์ไว้แล้วผ่าน asEditorUserId)
+    const res = await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    expect(res.status).toBe(200)
+  })
+})
