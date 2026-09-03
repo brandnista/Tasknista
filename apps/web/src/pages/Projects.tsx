@@ -327,35 +327,8 @@ function TableView({ rows }: { rows: ProjectRow[] }) {
 
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-      {/* Pronista §Mobile Responsive Refactor (2026-09-02) — การ์ดบนมือถือแทนตาราง (สเปก §6/§8) */}
-      <div className="sm:hidden divide-y divide-divider">
-        {pageRows.map((p, i) => {
-          const health = pmHealthOf(p)
-          const overdue = health === 'delayed'
-          return (
-            <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="p-3.5 cursor-pointer hover:bg-hover">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted tabular-nums shrink-0">{(page - 1) * pageSize + i + 1}</span>
-                <ProjectIcon id={p.id} logo={p.logo} size={16} />
-                <span className="text-sm text-body font-medium truncate">{p.name}</span>
-              </div>
-              {p.clientName && <div className="text-[11px] text-muted mt-0.5 pl-7">{p.clientName}</div>}
-              <div className="flex items-center gap-1.5 flex-wrap mt-2 pl-7">
-                <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusChip(p.statusColor)}`}>{p.statusName}</span>
-                <PmHealthBadge health={health} />
-              </div>
-              <div className="mt-2 pl-7"><ProgressBar p={p} /></div>
-              <div className="flex items-center justify-between mt-2 pl-7">
-                <LeadAvatar p={p} />
-                <span className={`text-[11px] ${overdue ? 'text-danger-600 font-medium' : 'text-muted'}`}>
-                  {p.startDate ? fmtThaiDate(p.startDate) : '—'} – {p.dueDate ? fmtThaiDate(p.dueDate) : '—'}
-                </span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <div className="hidden sm:block overflow-x-auto">
+      {/* Pronista §Horizontal-scroll preference (2026-09-02) — พี่ยืนยันว่าไม่ต้องการ Card ที่ทำให้ตัวหนังสือตกบรรทัดเยอะ กลับไปใช้ตาราง scroll แนวนอนทุกขนาดจอแทน */}
+      <div className="overflow-x-auto">
       <table className="w-full min-w-max text-sm">
         <thead className="bg-hover text-dim text-xs">
           <tr>
