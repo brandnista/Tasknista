@@ -106,6 +106,47 @@ function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
   return t.originDocType ?? (t.srsDocId ? 'SRS' : 'regular')
 }
 
+// Pronista §Bulk actions (2026-09-03) — ลบ/ย้ายหลายงานพร้อมกัน ใช้ endpoint เดี่ยวเดิม (/tasks/:id DELETE, /tasks/:id/convert) ยิงขนานผ่าน Promise.allSettled
+// เหมือน pattern deleteSelected เดิมของแท็บ Backlog ทั่วไป — ไม่ต้องเพิ่ม batch endpoint ใหม่ฝั่ง API
+async function bulkDeleteTasks(ids: string[]): Promise<{ ok: number; failed: number }> {
+  const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+  const failed = results.filter((r) => r.status === 'rejected').length
+  return { ok: ids.length - failed, failed }
+}
+async function bulkConvertTasks(ids: string[], to: 'task' | 'defect' | 'cr'): Promise<{ ok: number; failed: number }> {
+  const results = await Promise.allSettled(ids.map((id) => api.post(`/api/tasks/${id}/convert`, { to })))
+  const failed = results.filter((r) => r.status === 'rejected').length
+  return { ok: ids.length - failed, failed }
+}
+
+/** แถบปุ่มจัดการกลุ่ม: ลบทั้งหมด/ลบที่เลือก/ย้ายทั้งหมด/ย้ายที่เลือก — ใช้ร่วมกันทั้ง 3 แท็บ (Backlog ทั่วไป/Defect/Task-Story-CR) */
+function BulkKindActions({ totalCount, selectedCount, excludeKind, busy, onDeleteAll, onDeleteSelected, onMoveAll, onMoveSelected }: {
+  totalCount: number
+  selectedCount: number
+  excludeKind: 'task' | 'defect' | 'cr' | 'backlog'
+  busy: boolean
+  onDeleteAll: () => void
+  onDeleteSelected: () => void
+  onMoveAll: (to: 'task' | 'defect' | 'cr') => void
+  onMoveSelected: (to: 'task' | 'defect' | 'cr') => void
+}) {
+  const moveOptions = (['task', 'defect', 'cr'] as const).filter((k) => k !== excludeKind)
+  const [moveTo, setMoveTo] = useState<'task' | 'defect' | 'cr'>(moveOptions[0]!)
+  if (totalCount === 0) return null
+  const btn = 'text-[11px] rounded-lg px-2 py-1 disabled:opacity-40 whitespace-nowrap'
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+      <select value={moveTo} onChange={(e) => setMoveTo(e.target.value as typeof moveTo)} className="text-[11px] bg-white border border-border rounded-lg px-1.5 py-1">
+        {moveOptions.map((k) => <option key={k} value={k}>{CONVERT_LABEL[k]}</option>)}
+      </select>
+      <button onClick={() => onMoveAll(moveTo)} disabled={busy} className={`${btn} text-brand-700 border border-brand-200 bg-brand-50 hover:bg-brand-100`}>ย้ายทั้งหมด ({totalCount})</button>
+      <button onClick={() => onMoveSelected(moveTo)} disabled={busy || selectedCount === 0} className={`${btn} text-brand-700 border border-brand-200 bg-brand-50 hover:bg-brand-100`}>ย้ายที่เลือก ({selectedCount})</button>
+      <button onClick={onDeleteAll} disabled={busy} className={`${btn} text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100`}>ลบทั้งหมด ({totalCount})</button>
+      <button onClick={onDeleteSelected} disabled={busy || selectedCount === 0} className={`${btn} text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100`}>ลบที่เลือก ({selectedCount})</button>
+    </div>
+  )
+}
+
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
 function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog, showCode, soonDays }: {
   t: ProjectBacklogTask
@@ -316,19 +357,32 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       return allSelected ? new Set() : new Set(allIds)
     })
   }
-  const deleteSelected = async () => {
-    if (selected.size === 0) return
-    if (!(await confirmDialog({ title: `ลบ ${selected.size} รายการที่เลือก?`, message: 'กู้คืนไม่ได้', danger: true }))) return
+  const bulkDeleteConfirm = async (ids: string[]) => {
+    if (ids.length === 0) return
+    if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     setDeleting(true)
     try {
-      const ids = [...selected]
-      const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
-      const failed = results.filter((r) => r.status === 'rejected').length
+      const res = await bulkDeleteTasks(ids)
       setSelected(new Set())
       void reload()
-      if (failed > 0) await alertDialog({ title: `ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ (อาจถูกล็อกอยู่)` })
+      if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
     } finally {
       setDeleting(false)
+    }
+  }
+  // Pronista §Bulk actions (2026-09-03) — ย้าย Backlog ดิบเป็น Task/Defect/CR แบบกลุ่ม (เดิมมีแต่ "จัดการ" ทีละรายการ)
+  const [moving, setMoving] = useState(false)
+  const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    if (ids.length === 0) return
+    if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
+    setMoving(true)
+    try {
+      const res = await bulkConvertTasks(ids, to)
+      setSelected(new Set())
+      void reload()
+      if (res.failed > 0) await alertDialog({ title: `ย้ายสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ` })
+    } finally {
+      setMoving(false)
     }
   }
   // Pronista §System Requirements Update — เลือกงานด้วย checkbox โยนเข้า Sprint ทีเดียว (ใช้ selection เดิมของปุ่ม "ลบที่เลือก" ร่วมกัน)
@@ -478,20 +532,21 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       })()}
 
       {canEdit && activeList.length > 0 && (
-        <div className="flex items-center gap-3 mb-2 text-xs">
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
             <input type="checkbox" checked={activeList.every((t) => selected.has(t.id))} onChange={toggleSelectAll} />
             เลือกทั้งหมด
           </label>
-          {selected.size > 0 && (
-            <button
-              onClick={() => void deleteSelected()}
-              disabled={deleting}
-              className="ml-auto text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100 rounded-lg px-2.5 py-1 disabled:opacity-40"
-            >
-              {deleting ? 'กำลังลบ…' : `ลบที่เลือก (${selected.size})`}
-            </button>
-          )}
+          <BulkKindActions
+            totalCount={activeList.length}
+            selectedCount={selected.size}
+            excludeKind="backlog"
+            busy={deleting || moving}
+            onDeleteAll={() => void bulkDeleteConfirm(activeList.map((t) => t.id))}
+            onDeleteSelected={() => void bulkDeleteConfirm([...selected])}
+            onMoveAll={(to) => void bulkMoveConfirm(activeList.map((t) => t.id), to)}
+            onMoveSelected={(to) => void bulkMoveConfirm([...selected], to)}
+          />
         </div>
       )}
 
@@ -1242,6 +1297,30 @@ function useBacklogSprintSelect<
     reload()
     onSprintChanged?.()
   }
+  // Pronista §Bulk actions (2026-09-03) — ลบ/ย้ายทั้งหมด (ตามตัวกรองที่เห็นอยู่) หรือเฉพาะที่เลือก
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const bulkDelete = async (ids: string[]) => {
+    setBulkBusy(true)
+    try {
+      const res = await bulkDeleteTasks(ids)
+      setSelected(new Set())
+      reload()
+      return res
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+  const bulkMove = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    setBulkBusy(true)
+    try {
+      const res = await bulkConvertTasks(ids, to)
+      setSelected(new Set())
+      reload()
+      return res
+    } finally {
+      setBulkBusy(false)
+    }
+  }
   return {
     taskTypeCatalog: resolveTaskTypes(cfg?.taskTypes),
     dueSoonDays: cfg?.dueSoonDays,
@@ -1263,6 +1342,9 @@ function useBacklogSprintSelect<
     selectedTotalMinutes,
     sprintPickerOptions,
     bulkAddToSprint,
+    bulkBusy,
+    bulkDelete,
+    bulkMove,
   }
 }
 
@@ -1279,6 +1361,17 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const defects = (data ?? []).filter((t) => t.kind === 'defect')
   const sel = useBacklogSprintSelect(projectId, defects, () => void reload(), onSprintChanged)
+  const { confirmDialog, alertDialog } = useDialog()
+  const bulkDeleteConfirm = async (ids: string[]) => {
+    if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
+    const res = await sel.bulkDelete(ids)
+    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+  }
+  const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
+    const res = await sel.bulkMove(ids, to)
+    if (res.failed > 0) await alertDialog({ title: `ย้ายสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ` })
+  }
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const linkCandidates: PickableTask[] = useMemo(
     () => (data ?? []).filter((t) => t.id !== linkingId).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
@@ -1349,11 +1442,21 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
         </div>
       )}
       {canEdit && sel.filtered.length > 0 && (
-        <div className="flex items-center gap-3 mb-2 text-xs">
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
             <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
             เลือกทั้งหมด
           </label>
+          <BulkKindActions
+            totalCount={sel.filtered.length}
+            selectedCount={sel.selected.size}
+            excludeKind="defect"
+            busy={sel.bulkBusy}
+            onDeleteAll={() => void bulkDeleteConfirm(sel.filtered.map((t) => t.id))}
+            onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
+            onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
+            onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
+          />
         </div>
       )}
       {sel.filtered.length === 0 ? (
@@ -1678,6 +1781,17 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
         : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
+  const { confirmDialog, alertDialog } = useDialog()
+  const bulkDeleteConfirm = async (ids: string[]) => {
+    if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
+    const res = await sel.bulkDelete(ids)
+    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+  }
+  const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
+    const res = await sel.bulkMove(ids, to)
+    if (res.failed > 0) await alertDialog({ title: `ย้ายสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ` })
+  }
   const storyOptions: PickableTask[] = useMemo(
     () => all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
     [all],
@@ -1825,11 +1939,24 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         </div>
       )}
       {selectable && canEdit && sel.filtered.length > 0 && (
-        <div className="flex items-center gap-3 mb-2 text-xs">
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
             <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
             เลือกทั้งหมด
           </label>
+          {/* Pronista §Bulk actions (2026-09-03) — เฉพาะแท็บ Task/CR (level='story' ไม่มี เพราะเป็นโครงสร้าง hierarchy คนละแนวคิดจาก kind แบน Task/Defect/CR) */}
+          {level !== 'story' && (
+            <BulkKindActions
+              totalCount={sel.filtered.length}
+              selectedCount={sel.selected.size}
+              excludeKind={level}
+              busy={sel.bulkBusy}
+              onDeleteAll={() => void bulkDeleteConfirm(sel.filtered.map((t) => t.id))}
+              onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
+              onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
+              onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
+            />
+          )}
         </div>
       )}
       {sel.filtered.length === 0 ? (
