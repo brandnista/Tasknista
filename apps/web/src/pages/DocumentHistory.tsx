@@ -9,7 +9,7 @@ export function DocumentHistoryPage() {
   return (
     <>
       <PageHeader title="ประวัติเอกสาร" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <DocumentHistoryTable />
       </div>
     </>

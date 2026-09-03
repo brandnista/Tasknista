@@ -22,6 +22,16 @@ const fmtDateTH = (d: string) => {
   return `${Number(day)} ${MONTHS[Number(m)]} ${Number(y) + 543}`
 }
 const fmtMinutes = (min: number) => (min <= 0 ? '—' : min < 60 ? `${min} น.` : `${Math.floor(min / 60)}ชม. ${min % 60 ? `${min % 60}น.` : ''}`.trim())
+/** Pronista §Daily Report Gmail-style inbox — คอลัมน์วันที่ขวาสุดของแถว: ถ้าเป็นวันนี้โชว์เวลาที่ส่ง ไม่งั้นโชว์วันที่สั้นๆ (เหมือน Gmail)
+ * submittedAt มาจาก API เป็น ISO string (Date ผ่าน JSON) ไม่ใช่ epoch ms ดิบ — ต้องผ่าน new Date() ก่อนเสมอ (ตรงกับ fmtUpdated ใน Docs.tsx) */
+function fmtInboxDate(dateStr: string, submittedAt: number | string | null): string {
+  if (dateStr === bkkToday() && submittedAt) {
+    const bkk = new Date(new Date(submittedAt).getTime() + 7 * 3_600_000)
+    return `${String(bkk.getUTCHours()).padStart(2, '0')}:${String(bkk.getUTCMinutes()).padStart(2, '0')}`
+  }
+  const [, m, d] = dateStr.split('-')
+  return `${Number(d)} ${MONTHS_SHORT[Number(m)]}`
+}
 
 const STATUS_LABEL: Record<'draft' | 'submitted' | 'reviewed', string> = { draft: 'Draft', submitted: 'Submitted', reviewed: 'Reviewed' }
 const STATUS_BADGE: Record<'draft' | 'submitted' | 'reviewed', string> = {
@@ -41,6 +51,7 @@ interface ReportItem {
   task: { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null } | null
 }
 interface ReportComment { id: string; userId: string; userName: string | null; avatarUrl: string | null; body: string; createdAt: number }
+interface ReportRecipient { id: string; name: string | null; avatarUrl: string | null; reviewedAt: number | null }
 interface ReportDetail {
   id: string
   userId: string
@@ -49,6 +60,7 @@ interface ReportDetail {
   reportDate: string
   recipientId: string | null
   recipientName: string | null
+  recipients: ReportRecipient[]
   status: 'draft' | 'submitted' | 'reviewed'
   notes: string | null
   blockerHasIssue: boolean
@@ -59,8 +71,32 @@ interface ReportDetail {
   items: ReportItem[]
   comments: ReportComment[]
 }
-interface HistoryRow { id: string; reportDate: string; status: 'draft' | 'submitted' | 'reviewed'; userName: string | null; recipientName: string | null; itemCount: number; submittedAt: number | null }
+// Pronista §Daily Report Gmail-style inbox (2026-09-02) — recipients[] แทน recipientName เดี่ยว + myReviewedAt (เฉพาะ scope=received) ใช้ตัดสินตัวหนา=ยังไม่อ่าน
+interface HistoryRow {
+  id: string
+  reportDate: string
+  status: 'draft' | 'submitted' | 'reviewed'
+  userName: string | null
+  userAvatarUrl: string | null
+  recipients: { id: string; name: string | null }[]
+  itemCount: number
+  submittedAt: number | string | null
+  notes: string | null
+  myReviewedAt: number | null
+}
 interface Recipient { id: string; name: string }
+
+type DateRangePreset = 'week' | 'month' | 'custom'
+/** Asia/Bangkok "วันนี้" → จุดเริ่มสัปดาห์ (จันทร์) เป็น YYYY-MM-DD */
+function startOfWeekTH(today = bkkToday()): string {
+  const d = new Date(`${today}T00:00:00+07:00`)
+  const day = (d.getUTCDay() + 6) % 7 // จันทร์=0
+  d.setUTCDate(d.getUTCDate() - day)
+  return d.toISOString().slice(0, 10)
+}
+function startOfMonthTH(today = bkkToday()): string {
+  return `${today.slice(0, 7)}-01`
+}
 
 function TaskLink({ projectId, taskId, code, title }: { projectId: string | null; taskId: string; code: string | null; title: string }) {
   if (!projectId) return <span className="text-[13.5px] text-strong font-medium truncate">{code ?? title}</span>
@@ -84,8 +120,12 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [date, setDate] = useState(bkkToday())
   const [openId, setOpenId] = useState<string | null>(initialReportId ?? null)
   const [historyScope, setHistoryScope] = useState<'mine' | 'received'>('mine')
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>('month')
+  const [customFrom, setCustomFrom] = useState(startOfMonthTH())
+  const [customTo, setCustomTo] = useState(bkkToday())
   const [confirmSubmit, setConfirmSubmit] = useState(false)
-  const [submitRecipientId, setSubmitRecipientId] = useState('')
+  const [submitRecipientIds, setSubmitRecipientIds] = useState<Set<string>>(new Set())
+  const [justSubmitted, setJustSubmitted] = useState<string[] | null>(null) // ชื่อผู้รับที่เพิ่งส่งสำเร็จ — โชว์หน้ายืนยันสั้นๆ
   const [commentBody, setCommentBody] = useState('')
   const [error, setError] = useState('')
   const [manualTitle, setManualTitle] = useState('')
@@ -107,9 +147,12 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     () => (canEditNow ? api.get('/api/tasks/mine') : Promise.resolve([])),
     [canEditNow],
   )
+  // Pronista §Daily Report Gmail-style inbox — ตัวกรองช่วงวันที่ (สัปดาห์/เดือน/กำหนดเอง) คำนวณ from/to ฝั่ง frontend แล้วส่งให้ /history
+  const rangeFrom = rangePreset === 'week' ? startOfWeekTH() : rangePreset === 'month' ? startOfMonthTH() : customFrom
+  const rangeTo = rangePreset === 'custom' ? customTo : bkkToday()
   const { data: historyData, reload: reloadHistory } = useLoad<{ reports: HistoryRow[] }>(
-    () => (mode === 'history' ? api.get(`/api/daily-reports/history?scope=${historyScope}`) : Promise.resolve({ reports: [] })),
-    [mode, historyScope],
+    () => (mode === 'history' ? api.get(`/api/daily-reports/history?scope=${historyScope}&from=${rangeFrom}&to=${rangeTo}`) : Promise.resolve({ reports: [] })),
+    [mode, historyScope, rangeFrom, rangeTo],
   )
   const { data: recipients } = useLoad<{ recipients: Recipient[] }>(() => api.get('/api/daily-reports/recipients'), [])
 
@@ -163,13 +206,22 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     await reloadReport()
   }
   const openSubmitModal = () => {
-    setSubmitRecipientId(report?.recipientId ?? recipients?.recipients[0]?.id ?? '')
+    setSubmitRecipientIds(new Set())
     setConfirmSubmit(true)
   }
+  const toggleSubmitRecipient = (id: string) => {
+    setSubmitRecipientIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const doSubmit = async () => {
-    if (!report || !submitRecipientId) return
-    await api.post(`/api/daily-reports/${report.id}/submit`, { recipientId: submitRecipientId })
-    setConfirmSubmit(false)
+    if (!report || submitRecipientIds.size === 0) return
+    const names = [...submitRecipientIds].map((id) => recipients?.recipients.find((r) => r.id === id)?.name).filter((n): n is string => !!n)
+    await api.post(`/api/daily-reports/${report.id}/submit`, { recipientIds: [...submitRecipientIds] })
+    setJustSubmitted(names)
     await reloadReport()
   }
   const requestEdit = async () => {
@@ -198,7 +250,6 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   }
 
   const totalMinutes = (report?.items ?? []).reduce((s, it) => s + it.minutes, 0)
-  const recipientName = recipients?.recipients.find((r) => r.id === submitRecipientId)?.name
   const itemByTaskId = new Map<string, ReportItem>()
   for (const it of report?.items ?? []) if (it.taskId) itemByTaskId.set(it.taskId, it)
   const manualItems = (report?.items ?? []).filter((it) => !it.taskId)
@@ -220,26 +271,53 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
 
       {mode === 'history' ? (
         <div className="space-y-3">
-          <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit">
-            <button onClick={() => setHistoryScope('mine')} className={`px-3 py-1.5 rounded-md ${historyScope === 'mine' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานของฉัน</button>
-            <button onClick={() => setHistoryScope('received')} className={`px-3 py-1.5 rounded-md ${historyScope === 'received' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานที่ได้รับ</button>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit">
+              <button onClick={() => setHistoryScope('mine')} className={`px-3 py-1.5 rounded-md ${historyScope === 'mine' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานของฉัน</button>
+              <button onClick={() => setHistoryScope('received')} className={`px-3 py-1.5 rounded-md ${historyScope === 'received' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานที่ได้รับ</button>
+            </div>
+            {/* Pronista §Daily Report — ตัวกรองช่วงวันที่ สัปดาห์/เดือน/กำหนดเอง (recipient view) */}
+            <div className="flex items-center gap-1.5 text-xs">
+              {(['week', 'month', 'custom'] as DateRangePreset[]).map((p) => (
+                <button key={p} onClick={() => setRangePreset(p)} className={`px-2.5 py-1.5 rounded-lg font-medium ${rangePreset === p ? 'bg-brand-50 text-brand-700' : 'text-dim hover:bg-hover'}`}>
+                  {p === 'week' ? 'สัปดาห์นี้' : p === 'month' ? 'เดือนนี้' : 'กำหนดเอง'}
+                </button>
+              ))}
+              {rangePreset === 'custom' && (
+                <>
+                  <DateInputTH value={customFrom} onChange={setCustomFrom} className="h-7 text-xs border border-border rounded-lg px-2 bg-white w-28" />
+                  <span className="text-muted">–</span>
+                  <DateInputTH value={customTo} onChange={setCustomTo} className="h-7 text-xs border border-border rounded-lg px-2 bg-white w-28" />
+                </>
+              )}
+            </div>
           </div>
+
+          {/* Pronista §Daily Report Gmail-style inbox — ตัวหนา+จุดฟ้า = ยังไม่อ่าน (scope=received เท่านั้น, เทียบจาก myReviewedAt ของฉันเอง) */}
           {(historyData?.reports ?? []).length === 0 ? (
-            <div className="bg-white border border-border-subtle rounded-xl text-center text-sm text-muted py-10">ไม่พบรายงาน</div>
+            <div className="bg-white border border-border-subtle rounded-xl text-center text-sm text-muted py-10">ไม่พบรายงานในช่วงที่เลือก</div>
           ) : (
-            <div className="space-y-2">
+            <div className="bg-white border border-border-subtle rounded-xl divide-y divide-divider overflow-hidden">
               {historyData!.reports.map((r) => {
-                const [, m, d] = r.reportDate.split('-')
-                const weekday = new Date(`${r.reportDate}T00:00:00+07:00`).toLocaleDateString('th-TH', { weekday: 'long' })
+                const unread = historyScope === 'received' && !r.myReviewedAt
+                const counterpartName = historyScope === 'mine' ? r.recipients.map((x) => x.name).join(', ') || '—' : (r.userName ?? '—')
+                const snippet = r.notes?.trim() || `${r.itemCount} งาน`
                 return (
-                  <div key={r.id} onClick={() => openFromHistory(r.id)} className="flex items-center gap-4 bg-white border border-border-subtle rounded-xl px-4 py-3.5 cursor-pointer hover:border-border hover:shadow-xs transition-shadow">
-                    <div className="w-20 shrink-0">
-                      <div className="text-sm font-bold text-strong">{Number(d)} {MONTHS_SHORT[Number(m)]}</div>
-                      <div className="text-[11px] text-muted">{weekday}</div>
+                  <div
+                    key={r.id}
+                    onClick={() => openFromHistory(r.id)}
+                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-hover transition-colors ${unread ? 'bg-brand-50/40' : 'bg-white'}`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${unread ? 'bg-brand-600' : 'bg-transparent'}`} />
+                    <Avatar name={counterpartName} avatarUrl={historyScope === 'received' ? r.userAvatarUrl : null} className="w-8 h-8 text-xs shrink-0" colorClass={avatarColor(counterpartName)} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className={`text-[13.5px] truncate ${unread ? 'font-bold text-ink' : 'font-medium text-strong'}`}>{counterpartName}</span>
+                        <span className={`shrink-0 text-[10.5px] font-bold px-2 py-0.5 rounded-full ${STATUS_BADGE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+                      </div>
+                      <div className={`text-[12.5px] truncate ${unread ? 'text-body font-medium' : 'text-muted'}`}>Daily Report — {fmtDateTH(r.reportDate)} · {snippet}</div>
                     </div>
-                    <div className="flex-1 min-w-0 text-xs text-dim tabular-nums">{r.itemCount} งาน</div>
-                    <div className="w-28 shrink-0 text-[12.5px] text-soft truncate">→ {(historyScope === 'mine' ? r.recipientName : r.userName) ?? '—'}</div>
-                    <span className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full ${STATUS_BADGE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+                    <span className={`shrink-0 text-[11px] tabular-nums ${unread ? 'text-brand-700 font-semibold' : 'text-muted'}`}>{fmtInboxDate(r.reportDate, r.submittedAt)}</span>
                   </div>
                 )
               })}
@@ -256,7 +334,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                 <div className="font-bold text-ink text-[15px]">Daily Report — {fmtDateTH(report?.reportDate ?? date)}</div>
                 {report && (
                   <div className="text-xs text-muted mt-0.5">
-                    {isOwner ? (report.recipientName ? `ส่งถึง ${report.recipientName}` : 'ยังไม่ได้เลือกผู้รับ') : `จาก ${report.userName ?? '—'}`}
+                    {isOwner ? (report.recipients.length > 0 ? `ส่งถึง ${report.recipients.map((r) => r.name).join(', ')}` : 'ยังไม่ได้เลือกผู้รับ') : `จาก ${report.userName ?? '—'}`}
                   </div>
                 )}
               </div>
@@ -276,7 +354,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
           </div>
 
           {isOwner && report?.status === 'submitted' && (
-            <div className="bg-info-50 text-info-700 text-xs px-4 py-2.5 rounded-lg">ส่งแล้ว — ยังแก้ไขต่อได้จนกว่า {report.recipientName ?? 'หัวหน้า'} จะเปิดอ่าน</div>
+            <div className="bg-info-50 text-info-700 text-xs px-4 py-2.5 rounded-lg">ส่งแล้ว — ยังแก้ไขต่อได้จนกว่าจะมีคนเปิดอ่าน ({report.recipients.map((r) => r.name).join(', ') || 'หัวหน้า'})</div>
           )}
 
           {/* Summary strip */}
@@ -505,7 +583,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                 </section>
 
                 {/* Sticky footer */}
-                <div className="sticky bottom-4 mt-2 bg-white border border-border-subtle rounded-2xl shadow-md px-4.5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
+                {/* Pronista §Mobile safe-area (2026-09-02) — เพิ่ม margin-bottom กัน home-indicator ของ iPhone บัง ปุ่มส่งรายงาน (สเปก §9 "Submit Action เข้าถึงง่าย") */}
+                <div className="sticky bottom-[calc(1rem+env(safe-area-inset-bottom))] mt-2 bg-white border border-border-subtle rounded-2xl shadow-md px-4.5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
                   <div className="text-sm text-dim">
                     <b className="text-strong tabular-nums">{report?.items.length ?? 0}</b> งาน · <b className="text-strong tabular-nums">{fmtMinutes(totalMinutes)}</b>
                     {report?.blockerHasIssue && <> · Blocker <b className="text-danger-600">1</b> รายการ</>}
@@ -544,6 +623,15 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                   <div className="text-xs text-dim">เวลารวม<b className="block text-[15px] text-strong tabular-nums mt-0.5">{fmtMinutes(totalMinutes)}</b></div>
                   <div className="text-xs text-dim">Blocker<b className={`block text-[15px] tabular-nums mt-0.5 ${report!.blockerHasIssue ? 'text-danger-600' : 'text-strong'}`}>{report!.blockerHasIssue ? 1 : 0}</b></div>
                 </div>
+                {isOwner && report!.recipients.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-4 pt-4 border-t border-divider">
+                    {report!.recipients.map((r) => (
+                      <span key={r.id} className={`text-[11px] font-medium px-2 py-1 rounded-full ${r.reviewedAt ? 'bg-success-50 text-success-700' : 'bg-divider text-dim'}`}>
+                        {r.name} · {r.reviewedAt ? 'อ่านแล้ว' : 'ยังไม่อ่าน'}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -616,7 +704,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                   </div>
                 ))}
               </div>
-              {(report.userId === user?.id || report.recipientId === user?.id) && (
+              {(report.userId === user?.id || report.recipients.some((r) => r.id === user?.id)) && (
                 <div className="flex gap-2 mt-3.5 pt-3.5 border-t border-divider">
                   <input
                     value={commentBody}
@@ -634,31 +722,55 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
       )}
 
       {confirmSubmit && report && (
-        <div className="fixed inset-0 bg-ink/40 z-50 grid place-items-center p-4" onClick={() => setConfirmSubmit(false)}>
+        <div
+          className="fixed inset-0 bg-ink/40 z-50 grid place-items-center p-4"
+          onClick={() => { setConfirmSubmit(false); setJustSubmitted(null) }}
+        >
           <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 grid place-items-center mb-3.5"><Send className="w-5 h-5" /></div>
-            <div className="text-base font-bold text-ink mb-1">ส่งรายงานนี้เลยไหม</div>
-            <div className="text-[13px] text-dim mb-4">แก้ไขต่อได้จนกว่าผู้รับจะเปิดอ่าน หลังจากนั้นต้องกด &ldquo;ขอแก้ไขรายงาน&rdquo; ถ้าอยากแก้ทีหลัง</div>
+            {justSubmitted ? (
+              // Pronista §Daily Report submit confirmation (2026-09-02) — หน้าจอยืนยันหลังกดส่งสำเร็จ (เดิมโมดัลปิดเงียบๆ ไม่มีการยืนยันอะไรเลย)
+              <>
+                <div className="w-10 h-10 rounded-xl bg-success-50 text-success-600 grid place-items-center mb-3.5"><Check className="w-5 h-5" strokeWidth={3} /></div>
+                <div className="text-base font-bold text-ink mb-1">ส่งสำเร็จ</div>
+                <div className="text-[13px] text-dim mb-5">
+                  Daily Report วันที่ {fmtDateTH(report.reportDate)} ถูกส่งถึง <b className="text-strong">{justSubmitted.join(', ')}</b> แล้ว
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => { setConfirmSubmit(false); setJustSubmitted(null) }} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white">ปิด</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 grid place-items-center mb-3.5"><Send className="w-5 h-5" /></div>
+                <div className="text-base font-bold text-ink mb-1">ส่งรายงานนี้เลยไหม</div>
+                <div className="text-[13px] text-dim mb-4">แก้ไขต่อได้จนกว่าผู้รับจะเปิดอ่าน หลังจากนั้นต้องกด &ldquo;ขอแก้ไขรายงาน&rdquo; ถ้าอยากแก้ทีหลัง</div>
 
-            <label className="block text-[11.5px] font-semibold text-dim mb-1.5">ส่งถึง</label>
-            <select value={submitRecipientId} onChange={(e) => setSubmitRecipientId(e.target.value)} className="w-full text-sm border border-border rounded-lg px-3 py-2.5 bg-white mb-4 outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500">
-              <option value="" disabled>เลือกผู้รับ...</option>
-              {(recipients?.recipients ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+                {/* Pronista §Daily Report multi-recipient — เลือกผู้รับได้หลายคน (เดิม select เดี่ยว) */}
+                <label className="block text-[11.5px] font-semibold text-dim mb-1.5">ส่งถึง (เลือกได้หลายคน)</label>
+                <div className="border border-border rounded-lg mb-4 max-h-40 overflow-y-auto divide-y divide-divider">
+                  {(recipients?.recipients ?? []).map((r) => (
+                    <label key={r.id} className="flex items-center gap-2.5 px-3 py-2 text-sm text-body cursor-pointer hover:bg-hover">
+                      <input type="checkbox" checked={submitRecipientIds.has(r.id)} onChange={() => toggleSubmitRecipient(r.id)} className="shrink-0" />
+                      {r.name}
+                    </label>
+                  ))}
+                </div>
 
-            <div className="bg-hover rounded-xl px-4 py-3.5 space-y-2 mb-5">
-              <div className="flex justify-between text-[13px]"><span className="text-dim">วันที่</span><span className="text-strong font-semibold">{fmtDateTH(report.reportDate)}</span></div>
-              <div className="flex justify-between text-[13px]"><span className="text-dim">งานในรายงาน</span><span className="text-strong font-semibold tabular-nums">{report.items.length} งาน</span></div>
-              <div className="flex justify-between text-[13px]"><span className="text-dim">เวลารวม</span><span className="text-strong font-semibold tabular-nums">{fmtMinutes(totalMinutes)}</span></div>
-              <div className="flex justify-between text-[13px]"><span className="text-dim">Blocker</span><span className={`font-semibold ${report.blockerHasIssue ? 'text-danger-600' : 'text-strong'}`}>{report.blockerHasIssue ? '1 รายการ' : 'ไม่มี'}</span></div>
-            </div>
+                <div className="bg-hover rounded-xl px-4 py-3.5 space-y-2 mb-5">
+                  <div className="flex justify-between text-[13px]"><span className="text-dim">วันที่</span><span className="text-strong font-semibold">{fmtDateTH(report.reportDate)}</span></div>
+                  <div className="flex justify-between text-[13px]"><span className="text-dim">งานในรายงาน</span><span className="text-strong font-semibold tabular-nums">{report.items.length} งาน</span></div>
+                  <div className="flex justify-between text-[13px]"><span className="text-dim">เวลารวม</span><span className="text-strong font-semibold tabular-nums">{fmtMinutes(totalMinutes)}</span></div>
+                  <div className="flex justify-between text-[13px]"><span className="text-dim">Blocker</span><span className={`font-semibold ${report.blockerHasIssue ? 'text-danger-600' : 'text-strong'}`}>{report.blockerHasIssue ? '1 รายการ' : 'ไม่มี'}</span></div>
+                </div>
 
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmSubmit(false)} className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-body hover:bg-hover">กลับไปแก้</button>
-              <button onClick={() => void doSubmit()} disabled={!submitRecipientId} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
-                <Send className="w-3.5 h-3.5" /> ส่งถึง{recipientName ? ` ${recipientName}` : ''}
-              </button>
-            </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setConfirmSubmit(false)} className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-body hover:bg-hover">กลับไปแก้</button>
+                  <button onClick={() => void doSubmit()} disabled={submitRecipientIds.size === 0} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
+                    <Send className="w-3.5 h-3.5" /> ส่งถึง{submitRecipientIds.size > 0 ? ` ${submitRecipientIds.size} คน` : ''}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

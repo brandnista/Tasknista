@@ -223,7 +223,7 @@ export function AdminDomainsPage() {
           </button>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {!data ? (
           <div className="text-center text-sm text-muted py-10">กำลังโหลด…</div>
         ) : domainsList.length === 0 ? (
@@ -247,7 +247,8 @@ export function AdminDomainsPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — min-w-max กันคอลัมน์ท้าย (วันหมดอายุ/แจ้งเตือน) ถูกบีบจนอ่านไม่ออกบนมือถือ */}
+              <table className="w-full min-w-max text-sm">
                 <thead>
                   <tr className="text-left text-[11px] text-muted border-b border-divider">
                     <th className="px-4 py-2.5 font-medium">Domain Name</th>

@@ -8,7 +8,7 @@ export function MyTasksDailyReportPage() {
   return (
     <>
       <PageHeader title="Daily Report" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <DailyReportTab initialReportId={searchParams.get('report')} />
       </div>
     </>

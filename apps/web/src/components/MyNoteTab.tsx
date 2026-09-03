@@ -602,6 +602,9 @@ export function MyNoteTab() {
   const [convertingNote, setConvertingNote] = useState<Note | null>(null)
   // Pronista §My Note Edit (2026-08-27) — note ที่กำลังแก้ไขอยู่ (null = ฟอร์มบนสุดอยู่ในโหมด "สร้างใหม่")
   const [editingNote, setEditingNote] = useState<Note | null>(null)
+  // Pronista §Mobile My Note redesign (2026-09-02) — จอมือถือ (< lg) เดิม flex-col ซ้อนกันยาว บอร์ดหล่นไปอยู่ล่างสุด ต้องเลื่อนผ่านฟอร์ม+รายการทั้งหมดก่อนถึงจะเห็น
+  // สลับเป็นแท็บ "เขียน/รายการ" กับ "บอร์ด" เฉพาะจอมือถือแทน (lg ขึ้นไปยังเห็นคู่กันข้างๆ เหมือนเดิมทุกอย่าง ไม่กระทบ desktop)
+  const [mobileView, setMobileView] = useState<'write' | 'board'>('write')
 
   const reloadAll = () => { void reload(); void reloadShared() }
 
@@ -616,7 +619,12 @@ export function MyNoteTab() {
   return (
     // Pronista §Menu Restructure (2026-09-02) — สลับฝั่ง: บอร์ดงานย้ายมาซ้าย, ฟอร์มเขียน+รายการเดิมไปขวา (DOM order = ลำดับซ้าย→ขวาใน flex-row)
     <div className="flex flex-col lg:flex-row-reverse gap-5 lg:gap-6 items-start">
-      <div className="w-full lg:w-[45%] lg:shrink-0 space-y-4">
+      {/* Pronista §Mobile My Note redesign (2026-09-02) — แท็บสลับซ่อน/โชว์เฉพาะจอมือถือ ให้กดไปดูบอร์ดได้ทันทีไม่ต้องเลื่อนผ่านฟอร์ม+รายการทั้งหมดก่อน */}
+      <div className="flex lg:hidden bg-divider rounded-lg p-0.5 text-xs font-medium w-fit order-first">
+        <button onClick={() => setMobileView('write')} className={`px-3 py-1.5 rounded-md ${mobileView === 'write' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>เขียน/รายการ</button>
+        <button onClick={() => setMobileView('board')} className={`px-3 py-1.5 rounded-md ${mobileView === 'board' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>บอร์ด</button>
+      </div>
+      <div className={`${mobileView === 'write' ? 'block' : 'hidden'} lg:block w-full lg:w-[45%] lg:shrink-0 space-y-4`}>
         <NoteEditor
           key={editingNote?.id ?? 'new'}
           editing={editingNote}
@@ -685,15 +693,17 @@ export function MyNoteTab() {
         )}
       </div>
 
-      <NoteBoard
-        tab={boardTab}
-        onTabChange={changeBoardTab}
-        notes={(boardTab === 'own' ? notesList : sharedNotesList) ?? []}
-        meId={meId}
-        onOpenConvert={setConvertingNote}
-        onEdit={setEditingNote}
-        onDelete={(n) => void remove(n)}
-      />
+      <div className={`${mobileView === 'board' ? 'block' : 'hidden'} lg:block flex-1 min-w-0 w-full`}>
+        <NoteBoard
+          tab={boardTab}
+          onTabChange={changeBoardTab}
+          notes={(boardTab === 'own' ? notesList : sharedNotesList) ?? []}
+          meId={meId}
+          onOpenConvert={setConvertingNote}
+          onEdit={setEditingNote}
+          onDelete={(n) => void remove(n)}
+        />
+      </div>
 
       {convertingNote && (
         <ConvertModal

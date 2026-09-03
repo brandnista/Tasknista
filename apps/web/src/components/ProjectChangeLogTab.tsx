@@ -354,7 +354,9 @@ export function ProjectChangeLogTab({
       {changelogs.length === 0 ? (
         <div className="p-8 text-center text-sm text-muted">ยังไม่มี Changelog ที่บันทึกไว้{canCreate ? ' — กด "เพิ่ม Changelog"' : ''}</div>
       ) : (
-        <table className="w-full text-sm">
+        // Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-max text-sm">
           <thead>
             <tr className="border-b border-border-subtle text-xs text-muted">
               <th className="text-left font-medium px-4 py-2 w-14">เลขที่</th>
@@ -395,6 +397,7 @@ export function ProjectChangeLogTab({
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {formOpen && <ChangelogForm projectId={projectId} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); void reload() }} />}

@@ -23,7 +23,7 @@ export function MyTasksDispatchedPage() {
   return (
     <>
       <PageHeader title="งานที่จ่ายให้คนอื่น" />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {tasks.length === 0 ? (
           <div className="text-center text-sm text-muted py-8">ยังไม่มีงานที่จ่ายให้คนอื่น</div>
         ) : (

@@ -3,6 +3,7 @@ import {
   createDb,
   dailyReportComments,
   dailyReportItems,
+  dailyReportRecipients,
   dailyReports,
   projects,
   taskStars,
@@ -10,7 +11,7 @@ import {
   timeEntries,
   users,
 } from '@seedoffice/db'
-import { and, desc, eq, gte, inArray, lt, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -52,8 +53,13 @@ const TASK_ACTIVITY_ACTIONS = [
   'task.checklist',
 ]
 
-function canAccessReport(report: { userId: string; recipientId: string | null }, me: { id: string; role: string }) {
-  return report.userId === me.id || report.recipientId === me.id || me.role === 'owner'
+// Pronista §Daily Report multi-recipient — เข้าถึงได้ = เจ้าของ, "หนึ่งในผู้รับ" (ผ่านตาราง daily_report_recipients), หรือ owner บริษัท
+async function canAccessReport(db: ReturnType<typeof createDb>, report: { id: string; userId: string }, me: { id: string; role: string }) {
+  if (report.userId === me.id || me.role === 'owner') return true
+  const row = (
+    await db.select({ id: dailyReportRecipients.id }).from(dailyReportRecipients).where(and(eq(dailyReportRecipients.reportId, report.id), eq(dailyReportRecipients.recipientId, me.id))).limit(1)
+  )[0]
+  return !!row
 }
 function canEditReport(report: { userId: string }, me: { id: string }) {
   return report.userId === me.id
@@ -68,11 +74,13 @@ async function loadReportDetail(db: ReturnType<typeof createDb>, reportId: strin
   const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, reportId)).limit(1))[0]
   if (!report) return null
 
-  const [owner, recipient] = await Promise.all([
+  const [owner, recipientRows] = await Promise.all([
     db.select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, report.userId)).limit(1),
-    report.recipientId
-      ? db.select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, report.recipientId)).limit(1)
-      : Promise.resolve([]),
+    db
+      .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, reviewedAt: dailyReportRecipients.reviewedAt })
+      .from(dailyReportRecipients)
+      .innerJoin(users, eq(users.id, dailyReportRecipients.recipientId))
+      .where(eq(dailyReportRecipients.reportId, reportId)),
   ])
 
   const itemRows = await db
@@ -104,8 +112,10 @@ async function loadReportDetail(db: ReturnType<typeof createDb>, reportId: strin
     ...report,
     userName: owner[0]?.name ?? null,
     userAvatarUrl: owner[0]?.avatarUrl ?? null,
-    recipientName: recipient[0]?.name ?? null,
-    recipientAvatarUrl: recipient[0]?.avatarUrl ?? null,
+    // Pronista §Daily Report multi-recipient — recipientName/recipientAvatarUrl (คนแรก) เก็บไว้ให้ backward-compat กับที่เก่าอ่านฟิลด์เดี่ยว · ของใหม่ใช้ recipients[] แทน
+    recipientName: recipientRows[0]?.name ?? null,
+    recipientAvatarUrl: recipientRows[0]?.avatarUrl ?? null,
+    recipients: recipientRows.map((r) => ({ id: r.id, name: r.name, avatarUrl: r.avatarUrl, reviewedAt: r.reviewedAt })),
     items: itemRows.map((r) => ({
       id: r.item.id,
       taskId: r.item.taskId,
@@ -246,34 +256,59 @@ dailyReportRoutes
     return c.json({ report: await loadReportDetail(db, existing.id) })
   })
 
-  // ประวัติ — mine = ที่ฉันเป็นเจ้าของ, received = ที่ฉันเป็นผู้รับ
+  // ประวัติ — mine = ที่ฉันเป็นเจ้าของ, received = ที่ฉันเป็นหนึ่งในผู้รับ (ผ่านตาราง daily_report_recipients)
+  // Pronista §Daily Report Gmail-style inbox — เพิ่ม from/to (กรองช่วงวันที่: สัปดาห์/เดือน/กำหนดเอง คำนวณฝั่ง frontend แล้วส่ง ISO date มา) + myReviewedAt (ต่อผู้ดู เอาไว้ทำตัวหนา = ยังไม่อ่าน)
   .get('/daily-reports/history', teamOnly, async (c) => {
     const scope = c.req.query('scope') === 'received' ? 'received' : 'mine'
     const status = c.req.query('status')
+    const from = c.req.query('from')
+    const to = c.req.query('to')
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const owner = { id: users.id, name: users.name }
-    const scopeCol = scope === 'received' ? dailyReports.recipientId : dailyReports.userId
-    const conditions = [eq(scopeCol, me.id)]
+
+    let receivedReportIds: string[] | null = null
+    if (scope === 'received') {
+      const rows = await db.select({ reportId: dailyReportRecipients.reportId }).from(dailyReportRecipients).where(eq(dailyReportRecipients.recipientId, me.id))
+      receivedReportIds = rows.map((r) => r.reportId)
+      if (receivedReportIds.length === 0) return c.json({ reports: [] })
+    }
+
+    const conditions = scope === 'received' ? [inArray(dailyReports.id, receivedReportIds!)] : [eq(dailyReports.userId, me.id)]
     if (status && ['draft', 'submitted', 'reviewed'].includes(status)) conditions.push(eq(dailyReports.status, status as 'draft' | 'submitted' | 'reviewed'))
+    if (from && isoDate.safeParse(from).success) conditions.push(gte(dailyReports.reportDate, from))
+    if (to && isoDate.safeParse(to).success) conditions.push(lte(dailyReports.reportDate, to))
 
     const rows = await db
-      .select({ report: dailyReports, userName: users.name })
+      .select({ report: dailyReports, userName: users.name, userAvatarUrl: users.avatarUrl })
       .from(dailyReports)
       .leftJoin(users, eq(users.id, dailyReports.userId))
       .where(and(...conditions))
       .orderBy(desc(dailyReports.reportDate))
       .limit(200)
 
-    const recipientIds = [...new Set(rows.map((r) => r.report.recipientId).filter((id): id is string => id !== null))]
-    const recipients = recipientIds.length ? await db.select(owner).from(users).where(inArray(users.id, recipientIds)) : []
-    const recipientNameById = new Map(recipients.map((r) => [r.id, r.name]))
-
     const reportIds = rows.map((r) => r.report.id)
-    const itemCounts = reportIds.length
-      ? await db.select({ reportId: dailyReportItems.reportId, count: sql<number>`count(*)` }).from(dailyReportItems).where(inArray(dailyReportItems.reportId, reportIds)).groupBy(dailyReportItems.reportId)
-      : []
+    const [recipientRows, itemCounts, myRows] = await Promise.all([
+      reportIds.length
+        ? db
+            .select({ reportId: dailyReportRecipients.reportId, id: users.id, name: users.name })
+            .from(dailyReportRecipients)
+            .innerJoin(users, eq(users.id, dailyReportRecipients.recipientId))
+            .where(inArray(dailyReportRecipients.reportId, reportIds))
+        : [],
+      reportIds.length
+        ? db.select({ reportId: dailyReportItems.reportId, count: sql<number>`count(*)` }).from(dailyReportItems).where(inArray(dailyReportItems.reportId, reportIds)).groupBy(dailyReportItems.reportId)
+        : [],
+      scope === 'received' && reportIds.length
+        ? db
+            .select({ reportId: dailyReportRecipients.reportId, reviewedAt: dailyReportRecipients.reviewedAt })
+            .from(dailyReportRecipients)
+            .where(and(inArray(dailyReportRecipients.reportId, reportIds), eq(dailyReportRecipients.recipientId, me.id)))
+        : [],
+    ])
+    const recipientsByReport = new Map<string, { id: string; name: string | null }[]>()
+    for (const r of recipientRows) recipientsByReport.set(r.reportId, [...(recipientsByReport.get(r.reportId) ?? []), { id: r.id, name: r.name }])
     const countByReport = new Map(itemCounts.map((r) => [r.reportId, r.count]))
+    const myReviewedAtByReport = new Map(myRows.map((r) => [r.reportId, r.reviewedAt]))
 
     return c.json({
       reports: rows.map((r) => ({
@@ -281,28 +316,37 @@ dailyReportRoutes
         reportDate: r.report.reportDate,
         status: r.report.status,
         userName: r.userName,
-        recipientName: r.report.recipientId ? (recipientNameById.get(r.report.recipientId) ?? null) : null,
+        userAvatarUrl: r.userAvatarUrl,
+        recipients: recipientsByReport.get(r.report.id) ?? [],
         itemCount: countByReport.get(r.report.id) ?? 0,
         submittedAt: r.report.submittedAt,
+        notes: r.report.notes,
+        myReviewedAt: scope === 'received' ? (myReviewedAtByReport.get(r.report.id) ?? null) : null,
       })),
     })
   })
 
-  // รายละเอียดเต็ม — ถ้าผู้รับเปิดรายงานที่ submitted แล้ว auto flip เป็น reviewed (§9/§14 "Daily Report ถูกเปิดดู") — หลังจากนี้ล็อกการแก้ไข
+  // รายละเอียดเต็ม — ผู้รับคนไหนเปิดก็ mark ว่า "ตัวเองอ่านแล้ว" (ต่อคน) · "คนแรก" ที่เปิด flip รายงานทั้งใบเป็น reviewed (ล็อกแก้ไข — เหมือนเดิม ไม่ต้องรอทุกคนอ่านครบ)
   .get('/daily-reports/:id', teamOnly, async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
     if (!report) return c.json({ error: 'not_found' }, 404)
-    if (!canAccessReport(report, me)) return c.json({ error: 'forbidden' }, 403)
+    if (!(await canAccessReport(db, report, me))) return c.json({ error: 'forbidden' }, 403)
 
-    if (report.status === 'submitted' && report.recipientId && me.id === report.recipientId) {
+    const myRecipientRow = (
+      await db.select().from(dailyReportRecipients).where(and(eq(dailyReportRecipients.reportId, report.id), eq(dailyReportRecipients.recipientId, me.id))).limit(1)
+    )[0]
+    if (myRecipientRow && !myRecipientRow.reviewedAt) {
+      await db.update(dailyReportRecipients).set({ reviewedAt: new Date() }).where(eq(dailyReportRecipients.id, myRecipientRow.id))
+    }
+    if (report.status === 'submitted' && myRecipientRow) {
       await db.update(dailyReports).set({ status: 'reviewed', reviewedAt: new Date() }).where(eq(dailyReports.id, report.id))
       await notifyUser(db, {
         userId: report.userId,
         type: 'daily_report_reviewed',
         dailyReportId: report.id,
-        message: `Daily Report วันที่ ${report.reportDate} ของคุณถูกเปิดดูแล้ว`,
+        message: `${me.name} เปิดดู Daily Report วันที่ ${report.reportDate} ของคุณแล้ว`,
       })
     }
     return c.json(await loadReportDetail(db, report.id))
@@ -389,10 +433,10 @@ dailyReportRoutes
     return c.json({ ok: true })
   })
 
-  // ส่งรายงาน — เลือก/ยืนยันผู้รับทุกครั้งที่ส่ง (recipientId บังคับส่งมาตอนนี้ ไม่พึ่ง managerId เดิมเพียงอย่างเดียว) · ไม่ล็อกการแก้ไข
+  // ส่งรายงาน — เลือก/ยืนยันผู้รับทุกครั้งที่ส่ง (Pronista §Daily Report multi-recipient — เลือกได้หลายคน) · ไม่ล็อกการแก้ไข
   .post('/daily-reports/:id/submit', teamOnly, async (c) => {
-    const body = z.object({ recipientId: z.string().min(1) }).safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'recipient_required', message: 'กรุณาเลือกผู้รับรายงาน' }, 400)
+    const body = z.object({ recipientIds: z.array(z.string().min(1)).min(1).max(20) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'recipient_required', message: 'กรุณาเลือกผู้รับรายงานอย่างน้อย 1 คน' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
@@ -400,17 +444,21 @@ dailyReportRoutes
     if (!canEditReport(report, me)) return c.json({ error: 'forbidden' }, 403)
     if (report.status !== 'draft') return c.json({ error: 'already_submitted' }, 400)
 
-    const recipient = (await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, body.data.recipientId)).limit(1))[0]
-    if (!recipient || (recipient.role !== 'owner' && recipient.role !== 'member')) return c.json({ error: 'invalid_recipient' }, 400)
+    const recipientIds = [...new Set(body.data.recipientIds)]
+    const recipientRows = await db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(inArray(users.id, recipientIds))
+    if (recipientRows.length !== recipientIds.length || recipientRows.some((r) => r.role !== 'owner' && r.role !== 'member')) return c.json({ error: 'invalid_recipient' }, 400)
 
-    await db.update(dailyReports).set({ status: 'submitted', submittedAt: new Date(), recipientId: recipient.id }).where(eq(dailyReports.id, report.id))
-    await writeAudit(c.env, { actorId: me.id, action: 'daily_report.submit', entity: 'daily_report', entityId: report.id, meta: { reportDate: report.reportDate, recipientId: recipient.id } })
-    await notifyUser(db, {
-      userId: recipient.id,
-      type: 'daily_report_submitted',
-      dailyReportId: report.id,
-      message: `${me.name} ส่ง Daily Report ประจำวันที่ ${report.reportDate}`,
-    })
+    await db.update(dailyReports).set({ status: 'submitted', submittedAt: new Date(), recipientId: recipientRows[0]!.id }).where(eq(dailyReports.id, report.id))
+    await db.insert(dailyReportRecipients).values(recipientRows.map((r) => ({ reportId: report.id, recipientId: r.id })))
+    await writeAudit(c.env, { actorId: me.id, action: 'daily_report.submit', entity: 'daily_report', entityId: report.id, meta: { reportDate: report.reportDate, recipientIds } })
+    for (const r of recipientRows) {
+      await notifyUser(db, {
+        userId: r.id,
+        type: 'daily_report_submitted',
+        dailyReportId: report.id,
+        message: `${me.name} ส่ง Daily Report ประจำวันที่ ${report.reportDate}`,
+      })
+    }
     return c.json(await loadReportDetail(db, report.id))
   })
 
@@ -427,7 +475,7 @@ dailyReportRoutes
     return c.json(await loadReportDetail(db, report.id))
   })
 
-  // คอมเมนต์ — เจ้าของหรือผู้รับเท่านั้น (2 ฝ่ายในเธรด)
+  // คอมเมนต์ — เจ้าของหรือผู้รับคนใดคนหนึ่งเท่านั้น (Pronista §Daily Report multi-recipient — เธรดเดียวรวมทุกฝ่าย)
   .post('/daily-reports/:id/comments', teamOnly, async (c) => {
     const body = z.object({ body: z.string().min(1).max(2000) }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -435,14 +483,16 @@ dailyReportRoutes
     const me = c.get('user')
     const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
     if (!report) return c.json({ error: 'not_found' }, 404)
-    if (report.userId !== me.id && report.recipientId !== me.id && me.role !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    if (!(await canAccessReport(db, report, me))) return c.json({ error: 'forbidden' }, 403)
 
     const inserted = (await db.insert(dailyReportComments).values({ reportId: report.id, userId: me.id, body: body.data.body }).returning())[0]!
     await writeAudit(c.env, { actorId: me.id, action: 'daily_report.comment', entity: 'daily_report', entityId: report.id, meta: { preview: body.data.body.slice(0, 80) } })
-    const otherPartyId = me.id === report.userId ? report.recipientId : report.userId
-    if (otherPartyId && otherPartyId !== me.id) {
+    const recipientRows = await db.select({ id: dailyReportRecipients.recipientId }).from(dailyReportRecipients).where(eq(dailyReportRecipients.reportId, report.id))
+    const otherPartyIds = new Set([report.userId, ...recipientRows.map((r) => r.id)])
+    otherPartyIds.delete(me.id)
+    for (const userId of otherPartyIds) {
       await notifyUser(db, {
-        userId: otherPartyId,
+        userId,
         type: 'daily_report_commented',
         dailyReportId: report.id,
         message: `${me.name} คอมเมนต์ใน Daily Report วันที่ ${report.reportDate}`,

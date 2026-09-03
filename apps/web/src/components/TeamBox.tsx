@@ -96,8 +96,8 @@ export function TeamBox({ presenceRows }: { presenceRows?: TeamRow[] | null }) {
         </label>
       </div>
 
-      {/* avatar row + presence — มือถือ scroll แนวนอนแทนตกบรรทัด (จอกว้างขึ้นค่อย wrap ปกติ) */}
-      <div className="flex flex-nowrap sm:flex-wrap overflow-x-auto sm:overflow-visible gap-3 pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0">
+      {/* Pronista §Mobile Overview Grid fix (2026-09-02) — เดิมมือถือ scroll แนวนอนแทนตกบรรทัด ทำให้หน้า Overview ลากซ้าย-ขวาได้ ตอนนี้ wrap ตกบรรทัดเหมือนกันทุกจอ ไม่มี overflow-x-auto */}
+      <div className="flex flex-wrap gap-3">
         {rows.map((p) => (
           <div key={p.userId} className={`group relative shrink-0 ${p.onLeaveToday ? 'opacity-50' : ''}`}>
             <Avatar name={p.name} avatarUrl={p.avatarUrl} className={`w-11 h-11 text-sm ${p.running ? 'ring-2 ring-brand-400' : ''}`} colorClass={avatarColor(p.name)} />

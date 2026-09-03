@@ -170,7 +170,7 @@ export function ClientsPage() {
           </div>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {s && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             {card(<TrendingUp className="w-5 h-5" />, 'bg-brand-50 text-brand-600', `ยอดขายปีนี้ (ปี ${new Date().getFullYear() + 543})`, formatSatang(s.salesThisYearSatang), s.salesThisYearSatang > 0 ? `เก็บแล้ว ${formatSatang(s.paidThisYearSatang)}` : 'ยังไม่มีโปรเจกต์เริ่มปีนี้')}

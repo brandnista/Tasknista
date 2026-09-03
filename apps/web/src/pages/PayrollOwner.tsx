@@ -149,7 +149,7 @@ export function PayrollOwnerPage() {
           </div>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-2 mb-4 text-sm text-dim">
           <button onClick={() => shiftCycle(-1)} className="px-2 py-1 rounded-lg hover:bg-divider">‹</button>
           <span>{cycleLabel(data.cycle)} · ตัดรอบ {fmtThaiDate(data.cycle.end)} · จ่าย {fmtThaiDate(data.cycle.payDate)}</span>

@@ -278,7 +278,8 @@ function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
 
   return (
     <div className="bg-white rounded-lg shadow-xs overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm">
+      {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — w-full เดิมบีบตารางให้แคบลงจนตัวอักษรเบียดกัน แทนที่จะให้ wrapper overflow-x-auto เลื่อนได้ — min-w-max กันไม่ให้แคบกว่าความกว้างจริงของเนื้อหา */}
+      <table className="w-full min-w-max text-sm">
         <thead className="bg-hover text-dim text-xs">
           <tr>
             <th className="text-left font-medium px-5 py-3">ชื่อโปรเจกต์</th>
@@ -325,8 +326,37 @@ function TableView({ rows }: { rows: ProjectRow[] }) {
     return <div className="bg-white rounded-lg shadow-xs p-8 text-center text-sm text-muted">ยังไม่มีงานโปรเจกต์</div>
 
   return (
-    <div className="bg-white rounded-lg shadow-xs overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="bg-white rounded-lg shadow-xs overflow-hidden">
+      {/* Pronista §Mobile Responsive Refactor (2026-09-02) — การ์ดบนมือถือแทนตาราง (สเปก §6/§8) */}
+      <div className="sm:hidden divide-y divide-divider">
+        {pageRows.map((p, i) => {
+          const health = pmHealthOf(p)
+          const overdue = health === 'delayed'
+          return (
+            <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="p-3.5 cursor-pointer hover:bg-hover">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted tabular-nums shrink-0">{(page - 1) * pageSize + i + 1}</span>
+                <ProjectIcon id={p.id} logo={p.logo} size={16} />
+                <span className="text-sm text-body font-medium truncate">{p.name}</span>
+              </div>
+              {p.clientName && <div className="text-[11px] text-muted mt-0.5 pl-7">{p.clientName}</div>}
+              <div className="flex items-center gap-1.5 flex-wrap mt-2 pl-7">
+                <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusChip(p.statusColor)}`}>{p.statusName}</span>
+                <PmHealthBadge health={health} />
+              </div>
+              <div className="mt-2 pl-7"><ProgressBar p={p} /></div>
+              <div className="flex items-center justify-between mt-2 pl-7">
+                <LeadAvatar p={p} />
+                <span className={`text-[11px] ${overdue ? 'text-danger-600 font-medium' : 'text-muted'}`}>
+                  {p.startDate ? fmtThaiDate(p.startDate) : '—'} – {p.dueDate ? fmtThaiDate(p.dueDate) : '—'}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="hidden sm:block overflow-x-auto">
+      <table className="w-full min-w-max text-sm">
         <thead className="bg-hover text-dim text-xs">
           <tr>
             <th className="text-left font-medium px-5 py-3 w-14">#</th>
@@ -361,7 +391,8 @@ function TableView({ rows }: { rows: ProjectRow[] }) {
           })}
         </tbody>
       </table>
-      <div className="flex items-center justify-between px-5 py-3 border-t border-divider text-xs text-dim">
+      </div>
+      <div className="flex items-center justify-between px-5 py-3 border-t border-divider text-xs text-dim flex-wrap gap-2">
         <label className="flex items-center gap-1.5">
           แสดงหน้าละ
           <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value) as (typeof PAGE_SIZES)[number])} className="text-xs bg-white border border-border rounded-lg px-1.5 py-1">
@@ -758,16 +789,19 @@ export function ProjectsPage() {
           </div>
         }
       />
-      <div className="p-3 sm:p-6">
+      <div className="p-4 sm:p-6">
         {loading ? (
           <div className="bg-white rounded-lg shadow-xs p-10 text-center text-sm text-muted">กำลังโหลด…</div>
         ) : (
           <>
             <div className="flex items-center gap-3 mb-4 flex-wrap">
-              <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium">
-                {([['table', 'List'], ['summary', 'Summary'], ['timeline', 'Timeline'], ['board', 'Board']] as const).map(([v, lbl]) => (
-                  <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-md ${view === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
-                ))}
+              {/* Pronista §Mobile horizontal-scroll fix (2026-09-02) — overflow-x-auto กันแท็บล้นจอมือถือแล้วลากทั้งหน้า (ดู ProjectDetail.tsx) */}
+              <div className="overflow-x-auto max-w-full">
+                <div className="flex bg-divider rounded-lg p-0.5 text-sm font-medium w-fit">
+                  {([['table', 'List'], ['summary', 'Summary'], ['timeline', 'Timeline'], ['board', 'Board']] as const).map(([v, lbl]) => (
+                    <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-md whitespace-nowrap ${view === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>{lbl}</button>
+                  ))}
+                </div>
               </div>
               <button
                 onClick={() => setView('expiring')}
