@@ -16,6 +16,7 @@ import {
   Send,
   Trash2,
   X,
+  XCircle,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -270,6 +271,8 @@ interface Detail {
   attachments: { id: string; filename: string; mime: string | null; sizeBytes: number | null; externalUrl: string | null; linkType: string | null }[]
   linkedDocuments: { linkId: string; id: string; title: string; kind: 'page' | 'link' | 'file' | 'template' | 'folder'; externalUrl: string | null }[]
   activity: { id: string; action: string; actorName: string; actorAvatarUrl?: string | null; meta: Record<string, unknown> | null; at: number }[]
+  // Pronista §Assign/Accept audit (2026-09-03) — สมาชิกโปรเจกต์นี้ (null = backlog task ไม่ผูกโปรเจกต์ ใช้ userOpts ทั้งบริษัทแทน) ใช้กรอง assignee picker
+  projectMembers: { id: string; name: string }[] | null
 }
 interface UserOpt { id: string; name: string }
 interface TraceRow {
@@ -304,12 +307,13 @@ const ACTION_LABEL: Record<string, string> = {
   'task.convert': 'แปลงประเภทงาน',
   'task.dispatch': 'จ่ายงาน',
   'task.accept': 'รับงาน',
+  'task.reject': 'ปฏิเสธงาน',
   'time_entry.create': 'ลงเวลา',
   'time_entry.update': 'แก้เวลา',
   'time_entry.delete': 'ลบเวลา',
 }
 // Pronista §System Requirements Update — แท็บ "ประวัติการเปลี่ยนแปลง" แยกจากฟีดคอมเมนต์ — เฉพาะ action ที่เป็นความเคลื่อนไหวของสถานะ/ผู้รับผิดชอบงาน (ไม่รวมคอมเมนต์/แนบไฟล์/เวลา)
-const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.done', 'task.convert'])
+const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.done', 'task.convert'])
 function isTaskStatus(v: unknown): v is { status: TaskStatus } {
   return !!v && typeof v === 'object' && typeof (v as { status?: unknown }).status === 'string' && (v as { status: string }).status in TASK_STATUS_LABEL
 }
@@ -413,6 +417,18 @@ export function TaskDetailPage() {
     await api.patch(`/api/tasks/${t.id}`, data)
     await reload()
   }
+  // Pronista §Assign/Accept audit (2026-09-03) — งานที่ผูกโปรเจกต์: กรองตัวเลือกเหลือแค่สมาชิกโปรเจกต์นั้น (เดิมโชว์ active user ทั้งบริษัท)
+  // ยังคงโชว์ assignee ปัจจุบันไว้เสมอแม้ไม่อยู่ใน list แล้ว (เช่นถูกถอดออกจากโปรเจกต์หลังถูก assign ไปแล้ว) กัน select โชว์ว่างงงๆ
+  const assigneeOptsBase = t.projectMembers ?? userOpts ?? []
+  const assigneeOpts =
+    t.assigneeId && t.assigneeName && !assigneeOptsBase.some((u) => u.id === t.assigneeId)
+      ? [...assigneeOptsBase, { id: t.assigneeId, name: t.assigneeName }]
+      : assigneeOptsBase
+  const changeAssignee = (assigneeId: string | null) => {
+    void patch({ assigneeId }).catch((err) => {
+      void alertDialog({ title: err instanceof ApiError ? err.message : 'เปลี่ยนผู้รับผิดชอบไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    })
+  }
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
   // (2026-08-25) กัน busy ระหว่างรอ reload — ดับเบิลคลิกปุ่มก่อนหน้านี้ยิง dispatch ซ้ำ ทำให้แจ้งเตือนเบิ้ล
   const dispatch = async () => {
@@ -428,6 +444,13 @@ export function TaskDetailPage() {
   // Pronista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
   const accept = async () => {
     await api.post(`/api/tasks/${t.id}/accept`, {})
+    await reload()
+  }
+  // Pronista §Assign/Accept audit (2026-09-03) — assignee ปฏิเสธงานที่จ่ายมา (ก่อนกดรับ) ต้องกรอกเหตุผลให้ผู้จ่ายงานรู้
+  const reject = async () => {
+    const reason = await promptDialog({ title: 'ปฏิเสธงาน', message: 'บอกเหตุผลให้ผู้จ่ายงานรู้ทันที', placeholder: 'เช่น scope ไม่ตรง / ยังไม่มีคิวว่าง', confirmLabel: 'ปฏิเสธงาน' })
+    if (!reason?.trim()) return
+    await api.post(`/api/tasks/${t.id}/reject`, { reason: reason.trim() })
     await reload()
   }
   const addReference = async (picked: PickableTask) => {
@@ -1019,9 +1042,9 @@ export function TaskDetailPage() {
 
                   <span className="text-dim">ผู้รับผิดชอบ</span>
                   {canEdit && !isAssigneeOnly ? (
-                    <select value={t.assigneeId ?? ''} onChange={(e) => void patch({ assigneeId: e.target.value || null })} aria-label="ผู้รับผิดชอบ" className="w-full border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                    <select value={t.assigneeId ?? ''} onChange={(e) => changeAssignee(e.target.value || null)} aria-label="ผู้รับผิดชอบ" className="w-full border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
                       <option value="">— ไม่ระบุ —</option>
-                      {(userOpts ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                   ) : (
                     t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
@@ -1181,9 +1204,15 @@ export function TaskDetailPage() {
                       <div className="text-[11px] text-muted text-center">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย</div>
                     </>
                   ) : t.status === 'non_start' ? (
-                    <button onClick={() => void accept()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
-                      <CheckCircle2 className="w-4 h-4" /> รับงาน
-                    </button>
+                    <>
+                      <button onClick={() => void accept()} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                        <CheckCircle2 className="w-4 h-4" /> รับงาน
+                      </button>
+                      {/* Pronista §Assign/Accept audit (2026-09-03) — ก่อนหน้านี้มีแต่ "รับงาน" ทางเดียว ไม่มีทางปฏิเสธอย่างเป็นทางการเลย */}
+                      <button onClick={() => void reject()} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover hover:text-danger-600 px-3 py-2 rounded-lg">
+                        <XCircle className="w-4 h-4" /> ปฏิเสธงาน
+                      </button>
+                    </>
                   ) : done ? null : t.status === 'waiting_for_test' ? (
                     // Pronista §ดึงงานกลับ (2026-08-26) — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ไขต่อเองได้
                     <>

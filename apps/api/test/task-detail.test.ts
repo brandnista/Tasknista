@@ -91,7 +91,8 @@ describe('T10 — task detail: comments + attachments + activity', () => {
 
   it('activity ไล่ลำดับ: create → status → assign', async () => {
     const m = await loginAs(app, 'owner@example-co.test')
-    const t = await makeTask(m)
+    // Pronista §Assign/Accept audit (2026-09-03) — assign ผู้รับผิดชอบใหม่ต้องเป็นสมาชิกโปรเจกต์นี้จริง (validation ใหม่) จึงต้องเพิ่ม u_pond เป็นสมาชิกก่อน
+    const t = await makeTask(m, 'u_pond')
     await app.request(`/api/tasks/${t.id}`, { ...json(m, { status: 'done' }), method: 'PATCH' }, env)
     await app.request(`/api/tasks/${t.id}`, { ...json(m, { assigneeId: 'u_pond' }), method: 'PATCH' }, env)
     const detail = (await (

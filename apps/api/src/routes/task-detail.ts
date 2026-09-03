@@ -4,6 +4,7 @@ import {
   docLinks,
   docs,
   epics,
+  projectMembers,
   projects,
   sprints,
   taskAttachments,
@@ -113,7 +114,17 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       ? (await db.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, row.task.sprintId)).limit(1))[0]?.status === 'active'
       : false
 
+    // Pronista §Assign/Accept audit (2026-09-03) — สมาชิกโปรเจกต์นี้ ให้ FE กรอง assignee picker (เดิมโชว์ active user ทั้งบริษัทไม่กรองตามโปรเจกต์เลย)
+    const projectMemberOpts = row.task.projectId
+      ? await db
+          .select({ id: users.id, name: users.name })
+          .from(projectMembers)
+          .innerJoin(users, eq(projectMembers.userId, users.id))
+          .where(eq(projectMembers.projectId, row.task.projectId))
+      : null
+
     return c.json({
+      projectMembers: projectMemberOpts,
       sprintActive,
       ...row.task,
       groupName: row.groupName,

@@ -1772,6 +1772,10 @@ export const NOTIFICATION_TYPES = [
   'domain_expired',
   // Pronista §My Note badge (2026-09-01) — ถูกแชร์ Note มาใหม่ (เฉพาะตอนแชร์ครั้งแรก ไม่แจ้งซ้ำตอนแค่เปลี่ยนสิทธิ์ viewer/editor)
   'note_shared',
+  // Pronista §Assign/Accept audit (2026-09-03) — ปิดช่องว่างจาก QA test script: แจ้งผู้จ่ายงานตอน assignee กด "รับงาน"/"ปฏิเสธงาน" + แจ้งทั้งคนเก่า/คนใหม่ตอน reassign
+  'task_accepted',
+  'task_rejected',
+  'task_reassigned',
 ] as const
 
 export const notifications = sqliteTable(
