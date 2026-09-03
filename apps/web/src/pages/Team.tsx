@@ -100,14 +100,15 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
 
   return (
     <div className="h-full flex">
-      <div className="w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white flex flex-col overflow-y-auto" style={{ display: selected ? undefined : 'flex' }}>
+      {/* Pronista §Team Chat mobile fix (2026-09-03) — เดิม style={{display: selected ? undefined : 'flex'}} ไม่เคยซ่อน panel นี้จริง (undefined = fallback ไปใช้ className flex เดิมอยู่ดี) ทำให้แผงห้องสนทนา + แผงข้อความโชว์ซ้อนกันพร้อมกันบนมือถือ ล้นจอ */}
+      <div className={`w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white flex-col overflow-y-auto ${selected ? 'hidden sm:flex' : 'flex'}`}>
         <div className="flex items-center justify-between px-3 py-3 border-b border-border-subtle">
           <span className="font-semibold text-ink text-sm">Chat</span>
           <button onClick={() => setNewDmOpen(true)} title="เริ่มข้อความใหม่" className="p-1.5 rounded-lg hover:bg-hover text-dim">
             <Plus className="w-4 h-4" />
           </button>
         </div>
-        <div className={`flex-1 overflow-y-auto ${selected ? 'hidden sm:block' : ''}`}>
+        <div className="flex-1 overflow-y-auto">
           {projectChannels.length > 0 && (
             <div className="px-3 pt-3 pb-1 text-[11px] font-medium text-muted tracking-wide">ห้องสนทนาโปรเจกต์</div>
           )}
