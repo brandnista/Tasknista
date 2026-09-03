@@ -243,73 +243,9 @@ export function DocumentHistoryTable({ projectId, projectName, canEdit }: {
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
-          {/* Pronista §Mobile Responsive Refactor (2026-09-02) — การ์ดบนมือถือแทนตาราง (สเปก §12) */}
-          <div className="sm:hidden divide-y divide-divider">
-            {rows.map(({ series: s, ver: v, isLatest, firstOfSeries }) => (
-              <div key={v.id} className="p-3">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {firstOfSeries && <span className={catBadgeClass(s.category)}>{CATEGORY_LABEL[s.category]}</span>}
-                  <span className={`${DOC_BADGE} ${isLatest ? 'bg-success-100 text-success-700' : 'bg-divider text-dim'} font-mono`}>{fmtVer(v.version)}</span>
-                  {isLatest && s.versions.length > 1 && <span className="text-[10px] text-success-700">ล่าสุด</span>}
-                  {v.external && v.status && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_CHIP[v.status]}`}>{STATUS_LABEL[v.status]}</span>}
-                </div>
-                <div className="font-mono text-sm text-body mt-1">{s.heading}</div>
-                {s.subtitle && <div className="text-xs text-muted">{s.subtitle}</div>}
-                {!projectId && (
-                  <Link to={`/projects/${s.projectId}${s.category === 'External' ? '?tab=assets' : ''}`} className="text-xs text-brand-700 hover:underline mt-0.5 inline-block">
-                    {s.projectName}
-                  </Link>
-                )}
-                <div className="text-[11px] text-muted mt-1">{v.uploaderName ?? '—'} · {fmtDateTime(v.updatedAt)}</div>
-                <div className="flex items-center gap-2 mt-2">
-                  {v.external ? (
-                    <>
-                      <a href={v.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline min-h-11 py-2">
-                        เปิดลิงก์ <ExternalLink className="w-3 h-3" />
-                      </a>
-                      {projectId && canEdit && (
-                        <button onClick={() => void removeExternalLog(v.id, `${s.heading} ${fmtVer(v.version)}`)} title="ลบ (กรณีกรอกผิด)" className="text-muted hover:text-danger-600 min-w-11 min-h-11 grid place-items-center -m-2">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <div className="relative">
-                      <button
-                        onClick={() => setMenuFor(menuFor === v.id ? null : v.id)}
-                        className="inline-flex items-center gap-1 text-xs text-dim border border-border-subtle rounded-lg px-3 py-2 min-h-11 hover:bg-hover"
-                      >
-                        การจัดการ <MoreVertical className="w-3 h-3" />
-                      </button>
-                      {menuFor === v.id && (
-                        <>
-                          <div className="fixed inset-0 z-40" onClick={() => setMenuFor(null)} />
-                          <div className="absolute left-0 top-full mt-1 w-44 bg-white rounded-lg shadow-2xl border border-border-subtle p-1.5 z-50 text-left">
-                            <a
-                              href={v.href}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => setMenuFor(null)}
-                              className="w-full flex items-center gap-2 text-left text-sm px-3 py-2.5 rounded-lg hover:bg-hover"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-muted" /> เปิดเอกสาร
-                            </a>
-                            <button
-                              onClick={() => { setMenuFor(null); setCompareFrom({ series: s, ver: v, isLatest, firstOfSeries }) }}
-                              className="w-full flex items-center gap-2 text-left text-sm px-3 py-2.5 rounded-lg hover:bg-hover"
-                            >
-                              <GitCompare className="w-3.5 h-3.5 text-muted" /> เปรียบเทียบเอกสาร
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="hidden sm:block overflow-x-auto">
+          {/* Pronista §Horizontal-scroll preference (2026-09-02) — พี่ยืนยันว่าไม่ต้องการ Card ที่ทำให้ตัวหนังสือตกบรรทัดเยอะ
+              กลับไปใช้ตาราง scroll แนวนอนทุกขนาดจอแทน (เหมือน Projects List/Payments/Orders ที่ทำไปแล้ว) */}
+          <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="text-left text-[11px] text-muted border-b border-divider bg-hover/40">

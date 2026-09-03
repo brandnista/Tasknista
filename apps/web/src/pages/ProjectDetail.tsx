@@ -151,56 +151,27 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
     </a>
   ) : null
   return (
-    <>
-      {/* Pronista §Mobile Responsive Refactor (2026-09-02) — desktop: แถวเดียวยัดทุกอย่าง เหมือนเดิมเป๊ะ (sm: ขึ้นไป) */}
-      <div
-        draggable={draggable}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        className={`hidden sm:flex items-center gap-3 flex-wrap py-2.5 px-2 ${urgencyCls} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
-      >
-        {onToggleSelect && (
-          <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
-        )}
-        {draggable && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
-        <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
-        {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-        {originBadge}
-        <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-        {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
-        {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
-        {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-        <LabelChips catalog={labelCatalog} ids={t.labelIds} />
-        {t.assigneeName && <span className="text-[11px] text-muted">{t.assigneeName}</span>}
-        <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
-      </div>
-
-      {/* Pronista §Mobile Responsive Refactor — มือถือ: การ์ด ไม่ใช่แถวบีบอัด (สเปก §6) — ชื่องานเด่นสุด, assignee/badge เป็นแถวรอง, เมนู (...) แยกมุม, ไม่มี drag handle (ลากด้วยนิ้วใช้ไม่ได้อยู่แล้ว) */}
-      <div className={`sm:hidden py-2.5 px-2 ${urgencyCls}`}>
-        <div className="flex items-start gap-2">
-          {onToggleSelect && (
-            <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer mt-1 w-4 h-4" />
-          )}
-          <button onClick={() => onOpenTask(t.id)} className="flex-1 min-w-0 text-left">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-              {originBadge}
-            </div>
-            <div className="text-sm text-body font-medium mt-0.5">{t.title}</div>
-          </button>
-          <div className="shrink-0 -mr-1">
-            <BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} />
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap mt-1.5 pl-0.5">
-          {t.kind === 'defect' && <span className="text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
-          {t.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
-          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-          <LabelChips catalog={labelCatalog} ids={t.labelIds} />
-          {t.assigneeName && <span className="text-[11px] text-muted ml-auto">👤 {t.assigneeName}</span>}
-        </div>
-      </div>
-    </>
+    <div
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${urgencyCls} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
+    >
+      {onToggleSelect && (
+        <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
+      )}
+      {draggable && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
+      <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
+      {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+      {originBadge}
+      <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+      {t.kind === 'defect' && <span className="shrink-0 text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
+      {t.priority === 'high' && <span className="shrink-0 text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
+      {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+      <LabelChips catalog={labelCatalog} ids={t.labelIds} />
+      {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+      <span className="shrink-0"><BacklogConvertMenu onConvertDirect={onConvertDirect} onConvertPick={onConvertPick} /></span>
+    </div>
   )
 }
 
@@ -547,6 +518,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         </div>
       )}
 
+      {/* Pronista §Horizontal-scroll preference (2026-09-02) — แถวงาน Backlog เดิม flex-wrap ตกบรรทัดในแถว ตอนนี้ตัดกลับเป็นแถวเดียว scroll แนวนอนแทน (ครอบทั้งบล็อกเพราะมีหลาย branch การ render ย่อย) */}
+      <div className="overflow-x-auto">
       {activeList.length === 0 ? (
         <div className="text-center text-xs text-muted py-3">
           {tab === 'regular' ? 'ยังไม่มีงานใน Backlog ของโปรเจกต์นี้' : `ยังไม่มีงานจากเอกสาร ${BACKLOG_TAB_LABEL[tab]}`}
@@ -686,6 +659,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
           ))}
         </div>
       )}
+      </div>
       </>
       )}
       {convertModal && (
