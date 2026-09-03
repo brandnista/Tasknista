@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 import { DialogProvider } from './components/Dialog'
+import { ToastProvider } from './components/Toast'
 import { Layout } from './components/Layout'
 import { AuthProvider, useAuth, type Me, type MenuKey } from './lib/auth'
 import { AdminPage } from './pages/Admin'
@@ -33,6 +34,7 @@ import { MyTasksDailyReportPage } from './pages/MyTasksDailyReport'
 import { MyTasksDispatchedPage } from './pages/MyTasksDispatched'
 import { MyTasksMeetingsPage } from './pages/MyTasksMeetings'
 import { MyTasksNotesPage } from './pages/MyTasksNotes'
+import { NotificationsPage } from './pages/Notifications'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { ProjectEditPage } from './pages/ProjectEdit'
 import { PayrollPage } from './pages/Payroll'
@@ -147,6 +149,14 @@ const router = createBrowserRouter([
         element: (
           <Protected menuKey="docsHistory">
             <DocumentHistoryPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'notifications',
+        element: (
+          <Protected menuKey="notifications">
+            <NotificationsPage />
           </Protected>
         ),
       },
@@ -333,7 +343,9 @@ export function App() {
   return (
     <AuthProvider>
       <DialogProvider>
-        <RouterProvider router={router} />
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
       </DialogProvider>
     </AuthProvider>
   )

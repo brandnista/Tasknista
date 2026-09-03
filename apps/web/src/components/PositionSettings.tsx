@@ -14,6 +14,7 @@ import { Check, ChevronDown, ChevronUp, ShieldCheck, Trash2, UserCog } from 'luc
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const randomId = () => `pos_${Math.random().toString(36).slice(2, 8)}`
 
@@ -141,6 +142,7 @@ function PositionCard({
 }
 
 export function PositionSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ positions: Position[] }>(() => api.get('/api/admin/positions'))
   const [list, setList] = useState<Position[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -182,6 +184,7 @@ export function PositionSettings() {
       const positions = list.map((p, i) => ({ ...p, name: p.name.trim(), sortOrder: i }))
       await api.put('/api/admin/positions', { positions })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

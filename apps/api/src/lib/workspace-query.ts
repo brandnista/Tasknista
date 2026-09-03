@@ -7,7 +7,7 @@
 import { presetById, resolvePresets } from '@seedoffice/core'
 import { companyConfig, createDb, epics, sprints, taskChecklistItems, tasks, users, workspaceMembers, workspaceProjects } from '@seedoffice/db'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { and, asc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { canEditProject, type EffectiveProjectRole } from './project-role'
 
 // Pronista §Card glance-at-a-glance — เช็กลิสต์แบบ "☑ x/y" บนการ์ด/แถว (ไม่ต้องเปิด TaskDetail) ใช้ pattern เดียวกับ GET /tasks/mine (EE1): batch select ครั้งเดียว + นับใน memory
@@ -194,7 +194,7 @@ export async function loadProjectBacklog(
         ),
       ),
     )
-    .orderBy(asc(tasks.createdAt))
+    .orderBy(desc(tasks.createdAt))
   // Pronista §Backlog ownership — แท็บ "ทั่วไป" (kind='backlog') เป็นของส่วนตัวคนคีย์ · Owner/Editor เห็นของทุกคน ส่วน Member เห็นแค่ของตัวเอง (แท็บเอกสาร/SOW ไม่ใช่ของส่วนตัว ไม่กรอง)
   const rows = canEditProject(myRole) ? rowsAll : rowsAll.filter((r) => r.task.kind !== 'backlog' || r.task.createdBy === userId)
 
@@ -259,7 +259,7 @@ export async function loadProjectBacklog(
 export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>, projectId: string): Promise<WorkspaceBacklogItem[]> {
   const dispatcher = alias(users, 'dispatcher')
 
-  const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(asc(epics.createdAt))
+  const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(desc(epics.createdAt))
 
   // หา parent ของทุก task (ไม่กรอง sprint) แค่พอรู้ depth ของ chain (Story→Task→Subtask) แม้ parent จะถูกลากเข้า sprint ไปแล้วก็ตาม
   const parentLookup = await db
@@ -274,7 +274,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
     .where(and(eq(tasks.projectId, projectId), isNull(tasks.sprintId), isNull(tasks.groupId), inArray(tasks.kind, ['task', 'backlog', 'defect', 'cr'])))
-    .orderBy(asc(tasks.createdAt))
+    .orderBy(desc(tasks.createdAt))
   const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
 
   // Pronista §Workspace Backlog Grid — Story = ไม่มีพ่อและไม่ใช่ Task ลอย · Task = ลูกของ Story (หรือ Task ลอย/kind='backlog') · Subtask = ลูกของ Task (พ่อมีพ่อของตัวเองอีกที) · Defect/Backlog/CR = ตรงตัวจาก kind
@@ -342,7 +342,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
 export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof createDb>, workspaceId: string): Promise<WorkspaceBacklogItem[]> {
   const dispatcher = alias(users, 'dispatcher')
 
-  const epicRows = await db.select().from(epics).where(eq(epics.workspaceId, workspaceId)).orderBy(asc(epics.createdAt))
+  const epicRows = await db.select().from(epics).where(eq(epics.workspaceId, workspaceId)).orderBy(desc(epics.createdAt))
   const epicItems: WorkspaceBacklogItem[] = epicRows.map((e) => ({
     id: e.id,
     code: e.code,
@@ -395,7 +395,7 @@ export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof crea
         inArray(tasks.kind, ['task', 'backlog', 'defect', 'cr']),
       ),
     )
-    .orderBy(asc(tasks.createdAt))
+    .orderBy(desc(tasks.createdAt))
   const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
   const taskItems: WorkspaceBacklogItem[] = rows.map((r) => ({
     id: r.task.id,

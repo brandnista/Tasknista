@@ -13,6 +13,7 @@ import { useLoad } from '../lib/useLoad'
 import { useDialog } from './Dialog'
 import { DateInputTH } from './DateInputTH'
 import { type PickableTask, TaskPickerModal } from './TaskPickerModal'
+import { useToast } from './Toast'
 
 interface LinkedTask {
   id: string
@@ -76,6 +77,7 @@ function ChangelogForm({
   onClose: () => void
   onSaved: () => void
 }) {
+  const toast = useToast()
   const isEdit = !!changelog
   const [title, setTitle] = useState(changelog?.title ?? '')
   const [entryDate, setEntryDate] = useState(changelog?.entryDate ?? bkkToday())
@@ -154,6 +156,7 @@ function ChangelogForm({
     try {
       if (isEdit) await api.patch(`/api/changelogs/${changelog.id}`, payload)
       else await api.post(`/api/projects/${projectId}/changelogs`, payload)
+      toast('บันทึกสำเร็จ')
       onSaved()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

@@ -11,6 +11,7 @@ import { Link } from 'react-router'
 import { useDialog } from './Dialog'
 import { NotificationBell } from './NotificationBell'
 import { RichTextEditor } from './RichTextEditor'
+import { useToast } from './Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
@@ -313,6 +314,7 @@ function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | n
  * ตัดสินใจ POST/PATCH จาก `editing` — parent ใส่ key={editing?.id ?? 'new'} กำกับไว้ให้ remount สดใหม่ทุกครั้งที่สลับเป้าหมาย (เหมือน resetKey เดิมของ RichTextEditor)
  */
 function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { editing?: Note | null; meId: string; onSaved: () => void; onCancel?: () => void; onDraftCreated?: () => void }) {
+  const toast = useToast()
   const initialBody = editing ? parseBody(editing.body) : null
   const readOnly = !!editing && !canEditNoteRow(editing, meId)
   const [shareOpen, setShareOpen] = useState(false)
@@ -360,6 +362,7 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
       setResetKey((k) => k + 1)
       setDraftId(null)
     }
+    toast('บันทึกสำเร็จ')
     onSaved()
   }
 

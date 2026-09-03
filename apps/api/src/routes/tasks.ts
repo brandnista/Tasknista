@@ -20,7 +20,7 @@ import {
   timerSessions,
   users,
 } from '@seedoffice/db'
-import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -284,7 +284,7 @@ export const taskRoutes = new Hono<AppEnv>()
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
       .where(eq(tasks.projectId, c.req.param('id')))
-      .orderBy(asc(tasks.createdAt))
+      .orderBy(desc(tasks.createdAt))
     const titleOf = new Map(rows.map((r) => [r.id, r.title]))
     // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์ "☑ x/y" บนแถว Epic/Story/Task/Defect/CR tab (pattern เดียวกับ GET /tasks/mine)
     const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.id))
@@ -302,7 +302,7 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/projects/:id/epics', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
-    const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(asc(epics.createdAt))
+    const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(desc(epics.createdAt))
     const epicIds = epicRows.map((e) => e.id)
     const progressByEpic = new Map<string, { done: number; total: number }>()
     if (epicIds.length > 0) {
@@ -428,7 +428,7 @@ export const taskRoutes = new Hono<AppEnv>()
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .where(isNull(tasks.projectId))
-      .orderBy(asc(tasks.createdAt))
+      .orderBy(desc(tasks.createdAt))
     return c.json(rows.map((r) => ({ ...r.task, assigneeName: r.assigneeName })))
   })
 

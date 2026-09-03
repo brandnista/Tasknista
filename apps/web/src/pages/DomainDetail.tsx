@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { URGENCY_BORDER_CLASS, dueUrgency } from '../lib/due-urgency'
 import { useLoad } from '../lib/useLoad'
@@ -84,6 +85,7 @@ function InfoTab({ domain, onEdit, onChanged }: { domain: DomainRow; onEdit: () 
 }
 
 function NameserversTab({ domain, onChanged }: { domain: DomainRow; onChanged: () => void }) {
+  const toast = useToast()
   const { alertDialog } = useDialog()
   const [values, setValues] = useState<string[]>(() => {
     const ns = domain.nameservers ?? []
@@ -96,6 +98,7 @@ function NameserversTab({ domain, onChanged }: { domain: DomainRow; onChanged: (
     try {
       const cleaned = values.map((v) => v.trim()).filter(Boolean)
       await api.patch(`/api/admin/domains/${domain.id}`, { nameservers: cleaned.length > 0 ? cleaned : null })
+      toast('บันทึกสำเร็จ')
       onChanged()
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })

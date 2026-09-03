@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
@@ -460,6 +461,7 @@ function ThreadDetail({
   onOpenThread: (id: string) => void
   onChanged: () => void
 }) {
+  const toast = useToast()
   const { data, loading, reload } = useLoad<DetailData>(
     () => api.get(`/api/inbox/threads/${id}`),
     [id],
@@ -538,6 +540,7 @@ function ThreadDetail({
     try {
       if (composerMode === 'note') {
         await api.post(`/api/inbox/threads/${id}/notes`, { body: draft.trim() })
+        toast('บันทึกสำเร็จ')
       } else {
         await api.post(`/api/inbox/threads/${id}/reply`, { body: draft.trim() })
       }

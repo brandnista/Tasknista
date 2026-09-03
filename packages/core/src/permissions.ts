@@ -133,7 +133,7 @@ export function adminUsersMenuKeyForCategory(category: LoginPermissionCategory):
  * Pronista §Menu Restructure — employees/partners/customers/members เพิ่มเข้ามาทีหลัง (แยกจาก "ตั้งค่าผู้ใช้งาน" เดิมเป็นเมนูหลัก) ต้อง sync ไว้ที่นี่ด้วย
  * ให้เพดานคุมได้ (ค่า default ปิดหมดกัน privilege escalation โดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ครั้งแรก — ดู DEFAULT_PERMISSION_CEILINGS) */
 // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจากเมนู "งานของฉัน" เป็นเมนูหลักของตัวเอง ("แชร์กับฉัน" ย้ายไปเป็นเมนูย่อยของมันแทน) จึงต้องมีเพดานแยกจาก myTasks
-export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'myFiles', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members'] as const
+export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'myFiles', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members', 'notifications'] as const
 export type PermissionMenuKey = (typeof PERMISSION_MENU_KEYS)[number]
 export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   dashboard: 'ภาพรวม',
@@ -148,6 +148,7 @@ export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   partners: 'จัดการพาร์ทเนอร์',
   customers: 'จัดการลูกค้า',
   members: 'จัดการสมาชิก',
+  notifications: 'การแจ้งเตือน',
 }
 
 /** เพดานสิทธิ์ต่อหมวด = สิทธิ์ตำแหน่ง (tabs/actions ระดับโปรเจกต์) + เมนูหลักที่มองเห็นได้ (ระดับ sidebar) */

@@ -3,6 +3,7 @@ import { Download, Lock, MessageSquare, MessageSquarePlus, Trash2 } from 'lucide
 import { useState, type ReactNode } from 'react'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
+import { useToast } from '../components/Toast'
 import { api } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
@@ -28,6 +29,7 @@ interface TeamPayroll {
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 function RowEditor({ row, cycleStart, closed, onChanged }: { row: Row; cycleStart: string; closed: boolean; onChanged: () => void }) {
+  const toast = useToast()
   const [form, setForm] = useState({ kind: 'allowance' as AdjustmentKind, amountBaht: '', note: '' })
   const [noteDraft, setNoteDraft] = useState(row.ownerNote ?? '')
   const add = async () => {
@@ -43,6 +45,7 @@ function RowEditor({ row, cycleStart, closed, onChanged }: { row: Row; cycleStar
   }
   const saveNote = async () => {
     await api.put('/api/admin/payroll/notes', { userId: row.userId, cycleStart, body: noteDraft })
+    toast('บันทึกสำเร็จ')
     onChanged()
   }
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'

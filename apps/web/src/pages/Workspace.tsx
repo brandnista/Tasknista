@@ -17,6 +17,7 @@ import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
@@ -142,6 +143,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
   onChanged: () => void
   onDeleted: () => void
 }) {
+  const toast = useToast()
   const { confirmDialog } = useDialog()
   const { data: allProjects } = useLoad<{ id: string; code: string | null; name: string }[]>(() => api.get('/api/projects'))
   const { data: allUsers } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
@@ -179,6 +181,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
     setError('')
     try {
       await api.patch(`/api/workspaces/${workspaceId}`, { name: name.trim() })
+      toast('บันทึกสำเร็จ')
       onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'แก้ไขชื่อไม่สำเร็จ')
@@ -282,6 +285,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
 }
 
 export function WorkspacePage() {
+  const toast = useToast()
   const navigate = useNavigate()
   const { confirmDialog } = useDialog()
   const { user } = useAuth()
@@ -500,6 +504,7 @@ export function WorkspacePage() {
       if (attachProjectId) patch.projectId = attachProjectId
       if (attachParentId) patch.parentId = attachParentId
       await api.patch(`/api/tasks/${item.id}`, patch)
+      toast('บันทึกสำเร็จ')
       setAttachMenuForId(null)
       void reloadBacklog()
     } catch (e) {

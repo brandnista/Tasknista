@@ -4,6 +4,7 @@ import { useState, type ChangeEvent } from 'react'
 import { AccessTokens } from '../components/AccessTokens'
 import { Avatar } from '../components/Avatar'
 import { PageHeader } from '../components/PageHeader'
+import { useToast } from '../components/Toast'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { ROLE_LABEL } from '../lib/role-label'
@@ -14,6 +15,7 @@ const field = 'w-full text-sm bg-white shadow-xs border border-border-subtle rou
 const fieldLabel = 'text-xs font-medium text-muted mb-1 block'
 
 export function ProfilePage() {
+  const toast = useToast()
   const { user, refresh } = useAuth()
   const [form, setForm] = useState({
     firstName: user?.firstName ?? '',
@@ -37,6 +39,7 @@ export function ProfilePage() {
       await api.patch('/api/me', form)
       await refresh()
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')

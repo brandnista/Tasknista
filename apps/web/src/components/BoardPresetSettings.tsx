@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { STATUS_SWATCH, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 interface Column { id: string; name: string; color: string; sortOrder: number }
 interface Preset { id: string; name: string; columns: Column[] }
@@ -64,6 +65,7 @@ function ColumnRow({ col, onChange, onMove, onRemove, canMoveUp, canMoveDown, co
 }
 
 export function BoardPresetSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ boardPresets: Preset[] }>(() => api.get('/api/config'))
   const [list, setList] = useState<Preset[] | null>(null)
   const [colorOpen, setColorOpen] = useState<string | null>(null) // `${presetIdx}:${colIdx}`
@@ -115,6 +117,7 @@ export function BoardPresetSettings() {
       const presets = list.map((p) => ({ ...p, name: p.name.trim(), columns: p.columns.map((c, i) => ({ ...c, name: c.name.trim(), sortOrder: i })) }))
       await api.put('/api/admin/board-presets', { presets })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { ProjectIcon } from '../components/ProjectIcon'
+import { useToast } from '../components/Toast'
 import { api } from '../lib/api'
 import { fmtThaiDate, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
@@ -57,6 +58,7 @@ function Section({ title, action, children }: { title: ReactNode; action?: React
 }
 
 export function ClientDetailPage() {
+  const toast = useToast()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { confirmDialog, promptDialog } = useDialog()
@@ -70,6 +72,7 @@ export function ClientDetailPage() {
   const addNote = async () => {
     if (!noteDraft.trim()) return
     await api.post(`/api/clients/${c.id}/notes`, { body: noteDraft.trim() })
+    toast('บันทึกสำเร็จ')
     setNoteDraft('')
     setAddingNote(false)
     await reload()

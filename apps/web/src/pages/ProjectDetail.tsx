@@ -100,7 +100,7 @@ const BACKLOG_DOC_TABS = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR'] as const
 // Pronista §Back to Basic — Tab บนสุดของหน้าโปรเจกต์เหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร ย้าย Epic/Story/Task/Defect/CR มาเป็น sub-tab คงที่ของ Backlog แทน (ต่างจาก tab เอกสารด้านบนที่โชว์เฉพาะเมื่อมีข้อมูล — 5 อันนี้โชว์เสมอ)
 // Pronista §Back to Basic (ต่อยอด) — เพิ่ม "summary" ดูภาพรวมโครงสร้าง Epic>Story>Task>Subtask ทั้งโปรเจกต์
 const FIXED_BACKLOG_TABS = ['epic', 'story', 'task', 'defect', 'cr', 'summary'] as const
-type BacklogTab = 'regular' | (typeof BACKLOG_DOC_TABS)[number] | (typeof FIXED_BACKLOG_TABS)[number]
+type BacklogTab = 'all' | 'regular' | (typeof BACKLOG_DOC_TABS)[number] | (typeof FIXED_BACKLOG_TABS)[number]
 /** แท็บของงานหนึ่งชิ้น — originDocType (flow ใหม่) มาก่อน, ไม่มีก็ fallback ไป SRS ถ้ามี srsDocId (flow เดิม), ไม่งั้นเป็นงานทั่วไป */
 function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
   return t.originDocType ?? (t.srsDocId ? 'SRS' : 'regular')
@@ -217,8 +217,13 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
 }
 
 const BACKLOG_TAB_LABEL: Record<BacklogTab, string> = {
-  regular: 'ทั่วไป', MOM: 'MOM', BRD: 'BRD', SOW: 'SOW', SRS: 'SRS', PEP: 'PEP', UIR: 'UIR',
+  all: 'ทั้งหมด', regular: 'ยังไม่ระบุ', MOM: 'MOM', BRD: 'BRD', SOW: 'SOW', SRS: 'SRS', PEP: 'PEP', UIR: 'UIR',
   epic: 'EPIC', story: 'Story', task: 'Task', defect: 'Defect', cr: 'CR', summary: '🌳 ภาพรวมโครงสร้าง',
+}
+// Pronista §System Enhancements — badge ระบุประเภทงานในแท็บ "ทั้งหมด" (รวมทุก kind ปนกัน ต้องบอกให้รู้ว่าแถวไหนเป็นประเภทไหน)
+const KIND_BADGE_LABEL: Record<'task' | 'defect' | 'cr' | 'backlog', string> = { task: 'Task', defect: 'Defect', cr: 'CR', backlog: 'ยังไม่ระบุ' }
+const KIND_BADGE_CLASS: Record<'task' | 'defect' | 'cr' | 'backlog', string> = {
+  task: 'bg-info-50 text-info-700', defect: 'bg-danger-50 text-danger-600', cr: 'bg-warning-50 text-warning-700', backlog: 'bg-divider text-dim',
 }
 
 /** Pronista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
@@ -408,6 +413,9 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="flex bg-white/60 rounded-lg p-0.5 text-xs font-medium w-fit flex-wrap">
+          <button onClick={() => switchTab('all')} className={`px-2.5 py-1 rounded-md ${tab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+            {BACKLOG_TAB_LABEL.all}
+          </button>
           {(['regular', ...docTabsPresent] as BacklogTab[]).map((v) => (
             <button key={v} onClick={() => switchTab(v)} className={`px-2.5 py-1 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
               {BACKLOG_TAB_LABEL[v]} ({(v === 'regular' ? regularList : (byTab.get(v) ?? [])).length})
@@ -445,7 +453,9 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         </button>
       </div>
 
-      {(FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
+      {tab === 'all' ? (
+        <ProjectAllTasksTab projectId={projectId} onOpenTask={onOpenTask} canEdit={canEdit} showCode={showCode} />
+      ) : (FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
         <>
           {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} showCode={showCode} />}
           {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} showCode={showCode} />}
@@ -717,6 +727,61 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       </div>
       </>
       )}
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          currentProjectId={projectId}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reload() }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Pronista §System Enhancements — แท็บ "ทั้งหมด": รวมทุกงานทุกประเภท (ยังไม่ระบุ/Task/Defect/CR) ของโปรเจกต์มาแสดงในลิสต์เดียว
+ * ใช้ endpoint /tasks/all เดิม (ไม่กรอง kind อยู่แล้ว) — ไม่มี bulk move/checkbox เพราะ source kind ปนกัน มีแค่ per-row convert (จัดการ) เหมือนแท็บอื่น */
+function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
+  projectId: string
+  onOpenTask: (id: string) => void
+  canEdit: boolean
+  showCode?: boolean
+}) {
+  const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
+  const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
+  const all = data ?? []
+  const [search, setSearch] = useState('')
+  const filtered = search.trim() ? all.filter((t) => t.title.toLowerCase().includes(search.trim().toLowerCase()) || (t.code ?? '').toLowerCase().includes(search.trim().toLowerCase())) : all
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
+
+  if (all.length === 0) return <div className="text-center text-xs text-muted py-6">ยังไม่มีงานในโปรเจกต์นี้</div>
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่องาน/รหัสงาน…" className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 w-56" />
+        <span className="text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
+      </div>
+      <div className="divide-y divide-divider">
+        {filtered.map((t) => (
+          <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', cfg?.dueSoonDays)]}`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
+            {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+            <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+            {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+            {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+            {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+            {canEdit && (
+              <BacklogConvertMenu
+                onConvertDirect={(to) => setConvertModal({ taskId: t.id, to })}
+                onConvertPick={(to) => setConvertModal({ taskId: t.id, to })}
+              />
+            )}
+          </div>
+        ))}
+      </div>
       {convertModal && (
         <ConvertBacklogModal
           taskId={convertModal.taskId}
@@ -1251,9 +1316,6 @@ interface ProjectAllTask {
   checklistDone: number | null
   checklistTotal: number | null
 }
-const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
-const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
-
 /** Pronista §System Requirements Update (ต่อยอด) — hook ใช้ร่วมกันของแท็บ Task/CR (ProjectHierarchyTab) + Defect (ProjectDefectSection)
  * ทำ filter Task Type/Sub-task Type + checkbox เลือกหลายงาน + ยอดรวมชั่วโมง real-time + โยนเข้า Sprint ทีเดียว — ตรรกะเดียวกับแท็บ "ทั่วไป" ใน ProjectBacklogSection เป๊ะ กันเพี้ยนกันระหว่างแท็บ */
 function useBacklogSprintSelect<
@@ -1464,7 +1526,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       ) : (
         <div className="divide-y divide-divider">
           {sel.filtered.map((t) => (
-            <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.defectStatus === 'closed', sel.dueSoonDays)]}`}>
+            <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]}`}>
               {canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
@@ -1474,9 +1536,6 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
               {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
               <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
               {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-              {t.defectStatus && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
-              )}
               {canEdit && (
                 <div className="relative shrink-0">
                   <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">

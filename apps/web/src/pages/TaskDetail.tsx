@@ -27,6 +27,7 @@ import { LabelChips } from '../components/LabelChips'
 import { STATUS_SWATCH } from '../lib/project-ui'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
+import { useToast } from '../components/Toast'
 
 // Pronista §Back to Basic — 7 ประเภทเอกสารที่ต้องสร้าง/อัปโหลด/ผูกได้ตรงจากหน้ารายละเอียด Task (เหมือน Docs.tsx)
 const TASK_DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
@@ -291,9 +292,6 @@ interface RefRow { refId: string; id: string; code: string | null; title: string
 
 const PRIORITY_THAI = { low: 'ต่ำ', normal: 'กลาง', high: 'สูง' } as const
 const PRIORITY_CLASS = { low: 'bg-divider text-dim', normal: 'bg-info-50 text-info-700', high: 'bg-danger-50 text-danger-600' } as const
-const DEFECT_STATUS_ORDER = ['reported', 'fixing', 'waiting_verify', 'closed'] as const
-const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
-const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
 const ACTION_LABEL: Record<string, string> = {
   'task.create': 'สร้างงานนี้',
   'task.update': 'แก้รายละเอียดงาน',
@@ -332,6 +330,7 @@ export function TaskDetailPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { alertDialog, confirmDialog, promptDialog } = useDialog()
+  const toast = useToast()
   const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
@@ -416,6 +415,24 @@ export function TaskDetailPage() {
   const patch = async (data: Record<string, unknown>) => {
     await api.patch(`/api/tasks/${t.id}`, data)
     await reload()
+    toast('บันทึกสำเร็จ')
+  }
+  // Pronista §System Enhancements — "บันทึกฉบับร่าง": หน้านี้ autosave ทุกฟิลด์อยู่แล้วตอน blur/change
+  // ปุ่มนี้แค่ flush ฟิลด์ข้อความที่ยังค้างเป็น draft (ยังไม่ blur) ให้บันทึกทันที แล้วยืนยันด้วย toast
+  const saveDraft = async () => {
+    const diff: Record<string, unknown> = {}
+    if (titleDraft !== null) {
+      const next = titleDraft.trim()
+      if (next && next !== t.title) diff.title = next
+    }
+    if (descDraft !== null && descDraft !== (t.description ?? '')) diff.description = descDraft || null
+    if (assigneeNotesDraft !== null && assigneeNotesDraft !== (t.assigneeNotes ?? '')) diff.assigneeNotes = assigneeNotesDraft || null
+    if (refCodeDraft !== null && refCodeDraft !== (t.originCode ?? '')) diff.originCode = refCodeDraft || null
+    if (Object.keys(diff).length > 0) {
+      await api.patch(`/api/tasks/${t.id}`, diff)
+      await reload()
+    }
+    toast('บันทึกฉบับร่างสำเร็จ')
   }
   // Pronista §Assign/Accept audit (2026-09-03) — งานที่ผูกโปรเจกต์: กรองตัวเลือกเหลือแค่สมาชิกโปรเจกต์นั้น (เดิมโชว์ active user ทั้งบริษัท)
   // ยังคงโชว์ assignee ปัจจุบันไว้เสมอแม้ไม่อยู่ใน list แล้ว (เช่นถูกถอดออกจากโปรเจกต์หลังถูก assign ไปแล้ว) กัน select โชว์ว่างงงๆ
@@ -437,6 +454,7 @@ export function TaskDetailPage() {
     try {
       await api.post(`/api/tasks/${t.id}/dispatch`, {})
       await reload()
+      toast('จ่ายงานสำเร็จ')
     } finally {
       setDispatching(false)
     }
@@ -1013,9 +1031,6 @@ export function TaskDetailPage() {
               {/* Pronista §Meta panel redesign — จัดเป็นกริด label/ช่องกรอกคงที่แทน flex justify-between ที่แนวไม่ตรงกัน + เพิ่ม border ให้ทุกช่องกรอกได้ (เดิม bg-white ล้วนกลืนกับพื้นหลัง bg-hover/40 แยกไม่ออกว่ากรอกตรงไหนได้) */}
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
-                {t.kind === 'defect' && t.defectStatus && (
-                  <div className="text-[11px] text-muted mb-2">สถานะงาน = ขั้นตอนจ่าย/รับ/ส่ง/อนุมัติงาน (ผู้จ่ายงาน/ผู้รับงานอัปเดต) · ผลตรวจ Defect = สถานะแก้บั๊กฝั่ง QA (คนละเรื่องกัน อัปเดตแยกกันได้)</div>
-                )}
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
                   <span className="text-dim">สถานะงาน</span>
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
@@ -1025,19 +1040,6 @@ export function TaskDetailPage() {
                     </select>
                   ) : (
                     <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
-                  )}
-
-                  {t.kind === 'defect' && t.defectStatus && (
-                    <>
-                      <span className="text-dim">ผลตรวจ Defect</span>
-                      {canEditStatusFreely ? (
-                        <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="ผลตรวจ Defect (QA)" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
-                          {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
-                        </select>
-                      ) : (
-                        <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
-                      )}
-                    </>
                   )}
 
                   <span className="text-dim">ผู้รับผิดชอบ</span>
@@ -1189,6 +1191,14 @@ export function TaskDetailPage() {
                   </div>
                   <span className="text-xs font-semibold text-ink tabular-nums shrink-0">{minutesToHoursLabel(totalMinutes)} / {minutesToHoursLabel(t.estimateMinutes)} ชม.</span>
                 </div>
+              </div>
+            )}
+
+            {canEdit && (
+              <div className="border-t border-border-subtle pt-4">
+                <button onClick={() => void saveDraft()} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
+                  <FileText className="w-3.5 h-3.5" /> บันทึกฉบับร่าง
+                </button>
               </div>
             )}
 

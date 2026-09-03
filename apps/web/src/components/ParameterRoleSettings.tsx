@@ -8,10 +8,12 @@ import { Check, ChevronDown, ChevronUp, Trash2, UserCog } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const randomId = () => `role_${Math.random().toString(36).slice(2, 8)}`
 
 export function ParameterRoleSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ parameterRoles: ParameterRole[] }>(() => api.get('/api/admin/parameter-roles'))
   const [list, setList] = useState<ParameterRole[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -53,6 +55,7 @@ export function ParameterRoleSettings() {
       const parameterRoles = list.map((r, i) => ({ ...r, name: r.name.trim(), sortOrder: i }))
       await api.put('/api/admin/parameter-roles', { parameterRoles })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

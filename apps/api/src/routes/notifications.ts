@@ -1,6 +1,6 @@
-import { DEFAULT_MEETING_REMINDER_MINUTES } from '@seedoffice/core'
+import { DEFAULT_MEETING_REMINDER_MINUTES, NOTIFICATION_CATEGORIES } from '@seedoffice/core'
 import { createDb, notifications, users, NOTIFICATION_TYPES } from '@seedoffice/db'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../types'
@@ -11,16 +11,36 @@ import type { AppEnv } from '../types'
  */
 export const notificationRoutes = new Hono<AppEnv>()
 
+  // Pronista §System Enhancements — เดิม hardcode limit 50 ไม่มี filter/pagination (พอสำหรับ dropdown 20 แถวบนสุด)
+  // เพิ่ม page/pageSize/category (optional) รองรับหน้า "การแจ้งเตือน" แบบเต็ม — ไม่ส่ง query เลยพฤติกรรมเหมือนเดิมทุกอย่าง (จำกัด 50, ไม่มี total)
   .get('/notifications', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const rows = await db
-      .select()
-      .from(notifications)
-      .where(eq(notifications.userId, me.id))
-      .orderBy(desc(notifications.createdAt))
-      .limit(50)
-    return c.json(rows)
+    const query = z
+      .object({
+        page: z.coerce.number().int().min(1).optional(),
+        pageSize: z.coerce.number().int().min(1).max(200).optional(),
+        category: z.string().optional(),
+      })
+      .safeParse(c.req.query())
+    if (!query.success) return c.json({ error: 'invalid' }, 400)
+    const { page, pageSize, category } = query.data
+    const cat = category ? NOTIFICATION_CATEGORIES.find((x) => x.key === category) : undefined
+    const where = cat
+      ? and(eq(notifications.userId, me.id), inArray(notifications.type, cat.types as (typeof NOTIFICATION_TYPES)[number][]))
+      : eq(notifications.userId, me.id)
+
+    // ไม่ส่ง page มา = โหมดเดิม (dropdown) จำกัด 50 แถว ไม่มี total
+    if (page === undefined) {
+      const rows = await db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt)).limit(50)
+      return c.json(rows)
+    }
+    const size = pageSize ?? 20
+    const [rows, totalRow] = await Promise.all([
+      db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt)).limit(size).offset((page - 1) * size),
+      db.select({ n: count() }).from(notifications).where(where),
+    ])
+    return c.json({ rows, total: totalRow[0]?.n ?? 0 })
   })
 
   .post('/notifications/:id/read', async (c) => {

@@ -20,6 +20,7 @@ import { Check, ShieldAlert } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const TAB_LABEL: Record<PermissionTabKey, string> = {
   sprint: 'Sprint',
@@ -125,6 +126,7 @@ function CeilingCard({ category, permissions, onChange }: { category: Permission
 }
 
 export function PermissionCeilingSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ ceilings: Record<PermissionCategory, CeilingPermissions> }>(() => api.get('/api/admin/permission-ceilings'))
   const [ceilings, setCeilings] = useState<Record<PermissionCategory, CeilingPermissions> | null>(null)
   const [saving, setSaving] = useState(false)
@@ -144,6 +146,7 @@ export function PermissionCeilingSettings() {
     try {
       await api.put('/api/admin/permission-ceilings', { ceilings })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

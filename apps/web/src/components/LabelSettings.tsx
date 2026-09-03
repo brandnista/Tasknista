@@ -9,10 +9,12 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { STATUS_SWATCH, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const randomId = () => `lbl_${Math.random().toString(36).slice(2, 8)}`
 
 export function LabelSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ labels: Label[] }>(() => api.get('/api/admin/labels'))
   const [list, setList] = useState<Label[] | null>(null)
   const [colorOpen, setColorOpen] = useState<string | null>(null)
@@ -55,6 +57,7 @@ export function LabelSettings() {
       const labels = list.map((l, i) => ({ ...l, name: l.name.trim(), sortOrder: i }))
       await api.put('/api/admin/labels', { labels })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

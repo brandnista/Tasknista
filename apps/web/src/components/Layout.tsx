@@ -1,4 +1,5 @@
 import {
+  Bell,
   Briefcase,
   ChevronDown,
   ClipboardList,
@@ -85,6 +86,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   { to: '/team', label: 'ทีม', icon: MessageSquare, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'team' },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docs' },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docsHistory' },
+  // Pronista §System Enhancements — เมนูหลักแยกใหม่ "การแจ้งเตือน" (bell dropdown เดิมยังอยู่ที่ Topbar — หน้านี้ดูประวัติเต็ม+filter หมวดหมู่ได้)
+  { to: '/notifications', label: 'การแจ้งเตือน', icon: Bell, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'notifications' },
   // Pronista §Menu Restructure (2026-09-02) — เมนูหลักใหม่ "บริการ" ย้าย "จัดการโดเมน" มาจากใต้ "ตั้งค่า" (ยัง owner-only ไม่มี menuKey เหมือนเดิม — เป็นข้อมูลโครงสร้างพื้นฐานบริษัท ไม่ผ่านเพดานเมนู)
   {
     to: '/admin/domains',

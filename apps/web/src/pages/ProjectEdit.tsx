@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router'
 import { ClientCombobox } from '../components/ClientCombobox'
 import { DateInputTH } from '../components/DateInputTH'
 import { IconPicker } from '../components/IconPicker'
+import { useToast } from '../components/Toast'
 import { api } from '../lib/api'
 import { type ProjectRow } from '../lib/project-ui'
 import { ROLE_LABEL } from '../lib/role-label'
@@ -114,6 +115,7 @@ function MembersSection({
 }
 
 export function ProjectEditPage() {
+  const toast = useToast()
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { data: project, loading } = useLoad<EditableProject>(() => api.get(`/api/projects/${id}`), [id])
@@ -238,6 +240,7 @@ export function ProjectEditPage() {
           ...toRemoveExtra.map((userId) => api.delete(`/api/projects/${id}/members/${userId}`)),
         ])
       }
+      toast('บันทึกสำเร็จ')
       navigate(`/projects/${id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')

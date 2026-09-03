@@ -169,3 +169,38 @@ describe('Pronista §My Note badge (2026-09-01) — POST /notifications/mark-typ
     expect((await app.request('/api/notifications/mark-type-read', { method: 'POST' }, env)).status).toBe(401)
   })
 })
+
+describe('Pronista §System Enhancements — GET /notifications รองรับ page/pageSize/category (หน้า "การแจ้งเตือน" เต็ม)', () => {
+  it('ไม่ส่ง page มา → พฤติกรรมเดิม (array ตรงๆ ไม่มี total)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request('/api/notifications', { headers: { cookie: owner } }, env)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Array.isArray(body)).toBe(true)
+  })
+
+  it('ส่ง page มา → คืน {rows,total} แบ่งหน้าได้จริง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    // สร้างแจ้งเตือนหลายรายการให้ปอนด์ (ยกเลิกประชุมซ้ำๆ ไม่ได้ ใช้ note_shared ผ่าน my-notes แทน ง่ายสุด)
+    for (let i = 0; i < 3; i++) {
+      const created = (await (await app.request('/api/my-notes', json(owner, { title: `note ${i}`, body: { mode: 'text', text: 'x' } }), env)).json()) as { id: string }
+      await app.request(`/api/my-notes/${created.id}/members`, json(owner, { userId: 'u_pond', role: 'viewer' }), env)
+    }
+    const page1 = (await (await app.request('/api/notifications?page=1&pageSize=2', { headers: { cookie: pond } }, env)).json()) as { rows: unknown[]; total: number }
+    expect(page1.rows.length).toBe(2)
+    expect(page1.total).toBeGreaterThanOrEqual(3)
+    const page2 = (await (await app.request('/api/notifications?page=2&pageSize=2', { headers: { cookie: pond } }, env)).json()) as { rows: unknown[]; total: number }
+    expect(page2.rows.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('กรองตาม category ได้ (เฉพาะประเภทในหมวดนั้น)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/my-notes', json(owner, { title: 'note-cat', body: { mode: 'text', text: 'x' } }), env)).json()) as { id: string }
+    await app.request(`/api/my-notes/${created.id}/members`, json(owner, { userId: 'u_pond', role: 'viewer' }), env)
+    const res = (await (await app.request('/api/notifications?page=1&pageSize=50&category=system', { headers: { cookie: pond } }, env)).json()) as { rows: { type: string }[] }
+    expect(res.rows.length).toBeGreaterThan(0)
+    expect(res.rows.every((r) => r.type === 'note_shared' || r.type === 'expiry_reminder' || r.type === 'member_expiry_reminder' || r.type === 'domain_expiry_reminder' || r.type === 'domain_expired' || r.type === 'project_member_added')).toBe(true)
+  })
+})
