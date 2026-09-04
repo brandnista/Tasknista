@@ -43,6 +43,7 @@ import { searchRoutes } from './routes/search'
 import { profileRoutes } from './routes/profile'
 import { tokenRoutes } from './routes/tokens'
 import { userRoutes } from './routes/users'
+import { workloadRoutes } from './routes/workload'
 import { workspaceRoutes } from './routes/workspace'
 import { workspaceRoomRoutes } from './routes/workspace-rooms'
 import { runScheduled } from './scheduled'
@@ -207,6 +208,10 @@ app.use('/api/calendar-connect/*', requireAuth, ownerOnly)
 app.route('/api/calendar-connect', calendarConnectRoutes)
 app.use('/api/team-activity', requireAuth, teamOnly)
 app.route('/api/team-activity', teamActivityRoutes)
+// Pronista §Workload (Phase 2, 2026-09-04) — ภาพรวมภาระงานทีม = owner เท่านั้น (mirror /api/overview/company)
+app.use('/api/workload', requireAuth, ownerOnly)
+app.use('/api/workload/*', requireAuth, ownerOnly)
+app.route('/api', workloadRoutes)
 // อีเมลกลาง (SPEC §4.12) — สิทธิ์สองชั้น:
 // ใช้งาน inbox (threads/attachments) = owner+member (vendor ❌ ตาม §3)
 app.use('/api/inbox/threads', requireAuth, teamOnly)

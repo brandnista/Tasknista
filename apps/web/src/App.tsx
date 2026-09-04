@@ -48,6 +48,7 @@ import { TaskDetailPage } from './pages/TaskDetail'
 import { TeamPage } from './pages/Team'
 import { UserSettingsPage } from './pages/UserSettings'
 import { UserSettingsCustomerDetailPage } from './pages/UserSettingsCustomerDetail'
+import { WorkloadPage } from './pages/Workload'
 import { WorkspacePage } from './pages/Workspace'
 import { WorkspaceBoardPage } from './pages/WorkspaceBoard'
 import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
@@ -92,6 +93,7 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <DashboardGate /> },
+      { path: 'workload', element: <Protected roles={['owner']}><WorkloadPage /></Protected> },
       { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
       { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
       { path: 'my-tasks/daily-report', element: <Protected menuKey="myTasks"><MyTasksDailyReportPage /></Protected> },

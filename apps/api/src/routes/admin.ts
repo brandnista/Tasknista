@@ -30,6 +30,7 @@ import {
   validateServiceTypes,
   validateStatuses,
   validateTaskTypes,
+  WEEKDAYS,
   type BoardPreset,
   type CeilingPermissions,
   type CostRole,
@@ -40,6 +41,8 @@ import {
   type PermissionCategory,
   type Position,
   type ProductType,
+  type Weekday,
+  type WeeklyMinutes,
   type ProjectStatus,
   type ServiceType,
   type TaskType,
@@ -644,11 +647,16 @@ export const adminRoutes = new Hono<AppEnv>()
   })
 
   .put('/manhour', async (c) => {
+    const weeklyShape = z.object(Object.fromEntries(WEEKDAYS.map((d) => [d, z.number().int()])) as Record<Weekday, z.ZodNumber>)
     const body = z
-      .object({ manhourMinutesPerDay: z.object(Object.fromEntries(PERMISSION_CATEGORIES.filter((c) => c !== 'membership').map((cat) => [cat, z.number().int()])) as Record<Exclude<PermissionCategory, 'membership'>, z.ZodNumber>) })
+      .object({
+        manhourMinutesPerDay: z.object(
+          Object.fromEntries(PERMISSION_CATEGORIES.filter((c) => c !== 'membership').map((cat) => [cat, weeklyShape])) as Record<Exclude<PermissionCategory, 'membership'>, typeof weeklyShape>,
+        ),
+      })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
-    const manhourData = body.data.manhourMinutesPerDay as Record<ManhourUserType, number>
+    const manhourData = body.data.manhourMinutesPerDay as Record<ManhourUserType, WeeklyMinutes>
     const check = validateManhourMinutesPerDay(manhourData)
     if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
 

@@ -52,7 +52,18 @@ const MY_TASKS_EXCLUDED_TYPES = new Set<string>(TEAM_NOTIFICATION_TYPES)
 // Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
 // Pronista §Menu Restructure (2026-08-28) — children.roles (ไม่บังคับ) = ซ่อน sub-menu ข้อนั้นเพิ่มเติมจาก role ที่ parent อนุญาตไว้แล้ว (ใช้กับ "ไฟล์ของฉัน"/"แชร์กับฉัน" ที่ไม่ให้ guest เห็น ทั้งที่ parent "งานของฉัน" guest เข้าได้)
 const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[]; menuKey?: MenuKey; children?: { to: string; label: string; roles?: Role[] }[] }[] = [
-  { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'dashboard' },
+  {
+    to: '/',
+    label: 'ภาพรวม',
+    icon: LayoutDashboard,
+    roles: ['owner', 'member', 'vendor', 'guest'],
+    menuKey: 'dashboard',
+    // Pronista §Workload (Phase 2, 2026-09-04) — เมนูย่อย Workload owner-only (ภาพรวมภาระงานทีม) ใต้ "ภาพรวม" เดิม
+    children: [
+      { to: '/', label: 'ภาพรวม' },
+      { to: '/workload', label: 'Workload', roles: ['owner'] },
+    ],
+  },
   {
     to: '/my-tasks',
     label: 'งานของฉัน',
@@ -318,7 +329,7 @@ export function Layout() {
                     <NavLink
                       key={c.to}
                       to={c.to}
-                      end={c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
+                      end={c.to === '/' || c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
                       onClick={() => setNavOpen(false)}
                       className={({ isActive }) =>
                         `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${

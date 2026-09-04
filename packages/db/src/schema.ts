@@ -213,8 +213,11 @@ export const companyConfig = sqliteTable('company_config', {
   cutoffDay: integer('cutoff_day').notNull().default(25), // งวด 25→24 จ่าย 26
   workHourCapMinutes: integer('work_hour_cap_minutes').notNull().default(480), // 8 ชม./วัน
   // Pronista §System Enhancements — Manhour/วัน แยกตาม "ประเภทผู้ใช้งาน" (staff/outsource/customer เดียวกับ permissionCeilings)
-  // null = ยังไม่ตั้งค่า ทั้ง 3 ประเภทใช้ workHourCapMinutes ด้านบนเป็นค่าเริ่มต้น (resolve ใน core/manhour) — ยังไม่มีจุดไหน consume ค่านี้ (รอฟีเจอร์ Workload)
-  manhourMinutesPerDay: text('manhour_minutes_per_day', { mode: 'json' }).$type<Record<'staff' | 'outsource' | 'customer', number>>(),
+  // §Workload (2026-09-04) — แยกรายวันในสัปดาห์ได้ด้วย (เดิมเลขเดียวคงที่) — ค่าอาจเป็นเลขแบนราบเก่าก็ได้ resolveManhourMinutesPerDay รองรับทั้งคู่
+  // null = ยังไม่ตั้งค่า ใช้ workHourCapMinutes ด้านบนเป็นค่าเริ่มต้นทุกวัน (resolve ใน core/manhour) — consume จริงใน GET /api/workload
+  manhourMinutesPerDay: text('manhour_minutes_per_day', { mode: 'json' }).$type<
+    Record<'staff' | 'outsource' | 'customer', number | Partial<Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', number>>>
+  >(),
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่การ์ด/แถวเริ่มเตือนสีเหลือง (soon) — ปรับได้ที่ตั้งค่าทั่วไป
   dueSoonDays: integer('due_soon_days').notNull().default(3),
   // โดเมน auto-provision member (SPEC §4.1) — '' = ปิด · default ตอน migrate กัน production เดิมพัง
