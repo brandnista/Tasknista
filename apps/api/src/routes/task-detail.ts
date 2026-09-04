@@ -115,13 +115,15 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       : false
 
     // Pronista §Assign/Accept audit (2026-09-03) — สมาชิกโปรเจกต์นี้ ให้ FE กรอง assignee picker (เดิมโชว์ active user ทั้งบริษัทไม่กรองตามโปรเจกต์เลย)
-    const projectMemberOpts = row.task.projectId
-      ? await db
-          .select({ id: users.id, name: users.name })
-          .from(projectMembers)
-          .innerJoin(users, eq(projectMembers.userId, users.id))
-          .where(eq(projectMembers.projectId, row.task.projectId))
-      : null
+    // Pronista §fix (2026-09-04) — owner ตั้งใจไม่ให้อยู่ใน project_members (มีสิทธิ์เต็มทุกโปรเจกต์อยู่แล้ว ดู ProjectEdit.tsx) แต่ยังต้อง assign งานให้ owner ได้
+    // งานเดิมลืมรวม owner เข้ามาด้วย ทำให้ owner ที่ไม่เคยถูก assign/ไม่ได้เป็นคนสร้างโปรเจกต์หายจากตัวเลือกผู้รับผิดชอบ
+    const [projectMemberRows, ownerRows] = row.task.projectId
+      ? await Promise.all([
+          db.select({ id: users.id, name: users.name }).from(projectMembers).innerJoin(users, eq(projectMembers.userId, users.id)).where(eq(projectMembers.projectId, row.task.projectId)),
+          db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.role, 'owner'), eq(users.status, 'active'))),
+        ])
+      : [null, null]
+    const projectMemberOpts = row.task.projectId ? [...new Map([...ownerRows!, ...projectMemberRows!].map((u) => [u.id, u])).values()] : null
 
     return c.json({
       projectMembers: projectMemberOpts,
