@@ -17,11 +17,12 @@ import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
-import { useToast } from '../components/Toast'
+import { useToast, useToastAction } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate } from '../lib/project-ui'
+import { taskCreatedMessage } from '../lib/task-url'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
@@ -286,6 +287,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
 
 export function WorkspacePage() {
   const toast = useToast()
+  const toastAction = useToastAction()
   const navigate = useNavigate()
   const { confirmDialog } = useDialog()
   const { user } = useAuth()
@@ -377,12 +379,13 @@ export function WorkspacePage() {
     setAddBusy(true)
     setError('')
     try {
+      let createdId: string
       if (addType === 'backlog') {
-        await api.post(`/api/workspaces/${workspaceId}/backlog`, { title })
+        createdId = (await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title })).id
       } else if (addType === 'epic') {
-        await api.post(`/api/workspaces/${workspaceId}/epics`, { title })
+        createdId = (await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/epics`, { title })).id
       } else if (addType === 'story') {
-        await api.post(`/api/workspaces/${workspaceId}/backlog`, { title, kind: 'story' })
+        createdId = (await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title, kind: 'story' })).id
       } else {
         // task/subtask/defect — สร้างเป็นรายการลอยของห้องก่อน แล้วแปลงประเภท (ผูกโปรเจกต์/parent ถ้าเลือกไว้ ไม่เลือกก็สร้างลอยได้ ไปผูกทีหลังได้)
         const created = await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title })
@@ -390,7 +393,9 @@ export function WorkspacePage() {
         if (effectiveAddParentId) convertBody.targetParentId = effectiveAddParentId
         if (effectiveAddProjectId) convertBody.targetProjectId = effectiveAddProjectId
         await api.post(`/api/tasks/${created.id}/convert`, convertBody)
+        createdId = created.id
       }
+      toastAction(taskCreatedMessage(addType, title), createdId)
       setAddTitle('')
       setAddParentId('')
       void reloadBacklog()

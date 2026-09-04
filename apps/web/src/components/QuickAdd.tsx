@@ -1,6 +1,8 @@
 import { Star, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useToastAction } from './Toast'
 import { api } from '../lib/api'
+import { taskCreatedMessage } from '../lib/task-url'
 import { useLoad } from '../lib/useLoad'
 
 interface ProjectOpt {
@@ -28,6 +30,7 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
   const [star, setStar] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const toastAction = useToastAction()
 
   const active = (projectsList ?? []).filter((p) => p.statusKind !== 'archived')
 
@@ -55,8 +58,10 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
         }
         const task = await api.post<{ id: string }>(`/api/groups/${groupId}/tasks`, { title: title.trim() })
         await api.post(`/api/tasks/${task.id}/star`, { on: true })
+        toastAction(taskCreatedMessage('task', title.trim()), task.id)
       } else {
-        await api.post('/api/tasks/backlog', { title: title.trim() })
+        const task = await api.post<{ id: string }>('/api/tasks/backlog', { title: title.trim() })
+        toastAction(taskCreatedMessage('backlog', title.trim()), task.id)
       }
       window.dispatchEvent(new CustomEvent(TASK_CREATED_EVENT))
       onClose()

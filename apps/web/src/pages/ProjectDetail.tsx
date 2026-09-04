@@ -21,11 +21,13 @@ import { ProjectEstimateSection } from '../components/ProjectEstimateSection'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
+import { useToastAction } from '../components/Toast'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { taskCreatedMessage } from '../lib/task-url'
 import { useLoad } from '../lib/useLoad'
 
 export interface BoardTask {
@@ -255,6 +257,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย ทำให้ทุกจุดที่เช็ค canEdit อยู่แล้วในฟังก์ชันนี้ (รวมถึงที่ส่งต่อลง sub-tab) กลายเป็น read-only อัตโนมัติโดยไม่ต้องไล่แก้ทีละจุด
   const canEdit = canEditProp && !readOnly
   const { alertDialog, confirmDialog } = useDialog()
+  const toastAction = useToastAction()
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog · §System Requirements Update — แคตตาล็อก Task Type ใช้ filter
   const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
@@ -335,7 +338,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     setAddBusy(true)
     try {
       // Pronista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
-      await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
+      toastAction(taskCreatedMessage('backlog', title.trim()), created.id)
       setTitle('')
       void reload()
     } finally {
@@ -351,7 +355,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     if (!docTabTitle.trim() || docTabAddBusy) return
     setDocTabAddBusy(true)
     try {
-      await api.post(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
+      toastAction(taskCreatedMessage('task', docTabTitle.trim()), created.id)
       setDocTabTitle('')
       void reload()
     } finally {
@@ -1437,6 +1442,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   const defects = (data ?? []).filter((t) => t.kind === 'defect')
   const sel = useBacklogSprintSelect(projectId, defects, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
+  const toastAction = useToastAction()
   const bulkDeleteConfirm = async (ids: string[]) => {
     if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     const res = await sel.bulkDelete(ids)
@@ -1464,7 +1470,8 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Defect เบิ้ลจากกด Enter รัวๆ
     setAddBusy(true)
     try {
-      await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
+      toastAction(taskCreatedMessage('defect', title.trim()), created.id)
       setTitle('')
       void reload()
     } finally {
@@ -1733,6 +1740,7 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
   const [addBusy, setAddBusy] = useState(false)
+  const toastAction = useToastAction()
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkingEpic, setLinkingEpic] = useState<ProjectEpic | null>(null)
   const { data: allTasks } = useLoad<ProjectAllTask[]>(
@@ -1748,7 +1756,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Epic เบิ้ลจากกด Enter รัวๆ
     setAddBusy(true)
     try {
-      await api.post(`/api/projects/${projectId}/epics`, { title: title.trim() })
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/epics`, { title: title.trim() })
+      toastAction(taskCreatedMessage('epic', title.trim()), created.id)
       setTitle('')
       void reload()
     } finally {
@@ -1867,6 +1876,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
+  const toastAction = useToastAction()
   const bulkDeleteConfirm = async (ids: string[]) => {
     if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     const res = await sel.bulkDelete(ids)
@@ -1918,6 +1928,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
     try {
       const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
       if (level === 'cr') await api.post(`/api/tasks/${created.id}/convert`, { to: 'cr' })
+      toastAction(taskCreatedMessage(level, title.trim()), created.id)
       setTitle('')
       void reload()
     } finally {
@@ -1929,7 +1940,8 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กันเบิ้ลจากกด Enter รัวๆ
     setAddBusy(true)
     try {
-      await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
+      toastAction(taskCreatedMessage('task', title.trim()), created.id)
       setTitle('')
       void reload()
     } finally {
