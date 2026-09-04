@@ -19,6 +19,7 @@ export function notificationHref(n: NotificationLike): string | undefined {
   if (n.type === 'member_expiry_reminder') return n.memberId ? `/members/${n.memberId}` : undefined
   if (n.type === 'note_shared') return '/my-tasks/notes'
   if (n.type === 'domain_expiry_reminder' || n.type === 'domain_expired') return '/admin/domains'
+  if (n.type === 'sellnista_expiry_reminder' || n.type === 'sellnista_expired') return '/admin/sellnista'
   if (n.projectId) return n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`
   return undefined
 }

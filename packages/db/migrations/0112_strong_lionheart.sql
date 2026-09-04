@@ -1,0 +1,1 @@
+ALTER TABLE `company_config` ADD `manhour_minutes_per_day` text;

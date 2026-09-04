@@ -16,6 +16,7 @@ export interface NotifyInput {
   meetingId?: string | null
   chatChannelId?: string | null
   domainId?: string | null
+  sellnistaSubscriptionId?: string | null
 }
 
 /**

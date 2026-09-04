@@ -94,7 +94,11 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     label: 'บริการ',
     icon: Briefcase,
     roles: ['owner'],
-    children: [{ to: '/admin/domains', label: 'จัดการโดเมน' }],
+    children: [
+      { to: '/admin/domains', label: 'จัดการโดเมน' },
+      // Pronista §System Enhancements — Sellnista: บริการ Subscription แยกระบบต่างหาก (ไม่ผูก productTypes ของ projects)
+      { to: '/admin/sellnista', label: 'Sellnista' },
+    ],
   },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
   {

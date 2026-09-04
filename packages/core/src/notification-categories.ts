@@ -32,6 +32,15 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
   {
     key: 'system',
     label: 'ระบบ/อื่นๆ',
-    types: ['expiry_reminder', 'member_expiry_reminder', 'project_member_added', 'domain_expiry_reminder', 'domain_expired', 'note_shared'],
+    types: [
+      'expiry_reminder',
+      'member_expiry_reminder',
+      'project_member_added',
+      'domain_expiry_reminder',
+      'domain_expired',
+      'note_shared',
+      'sellnista_expiry_reminder',
+      'sellnista_expired',
+    ],
   },
 ] as const

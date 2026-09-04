@@ -9,6 +9,7 @@ import { ServiceTypeSettings } from '../components/ServiceTypeSettings'
 import { ProductTypeSettings } from '../components/ProductTypeSettings'
 import { TaskTypeSettings } from '../components/TaskTypeSettings'
 import { LabelSettings } from '../components/LabelSettings'
+import { ManhourSettings } from '../components/ManhourSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
 import { api } from '../lib/api'
 import { useDialog } from '../components/Dialog'
@@ -201,6 +202,8 @@ export function AdminPage() {
         </div>
 
         <IcsLinkCard />
+
+        <ManhourSettings />
 
         <ProjectStatusSettings />
 

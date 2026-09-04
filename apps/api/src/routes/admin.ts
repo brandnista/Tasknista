@@ -9,6 +9,7 @@ import {
   permissionCategoryOfRole,
   resolveCostRoles,
   resolveLabels,
+  resolveManhourMinutesPerDay,
   resolveParameterRoles,
   resolvePresets,
   resolvePermissionCeilings,
@@ -20,6 +21,7 @@ import {
   STATUS_COLOR_KEYS,
   validateCostRoles,
   validateLabels,
+  validateManhourMinutesPerDay,
   validateParameterRoles,
   validatePermissionCeilings,
   validatePositions,
@@ -33,6 +35,7 @@ import {
   type CostRole,
   type Label,
   type LoginPermissionCategory,
+  type ManhourUserType,
   type ParameterRole,
   type PermissionCategory,
   type Position,
@@ -631,6 +634,35 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.permissionCeilings ?? null, after: ceilingsData },
     })
     return c.json({ ceilings: resolvePermissionCeilings(ceilingsData) })
+  })
+
+  // Pronista §System Enhancements — Manhour/วัน แยกตามประเภทผู้ใช้งาน (staff/outsource/customer) — mirror permission-ceilings เป๊ะ
+  .get('/manhour', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay, workHourCapMinutes: companyConfig.workHourCapMinutes }).from(companyConfig).limit(1))[0]
+    return c.json({ manhourMinutesPerDay: resolveManhourMinutesPerDay(cfg?.manhourMinutesPerDay, cfg?.workHourCapMinutes ?? 480) })
+  })
+
+  .put('/manhour', async (c) => {
+    const body = z
+      .object({ manhourMinutesPerDay: z.object(Object.fromEntries(PERMISSION_CATEGORIES.filter((c) => c !== 'membership').map((cat) => [cat, z.number().int()])) as Record<Exclude<PermissionCategory, 'membership'>, z.ZodNumber>) })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const manhourData = body.data.manhourMinutesPerDay as Record<ManhourUserType, number>
+    const check = validateManhourMinutesPerDay(manhourData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const before = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ manhourMinutesPerDay: manhourData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.manhour',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.manhourMinutesPerDay ?? null, after: manhourData },
+    })
+    return c.json({ manhourMinutesPerDay: manhourData })
   })
 
   // Pronista §Subscription Notify — แคตตาล็อกประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ)

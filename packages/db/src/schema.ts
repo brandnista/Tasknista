@@ -212,6 +212,9 @@ export const companyConfig = sqliteTable('company_config', {
   id: integer('id').primaryKey().default(1),
   cutoffDay: integer('cutoff_day').notNull().default(25), // งวด 25→24 จ่าย 26
   workHourCapMinutes: integer('work_hour_cap_minutes').notNull().default(480), // 8 ชม./วัน
+  // Pronista §System Enhancements — Manhour/วัน แยกตาม "ประเภทผู้ใช้งาน" (staff/outsource/customer เดียวกับ permissionCeilings)
+  // null = ยังไม่ตั้งค่า ทั้ง 3 ประเภทใช้ workHourCapMinutes ด้านบนเป็นค่าเริ่มต้น (resolve ใน core/manhour) — ยังไม่มีจุดไหน consume ค่านี้ (รอฟีเจอร์ Workload)
+  manhourMinutesPerDay: text('manhour_minutes_per_day', { mode: 'json' }).$type<Record<'staff' | 'outsource' | 'customer', number>>(),
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่การ์ด/แถวเริ่มเตือนสีเหลือง (soon) — ปรับได้ที่ตั้งค่าทั่วไป
   dueSoonDays: integer('due_soon_days').notNull().default(3),
   // โดเมน auto-provision member (SPEC §4.1) — '' = ปิด · default ตอน migrate กัน production เดิมพัง
@@ -1776,6 +1779,9 @@ export const NOTIFICATION_TYPES = [
   'task_accepted',
   'task_rejected',
   'task_reassigned',
+  // Pronista §System Enhancements — เตือน Sellnista ใกล้/หมดอายุ (mirror domain_expiry_reminder/domain_expired เป๊ะ)
+  'sellnista_expiry_reminder',
+  'sellnista_expired',
 ] as const
 
 export const notifications = sqliteTable(
@@ -1798,6 +1804,8 @@ export const notifications = sqliteTable(
     chatChannelId: text('chat_channel_id').references((): AnySQLiteColumn => chatChannels.id),
     // Pronista §Domain Management (2026-08-27) — deep-link ตรงไปยังโดเมนที่ใกล้/หมดอายุ
     domainId: text('domain_id').references((): AnySQLiteColumn => domains.id),
+    // Pronista §System Enhancements — deep-link ตรงไปยัง Sellnista subscription ที่ใกล้/หมดอายุ
+    sellnistaSubscriptionId: text('sellnista_subscription_id').references((): AnySQLiteColumn => sellnistaSubscriptions.id),
     message: text('message').notNull(),
     isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -2144,6 +2152,31 @@ export const domains = sqliteTable(
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('domains_expiry_idx').on(t.expiryDate)],
+)
+
+// Pronista §System Enhancements — Sellnista: บริการ Subscription แยกระบบจาก domains/productTypes โดยตั้งใจ (พี่ยืนยันแยกต่างหาก)
+// โครง/ฟิลด์เดียวกับ domains (ลอก pattern reminder tier/expired ตรงๆ) แต่ตัดฟิลด์เฉพาะโดเมน (nameservers/DNS/ฯลฯ) ออก — เหลือแค่ที่ spec ระบุ (ชื่อบริการ/วันหมดอายุ/แจ้งเตือน)
+export const sellnistaSubscriptions = sqliteTable(
+  'sellnista_subscriptions',
+  {
+    id: id(),
+    name: text('name').notNull(), // ชื่อบริการที่ Subscribe
+    expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
+    notifyEnabled: integer('notify_enabled', { mode: 'boolean' }).notNull().default(true),
+    notifiedTiers: text('notified_tiers', { mode: 'json' }).$type<number[]>(),
+    expiredNotifiedAt: integer('expired_notified_at', { mode: 'timestamp_ms' }),
+    createdBy: text('created_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('sellnista_subscriptions_expiry_idx').on(t.expiryDate)],
 )
 
 export type Domain = typeof domains.$inferSelect

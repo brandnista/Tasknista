@@ -25,6 +25,7 @@ import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
 import { dailyReportRoutes } from './routes/daily-reports'
 import { domainRoutes } from './routes/domains'
+import { sellnistaRoutes } from './routes/sellnista'
 import { memberRoutes } from './routes/members'
 import { meetingRoutes } from './routes/meetings'
 import { myFileRoutes } from './routes/my-files'
@@ -73,6 +74,7 @@ app.use('/api/admin/*', requireAuth, async (c, next) => {
 app.route('/api/admin', adminRoutes)
 app.route('/api/admin', payrollAdminRoutes)
 app.route('/api/admin', domainRoutes)
+app.route('/api/admin', sellnistaRoutes)
 // Pronista §Menu Restructure — จัดการสมาชิก เปิดให้ non-owner เข้าได้ถ้าเพดานเมนู "members" ของหมวดตัวเองอนุญาต (เดิม owner-only ล้วนๆ)
 app.use('/api/members', requireAuth, ceilingMenu('members'))
 app.use('/api/members/*', requireAuth, ceilingMenu('members'))
