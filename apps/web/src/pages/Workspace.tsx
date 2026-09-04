@@ -328,6 +328,8 @@ export function WorkspacePage() {
   const [addType, setAddType] = useState<CreateWorkType>('backlog')
   const [addTypeMenuOpen, setAddTypeMenuOpen] = useState(false)
   const [addParentId, setAddParentId] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   const [error, setError] = useState('')
   const [editingRoom, setEditingRoom] = useState(false)
@@ -371,6 +373,8 @@ export function WorkspacePage() {
     const title = addTitle.trim()
     if (!title) return
     if (parentRequired && !effectiveAddParentId) return
+    if (addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Task เบิ้ลจากกด Enter/ปุ่มรัวๆ ก่อน request แรกตอบกลับ
+    setAddBusy(true)
     setError('')
     try {
       if (addType === 'backlog') {
@@ -392,6 +396,25 @@ export function WorkspacePage() {
       void reloadBacklog()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'สร้างงานไม่สำเร็จ')
+    } finally {
+      setAddBusy(false)
+    }
+  }
+
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — "ลบทั้งหมด" ลบทุกงานที่กรองอยู่ในหน้านี้ (ยกเว้น Epic — ไม่มี endpoint ลบ Epic แยก และหน้านี้ไม่เคยมีทางลบ Epic ทีละตัวอยู่แล้ว) mirror bulkDeleteConfirm ของ ProjectDetail.tsx
+  const deleteAllItems = async () => {
+    const ids = filteredItems.filter((i) => i.kind !== 'epic').map((i) => i.id)
+    if (ids.length === 0) return
+    const yes = await confirmDialog({ title: `ลบทั้งหมด ${ids.length} รายการ?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', confirmLabel: 'ลบทั้งหมด', danger: true })
+    if (!yes) return
+    setDeletingAll(true)
+    try {
+      const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+      const failed = results.filter((r) => r.status === 'rejected').length
+      void reloadBacklog()
+      if (failed > 0) setError(`ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ`)
+    } finally {
+      setDeletingAll(false)
     }
   }
 
@@ -667,6 +690,16 @@ export function WorkspacePage() {
                     >
                       {showCode ? 'ซ่อนรหัสงาน' : 'แสดงรหัสงาน'}
                     </button>
+                    {filteredItems.some((i) => i.kind !== 'epic') && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteAllItems()}
+                        disabled={deletingAll}
+                        className="text-[11px] text-danger-600 hover:text-danger-700 underline decoration-dotted disabled:opacity-40"
+                      >
+                        {deletingAll ? 'กำลังลบ…' : 'ลบทั้งหมด'}
+                      </button>
+                    )}
                   </div>
                   {/* Pronista §Mobile responsive — Kanban ลากเปลี่ยนสถานะใช้กับสัมผัสไม่ได้ ซ่อนปุ่มสลับบนมือถือ (backlogView เริ่มต้นเป็น 'list' อยู่แล้วซึ่งมี select เปลี่ยนสถานะ) */}
                   {room.type === 'business' && (
@@ -740,6 +773,70 @@ export function WorkspacePage() {
                   </div>
                 ) : (
                 <div className="bg-white rounded-lg shadow-xs">
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ย้ายแถวคีย์งานขึ้นบนสุด ก่อนรายการที่คีย์ไว้แล้ว */}
+                  <div className={`flex flex-wrap items-center gap-2 p-3 rounded-t-lg border-b-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setAddTypeMenuOpen((v) => !v)}
+                        className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-2.5 py-1.5 hover:bg-hover"
+                      >
+                        <span className={`w-2 h-2 rounded-full ${CREATE_TYPE_DOT[addType]}`} />
+                        {CREATE_TYPE_LABEL[addType]}
+                      </button>
+                      {addTypeMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setAddTypeMenuOpen(false)} />
+                          <div className="absolute left-0 top-full mt-1 w-36 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                            {CREATE_TYPE_ORDER.map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => { setAddType(t); setAddParentId(''); setAddTypeMenuOpen(false) }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
+                              >
+                                <span className={`w-2 h-2 rounded-full ${CREATE_TYPE_DOT[t]}`} />
+                                {CREATE_TYPE_LABEL[t]}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    {showAddProjectPicker && (projects ?? []).length > 0 && (
+                      <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
+                        <option value="">— ไม่ผูกโปรเจกต์ (ผูกทีหลังได้) —</option>
+                        {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    )}
+                    {showAddParentPicker && (
+                      addParentOptions.length === 0 ? (
+                        parentRequired && (
+                          <span className="text-xs text-muted shrink-0">ต้องมี Task ในห้องนี้ก่อนถึงจะสร้าง Subtask ได้</span>
+                        )
+                      ) : (
+                        <select value={effectiveAddParentId} onChange={(e) => setAddParentId(e.target.value)} className={`${selectCls} max-w-48`}>
+                          {!parentRequired && <option value="">— ไม่ผูก {addType === 'task' ? 'Story' : 'Task'} (ผูกทีหลังได้) —</option>}
+                          {addParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
+                        </select>
+                      )
+                    )}
+                    <input
+                      value={addTitle}
+                      onChange={(e) => setAddTitle(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
+                      placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter หรือกด "+เพิ่ม"…`}
+                      disabled={!canAddSubtask || addBusy}
+                      className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400 disabled:bg-hover disabled:cursor-not-allowed"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void addItem()}
+                      disabled={!canAddSubtask || addBusy || !addTitle.trim()}
+                      className="shrink-0 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {addBusy ? 'กำลังเพิ่ม…' : '+เพิ่ม'}
+                    </button>
+                  </div>
                   {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
                   <div className="divide-y divide-divider">
                     {filteredItems.map((it) => (
@@ -904,61 +1001,6 @@ export function WorkspacePage() {
                       onClear={() => setSelectedIds(new Set())}
                     />
                   )}
-                  <div className={`flex flex-wrap items-center gap-2 p-3 rounded-b-lg border-t-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
-                    <div className="relative shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setAddTypeMenuOpen((v) => !v)}
-                        className="inline-flex items-center gap-1.5 text-sm border border-border-subtle rounded-lg px-2.5 py-1.5 hover:bg-hover"
-                      >
-                        <span className={`w-2 h-2 rounded-full ${CREATE_TYPE_DOT[addType]}`} />
-                        {CREATE_TYPE_LABEL[addType]}
-                      </button>
-                      {addTypeMenuOpen && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setAddTypeMenuOpen(false)} />
-                          <div className="absolute left-0 top-full mt-1 w-36 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
-                            {CREATE_TYPE_ORDER.map((t) => (
-                              <button
-                                key={t}
-                                onClick={() => { setAddType(t); setAddParentId(''); setAddTypeMenuOpen(false) }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
-                              >
-                                <span className={`w-2 h-2 rounded-full ${CREATE_TYPE_DOT[t]}`} />
-                                {CREATE_TYPE_LABEL[t]}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    {showAddProjectPicker && (projects ?? []).length > 0 && (
-                      <select value={effectiveAddProjectId} onChange={(e) => { setAddProjectId(e.target.value); setAddParentId('') }} className={selectCls}>
-                        <option value="">— ไม่ผูกโปรเจกต์ (ผูกทีหลังได้) —</option>
-                        {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    )}
-                    {showAddParentPicker && (
-                      addParentOptions.length === 0 ? (
-                        parentRequired && (
-                          <span className="text-xs text-muted shrink-0">ต้องมี Task ในห้องนี้ก่อนถึงจะสร้าง Subtask ได้</span>
-                        )
-                      ) : (
-                        <select value={effectiveAddParentId} onChange={(e) => setAddParentId(e.target.value)} className={`${selectCls} max-w-48`}>
-                          {!parentRequired && <option value="">— ไม่ผูก {addType === 'task' ? 'Story' : 'Task'} (ผูกทีหลังได้) —</option>}
-                          {addParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
-                        </select>
-                      )
-                    )}
-                    <input
-                      value={addTitle}
-                      onChange={(e) => setAddTitle(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
-                      placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter…`}
-                      disabled={!canAddSubtask}
-                      className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400 disabled:bg-hover disabled:cursor-not-allowed"
-                    />
-                  </div>
                 </div>
                 )}
               </div>

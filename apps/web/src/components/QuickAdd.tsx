@@ -27,6 +27,7 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [star, setStar] = useState(true)
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   const active = (projectsList ?? []).filter((p) => p.statusKind !== 'archived')
 
@@ -44,6 +45,8 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
 
   // เมนู ภาพรวม §78: ติ้ก "ทำวันนี้" → เข้าโปรเจกต์ที่เลือก + ติดดาว · ไม่ติ้ก → ลอยเข้า Backlog (ไม่ผูกโปรเจกต์)
   const submit = async () => {
+    if (submitting) return // Pronista §Workspace/Task Jira-alignment — กัน Task เบิ้ลจากกด Enter รัวๆ
+    setSubmitting(true)
     try {
       if (star) {
         if (!groupId) {
@@ -59,6 +62,8 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'ผิดพลาด')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -78,6 +83,7 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && title.trim() && (!star || groupId)) void submit() }}
+            disabled={submitting}
             className={`${input} py-2.5 mb-3 focus:outline-hidden focus:ring-2 focus:ring-brand-200`}
           />
           <label className="flex items-center gap-2 text-sm text-soft mb-3 cursor-pointer select-none">
@@ -105,7 +111,9 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
           {error && <div className="text-xs text-danger-600 mb-2">{error}</div>}
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
-            <button onClick={() => void submit()} disabled={!title.trim() || (star && !groupId)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">เพิ่มงาน</button>
+            <button onClick={() => void submit()} disabled={!title.trim() || (star && !groupId) || submitting} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">
+              {submitting ? 'กำลังเพิ่ม…' : 'เพิ่มงาน'}
+            </button>
           </div>
           <p className="text-[11px] text-muted mt-3">ทิป: กด <kbd className="bg-divider px-1 rounded shadow-xs">N</kbd> เปิดด่วนจากทุกหน้า</p>
         </div>

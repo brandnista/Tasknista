@@ -268,6 +268,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   // Pronista §Mobile Responsive Refactor (2026-09-02) — Filter บนมือถือย้ายเข้า Bottom Sheet แทน select แถวเดิม (สเปก §7)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
@@ -330,21 +331,32 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     .filter((t) => assigneeFilter === 'all' || t.assigneeName === assigneeFilter)
 
   const add = async () => {
-    if (!title.trim()) return
-    // Pronista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Task เบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      // Pronista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
+      await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   // Pronista §Back to Basic (ต่อยอด) — สร้าง Task เพิ่มเองตรงในแท็บเอกสาร (เช่น SOW) นอกเหนือจากที่แตกมาจากการอัปโหลดเอกสารเท่านั้น
   const [docTabTitle, setDocTabTitle] = useState('')
-  // Pronista §Workspace — early-return ต้องมาหลัง hook ตัวสุดท้าย (docTabTitle) เสมอ กัน "Rendered more hooks" ตอน canEdit สลับ false/true ข้าม render (เช่น list ว่างตอนกำลังโหลด data แล้วไม่ว่างหลังโหลดเสร็จ)
+  const [docTabAddBusy, setDocTabAddBusy] = useState(false)
+  // Pronista §Workspace — early-return ต้องมาหลัง hook ตัวสุดท้าย (docTabAddBusy) เสมอ กัน "Rendered more hooks" ตอน canEdit สลับ false/true ข้าม render (เช่น list ว่างตอนกำลังโหลด data แล้วไม่ว่างหลังโหลดเสร็จ)
   if (list.length === 0 && !canEdit) return null
   const addDocTabTask = async (docTab: (typeof BACKLOG_DOC_TABS)[number]) => {
-    if (!docTabTitle.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
-    setDocTabTitle('')
-    void reload()
+    if (!docTabTitle.trim() || docTabAddBusy) return
+    setDocTabAddBusy(true)
+    try {
+      await api.post(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
+      setDocTabTitle('')
+      void reload()
+    } finally {
+      setDocTabAddBusy(false)
+    }
   }
   const switchTab = (v: BacklogTab) => { setTab(v); setSelected(new Set()) }
   const toggleSelect = (id: string) => {
@@ -481,8 +493,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       <>
       {tab === 'regular' && canEdit && (
         <div className="flex gap-2 mb-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
-          <button onClick={() => void add()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
+          <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
         </div>
       )}
 
@@ -576,10 +588,11 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
             value={docTabTitle}
             onChange={(e) => setDocTabTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void addDocTabTask('SOW') }}
+            disabled={docTabAddBusy}
             placeholder="พิมพ์ชื่อ Task แล้วกด Enter เพื่อเพิ่มในแท็บ SOW"
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
           />
-          <button onClick={() => void addDocTabTask('SOW')} disabled={!docTabTitle.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ Task</button>
+          <button onClick={() => void addDocTabTask('SOW')} disabled={!docTabTitle.trim() || docTabAddBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ Task</button>
         </div>
       )}
 
@@ -1446,11 +1459,17 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   }
   // Pronista §Back to Basic (ต่อยอด) — คีย์ log Defect ตรงในแท็บนี้ได้เลย (เดิมมีแค่ปุ่มผูกงานที่มีอยู่แล้ว)
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const createDefect = async () => {
-    if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Defect เบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
   const [menuFor, setMenuFor] = useState<string | null>(null)
@@ -1467,10 +1486,11 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void createDefect() }}
+            disabled={addBusy}
             placeholder="ชื่อ Defect ใหม่…"
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
           />
-          <button onClick={() => void createDefect()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
+          <button onClick={() => void createDefect()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
             + สร้าง Defect
           </button>
         </div>
@@ -1712,6 +1732,7 @@ interface ProjectEpic { id: string; title: string; code: string | null; doneCoun
 function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; canEdit: boolean; showCode?: boolean }) {
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkingEpic, setLinkingEpic] = useState<ProjectEpic | null>(null)
   const { data: allTasks } = useLoad<ProjectAllTask[]>(
@@ -1724,10 +1745,15 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
   )
   const epicsList = data ?? []
   const add = async () => {
-    if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/epics`, { title: title.trim() })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Epic เบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      await api.post(`/api/projects/${projectId}/epics`, { title: title.trim() })
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   const createStoryUnder = async (storyTitle: string) => {
     if (!linkingEpic) return
@@ -1750,8 +1776,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
       </div>
       {canEdit && (
         <div className="flex gap-2 mb-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} placeholder="ชื่อ Epic ใหม่…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
-          <button onClick={() => void add()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ สร้าง Epic</button>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="ชื่อ Epic ใหม่…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
+          <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ สร้าง Epic</button>
         </div>
       )}
       {epicsList.length === 0 ? (
@@ -1856,6 +1882,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
     [all],
   )
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const meta = HIERARCHY_TAB_META[level]
 
   // Pronista §Back to Basic — เมนู "..." เฉพาะแท็บ Story: "เชื่อมกับ Epic" / "เชื่อมกับ Task" (สร้างใหม่ หรือเลือกที่มีอยู่)
@@ -1886,18 +1913,28 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   }
 
   const createDirect = async () => {
-    if (!title.trim()) return
-    const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
-    if (level === 'cr') await api.post(`/api/tasks/${created.id}/convert`, { to: 'cr' })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กันเบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
+      if (level === 'cr') await api.post(`/api/tasks/${created.id}/convert`, { to: 'cr' })
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   // Pronista §Back to Basic (ต่อยอด, v3) — แท็บ Task: คีย์ลอยตรงๆ เสมอ (isStandaloneTask) ขึ้นแท็บ Task ทันที — เชื่อมกับ Epic/Story ทีหลังผ่านเมนู "จัดการ" เท่านั้น (ตัด dropdown เลือก Story ตอนสร้างออก กันสับสนว่าต้องเลือกก่อนสร้าง)
   const createUnderStory = async () => {
-    if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กันเบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   const linkStoryToEpic = async (epicId: string) => {
     if (!linkMode) return
@@ -1955,12 +1992,13 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void (level === 'task' ? createUnderStory() : createDirect()) }}
+              disabled={addBusy}
               placeholder={meta.placeholder}
-              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
             />
             <button
               onClick={() => void (level === 'task' ? createUnderStory() : createDirect())}
-              disabled={!title.trim()}
+              disabled={!title.trim() || addBusy}
               className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium"
             >
               {meta.createLabel}
