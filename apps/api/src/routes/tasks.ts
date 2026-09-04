@@ -70,6 +70,8 @@ const taskPatchSchema = z.object({
   // Pronista §System Requirements Update — ประเภทงาน/ตัวเลือกย่อย (อ้าง id ใน company_config.taskTypes) ใช้กับงานทุก kind
   taskType: z.string().nullable().optional(),
   subTaskType: z.string().nullable().optional(),
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — สัญญาณจากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" เท่านั้น (ไม่ใช่คอลัมน์ DB จริง ตัดออกก่อนอัปเดต) กันการ patch เส้นทางอื่น (เช่น toggle subtask/kanban drag) ยิงแจ้งเตือนซ้ำ/ผิดจุดโดยไม่ตั้งใจ
+  notifyOnUpdate: z.boolean().optional(),
 })
 
 /** board ของโปรเจกต์ + CRUD group/task — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation) */
@@ -574,6 +576,7 @@ export const taskRoutes = new Hono<AppEnv>()
       return c.json({ error: 'invalid_date_range', message: 'วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ' }, 400)
 
     const patch: Record<string, unknown> = { ...body.data }
+    delete patch.notifyOnUpdate
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
@@ -728,6 +731,17 @@ export const taskRoutes = new Hono<AppEnv>()
         taskId: before.id,
         projectId: before.projectId,
         message: `งาน "${before.title}" ถูกตีกลับให้แก้ไข`,
+      })
+    }
+    // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" (ตัด Auto-save แล้ว) แจ้งผู้รับผิดชอบว่างานถูกแก้ไข
+    // ข้ามถ้าไม่มีผู้รับผิดชอบ หรือคนกดบันทึกคือผู้รับผิดชอบเอง (กันแจ้งเตือนตัวเอง) — notifyOnUpdate เป็น signal จากปุ่มนี้เท่านั้น กัน path อื่น (toggle subtask/kanban) ยิงซ้ำ
+    if (body.data.notifyOnUpdate && updated[0]!.assigneeId && updated[0]!.assigneeId !== me.id) {
+      await notifyUser(db, {
+        userId: updated[0]!.assigneeId,
+        type: 'task_updated',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ได้รับการแก้ไข/อัปเดตข้อมูล`,
       })
     }
     return c.json(updated[0])

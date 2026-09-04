@@ -23,6 +23,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'task_commented',
       'task_overdue_reminder',
       'guest_item_created',
+      'task_updated',
     ],
   },
   { key: 'chat_mention', label: 'มีคนแท็กฉันในแชท', types: ['chat_mention'] },

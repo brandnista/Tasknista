@@ -328,3 +328,53 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — PATCH /tasks/:id ล�
     expect(res.status).toBe(200)
   })
 })
+
+describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" แจ้ง task_updated', () => {
+  const notifCountFor = async (userId: string, type: string) =>
+    (await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind(userId, type).first<{ n: number }>())?.n ?? 0
+
+  it('notifyOnUpdate:true + มีผู้รับผิดชอบคนอื่น → แจ้ง task_updated ให้ผู้รับผิดชอบ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    const before = await notifCountFor('u_pond', 'task_updated')
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before + 1)
+  })
+
+  it('notifyOnUpdate ไม่ส่งมา (path อื่น เช่น toggle subtask) → ไม่แจ้ง แม้มีผู้รับผิดชอบคนอื่น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    const before = await notifCountFor('u_pond', 'task_updated')
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before)
+  })
+
+  it('แก้งานตัวเอง (assignee = คนกดบันทึก) → ไม่แจ้งตัวเอง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_owner' }), env)
+    ).json()) as { id: string }
+    const before = await notifCountFor('u_owner', 'task_updated')
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(await notifCountFor('u_owner', 'task_updated')).toBe(before)
+  })
+
+  it('ยังไม่มีผู้รับผิดชอบ → ไม่มีใครให้แจ้ง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    // แค่ยืนยันว่าไม่ throw/error — ไม่มี assigneeId ให้เช็ค notifCountFor ไม่มีความหมาย
+  })
+})

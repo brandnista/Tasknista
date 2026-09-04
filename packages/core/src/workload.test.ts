@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { spreadTaskMinutes, weekdayOfISO } from './workload'
+import type { WeeklyMinutes } from './manhour'
+import { spreadTaskMinutes, suggestEstimateMinutes, weekdayOfISO } from './workload'
 
 describe('spreadTaskMinutes — เกลี่ยเวลาประเมินลงวันปฏิทิน', () => {
   it('ไม่มี dueDate เลย → ว่าง (ไปอยู่ unscheduled)', () => {
@@ -43,6 +44,46 @@ describe('spreadTaskMinutes — เกลี่ยเวลาประเมิ
       '2026-09-01': 0,
       '2026-09-02': 0,
     })
+  })
+})
+
+describe('suggestEstimateMinutes — แนะนำเลขประเมินจาก Manhour จริงของ assignee (2.7)', () => {
+  const flat8h: WeeklyMinutes = { mon: 480, tue: 480, wed: 480, thu: 480, fri: 480, sat: 480, sun: 480 }
+  const partnerWeek: WeeklyMinutes = { mon: 240, tue: 240, wed: 240, thu: 240, fri: 240, sat: 600, sun: 600 }
+
+  it('ไม่มี startDate หรือ dueDate → 0', () => {
+    expect(suggestEstimateMinutes(null, '2026-09-05', flat8h)).toBe(0)
+    expect(suggestEstimateMinutes('2026-09-01', null, flat8h)).toBe(0)
+    expect(suggestEstimateMinutes(null, null, flat8h)).toBe(0)
+  })
+
+  it('startDate > dueDate (ข้อมูลเพี้ยนชั่วคราว) → 0', () => {
+    expect(suggestEstimateMinutes('2026-09-10', '2026-09-05', flat8h)).toBe(0)
+  })
+
+  it('วันเดียว (start=due) → เท่ากับ capacity วันนั้นวันเดียว', () => {
+    // 2026-09-01 = อังคาร (2026-09-04 ยืนยันแล้วว่าเป็นศุกร์)
+    expect(suggestEstimateMinutes('2026-09-01', '2026-09-01', flat8h)).toBe(480)
+  })
+
+  it('พนักงานคงที่ 8 ชม./วันทุกวัน — คร่อม 2 วัน = รวมตรงๆ', () => {
+    expect(suggestEstimateMinutes('2026-09-04', '2026-09-05', flat8h)).toBe(960)
+  })
+
+  it('พาร์ทเนอร์ (จ-ศ 4 ชม., ส-อา 10 ชม.) คร่อมวันหยุด — รวมตามวันในสัปดาห์จริง ไม่ใช่เฉลี่ย', () => {
+    // 2026-09-04=ศุกร์(240) · 09-05=เสาร์(600) · 09-06=อาทิตย์(600) → รวม 1440
+    expect(suggestEstimateMinutes('2026-09-04', '2026-09-06', partnerWeek)).toBe(1440)
+  })
+
+  it('คร่อมเต็ม 1 สัปดาห์พอดี (7 วัน) — รวมเท่ากับผลรวมทุกวันในสัปดาห์เสมอ ไม่ว่าจะเริ่มวันไหน', () => {
+    // 2026-09-01(อังคาร)..09-07(จันทร์) = ครบ 7 วันพอดี
+    expect(suggestEstimateMinutes('2026-09-01', '2026-09-07', partnerWeek)).toBe(240 * 5 + 600 * 2)
+  })
+
+  it('วันหยุด/ลาที่ capacity=0 ในบางวัน — วันนั้นไม่เพิ่มยอด', () => {
+    const withLeaveDay: WeeklyMinutes = { ...flat8h, sat: 0 }
+    // 09-04(ศุกร์,480) + 09-05(เสาร์,0) = 480
+    expect(suggestEstimateMinutes('2026-09-04', '2026-09-05', withLeaveDay)).toBe(480)
   })
 })
 

@@ -1782,6 +1782,8 @@ export const NOTIFICATION_TYPES = [
   'task_accepted',
   'task_rejected',
   'task_reassigned',
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ตัด Auto-save แล้ว กดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" แจ้งผู้รับผิดชอบว่า Task ถูกแก้ไข (เฉพาะตอนมีผู้รับผิดชอบ + ไม่ใช่คนกดบันทึกเอง)
+  'task_updated',
   // Pronista §System Enhancements — เตือน Sellnista ใกล้/หมดอายุ (mirror domain_expiry_reminder/domain_expired เป๊ะ)
   'sellnista_expiry_reminder',
   'sellnista_expired',

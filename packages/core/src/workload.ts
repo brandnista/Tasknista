@@ -1,6 +1,6 @@
 import { daysBetweenISO } from './crm'
 import { addDaysISO } from './cycle'
-import type { Weekday } from './manhour'
+import type { Weekday, WeeklyMinutes } from './manhour'
 
 /**
  * Pronista §Workload — เกลี่ยเวลาประเมิน (estimateMinutes) ของ Task 1 ตัว ลงวันปฏิทินที่งานนั้น "ตกอยู่"
@@ -35,4 +35,18 @@ const WEEKDAY_BY_JS_DAY: Weekday[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 
 /** วันในสัปดาห์ของ YYYY-MM-DD — ใช้ UTC เที่ยงคืนตรงๆ (date string ล้วนไม่มี timezone ผูกอยู่แล้ว ไม่ต้องแปลง Bangkok offset ซ้ำ) */
 export function weekdayOfISO(date: string): Weekday {
   return WEEKDAY_BY_JS_DAY[new Date(`${date}T00:00:00Z`).getUTCDay()]!
+}
+
+/**
+ * Pronista §Task Jira-alignment (2.7, 2026-09-04) — แนะนำ "ประเมิน ชม." อัตโนมัติจาก Manhour จริงของ assignee (แทนเลข 8 ชม./วันคงที่)
+ * ทิศตรงข้าม spreadTaskMinutes — ตัวนั้นหารเกลี่ยเลขที่มีอยู่แล้วลงวัน ส่วนตัวนี้ "รวมยอด" capacity ของแต่ละวันในช่วงขึ้นมาเป็นคำแนะนำ
+ * ไม่มี startDate หรือ dueDate (ยังกรอกไม่ครบ) → คืน 0 ให้ผู้เรียกตัดสินใจเอง (เช่นไม่ auto-fill ทับของเดิม)
+ * startDate > dueDate (ข้อมูลเพี้ยนชั่วคราวระหว่างพิมพ์) → คืน 0 เช่นกัน กันเลขติดลบ/ผิดความหมาย
+ */
+export function suggestEstimateMinutes(startDate: string | null, dueDate: string | null, weeklyMinutes: WeeklyMinutes): number {
+  if (!startDate || !dueDate || startDate > dueDate) return 0
+  const days = daysBetweenISO(startDate, dueDate) + 1
+  let total = 0
+  for (let i = 0; i < days; i++) total += weeklyMinutes[weekdayOfISO(addDaysISO(startDate, i))]
+  return total
 }

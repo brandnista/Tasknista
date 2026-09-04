@@ -1,5 +1,7 @@
+import { permissionCategoryOfRole, resolveManhourMinutesPerDay, type ManhourUserType } from '@seedoffice/core'
 import {
   auditLogs,
+  companyConfig,
   createDb,
   docLinks,
   docs,
@@ -27,6 +29,10 @@ import { nextSubTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
+// Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — owner ไม่มีหมวด (bypass เพดานเสมอ) แต่สำหรับ Manhour capacity ต้องมีหมวด — ถือเป็น staff เหมือน admin.ts's categoryOfUserRole()
+const manhourCategoryOfRole = (role: 'owner' | 'member' | 'vendor' | 'guest'): ManhourUserType =>
+  permissionCategoryOfRole(role) ?? 'staff'
+
 const MAX_FILE_BYTES = 15 * 1024 * 1024 // 15MB ต่อไฟล์
 
 /** task detail: meta + comments + attachments + activity (จาก audit_logs) */
@@ -45,6 +51,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
           projectName: projects.name,
           assigneeName: users.name,
           assigneeAvatarUrl: users.avatarUrl,
+          assigneeRole: users.role,
           assignedByName: dispatcher.name,
           assignedByAvatarUrl: dispatcher.avatarUrl,
         })
@@ -137,7 +144,13 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       : [null, null]
     const projectMemberOpts = row.task.projectId ? [...new Map([...ownerRows!, ...projectMemberRows!].map((u) => [u.id, u])).values()] : null
 
+    // Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — Manhour/วันของหมวด assignee ปัจจุบัน (ไม่มี assignee → fallback 'staff') ให้ FE คำนวณ "ประเมิน ชม." แนะนำเองตอนเปลี่ยนวันที่ ไม่ต้องยิง API ซ้ำทุกครั้ง
+    const cfg = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay, workHourCapMinutes: companyConfig.workHourCapMinutes }).from(companyConfig).limit(1))[0]
+    const manhourCategory = row.assigneeRole ? manhourCategoryOfRole(row.assigneeRole) : 'staff'
+    const weeklyMinutes = resolveManhourMinutesPerDay(cfg?.manhourMinutesPerDay, cfg?.workHourCapMinutes ?? 480)[manhourCategory]
+
     return c.json({
+      weeklyMinutes,
       projectMembers: projectMemberOpts,
       sprintActive,
       ...row.task,
