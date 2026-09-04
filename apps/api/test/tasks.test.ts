@@ -276,3 +276,55 @@ describe('§Assign/Accept audit — dispatch/accept/reject/reassign', () => {
     expect(res.status).toBe(200)
   })
 })
+
+const patchJson = (cookie: string, body: unknown) => ({
+  method: 'PATCH',
+  headers: { cookie, 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+describe('§Workspace/Task Jira-alignment (2026-09-04) — PATCH /tasks/:id ล็อกวันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ', () => {
+  it('ตั้งทั้งคู่พร้อมกัน startDate > dueDate → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { startDate: '2026-09-10', dueDate: '2026-09-05' }), env)
+    expect(res.status).toBe(400)
+  })
+
+  it('แก้ startDate ใหม่ให้เกิน dueDate เดิมที่มีอยู่แล้ว (ส่งมาแค่ startDate) → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', dueDate: '2026-09-05' }), env)
+    ).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { startDate: '2026-09-10' }), env)
+    expect(res.status).toBe(400)
+  })
+
+  it('แก้ dueDate ใหม่ให้ก่อน startDate เดิมที่มีอยู่แล้ว (ส่งมาแค่ dueDate) → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', startDate: '2026-09-10' }), env)
+    ).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { dueDate: '2026-09-05' }), env)
+    expect(res.status).toBe(400)
+  })
+
+  it('startDate = dueDate (วันเดียวกัน) → ผ่าน 200', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { startDate: '2026-09-05', dueDate: '2026-09-05' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('startDate ≤ dueDate ปกติ → ผ่าน 200', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { startDate: '2026-09-01', dueDate: '2026-09-05' }), env)
+    expect(res.status).toBe(200)
+  })
+})

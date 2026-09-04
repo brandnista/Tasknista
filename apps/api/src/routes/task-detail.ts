@@ -17,6 +17,7 @@ import {
   users,
 } from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -34,14 +35,25 @@ export const taskDetailRoutes = new Hono<AppEnv>()
   .get('/tasks/:id/detail', async (c) => {
     const db = createDb(c.env.DB)
     const taskId = c.req.param('id')
+    // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ผู้จ่ายงาน (Reporter สไตล์ Jira) ต้อง join users อีกรอบแยกจาก assignee
+    const dispatcher = alias(users, 'dispatcher')
     const row = (
       await db
-        .select({ task: tasks, groupName: taskGroups.name, projectName: projects.name, assigneeName: users.name })
+        .select({
+          task: tasks,
+          groupName: taskGroups.name,
+          projectName: projects.name,
+          assigneeName: users.name,
+          assigneeAvatarUrl: users.avatarUrl,
+          assignedByName: dispatcher.name,
+          assignedByAvatarUrl: dispatcher.avatarUrl,
+        })
         .from(tasks)
         // Pronista §5 (2026-07-03) — leftJoin: task ใน "Backlog ของโปรเจกต์" (groupId ยังว่าง) ต้องเปิด detail ได้ด้วย
         .leftJoin(taskGroups, eq(tasks.groupId, taskGroups.id))
         .leftJoin(projects, eq(tasks.projectId, projects.id))
         .leftJoin(users, eq(tasks.assigneeId, users.id))
+        .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
         .where(eq(tasks.id, taskId))
         .limit(1)
     )[0]
@@ -132,6 +144,9 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       groupName: row.groupName,
       projectName: row.projectName,
       assigneeName: row.assigneeName,
+      assigneeAvatarUrl: row.assigneeAvatarUrl,
+      assignedByName: row.assignedByName,
+      assignedByAvatarUrl: row.assignedByAvatarUrl,
       myRole,
       parent,
       epic,

@@ -567,6 +567,12 @@ export const taskRoutes = new Hono<AppEnv>()
       }
     }
 
+    // Pronista §Workspace/Task Jira-alignment (2026-09-04) — วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ (เช็คกับค่าที่มีอยู่เดิมด้วย กัน PATCH ทีละฟิลด์ทำข้อมูลขัดกัน)
+    const nextStartDate = 'startDate' in body.data ? body.data.startDate : before.startDate
+    const nextDueDate = 'dueDate' in body.data ? body.data.dueDate : before.dueDate
+    if (nextStartDate && nextDueDate && nextStartDate > nextDueDate)
+      return c.json({ error: 'invalid_date_range', message: 'วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ' }, 400)
+
     const patch: Record<string, unknown> = { ...body.data }
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null

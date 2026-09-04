@@ -25,6 +25,30 @@ async function makeTask(cookie: string, asEditorUserId?: string) {
   return t
 }
 
+describe('§Workspace/Task Jira-alignment (2026-09-04) — GET /tasks/:id/detail ส่ง assignedByName (Reporter สไตล์ Jira)', () => {
+  it('มอบหมายงานให้คนอื่น → detail เห็นชื่อ+avatar ผู้จ่ายงานจริง (assignedBy)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner, 'u_pond')
+    const patched = await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ assigneeId: 'u_pond' }) }, env)
+    expect(patched.status).toBe(200)
+
+    const detail = (await (
+      await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    ).json()) as { assignedByName: string | null; assigneeName: string | null }
+    expect(detail.assignedByName).toBe('เมธ')
+    expect(detail.assigneeName).toBe('ปอนด์')
+  })
+
+  it('ยังไม่เคยมอบหมายเลย → assignedByName เป็น null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const detail = (await (
+      await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    ).json()) as { assignedByName: string | null }
+    expect(detail.assignedByName).toBeNull()
+  })
+})
+
 describe('T10 — task detail: comments + attachments + activity', () => {
   it('comment ได้ทุก role รวม vendor · เรียงเวลา · ขึ้นใน activity', async () => {
     const m = await loginAs(app, 'pond@example-co.test')

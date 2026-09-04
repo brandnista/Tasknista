@@ -232,6 +232,10 @@ interface Detail {
   subTaskType: string | null
   assigneeId: string | null
   assigneeName: string | null
+  assigneeAvatarUrl: string | null
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — "Reporter" สไตล์ Jira: ผู้กด "จ่ายงาน" ล่าสุด (assignedBy)
+  assignedByName: string | null
+  assignedByAvatarUrl: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
   dispatchedAt: number | null
   createdBy: string
@@ -261,6 +265,7 @@ interface Detail {
     title: string
     code: string | null
     status: TaskStatus
+    priority: 'low' | 'normal' | 'high'
     assigneeName: string | null
     estimateMinutes: number | null
     originCode: string | null
@@ -358,6 +363,9 @@ export function TaskDetailPage() {
   const [refCodeDraft, setRefCodeDraft] = useState<string | null>(null)
   const [newSubtask, setNewSubtask] = useState('')
   const [newSubtaskCode, setNewSubtaskCode] = useState('')
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — เลือกงานย่อยหลายรายการเพื่อลบทีเดียว (คนละ checkbox กับ toggle สถานะ)
+  const [selectedSubtasks, setSelectedSubtasks] = useState<Set<string>>(new Set())
+  const [deletingSubtasks, setDeletingSubtasks] = useState(false)
   const [newChecklistText, setNewChecklistText] = useState('')
   const [renamingAttachment, setRenamingAttachment] = useState<{ id: string; draft: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -557,6 +565,33 @@ export function TaskDetailPage() {
     setNewSubtaskCode('')
     await reload()
   }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — toggle สถานะงานย่อยจากติ๊กตรงแถวได้เลย (เดิม checkbox เป็นแค่ span โชว์เฉยๆ ไม่มี handler)
+  const toggleSubtaskDone = async (subtaskId: string, currentlyDone: boolean) => {
+    await api.patch(`/api/tasks/${subtaskId}`, { status: currentlyDone ? 'non_start' : 'done' })
+    await reload()
+  }
+  const toggleSelectSubtask = (id: string) => {
+    setSelectedSubtasks((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const deleteSelectedSubtasks = async () => {
+    const ids = [...selectedSubtasks]
+    if (ids.length === 0) return
+    const yes = await confirmDialog({ title: `ลบงานย่อย ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', confirmLabel: 'ลบ', danger: true })
+    if (!yes) return
+    setDeletingSubtasks(true)
+    try {
+      await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+      setSelectedSubtasks(new Set())
+      await reload()
+    } finally {
+      setDeletingSubtasks(false)
+    }
+  }
   const addChecklistItem = async () => {
     if (!newChecklistText.trim()) return
     await api.post(`/api/tasks/${t.id}/checklist`, { text: newChecklistText.trim() })
@@ -589,7 +624,6 @@ export function TaskDetailPage() {
   const isAssigneeOnly = isAssignee && t.myRole !== 'owner' && t.myRole !== 'editor'
   // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
   const isSelfKeyed = !!user && t.createdBy === user.id
-  const canQuickToggleDone = canEdit && (!isAssignee || isSelfKeyed)
   // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือเป็นงานที่คีย์เอง หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
   const canEditStatusFreely = canEdit && (!isAssignee || isSelfKeyed || !t.dispatchedAt)
   const done = t.status === 'done'
@@ -624,6 +658,8 @@ export function TaskDetailPage() {
             </button>
           )}
           <span className="text-muted">{t.projectName ?? 'Backlog'}{t.groupName ? ` · ${t.groupName}` : ''}</span>
+          {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ย้ายรหัส Task มาอยู่แถวเดียวกับชื่อโปรเจกต์ (เดิมอยู่คนละแถวด้านล่าง) */}
+          {t.code && <span className="text-xs font-mono text-muted bg-white border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span>}
           {t.epic && (
             <span className="text-xs font-medium text-teal-700 bg-teal-50 border border-teal-100 rounded-full px-2.5 py-0.5" title={t.epic.code ?? undefined}>
               {t.epic.title}
@@ -640,27 +676,18 @@ export function TaskDetailPage() {
         </div>
 
         <div className="px-5 pt-5 pb-4 border-b border-border-subtle">
-          <div className="flex items-center justify-between gap-2">
-            {t.code ? <span className="text-xs font-mono text-muted bg-hover border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span> : <span />}
-            {viewers.length > 0 && (
-              <div className="flex items-center -space-x-1.5" title={`${viewers.length} คนกำลังเปิด Task นี้อยู่: ${viewers.map((v) => v.name).join(', ')}`}>
-                {viewers.slice(0, 5).map((v) => (
-                  <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
-                ))}
-                {viewers.length > 5 && (
-                  <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
-                )}
-              </div>
-            )}
-          </div>
+          {viewers.length > 0 && (
+            <div className="flex items-center justify-end -space-x-1.5" title={`${viewers.length} คนกำลังเปิด Task นี้อยู่: ${viewers.map((v) => v.name).join(', ')}`}>
+              {viewers.slice(0, 5).map((v) => (
+                <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
+              ))}
+              {viewers.length > 5 && (
+                <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
+              )}
+            </div>
+          )}
+          {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — เอา checkbox toggle-done หน้าไตเติลออก (ตามอ้างอิง Jira ไม่มี) — สลับสถานะยังทำได้ผ่าน dropdown สถานะด้านล่างตามปกติ ไม่เสียความสามารถ */}
           <div className="flex items-start gap-2.5 mt-2">
-            <button
-              onClick={() => canQuickToggleDone && void patch({ status: done ? 'non_start' : 'done' })}
-              title={canQuickToggleDone ? (done ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ') : 'ต้องมีสิทธิ์แก้ไข (ผู้จ่ายงาน) ในโปรเจกต์นี้'}
-              className={`shrink-0 mt-0.5 w-7 h-7 rounded-lg border-2 grid place-items-center transition ${done ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'} ${canQuickToggleDone ? '' : 'opacity-60 cursor-default'}`}
-            >
-              {done && <Check className="w-4 h-4" />}
-            </button>
             {canEdit && !isAssigneeOnly ? (
               <textarea
                 value={titleDraft ?? t.title}
@@ -672,7 +699,8 @@ export function TaskDetailPage() {
                 }}
                 rows={2}
                 aria-label="ชื่องาน"
-                className={`flex-1 min-w-0 resize-none text-xl font-semibold bg-transparent rounded-lg -mx-1.5 px-1.5 py-0.5 hover:bg-hover focus:bg-hover focus:outline-hidden ${done ? 'text-muted line-through' : 'text-ink'}`}
+                title="คลิกเพื่อแก้ไขชื่องาน"
+                className={`flex-1 min-w-0 resize-none text-xl font-semibold bg-hover rounded-lg -mx-1.5 px-1.5 py-0.5 hover:bg-divider focus:bg-white focus:ring-2 focus:ring-brand-200 focus:outline-hidden ${done ? 'text-muted line-through' : 'text-ink'}`}
               />
             ) : (
               <h1 className={`text-xl font-semibold text-wrap ${done ? 'text-muted line-through' : 'text-ink'}`}>{t.title}</h1>
@@ -772,20 +800,48 @@ export function TaskDetailPage() {
             </div>
 
             <div>
-              <div className="text-xs font-medium text-muted mb-2">งานย่อย <span className="text-border">({t.subtasks.length})</span></div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="text-xs font-medium text-muted">งานย่อย <span className="text-border">({t.subtasks.length})</span></div>
+                {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ไอคอนถังขยะโผล่เมื่อติ๊กเลือกอย่างน้อย 1 รายการเท่านั้น */}
+                {selectedSubtasks.size > 0 && (
+                  <button
+                    onClick={() => void deleteSelectedSubtasks()}
+                    disabled={deletingSubtasks}
+                    title={`ลบ ${selectedSubtasks.size} รายการที่เลือก`}
+                    className="ml-auto text-xs text-danger-600 hover:text-danger-700 flex items-center gap-1 disabled:opacity-40"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> ลบ ({selectedSubtasks.size})
+                  </button>
+                )}
+              </div>
               {t.subtasks.length === 0 && <div className="text-sm text-border mb-2">ยังไม่มีงานย่อย</div>}
               <div className="space-y-1 mb-2">
                 {t.subtasks.map((s) => (
-                  <button key={s.id} onClick={() => navigate(`/tasks/${s.id}`)} className="w-full flex items-center gap-2 text-left text-sm bg-hover hover:bg-divider rounded-lg px-2.5 py-1.5">
-                    <span className={`w-4 h-4 rounded border shrink-0 grid place-items-center ${s.status === 'done' ? 'border-brand-500 bg-brand-500 text-white' : 'border-border'}`}>
+                  <div key={s.id} className="w-full flex items-center gap-2 text-left text-sm bg-hover hover:bg-divider rounded-lg px-2.5 py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedSubtasks.has(s.id)}
+                      onChange={() => toggleSelectSubtask(s.id)}
+                      aria-label={`เลือก ${s.title}`}
+                      className="shrink-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void toggleSubtaskDone(s.id, s.status === 'done')}
+                      title={s.status === 'done' ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ'}
+                      className={`w-4 h-4 rounded border shrink-0 grid place-items-center ${s.status === 'done' ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'}`}
+                    >
                       {s.status === 'done' && <Check className="w-3 h-3" />}
-                    </span>
-                    {s.code && <span className="text-[11px] font-mono text-muted shrink-0">{s.code}</span>}
-                    <span className={`flex-1 truncate ${s.status === 'done' ? 'text-muted line-through' : 'text-body'}`}>{s.title}</span>
+                    </button>
+                    <button onClick={() => navigate(`/tasks/${s.id}`)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                      {s.code && <span className="text-[11px] font-mono text-muted shrink-0">{s.code}</span>}
+                      <span className={`flex-1 truncate ${s.status === 'done' ? 'text-muted line-through' : 'text-body'}`}>{s.title}</span>
+                    </button>
+                    {s.priority !== 'normal' && <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${PRIORITY_CLASS[s.priority]}`}>{PRIORITY_THAI[s.priority]}</span>}
                     {s.originCode && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 shrink-0">{s.originCode}</span>}
                     {s.estimateMinutes != null && <span className="text-[11px] text-muted shrink-0">{minutesToHoursLabel(s.estimateMinutes)} ชม.</span>}
                     {s.assigneeName && <span className="text-[11px] text-muted shrink-0">{s.assigneeName}</span>}
-                  </button>
+                  </div>
                 ))}
               </div>
               {canEdit && !isAssignee && (
@@ -1052,6 +1108,17 @@ export function TaskDetailPage() {
                     t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
                   )}
 
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — "Reporter" สไตล์ Jira: ผู้จ่ายงานจริง (assignedBy) แสดงอย่างเดียว แก้ไม่ได้ตรงนี้ */}
+                  {t.assignedByName && (
+                    <>
+                      <span className="text-dim">ผู้จ่ายงาน</span>
+                      <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
+                        <Avatar name={t.assignedByName} avatarUrl={t.assignedByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(t.assignedByName)} />
+                        {t.assignedByName}
+                      </span>
+                    </>
+                  )}
+
                   {!isAssigneeOnly && (
                     <>
                       <span className="text-dim">ความสำคัญ</span>
@@ -1150,18 +1217,41 @@ export function TaskDetailPage() {
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">กำหนดการ</div>
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
-                  <span className="text-dim">กำหนดส่ง</span>
-                  {canEdit && !isAssigneeOnly ? (
-                    <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
-                  ) : (
-                    <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
-                  )}
-
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — สลับ "วันที่เริ่ม" ขึ้นก่อน "วันที่คาดว่าน่าจะเสร็จ" (เดิม "กำหนดส่ง" ขึ้นก่อน) + ล็อกไม่ให้วันที่เริ่มเกินวันที่คาดว่าจะเสร็จ */}
                   {canEdit && !isAssigneeOnly && (
                     <>
-                      <span className="text-dim">เริ่ม</span>
-                      <DateInputTH value={t.startDate ?? ''} onChange={(v) => void patch({ startDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
+                      <span className="text-dim">วันที่เริ่ม</span>
+                      <DateInputTH
+                        value={t.startDate ?? ''}
+                        onChange={(v) => {
+                          const next = v || null
+                          if (next && t.dueDate && next > t.dueDate) {
+                            void alertDialog({ title: 'วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ' })
+                            return
+                          }
+                          void patch({ startDate: next })
+                        }}
+                        className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
+                      />
                     </>
+                  )}
+
+                  <span className="text-dim">วันที่คาดว่าน่าจะเสร็จ</span>
+                  {canEdit && !isAssigneeOnly ? (
+                    <DateInputTH
+                      value={t.dueDate ?? ''}
+                      onChange={(v) => {
+                        const next = v || null
+                        if (next && t.startDate && t.startDate > next) {
+                          void alertDialog({ title: 'วันที่คาดว่าจะเสร็จต้องไม่ก่อนวันที่เริ่ม' })
+                          return
+                        }
+                        void patch({ dueDate: next })
+                      }}
+                      className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
+                    />
+                  ) : (
+                    <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
                   )}
 
                   {!isAssigneeOnly && canEdit && (
