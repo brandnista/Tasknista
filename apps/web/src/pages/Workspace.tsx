@@ -406,16 +406,26 @@ export function WorkspacePage() {
     }
   }
 
-  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — "ลบทั้งหมด" ลบทุกงานที่กรองอยู่ในหน้านี้ (ยกเว้น Epic — ไม่มี endpoint ลบ Epic แยก และหน้านี้ไม่เคยมีทางลบ Epic ทีละตัวอยู่แล้ว) mirror bulkDeleteConfirm ของ ProjectDetail.tsx
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04, ปรับ 2026-09-08) — ปุ่มเดียวฉลาดขึ้น: ถ้าติ๊กเลือกไว้อยู่ ลบเฉพาะที่เลือก
+  // (ไม่ใช่ลบทุกอย่างที่กรองอยู่ทั้งหมดเหมือนเดิม) ถ้าไม่ได้ติ๊กอะไรเลย ยังคง fallback เป็น "ลบทั้งหมดที่กรองอยู่" แบบเดิม
+  // ยกเว้น Epic เสมอ (ไม่มี endpoint ลบ Epic แยก และหน้านี้ไม่เคยมีทางลบ Epic ทีละตัวอยู่แล้ว) mirror bulkDeleteConfirm ของ ProjectDetail.tsx
   const deleteAllItems = async () => {
-    const ids = filteredItems.filter((i) => i.kind !== 'epic').map((i) => i.id)
+    const eligibleIds = filteredItems.filter((i) => i.kind !== 'epic').map((i) => i.id)
+    const hasSelection = selectedIds.size > 0
+    const ids = hasSelection ? eligibleIds.filter((id) => selectedIds.has(id)) : eligibleIds
     if (ids.length === 0) return
-    const yes = await confirmDialog({ title: `ลบทั้งหมด ${ids.length} รายการ?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', confirmLabel: 'ลบทั้งหมด', danger: true })
+    const yes = await confirmDialog({
+      title: hasSelection ? `ลบที่เลือก ${ids.length} รายการ?` : `ลบทั้งหมด ${ids.length} รายการ?`,
+      message: 'กู้คืนเองไม่ได้ผ่านหน้านี้',
+      confirmLabel: hasSelection ? 'ลบที่เลือก' : 'ลบทั้งหมด',
+      danger: true,
+    })
     if (!yes) return
     setDeletingAll(true)
     try {
       const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
       const failed = results.filter((r) => r.status === 'rejected').length
+      setSelectedIds(new Set())
       void reloadBacklog()
       if (failed > 0) setError(`ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ`)
     } finally {
@@ -717,7 +727,7 @@ export function WorkspacePage() {
                         disabled={deletingAll}
                         className="text-[11px] text-danger-600 hover:text-danger-700 underline decoration-dotted disabled:opacity-40"
                       >
-                        {deletingAll ? 'กำลังลบ…' : 'ลบทั้งหมด'}
+                        {deletingAll ? 'กำลังลบ…' : selectedIds.size > 0 ? `ลบที่เลือก (${selectedIds.size})` : 'ลบทั้งหมด'}
                       </button>
                     )}
                   </div>
