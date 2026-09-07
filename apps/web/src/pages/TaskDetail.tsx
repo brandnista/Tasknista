@@ -647,6 +647,14 @@ export function TaskDetailPage() {
       return next
     })
   }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-08) — "เลือกทั้งหมด" งานย่อย mirror pattern เดียวกับ BulkKindActions ใน ProjectDetail.tsx
+  const toggleSelectAllSubtasks = () => {
+    setSelectedSubtasks((prev) => {
+      const allIds = t.subtasks.map((s) => s.id)
+      const allSelected = allIds.length > 0 && allIds.every((id) => prev.has(id))
+      return allSelected ? new Set() : new Set(allIds)
+    })
+  }
   const deleteSelectedSubtasks = async () => {
     const ids = [...selectedSubtasks]
     if (ids.length === 0) return
@@ -930,6 +938,13 @@ export function TaskDetailPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <div className="text-xs font-medium text-muted">งานย่อย <span className="text-border">({t.subtasks.length})</span></div>
+                {/* Pronista §Workspace/Task Jira-alignment (2026-09-08) — เลือกทั้งหมดทีเดียว แทนต้องไล่ติ๊กเองทีละอันเมื่อมีงานย่อยเยอะ */}
+                {t.subtasks.length > 0 && (
+                  <label className="flex items-center gap-1 text-[11px] text-dim cursor-pointer">
+                    <input type="checkbox" checked={t.subtasks.every((s) => selectedSubtasks.has(s.id))} onChange={toggleSelectAllSubtasks} />
+                    เลือกทั้งหมด
+                  </label>
+                )}
                 {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ไอคอนถังขยะโผล่เมื่อติ๊กเลือกอย่างน้อย 1 รายการเท่านั้น */}
                 {selectedSubtasks.size > 0 && (
                   <button

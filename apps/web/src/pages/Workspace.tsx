@@ -566,6 +566,14 @@ export function WorkspacePage() {
       return next
     })
   }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-08) — "เลือกทั้งหมด" mirror pattern เดียวกับ BulkKindActions ใน ProjectDetail.tsx — ไม่รวม epic (ไม่มี checkbox ของตัวเอง เลือกไม่ได้อยู่แล้ว)
+  const toggleSelectAllItems = () => {
+    setSelectedIds((prev) => {
+      const allIds = filteredItems.filter((i) => i.kind !== 'epic').map((i) => i.id)
+      const allSelected = allIds.length > 0 && allIds.every((id) => prev.has(id))
+      return allSelected ? new Set() : new Set(allIds)
+    })
+  }
   const selectedTasks = filteredItems.filter((i) => selectedIds.has(i.id))
   const selectedTotalMinutes = selectedTasks.reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0)
   const sprintPickerOptions = openSprints.map(({ sprint }) => ({
@@ -695,6 +703,13 @@ export function WorkspacePage() {
                     >
                       {showCode ? 'ซ่อนรหัสงาน' : 'แสดงรหัสงาน'}
                     </button>
+                    {/* Pronista §Workspace/Task Jira-alignment (2026-09-08) — เลือกทั้งหมดทีเดียว (เฉพาะห้อง developer ที่มี checkbox เลือกงานอยู่แล้วสำหรับโยนเข้า Sprint) */}
+                    {room.type === 'developer' && filteredItems.some((i) => i.kind !== 'epic') && (
+                      <label className="flex items-center gap-1 text-[11px] text-dim cursor-pointer">
+                        <input type="checkbox" checked={filteredItems.filter((i) => i.kind !== 'epic').every((i) => selectedIds.has(i.id))} onChange={toggleSelectAllItems} />
+                        เลือกทั้งหมด
+                      </label>
+                    )}
                     {filteredItems.some((i) => i.kind !== 'epic') && (
                       <button
                         type="button"
