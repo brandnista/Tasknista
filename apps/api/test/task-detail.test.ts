@@ -51,6 +51,30 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — GET /tasks/:id/detail
   })
 })
 
+describe('§Workspace/Task Jira-alignment (2026-09-09) — GET /tasks/:id/detail ส่งข้อมูล Sprint (แบบ Jira)', () => {
+  it('งานที่ยังไม่เข้า Sprint ไหนเลย → sprint เป็น null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const detail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as { sprint: unknown }
+    expect(detail.sprint).toBeNull()
+  })
+
+  it('งานที่ถูกลากเข้า Sprint ของโปรเจกต์ → sprint ส่งชื่อ/สถานะ/projectId มาครบ (workspaceId เป็น null)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P Sprint', type: 'project' }), env)).json()) as { id: string }
+    const sprint = (await (await app.request(`/api/projects/${p.id}/sprints`, json(owner, {}), env)).json()) as { id: string; name: string | null }
+    // Pronista §Sprint eligibility — ลากเข้า Sprint ได้เฉพาะงาน "ใน backlog" จริงๆ (groupId ต้องเป็น null) ไม่ใช่งานที่อยู่ใน group แล้ว (ดู addTaskToSprint ใน routes/sprints.ts)
+    const t = (await (await app.request(`/api/projects/${p.id}/backlog`, json(owner, { title: 'งานเข้า Sprint', kind: 'backlog' }), env)).json()) as { id: string }
+    const addToSprint = await app.request(`/api/sprints/${sprint.id}/tasks`, json(owner, { taskId: t.id }), env)
+    expect(addToSprint.status).toBe(200)
+
+    const detail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as {
+      sprint: { id: string; name: string | null; status: string; projectId: string | null; workspaceId: string | null } | null
+    }
+    expect(detail.sprint).toMatchObject({ id: sprint.id, name: sprint.name, status: 'planned', projectId: p.id, workspaceId: null })
+  })
+})
+
 describe('T10 — task detail: comments + attachments + activity', () => {
   it('comment ได้ทุก role รวม vendor · เรียงเวลา · ขึ้นใน activity', async () => {
     const m = await loginAs(app, 'pond@example-co.test')

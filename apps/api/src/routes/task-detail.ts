@@ -134,9 +134,17 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const myRole = row.task.projectId ? await getProjectRole(db, row.task.projectId, me.id, me.role) : 'editor'
 
     // Pronista §time-tracking — จับเวลาได้เฉพาะ task ที่อยู่ใน sprint ที่ "เริ่ม" แล้วจริงๆ (status active) — Backlog/sprint ที่ยังไม่เริ่มยังไม่ถูก assign งานจริง
-    const sprintActive = row.task.sprintId
-      ? (await db.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, row.task.sprintId)).limit(1))[0]?.status === 'active'
-      : false
+    // Pronista §Workspace/Task Jira-alignment (2026-09-09) — ดึงข้อมูล Sprint เต็มๆ ไปด้วยเลย (ไม่ใช่แค่ status) ให้ FE โชว์ชื่อ + ลิงก์กลับไปที่บอร์ดได้ (แบบ Jira)
+    const sprintRow = row.task.sprintId
+      ? (
+          await db
+            .select({ id: sprints.id, name: sprints.name, status: sprints.status, projectId: sprints.projectId, workspaceId: sprints.workspaceId })
+            .from(sprints)
+            .where(eq(sprints.id, row.task.sprintId))
+            .limit(1)
+        )[0]
+      : undefined
+    const sprintActive = sprintRow?.status === 'active'
 
     // Pronista §Assign/Accept audit (2026-09-03) — สมาชิกโปรเจกต์นี้ ให้ FE กรอง assignee picker (เดิมโชว์ active user ทั้งบริษัทไม่กรองตามโปรเจกต์เลย)
     // Pronista §fix (2026-09-04) — owner ตั้งใจไม่ให้อยู่ใน project_members (มีสิทธิ์เต็มทุกโปรเจกต์อยู่แล้ว ดู ProjectEdit.tsx) แต่ยังต้อง assign งานให้ owner ได้
@@ -158,6 +166,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       weeklyMinutes,
       projectMembers: projectMemberOpts,
       sprintActive,
+      sprint: sprintRow ?? null,
       ...row.task,
       groupName: row.groupName,
       projectName: row.projectName,

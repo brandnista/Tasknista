@@ -246,6 +246,8 @@ interface Detail {
   createdBy: string
   myRole: 'owner' | 'editor' | 'viewer'
   sprintActive: boolean
+  // Pronista §Workspace/Task Jira-alignment (2026-09-09) — Sprint ที่งานนี้สังกัดอยู่ (แบบ Jira: โชว์ชื่อ + ลิงก์กลับไปบอร์ด) — null = ยังไม่ได้ลากเข้า Sprint ไหน
+  sprint: { id: string; name: string | null; status: 'planned' | 'active' | 'completed'; projectId: string | null; workspaceId: string | null } | null
   estimateMinutes: number | null
   costWorkMinutesPerDay: number | null
   startDate: string | null
@@ -1217,6 +1219,26 @@ export function TaskDetailPage() {
                         {t.assignedByName ?? t.createdByName}
                       </span>
                     </>
+                  )}
+
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-09) — "Sprint" แบบ Jira: โชว์ชื่อ Sprint ที่งานนี้สังกัดอยู่ พร้อมลิงก์กลับไปที่บอร์ด (โปรเจกต์ หรือ Workspace แล้วแต่ Sprint นี้ผูกกับอันไหน) */}
+                  <span className="text-dim">Sprint</span>
+                  {t.sprint ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          t.sprint!.workspaceId
+                            ? `/workspace/${t.sprint!.workspaceId}/sprints/${t.sprint!.id}/board`
+                            : `/projects/${t.sprint!.projectId}/sprints/${t.sprint!.id}/board`,
+                        )
+                      }
+                      className="w-fit text-left text-brand-600 hover:underline"
+                    >
+                      {t.sprint.name ?? 'Sprint'}
+                    </button>
+                  ) : (
+                    <span className="text-muted">—</span>
                   )}
 
                   {!isAssigneeOnly && (
