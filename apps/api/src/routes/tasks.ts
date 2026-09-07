@@ -520,8 +520,11 @@ export const taskRoutes = new Hono<AppEnv>()
     // ห้ามแก้ไขฟิลด์ของผู้จ่ายงานเลย — แก้ได้แค่ assigneeNotes (บันทึกของตัวเอง) กับกด "ส่งงาน" (status: on_processing→waiting_for_test) เท่านั้น
     // เกณฑ์ว่าเสร็จ/ไฟล์แนบ ผ่านคนละ endpoint (checklist/attachments) จึงไม่ต้องเช็คตรงนี้
     if (isAssigneeOnly) {
-      const allowedKeys = new Set(['assigneeNotes', 'status'])
-      if (Object.keys(body.data).some((k) => !allowedKeys.has(k)))
+      // Pronista §Workspace/Task Jira-alignment (2026-09-07) — ถ้าผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบเป็นคนเดียวกัน (จ่ายงานให้ตัวเอง) ให้แก้ "รายละเอียดจากผู้จ่ายงาน" (description) เองได้ด้วย
+      const allowedKeys = new Set(before.assignedBy === me.id ? ['assigneeNotes', 'status', 'description'] : ['assigneeNotes', 'status'])
+      // Pronista §Workspace/Task Jira-alignment (2026-09-07 fix) — notifyOnUpdate เป็นแค่ signal ไม่ใช่ฟิลด์จริง (ลบออกจาก patch ทีหลังบรรทัด 580) ต้องไม่นับตรงนี้ด้วย
+      // ไม่งั้นปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ใหม่ (ส่ง notifyOnUpdate:true มาด้วยเสมอ) จะโดน 403 ทุกครั้งสำหรับ assignee-only แม้แก้แค่ assigneeNotes ที่อนุญาตอยู่แล้ว
+      if (Object.keys(body.data).some((k) => k !== 'notifyOnUpdate' && !allowedKeys.has(k)))
         return c.json({ error: 'forbidden', message: 'แก้ไขได้แค่บันทึกของตัวเองกับกด "ส่งงาน" เท่านั้น ให้ผู้จ่ายงานเป็นคนแก้ไขฟิลด์อื่น' }, 403)
     }
     // Pronista §Kanban drag constraints (2026-08-26) — งด "ลาก/สั่งข้ามขั้น" สถานะเอง สำหรับใครก็ตามที่เป็น assignee ของงานนี้

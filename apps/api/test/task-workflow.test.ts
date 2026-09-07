@@ -138,4 +138,45 @@ describe('Pronista §Task Workflow — kanban drag / self-assign status transiti
     // ดึงงานกลับได้เหมือนกัน (ฟีเจอร์ใหม่ ใช้ได้ทั้ง assignee-only และ self-assign editor)
     expect((await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'on_processing' }), env)).status).toBe(200)
   })
+
+  // Pronista §Workspace/Task Jira-alignment (2026-09-07) — ผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบเป็นคนเดียวกัน ให้แก้ "รายละเอียดจากผู้จ่ายงาน" (description) ได้เอง แม้ภายหลังจะกลายเป็น assignee-only (ตำแหน่งถูกลดสิทธิ์)
+  it('assignee-only ที่เคยเป็นผู้จ่ายงานให้ตัวเอง (assignedBy = ตัวเอง) แก้ description ได้ แต่ฟิลด์อื่นยังโดนกันเหมือนเดิม', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { p, g } = await setupProject(owner, 'u_pond') // pond ได้ pos_full_access (editor) ตอนนี้
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(pond, { title: 'งานจ่ายให้ตัวเองแล้วโดนลดสิทธิ์' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patch(pond, { assigneeId: 'u_pond' }), env)
+    // pond ยังเป็น editor ตอนนี้ — /dispatch ผ่านได้ → assignedBy บันทึกเป็น pond
+    expect((await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)).status).toBe(200)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+
+    // ลดสิทธิ์ pond เป็น view-only ภายหลัง — ตอนนี้กลายเป็น assignee-only แล้ว
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_view_only' }), env)
+
+    // แก้ description เองได้ เพราะเป็นผู้จ่ายงานตัวเองมาก่อน (assignedBy === assigneeId)
+    const editDesc = await app.request(`/api/tasks/${t.id}`, patch(pond, { description: 'อัปเดตรายละเอียดเอง' }), env)
+    expect(editDesc.status).toBe(200)
+    expect(((await editDesc.json()) as { description: string | null }).description).toBe('อัปเดตรายละเอียดเอง')
+
+    // ฟิลด์อื่นนอกเหนือ description/assigneeNotes/status ยังโดนกันเหมือนเดิม (ไม่ใช่ bypass ทั้งหมด)
+    expect((await app.request(`/api/tasks/${t.id}`, patch(pond, { priority: 'high' }), env)).status).toBe(403)
+  })
+
+  // Pronista §Workspace/Task Jira-alignment (2026-09-07 fix) — ปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ใหม่ (เฟส D) ส่ง notifyOnUpdate:true แนบมาด้วยเสมอ
+  // ซึ่งไม่ใช่ฟิลด์จริง (ถูกลบออกก่อนบันทึกจริง) — allowedKeys ของ assignee-only ต้องไม่นับ notifyOnUpdate เป็นฟิลด์ต้องห้าม ไม่งั้น assigneeNotes ที่อนุญาตอยู่แล้วจะโดน 403 ไปด้วย
+  it('assignee-only บันทึก assigneeNotes ผ่านปุ่มใหม่ (แนบ notifyOnUpdate มาด้วย) ต้องผ่านปกติ ไม่โดน 403', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์ view-only 2', type: 'project' }), env)).json()) as { id: string }
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_view_only' }), env)
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'Dev' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งาน view-only 2' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patch(owner, { assigneeId: 'u_pond' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+
+    const save = await app.request(`/api/tasks/${t.id}`, patch(pond, { assigneeNotes: 'ทำไปถึงไหนแล้ว', notifyOnUpdate: true }), env)
+    expect(save.status).toBe(200)
+    expect(((await save.json()) as { assigneeNotes: string | null }).assigneeNotes).toBe('ทำไปถึงไหนแล้ว')
+  })
 })

@@ -236,6 +236,7 @@ interface Detail {
   assigneeName: string | null
   assigneeAvatarUrl: string | null
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — "Reporter" สไตล์ Jira: ผู้กด "จ่ายงาน" ล่าสุด (assignedBy)
+  assignedBy: string | null
   assignedByName: string | null
   assignedByAvatarUrl: string | null
   createdByName: string | null
@@ -690,6 +691,9 @@ export function TaskDetailPage() {
   // Pronista §Task Workflow fix (2026-08-26) — isAssignee เดิมใช้ซ่อน "ฝั่งผู้จ่ายงาน" ทั้งหมดรวมถึงตอนจ่ายงานให้ตัวเอง (self-assign)
   // ทำให้กรอกเวลาประเมิน/ลำดับความสำคัญ/ประเภทงาน/กำหนดการฯลฯ ไม่ได้เลยระหว่างจ่ายให้ตัวเอง — isAssigneeOnly แยกกรณีนี้ออก: true เฉพาะเป็น assignee "อย่างเดียว" (ไม่มีสิทธิ์ editor/owner โปรเจกต์ด้วย)
   const isAssigneeOnly = isAssignee && t.myRole !== 'owner' && t.myRole !== 'editor'
+  // Pronista §Workspace/Task Jira-alignment (2026-09-07) — "รายละเอียดจากผู้จ่ายงาน" ปกติแก้ได้เฉพาะ editor/owner (canEdit && !isAssigneeOnly)
+  // ยกเว้นกรณีพิเศษ: ผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบปัจจุบัน เป็นคนคนเดียวกัน (จ่ายงานให้ตัวเอง) — ให้แก้ช่องนี้ได้เองแม้เป็นแค่ assignee ธรรมดา
+  const canEditDispatcherNotes = (canEdit && !isAssigneeOnly) || (isAssignee && !!t.assignedBy && t.assignedBy === t.assigneeId)
   // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
   const isSelfKeyed = !!user && t.createdBy === user.id
   // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือเป็นงานที่คีย์เอง หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
@@ -871,7 +875,7 @@ export function TaskDetailPage() {
 
             <div>
               <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้จ่ายงาน</div>
-              {canEdit && !isAssigneeOnly ? (
+              {canEditDispatcherNotes ? (
                 <textarea
                   value={draftVal('description') ?? ''}
                   onChange={(e) => setDraftField('description', e.target.value || null)}
