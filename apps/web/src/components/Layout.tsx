@@ -183,6 +183,25 @@ export function Layout() {
   const { user } = useAuth()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
+  // Pronista §Layout (2026-09-08) — พับ/กาง sidebar บนจอ desktop ได้ (คนละสถานะกับ navOpen ที่คุมแค่ drawer มือถือ) จำค่าไว้ข้าม session
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('pronista_sidebar_collapsed') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((v) => {
+      const next = !v
+      try {
+        localStorage.setItem('pronista_sidebar_collapsed', next ? '1' : '0')
+      } catch {
+        // localStorage ปิด/เต็ม — ข้ามการจำค่าไปเงียบๆ ไม่กระทบการใช้งาน
+      }
+      return next
+    })
+  }
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   // Pronista §System Requirements Update — sub-menu ของเมนูที่มี children (เช่น "ตั้งค่า") พับเก็บเป็นค่าเริ่มต้น กดที่เมนูแม่ถึงจะกาง
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -273,9 +292,9 @@ export function Layout() {
   const sidebar = (
     // Pronista §Mobile safe-area (2026-09-02) — drawer ชิดขอบขวา/บน/ล่างจริงบนมือถือ ต้องกัน notch/home-indicator (สเปก §3) — desktop (lg:static) env() คืน 0 อยู่แล้วไม่กระทบ
     <aside
-      className={`fixed top-0 bottom-0 right-0 z-40 transition-transform duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] ${
+      className={`fixed top-0 bottom-0 right-0 z-40 transition-[transform,width,opacity] duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] ${
         navOpen ? 'translate-x-0' : 'translate-x-full'
-      }`}
+      } ${sidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none lg:overflow-hidden lg:border-0' : 'lg:w-52 lg:opacity-100'}`}
     >
       <div className="h-16 flex items-center gap-2.5 px-5 border-b border-border-subtle">
         <NavLink to="/" onClick={() => setNavOpen(false)} className="flex items-center gap-2.5 rounded-lg -m-1 p-1 hover:bg-hover" title="ไปหน้าภาพรวม">
@@ -364,7 +383,13 @@ export function Layout() {
         )}
         {sidebar}
         <div className="flex-1 flex flex-col min-w-0">
-          <Topbar title={topbarTitle} onOpenNav={() => setNavOpen(true)} actionSlotRef={setActionSlot} />
+          <Topbar
+            title={topbarTitle}
+            onOpenNav={() => setNavOpen(true)}
+            actionSlotRef={setActionSlot}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={toggleSidebarCollapsed}
+          />
           <CapBanner />
           <main className="flex-1 overflow-y-auto">
             <Outlet />
