@@ -43,6 +43,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const taskId = c.req.param('id')
     // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ผู้จ่ายงาน (Reporter สไตล์ Jira) ต้อง join users อีกรอบแยกจาก assignee
     const dispatcher = alias(users, 'dispatcher')
+    // Pronista §Workspace/Task Jira-alignment (2026-09-07) — Reporter แบบ Jira ต้องมีเสมอ (Jira ใช้ผู้สร้างเป็น Reporter ตายตัว) ต่างจาก "ผู้จ่ายงาน" (assignedBy) ที่ว่างได้ถ้ายังไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ ไม่ผ่าน dispatch) — join ผู้สร้างไว้ fallback
+    const creator = alias(users, 'creator')
     const row = (
       await db
         .select({
@@ -54,6 +56,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
           assigneeRole: users.role,
           assignedByName: dispatcher.name,
           assignedByAvatarUrl: dispatcher.avatarUrl,
+          createdByName: creator.name,
+          createdByAvatarUrl: creator.avatarUrl,
         })
         .from(tasks)
         // Pronista §5 (2026-07-03) — leftJoin: task ใน "Backlog ของโปรเจกต์" (groupId ยังว่าง) ต้องเปิด detail ได้ด้วย
@@ -61,6 +65,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         .leftJoin(projects, eq(tasks.projectId, projects.id))
         .leftJoin(users, eq(tasks.assigneeId, users.id))
         .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
+        .leftJoin(creator, eq(tasks.createdBy, creator.id))
         .where(eq(tasks.id, taskId))
         .limit(1)
     )[0]
@@ -160,6 +165,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       assigneeAvatarUrl: row.assigneeAvatarUrl,
       assignedByName: row.assignedByName,
       assignedByAvatarUrl: row.assignedByAvatarUrl,
+      createdByName: row.createdByName,
+      createdByAvatarUrl: row.createdByAvatarUrl,
       myRole,
       parent,
       epic,

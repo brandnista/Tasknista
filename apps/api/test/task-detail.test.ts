@@ -44,8 +44,10 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — GET /tasks/:id/detail
     const t = await makeTask(owner)
     const detail = (await (
       await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
-    ).json()) as { assignedByName: string | null }
+    ).json()) as { assignedByName: string | null; createdByName: string | null }
     expect(detail.assignedByName).toBeNull()
+    // Pronista §Workspace/Task Jira-alignment (2026-09-07) — Reporter สไตล์ Jira ต้องมีเสมอ: ไม่เคยจ่ายงานเป็นทางการก็ยัง fallback เห็นผู้สร้างงานได้
+    expect(detail.createdByName).toBe('เมธ')
   })
 })
 

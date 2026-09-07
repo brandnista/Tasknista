@@ -238,6 +238,8 @@ interface Detail {
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — "Reporter" สไตล์ Jira: ผู้กด "จ่ายงาน" ล่าสุด (assignedBy)
   assignedByName: string | null
   assignedByAvatarUrl: string | null
+  createdByName: string | null
+  createdByAvatarUrl: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
   dispatchedAt: number | null
   createdBy: string
@@ -776,6 +778,87 @@ export function TaskDetailPage() {
           )}
         </div>
 
+        {/* Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — ย้ายแท็บ All/Comments/History/Work log ขึ้นมาไว้ใต้หัวเรื่องทันที ตำแหน่ง/สไตล์เดียวกับแท็บ "รายละเอียด/ประวัติการเปลี่ยนแปลง" บน PRD เดิม */}
+        <div className="px-5 pt-3 border-b border-border-subtle">
+          <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit mb-3">
+            <button onClick={() => setActivityTab('all')} className={`px-2.5 py-1 rounded-md ${activityTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>All</button>
+            <button onClick={() => setActivityTab('comments')} className={`px-2.5 py-1 rounded-md ${activityTab === 'comments' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>Comments</button>
+            <button onClick={() => setActivityTab('history')} className={`px-2.5 py-1 rounded-md ${activityTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>History</button>
+            <button onClick={() => setActivityTab('worklog')} className={`px-2.5 py-1 rounded-md ${activityTab === 'worklog' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>Work log</button>
+          </div>
+        </div>
+
+        <div className="p-5 border-b border-border-subtle">
+          {activityTab === 'worklog' ? (
+            <div className="space-y-2">
+              {(timeRows ?? []).length === 0 && <div className="text-sm text-border">ยังไม่มีการลงเวลา</div>}
+              {(timeRows ?? []).map((r) => (
+                <div key={r.id} className="flex items-center gap-2 text-xs bg-hover rounded-lg px-3 py-2">
+                  <span className="font-medium text-body">{r.userName}</span>
+                  <span className="text-muted">{r.workDate}</span>
+                  <span className="ml-auto font-semibold text-ink tabular-nums">{minutesToHoursLabel(r.minutes)} ชม.</span>
+                  {r.note && <span className="text-muted truncate max-w-32" title={r.note}>· {r.note}</span>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(activityTab === 'comments' ? commentsFeed : activityTab === 'history' ? historyFeed : feed).length === 0 && (
+                <div className="text-sm text-border">ยังไม่มีรายการ</div>
+              )}
+              {(activityTab === 'comments' ? commentsFeed : activityTab === 'history' ? historyFeed : feed).map((f) =>
+                f.kind === 'comment' ? (
+                  <div key={`c-${f.id}`} className="flex gap-2">
+                    <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
+                    <div className="min-w-0">
+                      <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
+                        <b className="text-body">{f.userName}</b> · {f.body}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
+                        {f.isBlocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger-700 bg-danger-100 px-1.5 py-0.5 rounded-full">
+                            <AlertTriangle className="w-3 h-3" /> ติดขัด
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={`a-${f.id}`} className="flex gap-2 text-xs">
+                    <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
+                    <div className="flex-1 leading-snug pt-0.5">
+                      <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
+                      {/* Pronista §System Requirements Update — ประวัติเปลี่ยนสถานะ: โชว์ "สถานะเดิม → สถานะใหม่" จาก audit meta.before/after */}
+                      {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
+                        <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
+                      )}
+                      {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
+                      {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
+                        <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
+                      )}
+                      {/* Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แก้ทั่วไปผ่านปุ่ม "บันทึกเพื่ออัปเดตข้อมูล": โชว์รายชื่อฟิลด์ที่เปลี่ยน (best-effort ไม่มีค่าเดิมรายฟิลด์) */}
+                      {f.action === 'task.update' && genericChangedFields(f.meta?.after).length > 0 && (
+                        <div className="text-[11px] text-muted mt-0.5">แก้ไข: {genericChangedFields(f.meta?.after).join(', ')}</div>
+                      )}
+                    </div>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-3">
+            <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 min-w-0 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
+            {isAssignee && (
+              <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
+                <AlertTriangle className="w-4 h-4" /> ติดขัด
+              </button>
+            )}
+            <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
+          </div>
+        </div>
+
         <div className="grid md:grid-cols-[minmax(0,1fr)_300px]">
           <div className="p-5 space-y-6 border-b md:border-b-0 md:border-r border-border-subtle min-w-0">
 
@@ -806,85 +889,6 @@ export function TaskDetailPage() {
               ) : (
                 <p className="text-sm text-soft whitespace-pre-line">{t.assigneeNotes ?? '—'}</p>
               )}
-            </div>
-
-            <div>
-              {/* Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — รวม "ความเคลื่อนไหว"+"ประวัติการเปลี่ยนแปลง" เป็น 4 แท็บย่อยสไตล์ Jira Activity — ย้ายขึ้นมาไว้บนสุดตามที่ขอ */}
-              <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit mb-3">
-                <button onClick={() => setActivityTab('all')} className={`px-2.5 py-1 rounded-md ${activityTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>All</button>
-                <button onClick={() => setActivityTab('comments')} className={`px-2.5 py-1 rounded-md ${activityTab === 'comments' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>Comments</button>
-                <button onClick={() => setActivityTab('history')} className={`px-2.5 py-1 rounded-md ${activityTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>History</button>
-                <button onClick={() => setActivityTab('worklog')} className={`px-2.5 py-1 rounded-md ${activityTab === 'worklog' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>Work log</button>
-              </div>
-
-              {activityTab === 'worklog' ? (
-                <div className="space-y-2">
-                  {(timeRows ?? []).length === 0 && <div className="text-sm text-border">ยังไม่มีการลงเวลา</div>}
-                  {(timeRows ?? []).map((r) => (
-                    <div key={r.id} className="flex items-center gap-2 text-xs bg-hover rounded-lg px-3 py-2">
-                      <span className="font-medium text-body">{r.userName}</span>
-                      <span className="text-muted">{r.workDate}</span>
-                      <span className="ml-auto font-semibold text-ink tabular-nums">{minutesToHoursLabel(r.minutes)} ชม.</span>
-                      {r.note && <span className="text-muted truncate max-w-32" title={r.note}>· {r.note}</span>}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {(activityTab === 'comments' ? commentsFeed : activityTab === 'history' ? historyFeed : feed).length === 0 && (
-                    <div className="text-sm text-border">ยังไม่มีรายการ</div>
-                  )}
-                  {(activityTab === 'comments' ? commentsFeed : activityTab === 'history' ? historyFeed : feed).map((f) =>
-                    f.kind === 'comment' ? (
-                      <div key={`c-${f.id}`} className="flex gap-2">
-                        <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
-                        <div className="min-w-0">
-                          <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
-                            <b className="text-body">{f.userName}</b> · {f.body}
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
-                            {f.isBlocked && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger-700 bg-danger-100 px-1.5 py-0.5 rounded-full">
-                                <AlertTriangle className="w-3 h-3" /> ติดขัด
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div key={`a-${f.id}`} className="flex gap-2 text-xs">
-                        <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
-                        <div className="flex-1 leading-snug pt-0.5">
-                          <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
-                          {/* Pronista §System Requirements Update — ประวัติเปลี่ยนสถานะ: โชว์ "สถานะเดิม → สถานะใหม่" จาก audit meta.before/after */}
-                          {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
-                            <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
-                          )}
-                          {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
-                          {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
-                            <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
-                          )}
-                          {/* Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แก้ทั่วไปผ่านปุ่ม "บันทึกเพื่ออัปเดตข้อมูล": โชว์รายชื่อฟิลด์ที่เปลี่ยน (best-effort ไม่มีค่าเดิมรายฟิลด์) */}
-                          {f.action === 'task.update' && genericChangedFields(f.meta?.after).length > 0 && (
-                            <div className="text-[11px] text-muted mt-0.5">แก้ไข: {genericChangedFields(f.meta?.after).join(', ')}</div>
-                          )}
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
-
-              <div className="flex gap-2 mt-3">
-                <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 min-w-0 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
-                {isAssignee && (
-                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
-                    <AlertTriangle className="w-4 h-4" /> ติดขัด
-                  </button>
-                )}
-                <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
-              </div>
             </div>
 
             <div>
@@ -1177,13 +1181,13 @@ export function TaskDetailPage() {
                     t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
                   )}
 
-                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — "Reporter" สไตล์ Jira: ผู้จ่ายงานจริง (assignedBy) แสดงอย่างเดียว แก้ไม่ได้ตรงนี้ */}
-                  {t.assignedByName && (
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-07) — "Reporter" แบบ Jira: ต้องมีเสมอ ไม่ซ่อน — ใช้ผู้จ่ายงานจริง (assignedBy) ก่อน ถ้าไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ) fallback เป็นผู้สร้างงานแทน (createdBy) แสดงอย่างเดียว แก้ไม่ได้ตรงนี้ */}
+                  {(t.assignedByName ?? t.createdByName) && (
                     <>
                       <span className="text-dim">ผู้จ่ายงาน</span>
                       <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
-                        <Avatar name={t.assignedByName} avatarUrl={t.assignedByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(t.assignedByName)} />
-                        {t.assignedByName}
+                        <Avatar name={(t.assignedByName ?? t.createdByName)!} avatarUrl={t.assignedByName ? t.assignedByAvatarUrl : t.createdByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor((t.assignedByName ?? t.createdByName)!)} />
+                        {t.assignedByName ?? t.createdByName}
                       </span>
                     </>
                   )}
