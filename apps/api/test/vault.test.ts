@@ -167,6 +167,36 @@ describe('§Secret Vault — items', () => {
     const revealed = (await (await app.request(`/api/vault/items/${created.id}/reveal`, { headers: withToken(owner, token) }, env)).json()) as { password: string }
     expect(revealed.password).toBe('new-pass')
   })
+
+  it('type + extraFields — สร้างพร้อม type อื่นๆ ได้ · list เห็น type แต่ extraFields ไม่หลุด · reveal ได้ extraFields ตรงกับที่ set', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { token } = await setPinAndUnlock(owner)
+    const created = (await (
+      await app.request(
+        '/api/vault/items',
+        { ...json(owner, { name: 'Paysolution', type: 'payment_gateway', extraFields: [{ label: 'Merchant ID', value: 'M12345' }, { label: 'Secret Key', value: 'sk-secret-xyz' }] }), headers: { ...withToken(owner, token), 'content-type': 'application/json' } },
+        env,
+      )
+    ).json()) as { id: string }
+
+    const list = (await (await app.request('/api/vault/items', { headers: { cookie: owner } }, env)).json()) as { id: string; type: string }[]
+    const row = list.find((r) => r.id === created.id)
+    expect(row?.type).toBe('payment_gateway')
+    expect(JSON.stringify(list)).not.toContain('sk-secret-xyz') // extraFieldsEnc ไม่หลุดมาใน list เด็ดขาด
+
+    const revealed = (await (await app.request(`/api/vault/items/${created.id}/reveal`, { headers: withToken(owner, token) }, env)).json()) as { extraFields: { label: string; value: string }[] }
+    expect(revealed.extraFields).toEqual([{ label: 'Merchant ID', value: 'M12345' }, { label: 'Secret Key', value: 'sk-secret-xyz' }])
+  })
+
+  it('type ไม่ระบุ → default เป็น website · extraFields ไม่ระบุ → reveal คืน array ว่าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { token } = await setPinAndUnlock(owner)
+    const created = (await (await app.request('/api/vault/items', { ...json(owner, { name: 'ธรรมดา' }), headers: { ...withToken(owner, token), 'content-type': 'application/json' } }, env)).json()) as { id: string }
+    const list = (await (await app.request('/api/vault/items', { headers: { cookie: owner } }, env)).json()) as { id: string; type: string }[]
+    expect(list.find((r) => r.id === created.id)?.type).toBe('website')
+    const revealed = (await (await app.request(`/api/vault/items/${created.id}/reveal`, { headers: withToken(owner, token) }, env)).json()) as { extraFields: unknown[] }
+    expect(revealed.extraFields).toEqual([])
+  })
 })
 
 describe('§Secret Vault — แจ้งเตือนคนอื่นตอน unlock', () => {

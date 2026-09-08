@@ -3,13 +3,26 @@
  * ต่อโปรเจกต์ (มี badge ชื่อโปรเจกต์) หรือส่วนกลางบริษัท (badge "บริษัท") — ต้องปลดล็อคด้วย Master PIN ก่อนเห็น/สร้าง/แก้ไข plaintext
  * PIN นี้แยกจาก login (Google OAuth ล้วน ไม่มี password) — ปลดล็อคแล้วอยู่ได้ 15 นาที (server กำหนด)
  */
-import { Check, Copy, Eye, EyeOff, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { isSensitiveFieldLabel, VAULT_ITEM_TYPES, VAULT_TYPE_LABEL, VAULT_TYPE_SUGGESTED_FIELDS, type VaultItemType } from '@seedoffice/core'
+import { Check, Copy, CreditCard, Eye, EyeOff, Globe, IdCard, KeyRound, Landmark, Lock, Pencil, Plus, Search, Server, StickyNote, Trash2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { useDialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+
+// Pronista §Secret Vault Type (2026-09-08) — แม็ป VaultItemType → ไอคอนจริง (VAULT_TYPE_ICON ใน core เป็นแค่ชื่อ string ไว้อ้างอิง)
+const TYPE_ICON: Record<VaultItemType, typeof Lock> = {
+  website: Globe,
+  api_credential: KeyRound,
+  server: Server,
+  payment_gateway: Landmark,
+  payment_card: CreditCard,
+  identity: IdCard,
+  note: StickyNote,
+  other: Lock,
+}
 
 interface VaultStatus {
   hasPin: boolean
@@ -22,9 +35,14 @@ interface VaultAuditRow {
   meta: { name?: string } | null
   at: number
 }
+interface VaultExtraField {
+  label: string
+  value: string
+}
 interface VaultItemRow {
   id: string
   name: string
+  type: VaultItemType
   username: string | null
   url: string | null
   projectId: string | null
@@ -38,6 +56,7 @@ interface VaultItemRevealed {
   password: string | null
   url: string | null
   notes: string | null
+  extraFields: VaultExtraField[]
 }
 interface ProjectOpt {
   id: string
@@ -145,15 +164,26 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
   const toast = useToast()
   const { promptDialog } = useDialog()
   const [name, setName] = useState(item?.name ?? '')
+  const [type, setType] = useState<VaultItemType>(item?.type ?? 'website')
   const [projectId, setProjectId] = useState(item?.projectId ?? '')
   const [folderId, setFolderId] = useState(item?.folderId ?? '')
   const [username, setUsername] = useState(item?.username ?? '')
   const [password, setPassword] = useState('')
   const [url, setUrl] = useState(item?.url ?? '')
   const [notes, setNotes] = useState('')
+  // Pronista §Secret Vault Type (2026-09-08) — เหมือน password/notes: แก้ไขรายการเดิมเริ่มเป็นค่าว่างเสมอ (เว้นว่าง = ไม่เปลี่ยนฟิลด์เสริมเดิม) ไม่ต้อง reveal มาเติมล่วงหน้า
+  const [extraFields, setExtraFields] = useState<VaultExtraField[]>([])
   const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const changeType = (next: VaultItemType) => {
+    setType(next)
+    if (extraFields.length === 0) setExtraFields(VAULT_TYPE_SUGGESTED_FIELDS[next].map((label) => ({ label, value: '' })))
+  }
+  const updateField = (i: number, patch: Partial<VaultExtraField>) => setExtraFields((fs) => fs.map((f, idx) => (idx === i ? { ...f, ...patch } : f)))
+  const removeField = (i: number) => setExtraFields((fs) => fs.filter((_, idx) => idx !== i))
+  const addField = () => setExtraFields((fs) => [...fs, { label: '', value: '' }])
 
   const createFolder = async () => {
     const name2 = await promptDialog({ title: 'สร้าง Folder ใหม่', placeholder: 'เช่น เว็บ Seller ร้าน X', confirmLabel: 'สร้าง' })
@@ -168,14 +198,17 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
     if (!name.trim()) return setError('ใส่ชื่อรายการ')
     setBusy(true)
     try {
+      const cleanFields = extraFields.filter((f) => f.label.trim())
       const payload = {
         name: name.trim(),
+        type,
         projectId: projectId || null,
         folderId: folderId || null,
         username: username.trim() || null,
         url: url.trim() || null,
         ...(password ? { password } : {}),
         ...(notes ? { notes } : {}),
+        ...(cleanFields.length > 0 ? { extraFields: cleanFields } : {}),
       }
       const headers = { 'x-vault-token': token }
       if (item) await api.patch(`/api/vault/items/${item.id}`, payload, headers)
@@ -202,6 +235,12 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
           <div>
             <label className="text-[11px] text-muted block mb-0.5">ชื่อรายการ</label>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น cPanel — ร้านค้าออนไลน์ Bloom" className={input} />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">ประเภท</label>
+            <select value={type} onChange={(e) => changeType(e.target.value as VaultItemType)} className={input}>
+              {VAULT_ITEM_TYPES.map((t) => <option key={t} value={t}>{VAULT_TYPE_LABEL[t]}</option>)}
+            </select>
           </div>
           <div>
             <label className="text-[11px] text-muted block mb-0.5">โปรเจกต์</label>
@@ -247,6 +286,29 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
             <label className="text-[11px] text-muted block mb-0.5">Notes{item && ' (เว้นว่าง = ไม่เปลี่ยน)'}</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={item ? '(เว้นว่างไว้ = ไม่เปลี่ยนบันทึกเดิม)' : ''} className={input} />
           </div>
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <label className="text-[11px] text-muted">ฟิลด์เสริม{item && ' (เว้นว่าง = ไม่เปลี่ยนฟิลด์เดิม)'}</label>
+              <button type="button" onClick={addField} className="text-[11px] font-medium text-brand-600 hover:underline">+ เพิ่มฟิลด์</button>
+            </div>
+            {extraFields.length > 0 && (
+              <div className="space-y-1.5">
+                {extraFields.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <input value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="ชื่อฟิลด์" className={`${input} w-2/5`} />
+                    <input
+                      value={f.value}
+                      onChange={(e) => updateField(i, { value: e.target.value })}
+                      type={isSensitiveFieldLabel(f.label) ? 'password' : 'text'}
+                      placeholder="ค่า"
+                      className={`${input} flex-1`}
+                    />
+                    <button type="button" onClick={() => removeField(i)} className="shrink-0 p-1.5 rounded hover:bg-hover text-dim"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           {error && <div className="text-xs text-danger-600">{error}</div>}
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
@@ -269,8 +331,15 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
   onLocked: () => void
 }) {
   const { confirmDialog, alertDialog } = useDialog()
-  const [showPassword, setShowPassword] = useState(false)
+  const [shownFields, setShownFields] = useState<Set<string>>(new Set())
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const toggleShown = (field: string) =>
+    setShownFields((s) => {
+      const next = new Set(s)
+      if (next.has(field)) next.delete(field)
+      else next.add(field)
+      return next
+    })
   const { data, error } = useLoad<VaultItemRevealed>(() => api.get(`/api/vault/items/${item.id}/reveal`, { 'x-vault-token': token }), [item.id])
 
   if (error && isVaultLocked(error)) {
@@ -294,31 +363,39 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
     }
   }
 
-  const row = (label: string, value: string | null, field: string, mask?: boolean) =>
-    value && (
-      <div>
-        <label className="text-[11px] text-muted block mb-0.5">{label}</label>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 font-mono truncate">{mask && !showPassword ? '••••••••' : value}</div>
-          {mask && (
-            <button onClick={() => setShowPassword((v) => !v)} className="text-muted hover:text-body shrink-0" title={showPassword ? 'ซ่อน' : 'แสดง'}>
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+  const row = (label: string, value: string | null, field: string, mask?: boolean) => {
+    const shown = shownFields.has(field)
+    return (
+      value && (
+        <div>
+          <label className="text-[11px] text-muted block mb-0.5">{label}</label>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 font-mono truncate">{mask && !shown ? '••••••••' : value}</div>
+            {mask && (
+              <button onClick={() => toggleShown(field)} className="text-muted hover:text-body shrink-0" title={shown ? 'ซ่อน' : 'แสดง'}>
+                {shown ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            )}
+            <button onClick={() => void copy(field, value)} className="text-muted hover:text-body shrink-0" title="คัดลอก">
+              {copiedField === field ? <Check className="w-4 h-4 text-success-600" /> : <Copy className="w-4 h-4" />}
             </button>
-          )}
-          <button onClick={() => void copy(field, value)} className="text-muted hover:text-body shrink-0" title="คัดลอก">
-            {copiedField === field ? <Check className="w-4 h-4 text-success-600" /> : <Copy className="w-4 h-4" />}
-          </button>
+          </div>
         </div>
-      </div>
+      )
     )
+  }
 
+  const TypeIcon = TYPE_ICON[item.type]
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-          <div>
-            <div className="font-semibold text-ink text-sm">{item.name}</div>
-            <div className="text-[11px] text-muted">{item.projectName ?? 'บริษัท'}{item.folderName ? ` · ${item.folderName}` : ''}</div>
+          <div className="flex items-center gap-2">
+            <TypeIcon className="w-4 h-4 text-muted shrink-0" />
+            <div>
+              <div className="font-semibold text-ink text-sm">{item.name}</div>
+              <div className="text-[11px] text-muted">{item.projectName ?? 'บริษัท'}{item.folderName ? ` · ${item.folderName}` : ''}</div>
+            </div>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
@@ -341,6 +418,7 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
                   <div className="text-sm bg-hover rounded-lg px-3 py-2 whitespace-pre-wrap">{data.notes}</div>
                 </div>
               )}
+              {data.extraFields.map((f, i) => row(f.label, f.value, `extra-${i}`, isSensitiveFieldLabel(f.label)))}
             </>
           )}
         </div>
@@ -486,16 +564,22 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filtered.map((it) => (
+                {filtered.map((it) => {
+                  const TypeIcon = TYPE_ICON[it.type]
+                  return (
                   <div key={it.id} onClick={() => setDetail(it)} className="bg-white rounded-lg shadow-xs p-5 cursor-pointer hover:shadow-sm transition">
-                    <div className="font-medium text-ink text-sm truncate">{it.name}</div>
+                    <div className="flex items-center gap-1.5">
+                      <TypeIcon className="w-3.5 h-3.5 text-muted shrink-0" />
+                      <div className="font-medium text-ink text-sm truncate">{it.name}</div>
+                    </div>
                     {it.username && <div className="text-xs text-muted truncate mt-0.5">{it.username}</div>}
                     <div className="mt-3 flex flex-wrap gap-1">
                       <span className="text-[11px] px-1.5 py-0.5 rounded bg-hover text-dim">{it.projectName ?? 'บริษัท'}</span>
                       {it.folderName && <span className="text-[11px] px-1.5 py-0.5 rounded bg-info-50 text-info-700">{it.folderName}</span>}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </>

@@ -1,3 +1,4 @@
+import { VAULT_ITEM_TYPES } from '@seedoffice/core'
 import { auditLogs, createDb, projects, secretVaultFolders, secretVaultItems, users } from '@seedoffice/db'
 import { and, desc, eq, isNull, like, or } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -25,12 +26,15 @@ const pinResetPayload = z.object({ userId: z.string() })
 const unlockPayload = z.object({ pin: z.string().min(1) })
 const itemCreatePayload = z.object({
   name: z.string().min(1),
+  type: z.enum(VAULT_ITEM_TYPES).optional(),
   projectId: z.string().nullable().optional(),
   folderId: z.string().nullable().optional(),
   username: z.string().nullable().optional(),
   password: z.string().nullable().optional(),
   url: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  // Pronista §Secret Vault Type (2026-09-08) — ฟิลด์เสริมอิสระ (API Secret/Merchant ID/เลขบัตร ฯลฯ) แล้วแต่ type ที่เลือก
+  extraFields: z.array(z.object({ label: z.string().min(1).max(60), value: z.string().max(2000) })).max(20).optional(),
 })
 const itemPatchPayload = itemCreatePayload.partial()
 const folderPayload = z.object({ name: z.string().min(1).max(60) })
@@ -118,6 +122,7 @@ export const vaultRoutes = new Hono<AppEnv>()
       .select({
         id: secretVaultItems.id,
         name: secretVaultItems.name,
+        type: secretVaultItems.type,
         username: secretVaultItems.username,
         url: secretVaultItems.url,
         projectId: secretVaultItems.projectId,
@@ -192,6 +197,7 @@ export const vaultRoutes = new Hono<AppEnv>()
       password: row.passwordEnc ? await decryptSecret(row.passwordEnc, c.env.VAULT_ENC_KEY) : null,
       url: row.url,
       notes: row.notesEnc ? await decryptSecret(row.notesEnc, c.env.VAULT_ENC_KEY) : null,
+      extraFields: row.extraFieldsEnc ? (JSON.parse(await decryptSecret(row.extraFieldsEnc, c.env.VAULT_ENC_KEY)) as { label: string; value: string }[]) : [],
     })
   })
 
@@ -200,13 +206,14 @@ export const vaultRoutes = new Hono<AppEnv>()
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const { password, notes, ...rest } = body.data
+    const { password, notes, extraFields, ...rest } = body.data
     const inserted = await db
       .insert(secretVaultItems)
       .values({
         ...rest,
         passwordEnc: password ? await encryptSecret(password, c.env.VAULT_ENC_KEY) : null,
         notesEnc: notes ? await encryptSecret(notes, c.env.VAULT_ENC_KEY) : null,
+        extraFieldsEnc: extraFields && extraFields.length > 0 ? await encryptSecret(JSON.stringify(extraFields), c.env.VAULT_ENC_KEY) : null,
         createdBy: me.id,
       })
       .returning()
@@ -228,10 +235,11 @@ export const vaultRoutes = new Hono<AppEnv>()
         .limit(1)
     )[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
-    const { password, notes, ...rest } = body.data
+    const { password, notes, extraFields, ...rest } = body.data
     const patch: Record<string, unknown> = { ...rest, updatedAt: new Date() }
     if ('password' in body.data) patch.passwordEnc = password ? await encryptSecret(password, c.env.VAULT_ENC_KEY) : null
     if ('notes' in body.data) patch.notesEnc = notes ? await encryptSecret(notes, c.env.VAULT_ENC_KEY) : null
+    if ('extraFields' in body.data) patch.extraFieldsEnc = extraFields && extraFields.length > 0 ? await encryptSecret(JSON.stringify(extraFields), c.env.VAULT_ENC_KEY) : null
     await db.update(secretVaultItems).set(patch).where(eq(secretVaultItems.id, before.id))
     await writeAudit(c.env, { actorId: me.id, action: 'secret_vault_item.update', entity: 'secret_vault_item', entityId: before.id, meta: { name: before.name } })
     return c.json({ ok: true })

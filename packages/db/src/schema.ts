@@ -2212,11 +2212,15 @@ export const secretVaultItems = sqliteTable(
     projectId: text('project_id').references(() => projects.id),
     // Pronista §Secret Vault Folder (2026-09-08) — จัดกลุ่มอิสระจากโปรเจกต์ (ลบ Folder แล้วรายการไม่หาย แค่กลับมาเป็น null)
     folderId: text('folder_id').references((): AnySQLiteColumn => secretVaultFolders.id),
+    // Pronista §Secret Vault Type (2026-09-08) — ค่าที่ยอมรับคุมที่ Zod ฝั่ง apps/api (ดู VAULT_ITEM_TYPES ใน packages/core/vault-types.ts — core เป็น pure package แยกจาก db เด็ดขาด ไม่ import ข้ามกัน)
+    type: text('type').notNull().default('website'),
     name: text('name').notNull(),
     username: text('username'),
     passwordEnc: text('password_enc'),
     url: text('url'),
     notesEnc: text('notes_enc'),
+    // Pronista §Secret Vault Type (2026-09-08) — ฟิลด์เสริมอิสระ [{label,value}] เข้ารหัสเป็น JSON ก้อนเดียว (เหมือน notesEnc) เช่น API Secret/Merchant ID/เลขบัตร
+    extraFieldsEnc: text('extra_fields_enc'),
     createdBy: text('created_by')
       .notNull()
       .references((): AnySQLiteColumn => users.id),
