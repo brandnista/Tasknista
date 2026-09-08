@@ -48,7 +48,7 @@ import {
   type TaskType,
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
-import { asc, desc, eq, isNotNull, isNull } from 'drizzle-orm'
+import { asc, desc, eq, getTableColumns, isNotNull, isNull } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -56,6 +56,13 @@ import { newToken } from '../lib/session'
 import type { AppEnv } from '../types'
 
 const icsUrl = (appUrl: string, token: string) => `${appUrl}/api/calendar/feed/${token}`
+
+// Pronista §Secret Vault — vaultPinHash เป็น hash ของ PIN ต้องไม่หลุดออกจาก server เด็ดขาด (เทียบเท่า password hash)
+// ใช้กับทุก endpoint ที่ส่ง full user row กลับไป client เพื่อกันหลุดโดย getTableColumns sync กับ schema อัตโนมัติ ไม่ต้อง maintain รายชื่อคอลัมน์เอง
+const allUserColumns = getTableColumns(users)
+const safeUserColumns = Object.fromEntries(
+  Object.entries(allUserColumns).filter(([key]) => key !== 'vaultPinHash'),
+) as Omit<typeof allUserColumns, 'vaultPinHash'>
 
 // Pronista §Entity Types Alignment — เลขบัตร ปชช./ทะเบียนนิติบุคคล 13 หลัก, รหัสสาขา 5 หลัก
 const ID_CARD_SCHEMA = z
@@ -103,7 +110,7 @@ export const adminRoutes = new Hono<AppEnv>()
     const access = await resolveUsersAccess(c)
     if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
-    const all = await db.select().from(users).where(isNull(users.deletedAt)).orderBy(asc(users.role), asc(users.name))
+    const all = await db.select(safeUserColumns).from(users).where(isNull(users.deletedAt)).orderBy(asc(users.role), asc(users.name))
     const scoped = access === 'owner' ? all : all.filter((u) => categoryOfUserRole(u.role) === access)
     const allTeams = await db.select().from(teams)
     const teamName = new Map(allTeams.map((t) => [t.id, t.name]))
@@ -121,7 +128,7 @@ export const adminRoutes = new Hono<AppEnv>()
     const access = await resolveUsersAccess(c)
     if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
-    const user = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
+    const user = (await db.select(safeUserColumns).from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!user || user.deletedAt) return c.json({ error: 'not_found' }, 404)
     if (access !== 'owner' && categoryOfUserRole(user.role) !== access) return c.json({ error: 'forbidden' }, 403)
     const links = await db.select({ projectId: customerProjects.projectId }).from(customerProjects).where(eq(customerProjects.userId, user.id))
