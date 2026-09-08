@@ -1,20 +1,24 @@
-import { createDb, projects, secretVaultItems, users } from '@seedoffice/db'
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { auditLogs, createDb, projects, secretVaultItems, users } from '@seedoffice/db'
+import { and, desc, eq, isNull, like, or } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { decryptSecret, encryptSecret } from '../lib/crypto'
+import { notifyUser, usersWithMenuAccess } from '../lib/notify'
 import { hashPin, verifyPin } from '../lib/vault-pin'
-import { createVaultUnlock, revokeVaultUnlock, VAULT_UNLOCK_COOKIE, vaultUnlockValid } from '../lib/vault-session'
+import { createVaultUnlock, revokeVaultUnlock, vaultUnlockValid } from '../lib/vault-session'
 import type { AppEnv } from '../types'
 
 /**
- * Pronista §Secret Vault (2026-09-03) — คลังเก็บรหัสผ่าน/ข้อมูลลับ owner-only (mount ที่ index.ts พร้อม requireAuth+ownerOnly)
+ * Pronista §Secret Vault (2026-09-03, เปิดเพดานสิทธิ์ได้ 2026-09-08) — คลังเก็บรหัสผ่าน/ข้อมูลลับ (mount ที่ index.ts พร้อม requireAuth+ceilingMenu('vault'))
  * ต่อโปรเจกต์ (projectId มีค่า) หรือส่วนกลางบริษัท (projectId ว่าง) — password/notes เข้ารหัส AES-GCM (VAULT_ENC_KEY)
  * ต้องปลดล็อคด้วย Master PIN ก่อนเห็น/สร้าง/แก้ไขข้อมูล plaintext (ดู requireVaultUnlock ด้านล่าง) — list เห็นได้เลยไม่ต้องปลดล็อค (ไม่มี plaintext อยู่ใน list)
+ * §Secret Vault Permission (2026-09-08) — ปลดล็อคไม่ persist ข้าม mount ของหน้าแล้ว (ต้องใส่ PIN ทุกครั้งที่เข้าเมนู): token ส่งกลับใน response body
+ * ไม่ใช่ cookie ฝั่ง client เก็บไว้ใน memory (React state) เองแล้วแนบมาทาง header `X-Vault-Token` เอา — server ยัง verify กับ DB เหมือนเดิม (TTL 15 นาที เป็น safety-net)
  */
+
+const VAULT_TOKEN_HEADER = 'x-vault-token'
 
 const pinPayload = z.object({ currentPin: z.string().optional(), newPin: z.string().min(4).max(20) })
 const pinResetPayload = z.object({ userId: z.string() })
@@ -29,24 +33,21 @@ const itemCreatePayload = z.object({
 })
 const itemPatchPayload = itemCreatePayload.partial()
 
-const isHttps = (appUrl: string) => appUrl.startsWith('https://')
-
-/** ต้องปลดล็อค Vault ด้วย PIN ก่อน (session แยกจาก login หลัก, อายุ 15 นาที) — ใช้กับ endpoint ที่แตะ plaintext เท่านั้น (reveal/create/update) */
+/** ต้องปลดล็อค Vault ด้วย PIN ก่อน (token แนบมาทาง header ทุกครั้ง ไม่มี cookie แล้ว, อายุ 15 นาที) — ใช้กับ endpoint ที่แตะ plaintext เท่านั้น (reveal/create/update) */
 const requireVaultUnlock = createMiddleware<AppEnv>(async (c, next) => {
   const me = c.get('user')
-  const token = getCookie(c, VAULT_UNLOCK_COOKIE)
+  const token = c.req.header(VAULT_TOKEN_HEADER)
   if (!token || !(await vaultUnlockValid(c.env, me.id, token))) return c.json({ error: 'vault_locked' }, 401)
   await next()
 })
 
 export const vaultRoutes = new Hono<AppEnv>()
 
+  // §Secret Vault Permission (2026-09-08) — ไม่มี cookie ให้เช็คแล้ว คืนแค่ hasPin (unlocked เป็น state ฝั่ง client ล้วนๆ ต่อการ mount)
   .get('/status', async (c) => {
     const me = c.get('user')
     const row = (await createDb(c.env.DB).select({ vaultPinHash: users.vaultPinHash }).from(users).where(eq(users.id, me.id)).limit(1))[0]
-    const token = getCookie(c, VAULT_UNLOCK_COOKIE)
-    const unlocked = !!token && (await vaultUnlockValid(c.env, me.id, token))
-    return c.json({ hasPin: !!row?.vaultPinHash, unlocked })
+    return c.json({ hasPin: !!row?.vaultPinHash })
   })
 
   // ตั้ง/เปลี่ยน PIN — ตั้งครั้งแรกไม่ต้องมี currentPin, เปลี่ยนต้องยืนยัน currentPin ก่อนเสมอ
@@ -67,7 +68,9 @@ export const vaultRoutes = new Hono<AppEnv>()
   })
 
   // owner คนไหนก็ reset PIN ให้ owner คนอื่นได้โดยไม่ต้องรู้ PIN เดิม (key ถอดรหัสจริงไม่ได้ผูกกับ PIN) — แก้ปัญหา "ลืม PIN"
+  // §Secret Vault Permission (2026-09-08) — เปิดเมนูให้ non-owner เข้าได้แล้ว จุดนี้ต้องเช็ค role เองตรงๆ (เดิมพึ่ง ownerOnly ของ middleware ทั้งหมด) กัน member reset PIN คนอื่นได้ (privilege escalation)
   .post('/pin/reset', async (c) => {
+    if (c.get('user').role !== 'owner') return c.json({ error: 'forbidden' }, 403)
     const body = pinResetPayload.safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
@@ -79,6 +82,8 @@ export const vaultRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
+  // §Secret Vault Permission (2026-09-08) — token คืนใน body แทน cookie (client เก็บใน memory เอง ไม่ persist ข้าม mount)
+  // + แจ้งเตือนทุกคนที่มีสิทธิ์เข้าเมนูนี้ทันทีที่ปลดล็อคสำเร็จ (ยกเว้นตัวเอง) ตามที่ตกลงกันไว้
   .post('/unlock', async (c) => {
     const body = unlockPayload.safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -87,23 +92,19 @@ export const vaultRoutes = new Hono<AppEnv>()
     const row = (await db.select({ vaultPinHash: users.vaultPinHash }).from(users).where(eq(users.id, me.id)).limit(1))[0]
     if (!row?.vaultPinHash) return c.json({ error: 'pin_not_set' }, 400)
     if (!(await verifyPin(body.data.pin, row.vaultPinHash))) return c.json({ error: 'invalid_pin' }, 401)
-    const { token, expiresAt } = await createVaultUnlock(c.env, me.id)
-    setCookie(c, VAULT_UNLOCK_COOKIE, token, {
-      httpOnly: true,
-      secure: isHttps(c.env.APP_URL),
-      sameSite: 'Lax',
-      path: '/',
-      expires: expiresAt,
-    })
+    const { token } = await createVaultUnlock(c.env, me.id)
     await writeAudit(c.env, { actorId: me.id, action: 'vault.unlock', entity: 'user', entityId: me.id })
-    return c.json({ ok: true })
+    const recipients = (await usersWithMenuAccess(db, 'vault')).filter((id) => id !== me.id)
+    for (const userId of recipients) {
+      await notifyUser(db, { userId, type: 'vault_accessed', message: `${me.name} เข้าใช้งาน Secret Vault` })
+    }
+    return c.json({ ok: true, token })
   })
 
   .post('/lock', async (c) => {
     const me = c.get('user')
-    const token = getCookie(c, VAULT_UNLOCK_COOKIE)
+    const token = c.req.header(VAULT_TOKEN_HEADER)
     if (token) await revokeVaultUnlock(c.env, token)
-    deleteCookie(c, VAULT_UNLOCK_COOKIE, { path: '/' })
     await writeAudit(c.env, { actorId: me.id, action: 'vault.lock', entity: 'user', entityId: me.id })
     return c.json({ ok: true })
   })
@@ -204,4 +205,17 @@ export const vaultRoutes = new Hono<AppEnv>()
     await db.update(secretVaultItems).set({ deletedAt: new Date() }).where(eq(secretVaultItems.id, before.id))
     await writeAudit(c.env, { actorId: me.id, action: 'secret_vault_item.delete', entity: 'secret_vault_item', entityId: before.id, meta: { name: before.name } })
     return c.json({ ok: true })
+  })
+
+  // §Secret Vault Permission (2026-09-08) — ประวัติการเข้าใช้งาน/action ทุกจุดของ Vault (unlock/lock/reveal/create/update/delete/pin) ไม่มี plaintext เลย ไม่ต้องปลดล็อคก็ดูได้
+  .get('/audit', async (c) => {
+    const db = createDb(c.env.DB)
+    const rows = await db
+      .select({ id: auditLogs.id, actorId: auditLogs.actorId, actorName: users.name, action: auditLogs.action, meta: auditLogs.meta, at: auditLogs.at })
+      .from(auditLogs)
+      .leftJoin(users, eq(auditLogs.actorId, users.id))
+      .where(or(like(auditLogs.action, 'vault%'), like(auditLogs.action, 'secret_vault_item%')))
+      .orderBy(desc(auditLogs.at))
+      .limit(100)
+    return c.json(rows)
   })

@@ -15,6 +15,7 @@ export type MenuKey =
   | 'customers'
   | 'members'
   | 'notifications'
+  | 'vault'
 
 export interface Me {
   id: string

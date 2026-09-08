@@ -1,7 +1,7 @@
 import { createDb, companyConfig, notifications, projectMembers, projects, users } from '@seedoffice/db'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { NOTIFICATION_TYPES } from '@seedoffice/db'
-import { resolvePositions } from '@seedoffice/core'
+import { permissionCategoryOfRole, resolvePermissionCeilings, resolvePositions, type PermissionMenuKey } from '@seedoffice/core'
 
 type Db = ReturnType<typeof createDb>
 
@@ -101,4 +101,19 @@ export async function notifyProjectPmAndBa(env: Env, input: NotifyProjectPmAndBa
   for (const userId of recipients) {
     await notifyUser(db, { userId, type: input.type, projectId: input.projectId, taskId: input.taskId ?? null, message: input.message })
   }
+}
+
+/** Pronista §Secret Vault Permission (2026-09-08) — user ทุกคนที่มองเห็นเมนูนี้ได้ (owner เสมอ + หมวดอื่นที่เพดานสิทธิ์เปิดให้) ใช้แจ้งเตือนกลุ่มที่คำนวณจากเพดานสิทธิ์ */
+export async function usersWithMenuAccess(db: Db, menuKey: PermissionMenuKey): Promise<string[]> {
+  const [allUsers, cfg] = await Promise.all([
+    db.select({ id: users.id, role: users.role }).from(users).where(isNull(users.deletedAt)),
+    db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1),
+  ])
+  const ceilings = resolvePermissionCeilings(cfg[0]?.permissionCeilings)
+  return allUsers
+    .filter((u) => {
+      const category = permissionCategoryOfRole(u.role)
+      return category === null || ceilings[category].menus[menuKey]
+    })
+    .map((u) => u.id)
 }

@@ -9,13 +9,13 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   // Pronista §My Files upload bug fix (2026-08-28) — FormData (อัปโหลดไฟล์) ต้องปล่อยให้ browser ตั้ง Content-Type เอง (multipart/form-data; boundary=...)
   // เดิม force เป็น application/json + JSON.stringify ทุกกรณี ทำให้ไฟล์ที่แนบหายและ server แกะ multipart ไม่ออก (500) — อัปโหลดไฟล์ผ่านหน้าจอจริงพังมาตั้งแต่ทำฟีเจอร์นี้
   const isFormData = body instanceof FormData
   const res = await fetch(path, {
     method,
-    headers: body !== undefined && !isFormData ? { 'content-type': 'application/json' } : undefined,
+    headers: { ...(body !== undefined && !isFormData ? { 'content-type': 'application/json' } : undefined), ...extraHeaders },
     body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
   })
   if (!res.ok) {
@@ -34,9 +34,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
-  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  delete: <T>(path: string) => request<T>('DELETE', path),
+  get: <T>(path: string, headers?: Record<string, string>) => request<T>('GET', path, undefined, headers),
+  post: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>('POST', path, body, headers),
+  put: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>('PUT', path, body, headers),
+  patch: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>('PATCH', path, body, headers),
+  delete: <T>(path: string, headers?: Record<string, string>) => request<T>('DELETE', path, undefined, headers),
 }

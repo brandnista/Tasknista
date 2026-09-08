@@ -133,7 +133,7 @@ export function adminUsersMenuKeyForCategory(category: LoginPermissionCategory):
  * Pronista §Menu Restructure — employees/partners/customers/members เพิ่มเข้ามาทีหลัง (แยกจาก "ตั้งค่าผู้ใช้งาน" เดิมเป็นเมนูหลัก) ต้อง sync ไว้ที่นี่ด้วย
  * ให้เพดานคุมได้ (ค่า default ปิดหมดกัน privilege escalation โดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ครั้งแรก — ดู DEFAULT_PERMISSION_CEILINGS) */
 // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจากเมนู "งานของฉัน" เป็นเมนูหลักของตัวเอง ("แชร์กับฉัน" ย้ายไปเป็นเมนูย่อยของมันแทน) จึงต้องมีเพดานแยกจาก myTasks
-export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'myFiles', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members', 'notifications'] as const
+export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'myFiles', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members', 'notifications', 'vault'] as const
 export type PermissionMenuKey = (typeof PERMISSION_MENU_KEYS)[number]
 export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   dashboard: 'ภาพรวม',
@@ -149,6 +149,7 @@ export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   customers: 'จัดการลูกค้า',
   members: 'จัดการสมาชิก',
   notifications: 'การแจ้งเตือน',
+  vault: 'Secret Vault',
 }
 
 /** เพดานสิทธิ์ต่อหมวด = สิทธิ์ตำแหน่ง (tabs/actions ระดับโปรเจกต์) + เมนูหลักที่มองเห็นได้ (ระดับ sidebar) */
@@ -168,10 +169,10 @@ function allMenus(value: boolean): Record<PermissionMenuKey, boolean> {
  * Pronista §Menu Restructure — employees/partners/customers/members ปิดไว้เป็นค่าเริ่มต้นทั้ง 3 หมวด (แม้แต่ staff)
  * เพราะเป็นเมนูจัดการข้อมูลคนละหมวด/บัญชี (เดิม owner-only แบบ hardcode) เปิดให้ตั้งใจกดเปิดเองใน "เพดานสิทธิ์" กันสิทธิ์หลุดโดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ */
 export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, CeilingPermissions> = {
-  staff: { ...FULL_ACCESS_PERMISSIONS, menus: { ...allMenus(true), employees: false, partners: false, customers: false, members: false } },
+  staff: { ...FULL_ACCESS_PERMISSIONS, menus: { ...allMenus(true), employees: false, partners: false, customers: false, members: false, vault: false } },
   outsource: {
     ...VIEW_ONLY_PERMISSIONS,
-    menus: { ...allMenus(true), docs: false, docsHistory: false, employees: false, partners: false, customers: false, members: false },
+    menus: { ...allMenus(true), docs: false, docsHistory: false, employees: false, partners: false, customers: false, members: false, vault: false },
   },
   customer: {
     ...VIEW_ONLY_PERMISSIONS,

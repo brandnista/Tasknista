@@ -351,7 +351,7 @@ const router = createBrowserRouter([
       {
         path: 'vault',
         element: (
-          <Protected roles={['owner']}>
+          <Protected menuKey="vault">
             <VaultPage />
           </Protected>
         ),

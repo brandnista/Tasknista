@@ -48,7 +48,9 @@ type Role = Me['role']
 
 // Pronista §Team Chat/Meeting (2026-08-27) — เมนู "ทีม" นับเฉพาะแจ้งเตือนแชท/ประชุม ส่วนที่เหลือ (task/daily report/expiry ฯลฯ) ยังนับที่ "งานของฉัน" เหมือนเดิม กันนับซ้ำ
 const TEAM_NOTIFICATION_TYPES = ['chat_mention', 'chat_message', 'meeting_scheduled'] as const
-const MY_TASKS_EXCLUDED_TYPES = new Set<string>(TEAM_NOTIFICATION_TYPES)
+// Pronista §Secret Vault Permission (2026-09-08) — เมนู "Secret Vault" นับแจ้งเตือนเข้าใช้งานแยกของตัวเอง ไม่ปนกับ "งานของฉัน"
+const VAULT_NOTIFICATION_TYPES = ['vault_accessed'] as const
+const MY_TASKS_EXCLUDED_TYPES = new Set<string>([...TEAM_NOTIFICATION_TYPES, ...VAULT_NOTIFICATION_TYPES])
 
 // Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
 // Pronista §Menu Restructure (2026-08-28) — children.roles (ไม่บังคับ) = ซ่อน sub-menu ข้อนั้นเพิ่มเติมจาก role ที่ parent อนุญาตไว้แล้ว (ใช้กับ "ไฟล์ของฉัน"/"แชร์กับฉัน" ที่ไม่ให้ guest เห็น ทั้งที่ parent "งานของฉัน" guest เข้าได้)
@@ -112,8 +114,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
       { to: '/admin/sellnista', label: 'Sellnista' },
     ],
   },
-  // Pronista §Secret Vault (2026-09-03) — owner-only เก็บรหัสผ่าน/ข้อมูลลับ ไม่มี menuKey เหมือน "บริการ" ด้านบน (ข้อมูลอ่อนไหว ไม่ผ่านเพดานสิทธิ์แบบตั้งค่าได้)
-  { to: '/vault', label: 'Secret Vault', icon: Lock, roles: ['owner'] },
+  // Pronista §Secret Vault (2026-09-03, เปิดเพดานได้ 2026-09-08) — owner เห็นเสมอ หมวดอื่นเปิด/ปิดได้จาก "เพดานสิทธิ์" (default ปิด, ข้อมูลอ่อนไหว)
+  { to: '/vault', label: 'Secret Vault', icon: Lock, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'vault' },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
   {
     to: '/admin',
@@ -343,6 +345,7 @@ export function Layout() {
                 <Icon className="w-[18px] h-[18px]" /> {label}
                 {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
                 {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
+                {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
                 {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
               </NavLink>
               {children && isOpen && (

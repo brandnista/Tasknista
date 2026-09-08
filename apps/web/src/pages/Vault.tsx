@@ -13,7 +13,14 @@ import { useLoad } from '../lib/useLoad'
 
 interface VaultStatus {
   hasPin: boolean
-  unlocked: boolean
+}
+interface VaultAuditRow {
+  id: string
+  actorId: string
+  actorName: string | null
+  action: string
+  meta: { name?: string } | null
+  at: number
 }
 interface VaultItemRow {
   id: string
@@ -78,7 +85,7 @@ function VaultSetup({ onDone }: { onDone: () => void }) {
   )
 }
 
-function VaultUnlockForm({ onDone }: { onDone: () => void }) {
+function VaultUnlockForm({ onDone }: { onDone: (token: string) => void }) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -87,8 +94,8 @@ function VaultUnlockForm({ onDone }: { onDone: () => void }) {
     setError('')
     setBusy(true)
     try {
-      await api.post('/api/vault/unlock', { pin })
-      onDone()
+      const res = await api.post<{ ok: true; token: string }>('/api/vault/unlock', { pin })
+      onDone(res.token)
     } catch {
       setError('PIN ไม่ถูกต้อง')
     } finally {
@@ -100,7 +107,7 @@ function VaultUnlockForm({ onDone }: { onDone: () => void }) {
     <div className="max-w-sm mx-auto mt-16 bg-white rounded-lg shadow-xs p-6 text-center">
       <Lock className="w-8 h-8 mx-auto mb-3 text-muted" />
       <div className="font-semibold text-ink mb-1">Secret Vault ล็อคอยู่</div>
-      <p className="text-xs text-muted mb-4">ใส่ PIN เพื่อปลดล็อค (ปลดล็อคค้างไว้ 15 นาที)</p>
+      <p className="text-xs text-muted mb-4">ใส่ PIN เพื่อปลดล็อค — ต้องใส่ใหม่ทุกครั้งที่เข้าเมนูนี้</p>
       <input
         type="password"
         inputMode="numeric"
@@ -119,9 +126,10 @@ function VaultUnlockForm({ onDone }: { onDone: () => void }) {
   )
 }
 
-function ItemModal({ item, projects, onClose, onDone, onLocked }: {
+function ItemModal({ item, projects, token, onClose, onDone, onLocked }: {
   item: VaultItemRow | null
   projects: ProjectOpt[]
+  token: string
   onClose: () => void
   onDone: () => void
   onLocked: () => void
@@ -150,8 +158,9 @@ function ItemModal({ item, projects, onClose, onDone, onLocked }: {
         ...(password ? { password } : {}),
         ...(notes ? { notes } : {}),
       }
-      if (item) await api.patch(`/api/vault/items/${item.id}`, payload)
-      else await api.post('/api/vault/items', payload)
+      const headers = { 'x-vault-token': token }
+      if (item) await api.patch(`/api/vault/items/${item.id}`, payload, headers)
+      else await api.post('/api/vault/items', payload, headers)
       toast('บันทึกสำเร็จ')
       onDone()
     } catch (e) {
@@ -222,8 +231,9 @@ function ItemModal({ item, projects, onClose, onDone, onLocked }: {
   )
 }
 
-function DetailModal({ item, onClose, onEdit, onDeleted, onLocked }: {
+function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
   item: VaultItemRow
+  token: string
   onClose: () => void
   onEdit: () => void
   onDeleted: () => void
@@ -232,7 +242,7 @@ function DetailModal({ item, onClose, onEdit, onDeleted, onLocked }: {
   const { confirmDialog, alertDialog } = useDialog()
   const [showPassword, setShowPassword] = useState(false)
   const [copiedField, setCopiedField] = useState<string | null>(null)
-  const { data, error } = useLoad<VaultItemRevealed>(() => api.get(`/api/vault/items/${item.id}/reveal`), [item.id])
+  const { data, error } = useLoad<VaultItemRevealed>(() => api.get(`/api/vault/items/${item.id}/reveal`, { 'x-vault-token': token }), [item.id])
 
   if (error && isVaultLocked(error)) {
     onLocked()
@@ -314,13 +324,48 @@ function DetailModal({ item, onClose, onEdit, onDeleted, onLocked }: {
   )
 }
 
-function VaultMain({ onLocked }: { onLocked: () => void }) {
+function VaultAuditLog() {
+  const { data } = useLoad<VaultAuditRow[]>(() => api.get('/api/vault/audit'))
+  const rows = data ?? []
+  const actionLabel = (action: string) => {
+    if (action === 'vault.unlock') return 'ปลดล็อค Vault'
+    if (action === 'vault.lock') return 'ล็อค Vault'
+    if (action === 'vault_pin.set') return 'ตั้ง/เปลี่ยน PIN'
+    if (action === 'vault_pin.reset') return 'รีเซ็ต PIN ให้คนอื่น'
+    if (action === 'secret_vault_item.reveal') return 'เปิดดูรายการ'
+    if (action === 'secret_vault_item.create') return 'สร้างรายการ'
+    if (action === 'secret_vault_item.update') return 'แก้ไขรายการ'
+    if (action === 'secret_vault_item.delete') return 'ลบรายการ'
+    return action
+  }
+  return (
+    <div className="bg-white rounded-lg shadow-xs overflow-hidden">
+      {rows.length === 0 ? (
+        <div className="text-center text-sm text-muted py-10">ยังไม่มีประวัติการเข้าใช้งาน</div>
+      ) : (
+        <div className="divide-y divide-divider">
+          {rows.map((r) => (
+            <div key={r.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
+              <span className="text-muted shrink-0 tabular-nums text-[11px]">{new Date(r.at).toLocaleString('th-TH')}</span>
+              <span className="font-medium text-body shrink-0">{r.actorName ?? '—'}</span>
+              <span className="text-dim">{actionLabel(r.action)}</span>
+              {r.meta?.name && <span className="text-muted truncate">"{r.meta.name}"</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VaultMain({ token, onLocked }: { token: string; onLocked: () => void }) {
   const { data, reload } = useLoad<VaultItemRow[]>(() => api.get('/api/vault/items'))
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const [search, setSearch] = useState('')
   const [projectFilter, setProjectFilter] = useState<'all' | 'company' | string>('all')
   const [modal, setModal] = useState<VaultItemRow | 'new' | null>(null)
   const [detail, setDetail] = useState<VaultItemRow | null>(null)
+  const [tab, setTab] = useState<'items' | 'audit'>('items')
 
   const items = data ?? []
   const filtered = useMemo(() => {
@@ -334,7 +379,7 @@ function VaultMain({ onLocked }: { onLocked: () => void }) {
   }, [items, search, projectFilter])
 
   const lock = async () => {
-    await api.post('/api/vault/lock', {})
+    await api.post('/api/vault/lock', {}, { 'x-vault-token': token })
     onLocked()
   }
 
@@ -352,38 +397,49 @@ function VaultMain({ onLocked }: { onLocked: () => void }) {
         }
       />
       <div className="p-4 sm:p-6">
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <div className="relative flex-1 min-w-[200px] max-w-xs">
-            <Search className="w-3.5 h-3.5 text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อรายการ/username..." className="w-full text-sm bg-white shadow-xs rounded-lg pl-8 pr-3 py-2 focus:outline-hidden" />
-          </div>
-          <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden">
-            <option value="all">ทุกรายการ</option>
-            <option value="company">บริษัท (ไม่ผูกโปรเจกต์)</option>
-            {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <span className="text-xs text-muted">{filtered.length} รายการ</span>
+        <div className="flex items-center gap-1 mb-4 border-b border-border-subtle">
+          <button onClick={() => setTab('items')} className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px ${tab === 'items' ? 'border-brand-600 text-brand-700' : 'border-transparent text-dim'}`}>รายการ</button>
+          <button onClick={() => setTab('audit')} className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px ${tab === 'audit' ? 'border-brand-600 text-brand-700' : 'border-transparent text-dim'}`}>ประวัติการเข้าใช้งาน</button>
         </div>
 
-        {!data ? (
-          <div className="text-center text-sm text-muted py-10">กำลังโหลด…</div>
-        ) : filtered.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-14">
-            <Lock className="w-8 h-8 mx-auto mb-2 text-border" />
-            {items.length === 0 ? 'ยังไม่มีรายการใน Vault — กด "เพิ่มรายการ" เพื่อเริ่มเก็บ' : 'ไม่มีรายการตรงตัวกรองที่เลือก'}
-          </div>
+        {tab === 'audit' ? (
+          <VaultAuditLog />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((it) => (
-              <div key={it.id} onClick={() => setDetail(it)} className="bg-white rounded-lg shadow-xs p-5 cursor-pointer hover:shadow-sm transition">
-                <div className="font-medium text-ink text-sm truncate">{it.name}</div>
-                {it.username && <div className="text-xs text-muted truncate mt-0.5">{it.username}</div>}
-                <div className="mt-3">
-                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-hover text-dim">{it.projectName ?? 'บริษัท'}</span>
-                </div>
+          <>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <div className="relative flex-1 min-w-[200px] max-w-xs">
+                <Search className="w-3.5 h-3.5 text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อรายการ/username..." className="w-full text-sm bg-white shadow-xs rounded-lg pl-8 pr-3 py-2 focus:outline-hidden" />
               </div>
-            ))}
-          </div>
+              <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden">
+                <option value="all">ทุกรายการ</option>
+                <option value="company">บริษัท (ไม่ผูกโปรเจกต์)</option>
+                {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <span className="text-xs text-muted">{filtered.length} รายการ</span>
+            </div>
+
+            {!data ? (
+              <div className="text-center text-sm text-muted py-10">กำลังโหลด…</div>
+            ) : filtered.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-14">
+                <Lock className="w-8 h-8 mx-auto mb-2 text-border" />
+                {items.length === 0 ? 'ยังไม่มีรายการใน Vault — กด "เพิ่มรายการ" เพื่อเริ่มเก็บ' : 'ไม่มีรายการตรงตัวกรองที่เลือก'}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filtered.map((it) => (
+                  <div key={it.id} onClick={() => setDetail(it)} className="bg-white rounded-lg shadow-xs p-5 cursor-pointer hover:shadow-sm transition">
+                    <div className="font-medium text-ink text-sm truncate">{it.name}</div>
+                    {it.username && <div className="text-xs text-muted truncate mt-0.5">{it.username}</div>}
+                    <div className="mt-3">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-hover text-dim">{it.projectName ?? 'บริษัท'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -391,6 +447,7 @@ function VaultMain({ onLocked }: { onLocked: () => void }) {
         <ItemModal
           item={modal === 'new' ? null : modal}
           projects={projects ?? []}
+          token={token}
           onClose={() => setModal(null)}
           onDone={() => { setModal(null); void reload() }}
           onLocked={() => { setModal(null); onLocked() }}
@@ -399,6 +456,7 @@ function VaultMain({ onLocked }: { onLocked: () => void }) {
       {detail && (
         <DetailModal
           item={detail}
+          token={token}
           onClose={() => setDetail(null)}
           onEdit={() => { setModal(detail); setDetail(null) }}
           onDeleted={() => { setDetail(null); void reload() }}
@@ -409,11 +467,13 @@ function VaultMain({ onLocked }: { onLocked: () => void }) {
   )
 }
 
+// Pronista §Secret Vault Permission (2026-09-08) — token เก็บเป็น React state ล้วนๆ (ไม่มี cookie แล้ว) ทุกครั้งที่ mount หน้านี้ใหม่ต้องใส่ PIN ใหม่เสมอ
 export function VaultPage() {
   const { data: status, reload } = useLoad<VaultStatus>(() => api.get('/api/vault/status'))
+  const [token, setToken] = useState<string | null>(null)
 
   if (!status) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
   if (!status.hasPin) return <VaultSetup onDone={() => void reload()} />
-  if (!status.unlocked) return <VaultUnlockForm onDone={() => void reload()} />
-  return <VaultMain onLocked={() => void reload()} />
+  if (!token) return <VaultUnlockForm onDone={(t) => setToken(t)} />
+  return <VaultMain token={token} onLocked={() => setToken(null)} />
 }

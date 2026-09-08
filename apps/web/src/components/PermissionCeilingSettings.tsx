@@ -48,7 +48,7 @@ const CATEGORY_DESC: Record<PermissionCategory, string> = {
   membership: 'เตรียมไว้ล่วงหน้า — สมาชิกยังไม่มี login เข้าระบบเป็นของตัวเอง เพดานนี้ยังไม่มีผลใช้งานจริง จนกว่าจะเปิดฟีเจอร์ให้สมาชิก login ได้',
 }
 // Pronista §Menu Restructure — แยกกลุ่มเมนู "จัดการข้อมูล" (พนักงาน/พาร์ทเนอร์/ลูกค้า/สมาชิก) ออกจากเมนูใช้งานทั่วไป ให้เห็นชัดเจน ไม่ปนกันเป็นแถวเดียว
-const ADMIN_MENU_KEYS: PermissionMenuKey[] = ['employees', 'partners', 'customers', 'members']
+const ADMIN_MENU_KEYS: PermissionMenuKey[] = ['employees', 'partners', 'customers', 'members', 'vault']
 const GENERAL_MENU_KEYS = PERMISSION_MENU_KEYS.filter((k) => !ADMIN_MENU_KEYS.includes(k))
 
 function CeilingCard({ category, permissions, onChange }: { category: PermissionCategory; permissions: CeilingPermissions; onChange: (p: CeilingPermissions) => void }) {

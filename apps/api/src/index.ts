@@ -213,9 +213,9 @@ app.route('/api/team-activity', teamActivityRoutes)
 app.use('/api/workload', requireAuth, ownerOnly)
 app.use('/api/workload/*', requireAuth, ownerOnly)
 app.route('/api', workloadRoutes)
-// Secret Vault (2026-09-03) — เก็บรหัสผ่าน/ข้อมูลลับ = owner เท่านั้น
-app.use('/api/vault', requireAuth, ownerOnly)
-app.use('/api/vault/*', requireAuth, ownerOnly)
+// Secret Vault (2026-09-03, เปิดเพดานให้ปรับได้ 2026-09-08) — เก็บรหัสผ่าน/ข้อมูลลับ owner เข้าได้เสมอ + หมวดอื่นเปิดผ่าน "เพดานสิทธิ์" ได้ (default ปิด)
+app.use('/api/vault', requireAuth, ceilingMenu('vault'))
+app.use('/api/vault/*', requireAuth, ceilingMenu('vault'))
 app.route('/api/vault', vaultRoutes)
 // อีเมลกลาง (SPEC §4.12) — สิทธิ์สองชั้น:
 // ใช้งาน inbox (threads/attachments) = owner+member (vendor ❌ ตาม §3)

@@ -1791,6 +1791,8 @@ export const NOTIFICATION_TYPES = [
   // Pronista §System Enhancements — เตือน Sellnista ใกล้/หมดอายุ (mirror domain_expiry_reminder/domain_expired เป๊ะ)
   'sellnista_expiry_reminder',
   'sellnista_expired',
+  // Pronista §Secret Vault Permission (2026-09-08) — แจ้งทุกคนที่มีสิทธิ์เข้าเมนู Secret Vault เมื่อมีคนปลดล็อคสำเร็จ (ยกเว้นตัวเอง)
+  'vault_accessed',
 ] as const
 
 export const notifications = sqliteTable(
