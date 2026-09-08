@@ -51,6 +51,16 @@ describe('§Second Brain — webhook', () => {
     expect(rows.results.length).toBe(0)
   })
 
+  it('ยังไม่ตั้ง LINE_CHANNEL_SECRET (ว่าง/undefined) → 401 สะอาดๆ ไม่ crash เป็น 500', async () => {
+    const bodyText = JSON.stringify({ events: [] })
+    const res = await app.request(
+      '/api/line/webhook',
+      { method: 'POST', headers: { 'x-line-signature': 'anything', 'content-type': 'application/json' }, body: bodyText },
+      { ...env, LINE_CHANNEL_SECRET: '' },
+    )
+    expect(res.status).toBe(401)
+  })
+
   it('groupId ไม่ตรง LINE_SECOND_BRAIN_GROUP_ID → ไม่บันทึก แต่ยังคืน 200', async () => {
     const res = await postWebhook([messageEvent({ messageId: 'm1', text: 'https://example.com', groupId: 'Cwronggroup' })])
     expect(res.status).toBe(200)

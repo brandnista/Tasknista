@@ -21,7 +21,9 @@ interface LineEvent {
 export const secondBrainWebhookRoutes = new Hono<AppEnv>().post('/webhook', async (c) => {
   const bodyText = await c.req.text()
   const signature = c.req.header('x-line-signature')
-  if (!signature || !(await verifyLineSignature(bodyText, signature, c.env.LINE_CHANNEL_SECRET))) return c.json({ error: 'invalid_signature' }, 401)
+  // ยังไม่ตั้ง secret จริง (รอพี่ส่งมา) → ปฏิเสธแบบสะอาดๆ ไม่ crash เป็น 500 (importKey กับ key ว่าง/undefined พังได้)
+  if (!signature || !c.env.LINE_CHANNEL_SECRET || !(await verifyLineSignature(bodyText, signature, c.env.LINE_CHANNEL_SECRET)))
+    return c.json({ error: 'invalid_signature' }, 401)
 
   const db = createDb(c.env.DB)
   let body: { events?: LineEvent[] }
