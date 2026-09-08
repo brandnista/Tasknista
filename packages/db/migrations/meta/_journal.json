@@ -813,6 +813,13 @@
       "when": 1788846850940,
       "tag": "0116_exotic_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "6",
+      "when": 1788859486079,
+      "tag": "0117_small_silk_fever",
+      "breakpoints": true
     }
   ]
 }

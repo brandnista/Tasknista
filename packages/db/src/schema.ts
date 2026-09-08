@@ -2251,6 +2251,25 @@ export const vaultUnlocks = sqliteTable(
   (t) => [index('vault_unlocks_user_idx').on(t.userId)],
 )
 
+// Pronista §Second Brain (2026-09-08) — ลิงก์ที่ดักจับจาก LINE group เฉพาะ (Group ID = LINE_SECOND_BRAIN_GROUP_ID secret) เก็บอย่างเดียว ไม่มี AI สรุป/metadata (Phase 1)
+// v1 ยังไม่ผูกบัญชี LINE เข้ากับ user Pronista — โชว์แค่ senderDisplayName (best-effort จาก LINE Profile API) แต่เก็บ lineUserId ดิบไว้เผื่อผูกบัญชีทีหลังได้โดยไม่ต้อง backfill
+export const secondBrainLinks = sqliteTable(
+  'second_brain_links',
+  {
+    id: id(),
+    url: text('url').notNull(),
+    messageText: text('message_text'), // ข้อความเต็มที่พิมพ์มาพร้อมลิงก์ (บริบทเพิ่มเติม)
+    lineMessageId: text('line_message_id').notNull(), // กันข้อความซ้ำตอน LINE webhook retry (ดู unique index คู่กับ url ด้านล่าง)
+    lineUserId: text('line_user_id'),
+    senderDisplayName: text('sender_display_name'),
+    capturedAt: integer('captured_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [uniqueIndex('second_brain_links_dedupe_idx').on(t.lineMessageId, t.url)],
+)
+
 export type Domain = typeof domains.$inferSelect
 export type DomainDnsRecord = NonNullable<Domain['dnsRecords']>[number]
 export type DomainDsRecord = NonNullable<Domain['dsRecords']>[number]
@@ -2313,3 +2332,4 @@ export type MeetingActionItem = typeof meetingActionItems.$inferSelect
 export type SecretVaultItem = typeof secretVaultItems.$inferSelect
 export type SecretVaultFolder = typeof secretVaultFolders.$inferSelect
 export type VaultUnlock = typeof vaultUnlocks.$inferSelect
+export type SecondBrainLink = typeof secondBrainLinks.$inferSelect

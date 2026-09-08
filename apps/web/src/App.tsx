@@ -9,6 +9,7 @@ import { AdminCostPage } from './pages/AdminCost'
 import { AdminDomainsPage } from './pages/AdminDomains'
 import { AdminSellnistaPage } from './pages/AdminSellnista'
 import { VaultPage } from './pages/Vault'
+import { SecondBrainPage } from './pages/SecondBrain'
 import { DomainDetailPage } from './pages/DomainDetail'
 import { AdminNotificationsPage } from './pages/AdminNotifications'
 import { AdminPermissionsPage } from './pages/AdminPermissions'
@@ -353,6 +354,14 @@ const router = createBrowserRouter([
         element: (
           <Protected menuKey="vault">
             <VaultPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'second-brain',
+        element: (
+          <Protected menuKey="secondBrain">
+            <SecondBrainPage />
           </Protected>
         ),
       },

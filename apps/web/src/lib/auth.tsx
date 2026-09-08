@@ -16,6 +16,7 @@ export type MenuKey =
   | 'members'
   | 'notifications'
   | 'vault'
+  | 'secondBrain'
 
 export interface Me {
   id: string

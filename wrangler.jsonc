@@ -33,7 +33,8 @@
   // ค่า production — local override ที่ .dev.vars
   // ค่าที่ผูกบริษัท/credential ทั้งหมดเป็น secret (`wrangler secret put`): GOOGLE_CLIENT_ID ·
   // GOOGLE_CLIENT_SECRET (login OAuth) · INBOX_ENC_KEY (กุญแจเข้ารหัส token อีเมลกลาง) ·
-  // VAULT_ENC_KEY (กุญแจเข้ารหัส Secret Vault — คนละดอกจาก INBOX_ENC_KEY) — repo public ห้ามมีค่าจริง
+  // VAULT_ENC_KEY (กุญแจเข้ารหัส Secret Vault — คนละดอกจาก INBOX_ENC_KEY) ·
+  // LINE_CHANNEL_SECRET/LINE_CHANNEL_ACCESS_TOKEN/LINE_SECOND_BRAIN_GROUP_ID (Second Brain — เชื่อม LINE Messaging API) — repo public ห้ามมีค่าจริง
   "vars": {
     "APP_URL": "https://office.pronista.com",
     // (2026-07-31) GOOGLE_CLIENT_ID/SECRET ตั้งเป็น secret แล้ว (Google login ใช้งานได้จริง)

@@ -6,6 +6,7 @@ import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
 import { calendarConnectRoutes } from './routes/calendar-connect'
 import { vaultRoutes } from './routes/vault'
+import { secondBrainRoutes, secondBrainWebhookRoutes } from './routes/second-brain'
 import { chatRoutes } from './routes/chat'
 import { docAttachmentsRoutes } from './routes/doc-attachments'
 import { docRoutes } from './routes/docs'
@@ -217,6 +218,11 @@ app.route('/api', workloadRoutes)
 app.use('/api/vault', requireAuth, ceilingMenu('vault'))
 app.use('/api/vault/*', requireAuth, ceilingMenu('vault'))
 app.route('/api/vault', vaultRoutes)
+// Pronista §Second Brain (2026-09-08) — webhook LINE ยิงตรง ไม่มี cookie/token ของเรา ต้อง public (verify ผ่าน X-Line-Signature เองในตัว route) — mount แยก path จาก list/delete ที่ต้อง auth
+app.route('/api/line', secondBrainWebhookRoutes)
+app.use('/api/second-brain', requireAuth, ceilingMenu('secondBrain'))
+app.use('/api/second-brain/*', requireAuth, ceilingMenu('secondBrain'))
+app.route('/api', secondBrainRoutes)
 // อีเมลกลาง (SPEC §4.12) — สิทธิ์สองชั้น:
 // ใช้งาน inbox (threads/attachments) = owner+member (vendor ❌ ตาม §3)
 app.use('/api/inbox/threads', requireAuth, teamOnly)

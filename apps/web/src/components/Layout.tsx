@@ -1,5 +1,6 @@
 import {
   Bell,
+  BrainCircuit,
   Briefcase,
   ChevronDown,
   ClipboardList,
@@ -116,6 +117,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   },
   // Pronista §Secret Vault (2026-09-03, เปิดเพดานได้ 2026-09-08) — owner เห็นเสมอ หมวดอื่นเปิด/ปิดได้จาก "เพดานสิทธิ์" (default ปิด, ข้อมูลอ่อนไหว)
   { to: '/vault', label: 'Secret Vault', icon: Lock, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'vault' },
+  // Pronista §Second Brain (2026-09-08) — ลิงก์ที่ดักจาก LINE group เฉพาะ ไม่ใช่ข้อมูลอ่อนไหวเหมือน vault — default เปิดให้ staff เห็นได้เลย
+  { to: '/second-brain', label: 'Second Brain', icon: BrainCircuit, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'secondBrain' },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
   {
     to: '/admin',
