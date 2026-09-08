@@ -983,6 +983,7 @@ export function TaskDetailPage() {
                       <span className={`flex-1 truncate ${s.status === 'done' ? 'text-muted line-through' : 'text-body'}`}>{s.title}</span>
                     </button>
                     {s.priority !== 'normal' && <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${PRIORITY_CLASS[s.priority]}`}>{PRIORITY_THAI[s.priority]}</span>}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[s.status]}`}>{TASK_STATUS_LABEL[s.status]}</span>
                     {s.originCode && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 shrink-0">{s.originCode}</span>}
                     {s.estimateMinutes != null && <span className="text-[11px] text-muted shrink-0">{minutesToHoursLabel(s.estimateMinutes)} ชม.</span>}
                     {s.assigneeName && <span className="text-[11px] text-muted shrink-0">{s.assigneeName}</span>}

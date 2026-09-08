@@ -180,16 +180,27 @@ export function WorkloadPage() {
                     {rows.people.map((p) => (
                       <tr key={p.id} className="group/row">
                         <td className="sticky left-0 z-20 bg-white group-hover/row:bg-hover px-3 py-2 shadow-[1px_0_0_var(--color-border-subtle)] whitespace-nowrap">
-                          <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => window.open(`/workload/${p.id}`, '_blank', 'noopener')}
+                            className="flex items-center gap-2 hover:underline"
+                            title={`ดูงานทั้งหมดของ ${p.name}`}
+                          >
                             <Avatar name={p.name} avatarUrl={p.avatarUrl} className="w-6 h-6 text-[10px]" />
                             <span className="font-medium text-strong">{p.name}</span>
-                          </div>
+                          </button>
                         </td>
                         {rows.days.map((d) => {
                           const cell = rows.grid[p.id]?.[d]
                           const over = !!cell && !cell.onLeave && cell.usedMinutes > cell.capacityMinutes
+                          const hasTasks = !!cell && cell.taskIds.length > 0
                           return (
-                            <td key={d} className={`px-2 py-2 text-center tabular-nums ${d === today ? 'bg-brand-50/40' : ''}`}>
+                            <td
+                              key={d}
+                              onClick={hasTasks ? () => window.open(`/workload/${p.id}?ids=${cell.taskIds.join(',')}&date=${d}`, '_blank', 'noopener') : undefined}
+                              className={`px-2 py-2 text-center tabular-nums ${d === today ? 'bg-brand-50/40' : ''} ${hasTasks ? 'cursor-pointer hover:bg-hover' : ''}`}
+                              title={hasTasks ? `ดูงานของ ${p.name} วันที่ ${d}` : undefined}
+                            >
                               {cell?.onLeave ? (
                                 <span className="inline-block text-[11px] font-medium text-warning-700 bg-warning-100 rounded-full px-2 py-0.5">ลา</span>
                               ) : cell ? (

@@ -10,9 +10,10 @@ import {
   type ManhourUserType,
 } from '@seedoffice/core'
 import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, users } from '@seedoffice/db'
-import { and, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { checklistCountsFor } from '../lib/workspace-query'
 import type { AppEnv } from '../types'
 
 // owner ถือเป็นหมวด 'staff' เหมือน categoryOfUserRole() ใน admin.ts — Workload คนละแกนกับเพดานสิทธิ์ (permissionCategoryOfRole คืน null ให้ owner เพราะ owner bypass เพดานเสมอ)
@@ -103,6 +104,31 @@ export const workloadRoutes = new Hono<AppEnv>()
 
     const people = roster.map((u) => ({ id: u.id, name: u.name, role: u.role, avatarUrl: u.avatarUrl }))
     return c.json({ people, days, grid, unscheduled })
+  })
+
+  // Pronista §Workload Drill-down (2026-09-07) — เจาะดูงานของพนักงานคนไหนก็ได้ (owner-only จาก middleware /api/workload/* ใน index.ts)
+  // ?ids= (ถ้ามา) = taskIds เฉพาะที่มาจากการกดช่องวันในตาราง Workload (frontend คำนวณเองจาก grid[userId][date].taskIds อยู่แล้ว ไม่ต้องคำนวณวันซ้ำฝั่งนี้)
+  .get('/workload/users/:id/tasks', async (c) => {
+    const db = createDb(c.env.DB)
+    const userId = c.req.param('id')
+    const user = (await db.select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, userId)).limit(1))[0]
+    if (!user) return c.json({ error: 'not_found' }, 404)
+    const ids = c.req.query('ids')?.split(',').filter(Boolean)
+
+    // หน้านี้เป็นมุมมองของ owner ดูงานคนอื่น (ไม่ใช่หน้า "งานของฉัน" ของเจ้าตัว) — ไม่เช็คเกตจ่ายงาน (dispatchedAt) เหมือน /tasks/mine
+    // เพราะต้องให้เห็นตรงกับ taskIds ที่ตาราง Workload เองนับไว้แล้ว (ซึ่งนับจาก status='on_processing' ล้วนๆ ไม่เช็ค dispatchedAt เหมือนกัน)
+    const rows = await db
+      .select({ task: tasks, projectName: projects.name })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(eq(tasks.assigneeId, userId), ids && ids.length > 0 ? inArray(tasks.id, ids) : undefined))
+      .orderBy(asc(tasks.dueDate))
+    const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
+    const checklistOf = (taskId: string) => {
+      const cc = checklistCounts.get(taskId)
+      return { checklistDone: cc?.done ?? 0, checklistTotal: cc?.total ?? 0 }
+    }
+    return c.json({ user, tasks: rows.map((r) => ({ ...r.task, projectName: r.projectName, ...checklistOf(r.task.id) })) })
   })
 
   // sprint ที่ยังไม่ปิด ทุกโปรเจกต์ — ให้ dropdown เลือกตอน view=Sprint
