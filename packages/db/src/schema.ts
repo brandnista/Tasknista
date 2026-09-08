@@ -74,6 +74,8 @@ export const users = sqliteTable('users', {
   notificationPrefs: text('notification_prefs', { mode: 'json' }).$type<string[]>(),
   // Pronista §Meeting Schedule Tab (2026-08-27) — นาทีล่วงหน้าก่อนประชุมเริ่มที่จะเตือน (null = ใช้ค่าเริ่มต้น 5 นาที ใน core)
   meetingReminderMinutes: integer('meeting_reminder_minutes'),
+  // Pronista §Secret Vault (2026-09-03) — PIN ปลดล็อค Vault (แยกจาก login) รูปแบบ 'v1.<salt_b64>.<iterations>.<hash_b64>' · null = ยังไม่ตั้ง
+  vaultPinHash: text('vault_pin_hash'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -2186,6 +2188,48 @@ export const sellnistaSubscriptions = sqliteTable(
   (t) => [index('sellnista_subscriptions_expiry_idx').on(t.expiryDate)],
 )
 
+// Pronista §Secret Vault (2026-09-03) — เก็บรหัสผ่าน/ข้อมูลลับ owner-only (LastPass-style เบาๆ) — ต่อโปรเจกต์ (projectId มีค่า) หรือส่วนกลางบริษัท (projectId ว่าง)
+// password/notes เข้ารหัส AES-GCM ผ่าน crypto.ts (key = VAULT_ENC_KEY wrangler secret) — decrypt เฉพาะตอนเรียก /reveal ที่ผ่าน vault unlock session แล้วเท่านั้น
+export const secretVaultItems = sqliteTable(
+  'secret_vault_items',
+  {
+    id: id(),
+    projectId: text('project_id').references(() => projects.id),
+    name: text('name').notNull(),
+    username: text('username'),
+    passwordEnc: text('password_enc'),
+    url: text('url'),
+    notesEnc: text('notes_enc'),
+    createdBy: text('created_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('secret_vault_items_project_idx').on(t.projectId)],
+)
+
+// Pronista §Secret Vault (2026-09-03) — session ปลดล็อค Vault อายุสั้น (15 นาที) แยกจาก session login หลัก — mirror ตาราง sessions เป๊ะ (id = SHA-256 hash ของ token สุ่ม)
+export const vaultUnlocks = sqliteTable(
+  'vault_unlocks',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('vault_unlocks_user_idx').on(t.userId)],
+)
+
 export type Domain = typeof domains.$inferSelect
 export type DomainDnsRecord = NonNullable<Domain['dnsRecords']>[number]
 export type DomainDsRecord = NonNullable<Domain['dsRecords']>[number]
@@ -2245,3 +2289,5 @@ export type ChatMessageAttachment = typeof chatMessageAttachments.$inferSelect
 export type Meeting = typeof meetings.$inferSelect
 export type MeetingParticipant = typeof meetingParticipants.$inferSelect
 export type MeetingActionItem = typeof meetingActionItems.$inferSelect
+export type SecretVaultItem = typeof secretVaultItems.$inferSelect
+export type VaultUnlock = typeof vaultUnlocks.$inferSelect

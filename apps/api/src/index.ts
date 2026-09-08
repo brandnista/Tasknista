@@ -5,6 +5,7 @@ import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
 import { calendarConnectRoutes } from './routes/calendar-connect'
+import { vaultRoutes } from './routes/vault'
 import { chatRoutes } from './routes/chat'
 import { docAttachmentsRoutes } from './routes/doc-attachments'
 import { docRoutes } from './routes/docs'
@@ -212,6 +213,10 @@ app.route('/api/team-activity', teamActivityRoutes)
 app.use('/api/workload', requireAuth, ownerOnly)
 app.use('/api/workload/*', requireAuth, ownerOnly)
 app.route('/api', workloadRoutes)
+// Secret Vault (2026-09-03) — เก็บรหัสผ่าน/ข้อมูลลับ = owner เท่านั้น
+app.use('/api/vault', requireAuth, ownerOnly)
+app.use('/api/vault/*', requireAuth, ownerOnly)
+app.route('/api/vault', vaultRoutes)
 // อีเมลกลาง (SPEC §4.12) — สิทธิ์สองชั้น:
 // ใช้งาน inbox (threads/attachments) = owner+member (vendor ❌ ตาม §3)
 app.use('/api/inbox/threads', requireAuth, teamOnly)

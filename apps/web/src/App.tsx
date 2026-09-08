@@ -8,6 +8,7 @@ import { AdminPage } from './pages/Admin'
 import { AdminCostPage } from './pages/AdminCost'
 import { AdminDomainsPage } from './pages/AdminDomains'
 import { AdminSellnistaPage } from './pages/AdminSellnista'
+import { VaultPage } from './pages/Vault'
 import { DomainDetailPage } from './pages/DomainDetail'
 import { AdminNotificationsPage } from './pages/AdminNotifications'
 import { AdminPermissionsPage } from './pages/AdminPermissions'
@@ -344,6 +345,14 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <AdminSellnistaPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'vault',
+        element: (
+          <Protected roles={['owner']}>
+            <VaultPage />
           </Protected>
         ),
       },

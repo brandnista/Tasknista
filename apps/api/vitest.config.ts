@@ -18,6 +18,7 @@ export default defineConfig(async () => {
             GOOGLE_CLIENT_SECRET: 'test-client-secret',
             // base64 ของ 32 bytes คงที่ — ใช้แค่ในเทสต์
             INBOX_ENC_KEY: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
+            VAULT_ENC_KEY: 'ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=',
           },
         },
       }),

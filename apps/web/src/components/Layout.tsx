@@ -11,6 +11,7 @@ import {
   Layers,
   LayoutDashboard,
   ListChecks,
+  Lock,
   MessageSquare,
   NotebookText,
   Settings,
@@ -111,6 +112,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
       { to: '/admin/sellnista', label: 'Sellnista' },
     ],
   },
+  // Pronista §Secret Vault (2026-09-03) — owner-only เก็บรหัสผ่าน/ข้อมูลลับ ไม่มี menuKey เหมือน "บริการ" ด้านบน (ข้อมูลอ่อนไหว ไม่ผ่านเพดานสิทธิ์แบบตั้งค่าได้)
+  { to: '/vault', label: 'Secret Vault', icon: Lock, roles: ['owner'] },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
   {
     to: '/admin',
