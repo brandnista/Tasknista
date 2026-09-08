@@ -1,4 +1,4 @@
-import { auditLogs, createDb, projects, secretVaultItems, users } from '@seedoffice/db'
+import { auditLogs, createDb, projects, secretVaultFolders, secretVaultItems, users } from '@seedoffice/db'
 import { and, desc, eq, isNull, like, or } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
@@ -26,12 +26,14 @@ const unlockPayload = z.object({ pin: z.string().min(1) })
 const itemCreatePayload = z.object({
   name: z.string().min(1),
   projectId: z.string().nullable().optional(),
+  folderId: z.string().nullable().optional(),
   username: z.string().nullable().optional(),
   password: z.string().nullable().optional(),
   url: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 })
 const itemPatchPayload = itemCreatePayload.partial()
+const folderPayload = z.object({ name: z.string().min(1).max(60) })
 
 /** ต้องปลดล็อค Vault ด้วย PIN ก่อน (token แนบมาทาง header ทุกครั้ง ไม่มี cookie แล้ว, อายุ 15 นาที) — ใช้กับ endpoint ที่แตะ plaintext เท่านั้น (reveal/create/update) */
 const requireVaultUnlock = createMiddleware<AppEnv>(async (c, next) => {
@@ -120,13 +122,57 @@ export const vaultRoutes = new Hono<AppEnv>()
         url: secretVaultItems.url,
         projectId: secretVaultItems.projectId,
         projectName: projects.name,
+        folderId: secretVaultItems.folderId,
+        folderName: secretVaultFolders.name,
         updatedAt: secretVaultItems.updatedAt,
       })
       .from(secretVaultItems)
       .leftJoin(projects, eq(secretVaultItems.projectId, projects.id))
+      .leftJoin(secretVaultFolders, eq(secretVaultItems.folderId, secretVaultFolders.id))
       .where(isNull(secretVaultItems.deletedAt))
       .orderBy(desc(secretVaultItems.updatedAt))
     return c.json(rows)
+  })
+
+  // §Secret Vault Folder (2026-09-08) — Folder แยกอิสระจากโปรเจกต์ ใครก็ตามที่เข้าเมนู vault ได้ สร้าง/แก้/ลบได้ร่วมกัน (shared organization)
+  .get('/folders', async (c) => {
+    const db = createDb(c.env.DB)
+    const rows = await db.select().from(secretVaultFolders).orderBy(secretVaultFolders.name)
+    return c.json(rows)
+  })
+
+  .post('/folders', async (c) => {
+    const body = folderPayload.safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const created = (await db.insert(secretVaultFolders).values({ name: body.data.name, createdBy: me.id }).returning())[0]!
+    await writeAudit(c.env, { actorId: me.id, action: 'secret_vault_folder.create', entity: 'secret_vault_folder', entityId: created.id, meta: { name: created.name } })
+    return c.json(created, 201)
+  })
+
+  .patch('/folders/:id', async (c) => {
+    const body = folderPayload.safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const before = (await db.select({ id: secretVaultFolders.id }).from(secretVaultFolders).where(eq(secretVaultFolders.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    await db.update(secretVaultFolders).set({ name: body.data.name }).where(eq(secretVaultFolders.id, before.id))
+    await writeAudit(c.env, { actorId: me.id, action: 'secret_vault_folder.rename', entity: 'secret_vault_folder', entityId: before.id, meta: { name: body.data.name } })
+    return c.json({ ok: true })
+  })
+
+  // ลบ Folder = แค่เอาป้ายออก ไม่ลบรายการข้างในตาม (soft ตามธรรมเนียม — เคลียร์ folderId ของ item ที่อยู่ในนั้นกลับเป็น null)
+  .delete('/folders/:id', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const before = (await db.select({ id: secretVaultFolders.id, name: secretVaultFolders.name }).from(secretVaultFolders).where(eq(secretVaultFolders.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    await db.update(secretVaultItems).set({ folderId: null }).where(eq(secretVaultItems.folderId, before.id))
+    await db.delete(secretVaultFolders).where(eq(secretVaultFolders.id, before.id))
+    await writeAudit(c.env, { actorId: me.id, action: 'secret_vault_folder.delete', entity: 'secret_vault_folder', entityId: before.id, meta: { name: before.name } })
+    return c.json({ ok: true })
   })
 
   .get('/items/:id/reveal', requireVaultUnlock, async (c) => {
@@ -214,7 +260,7 @@ export const vaultRoutes = new Hono<AppEnv>()
       .select({ id: auditLogs.id, actorId: auditLogs.actorId, actorName: users.name, action: auditLogs.action, meta: auditLogs.meta, at: auditLogs.at })
       .from(auditLogs)
       .leftJoin(users, eq(auditLogs.actorId, users.id))
-      .where(or(like(auditLogs.action, 'vault%'), like(auditLogs.action, 'secret_vault_item%')))
+      .where(or(like(auditLogs.action, 'vault%'), like(auditLogs.action, 'secret_vault_item%'), like(auditLogs.action, 'secret_vault_folder%')))
       .orderBy(desc(auditLogs.at))
       .limit(100)
     return c.json(rows)

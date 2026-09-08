@@ -2190,6 +2190,19 @@ export const sellnistaSubscriptions = sqliteTable(
   (t) => [index('sellnista_subscriptions_expiry_idx').on(t.expiryDate)],
 )
 
+// Pronista §Secret Vault Folder (2026-09-08) — Folder แยกอิสระ ไม่ผูกกับโปรเจกต์ (คู่ขนานกับ secretVaultItems.projectId เดิม ใช้ได้ทั้งคู่/ไม่ใช้เลยก็ได้)
+// สร้าง/แก้ไขได้ทุกคนที่เข้าเมนู Vault ได้ (organize ร่วมกันทั้งทีม เหมือนแชร์ list กัน)
+export const secretVaultFolders = sqliteTable('secret_vault_folders', {
+  id: id(),
+  name: text('name').notNull(),
+  createdBy: text('created_by')
+    .notNull()
+    .references((): AnySQLiteColumn => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
 // Pronista §Secret Vault (2026-09-03) — เก็บรหัสผ่าน/ข้อมูลลับ owner-only (LastPass-style เบาๆ) — ต่อโปรเจกต์ (projectId มีค่า) หรือส่วนกลางบริษัท (projectId ว่าง)
 // password/notes เข้ารหัส AES-GCM ผ่าน crypto.ts (key = VAULT_ENC_KEY wrangler secret) — decrypt เฉพาะตอนเรียก /reveal ที่ผ่าน vault unlock session แล้วเท่านั้น
 export const secretVaultItems = sqliteTable(
@@ -2197,6 +2210,8 @@ export const secretVaultItems = sqliteTable(
   {
     id: id(),
     projectId: text('project_id').references(() => projects.id),
+    // Pronista §Secret Vault Folder (2026-09-08) — จัดกลุ่มอิสระจากโปรเจกต์ (ลบ Folder แล้วรายการไม่หาย แค่กลับมาเป็น null)
+    folderId: text('folder_id').references((): AnySQLiteColumn => secretVaultFolders.id),
     name: text('name').notNull(),
     username: text('username'),
     passwordEnc: text('password_enc'),
@@ -2213,7 +2228,7 @@ export const secretVaultItems = sqliteTable(
       .$defaultFn(() => new Date()),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
-  (t) => [index('secret_vault_items_project_idx').on(t.projectId)],
+  (t) => [index('secret_vault_items_project_idx').on(t.projectId), index('secret_vault_items_folder_idx').on(t.folderId)],
 )
 
 // Pronista §Secret Vault (2026-09-03) — session ปลดล็อค Vault อายุสั้น (15 นาที) แยกจาก session login หลัก — mirror ตาราง sessions เป๊ะ (id = SHA-256 hash ของ token สุ่ม)
@@ -2292,4 +2307,5 @@ export type Meeting = typeof meetings.$inferSelect
 export type MeetingParticipant = typeof meetingParticipants.$inferSelect
 export type MeetingActionItem = typeof meetingActionItems.$inferSelect
 export type SecretVaultItem = typeof secretVaultItems.$inferSelect
+export type SecretVaultFolder = typeof secretVaultFolders.$inferSelect
 export type VaultUnlock = typeof vaultUnlocks.$inferSelect

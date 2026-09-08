@@ -6,6 +6,7 @@ import { loginAs, seedUsers } from './helpers'
 beforeEach(async () => {
   await seedUsers()
   await env.DB.prepare('DELETE FROM secret_vault_items').run()
+  await env.DB.prepare('DELETE FROM secret_vault_folders').run()
   await env.DB.prepare('DELETE FROM vault_unlocks').run()
   await env.DB.prepare("UPDATE users SET vault_pin_hash = NULL").run()
   await env.DB.prepare("UPDATE company_config SET permission_ceilings = NULL").run()
@@ -185,6 +186,37 @@ describe('§Secret Vault — แจ้งเตือนคนอื่นตอ
     expect(pondNotif?.n).toBe(1)
     const somchaiNotif = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications WHERE type='vault_accessed' AND user_id='u_somchai'").first<{ n: number }>()
     expect(somchaiNotif?.n).toBe(0)
+  })
+})
+
+describe('§Secret Vault — Folder', () => {
+  it('สร้าง/แก้ไข/ลบ Folder ได้ · ผูก item เข้า Folder ได้ · ลบ Folder แล้ว item ไม่หาย แค่ folderId กลับเป็น null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { token } = await setPinAndUnlock(owner)
+
+    const createRes = await app.request('/api/vault/folders', json(owner, { name: 'เว็บ Seller ร้าน X' }), env)
+    expect(createRes.status).toBe(201)
+    const folder = (await createRes.json()) as { id: string; name: string }
+
+    const renameRes = await app.request(`/api/vault/folders/${folder.id}`, { ...json(owner, { name: 'เว็บ Seller ร้าน Y' }), method: 'PATCH' }, env)
+    expect(renameRes.status).toBe(200)
+
+    const itemRes = await app.request('/api/vault/items', { ...json(owner, { name: 'Login ร้าน Y', folderId: folder.id, password: 'pass1' }), headers: { ...withToken(owner, token), 'content-type': 'application/json' } }, env)
+    const item = (await itemRes.json()) as { id: string }
+
+    const listBefore = (await (await app.request('/api/vault/items', { headers: { cookie: owner } }, env)).json()) as { id: string; folderId: string | null; folderName: string | null }[]
+    const rowBefore = listBefore.find((r) => r.id === item.id)
+    expect(rowBefore).toMatchObject({ folderId: folder.id, folderName: 'เว็บ Seller ร้าน Y' })
+
+    const delRes = await app.request(`/api/vault/folders/${folder.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(delRes.status).toBe(200)
+
+    const listAfter = (await (await app.request('/api/vault/items', { headers: { cookie: owner } }, env)).json()) as { id: string; folderId: string | null }[]
+    const rowAfter = listAfter.find((r) => r.id === item.id)
+    expect(rowAfter?.folderId).toBeNull() // item ไม่หาย แค่หลุดจาก Folder
+
+    const foldersAfter = (await (await app.request('/api/vault/folders', { headers: { cookie: owner } }, env)).json()) as unknown[]
+    expect(foldersAfter).toHaveLength(0)
   })
 })
 

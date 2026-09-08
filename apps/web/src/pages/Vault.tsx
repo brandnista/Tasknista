@@ -29,6 +29,8 @@ interface VaultItemRow {
   url: string | null
   projectId: string | null
   projectName: string | null
+  folderId: string | null
+  folderName: string | null
   updatedAt: number
 }
 interface VaultItemRevealed {
@@ -38,6 +40,10 @@ interface VaultItemRevealed {
   notes: string | null
 }
 interface ProjectOpt {
+  id: string
+  name: string
+}
+interface FolderOpt {
   id: string
   name: string
 }
@@ -126,17 +132,21 @@ function VaultUnlockForm({ onDone }: { onDone: (token: string) => void }) {
   )
 }
 
-function ItemModal({ item, projects, token, onClose, onDone, onLocked }: {
+function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, onFolderCreated }: {
   item: VaultItemRow | null
   projects: ProjectOpt[]
+  folders: FolderOpt[]
   token: string
   onClose: () => void
   onDone: () => void
   onLocked: () => void
+  onFolderCreated: (folder: FolderOpt) => void
 }) {
   const toast = useToast()
+  const { promptDialog } = useDialog()
   const [name, setName] = useState(item?.name ?? '')
   const [projectId, setProjectId] = useState(item?.projectId ?? '')
+  const [folderId, setFolderId] = useState(item?.folderId ?? '')
   const [username, setUsername] = useState(item?.username ?? '')
   const [password, setPassword] = useState('')
   const [url, setUrl] = useState(item?.url ?? '')
@@ -144,6 +154,14 @@ function ItemModal({ item, projects, token, onClose, onDone, onLocked }: {
   const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const createFolder = async () => {
+    const name2 = await promptDialog({ title: 'สร้าง Folder ใหม่', placeholder: 'เช่น เว็บ Seller ร้าน X', confirmLabel: 'สร้าง' })
+    if (!name2?.trim()) return
+    const created = await api.post<FolderOpt>('/api/vault/folders', { name: name2.trim() })
+    onFolderCreated(created)
+    setFolderId(created.id)
+  }
 
   const submit = async () => {
     setError('')
@@ -153,6 +171,7 @@ function ItemModal({ item, projects, token, onClose, onDone, onLocked }: {
       const payload = {
         name: name.trim(),
         projectId: projectId || null,
+        folderId: folderId || null,
         username: username.trim() || null,
         url: url.trim() || null,
         ...(password ? { password } : {}),
@@ -190,6 +209,16 @@ function ItemModal({ item, projects, token, onClose, onDone, onLocked }: {
               <option value="">— บริษัท (ไม่ผูกโปรเจกต์) —</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">Folder (แยกอิสระจากโปรเจกต์)</label>
+            <div className="flex items-center gap-2">
+              <select value={folderId} onChange={(e) => setFolderId(e.target.value)} className={input}>
+                <option value="">— ไม่มี Folder —</option>
+                {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <button type="button" onClick={() => void createFolder()} className="shrink-0 text-xs font-medium text-brand-600 hover:underline whitespace-nowrap">+ Folder</button>
+            </div>
           </div>
           <div>
             <label className="text-[11px] text-muted block mb-0.5">Username</label>
@@ -289,7 +318,7 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
           <div>
             <div className="font-semibold text-ink text-sm">{item.name}</div>
-            <div className="text-[11px] text-muted">{item.projectName ?? 'บริษัท'}</div>
+            <div className="text-[11px] text-muted">{item.projectName ?? 'บริษัท'}{item.folderName ? ` · ${item.folderName}` : ''}</div>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
@@ -336,6 +365,9 @@ function VaultAuditLog() {
     if (action === 'secret_vault_item.create') return 'สร้างรายการ'
     if (action === 'secret_vault_item.update') return 'แก้ไขรายการ'
     if (action === 'secret_vault_item.delete') return 'ลบรายการ'
+    if (action === 'secret_vault_folder.create') return 'สร้าง Folder'
+    if (action === 'secret_vault_folder.rename') return 'เปลี่ยนชื่อ Folder'
+    if (action === 'secret_vault_folder.delete') return 'ลบ Folder'
     return action
   }
   return (
@@ -361,11 +393,14 @@ function VaultAuditLog() {
 function VaultMain({ token, onLocked }: { token: string; onLocked: () => void }) {
   const { data, reload } = useLoad<VaultItemRow[]>(() => api.get('/api/vault/items'))
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
+  const { data: folders, reload: reloadFolders } = useLoad<FolderOpt[]>(() => api.get('/api/vault/folders'))
   const [search, setSearch] = useState('')
   const [projectFilter, setProjectFilter] = useState<'all' | 'company' | string>('all')
+  const [folderFilter, setFolderFilter] = useState<'all' | 'none' | string>('all')
   const [modal, setModal] = useState<VaultItemRow | 'new' | null>(null)
   const [detail, setDetail] = useState<VaultItemRow | null>(null)
   const [tab, setTab] = useState<'items' | 'audit'>('items')
+  const { confirmDialog } = useDialog()
 
   const items = data ?? []
   const filtered = useMemo(() => {
@@ -373,10 +408,20 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
     return items.filter((it) => {
       if (projectFilter === 'company' && it.projectId) return false
       if (projectFilter !== 'all' && projectFilter !== 'company' && it.projectId !== projectFilter) return false
+      if (folderFilter === 'none' && it.folderId) return false
+      if (folderFilter !== 'all' && folderFilter !== 'none' && it.folderId !== folderFilter) return false
       if (q && !it.name.toLowerCase().includes(q) && !(it.username ?? '').toLowerCase().includes(q)) return false
       return true
     })
-  }, [items, search, projectFilter])
+  }, [items, search, projectFilter, folderFilter])
+
+  const deleteFolder = async (folder: FolderOpt) => {
+    if (!(await confirmDialog({ title: `ลบ Folder "${folder.name}"?`, message: 'รายการข้างในไม่หาย แค่เอาออกจาก Folder นี้', confirmLabel: 'ลบ Folder', danger: true }))) return
+    await api.delete(`/api/vault/folders/${folder.id}`)
+    setFolderFilter('all')
+    void reloadFolders()
+    void reload()
+  }
 
   const lock = async () => {
     await api.post('/api/vault/lock', {}, { 'x-vault-token': token })
@@ -412,10 +457,23 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อรายการ/username..." className="w-full text-sm bg-white shadow-xs rounded-lg pl-8 pr-3 py-2 focus:outline-hidden" />
               </div>
               <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden">
-                <option value="all">ทุกรายการ</option>
+                <option value="all">ทุกโปรเจกต์</option>
                 <option value="company">บริษัท (ไม่ผูกโปรเจกต์)</option>
                 {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
+              <select value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden">
+                <option value="all">ทุก Folder</option>
+                <option value="none">ไม่มี Folder</option>
+                {(folders ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              {folderFilter !== 'all' && folderFilter !== 'none' && (
+                <button
+                  onClick={() => void deleteFolder((folders ?? []).find((f) => f.id === folderFilter)!)}
+                  className="text-xs text-danger-600 hover:underline shrink-0"
+                >
+                  ลบ Folder นี้
+                </button>
+              )}
               <span className="text-xs text-muted">{filtered.length} รายการ</span>
             </div>
 
@@ -432,8 +490,9 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
                   <div key={it.id} onClick={() => setDetail(it)} className="bg-white rounded-lg shadow-xs p-5 cursor-pointer hover:shadow-sm transition">
                     <div className="font-medium text-ink text-sm truncate">{it.name}</div>
                     {it.username && <div className="text-xs text-muted truncate mt-0.5">{it.username}</div>}
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap gap-1">
                       <span className="text-[11px] px-1.5 py-0.5 rounded bg-hover text-dim">{it.projectName ?? 'บริษัท'}</span>
+                      {it.folderName && <span className="text-[11px] px-1.5 py-0.5 rounded bg-info-50 text-info-700">{it.folderName}</span>}
                     </div>
                   </div>
                 ))}
@@ -447,10 +506,12 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
         <ItemModal
           item={modal === 'new' ? null : modal}
           projects={projects ?? []}
+          folders={folders ?? []}
           token={token}
           onClose={() => setModal(null)}
           onDone={() => { setModal(null); void reload() }}
           onLocked={() => { setModal(null); onLocked() }}
+          onFolderCreated={() => void reloadFolders()}
         />
       )}
       {detail && (
