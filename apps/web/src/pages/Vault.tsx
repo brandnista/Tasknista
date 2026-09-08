@@ -4,7 +4,35 @@
  * PIN นี้แยกจาก login (Google OAuth ล้วน ไม่มี password) — ปลดล็อคแล้วอยู่ได้ 15 นาที (server กำหนด)
  */
 import { isSensitiveFieldLabel, VAULT_ITEM_TYPES, VAULT_TYPE_LABEL, VAULT_TYPE_SUGGESTED_FIELDS, type VaultItemType } from '@seedoffice/core'
-import { Check, Copy, CreditCard, Eye, EyeOff, Globe, IdCard, KeyRound, Landmark, Lock, Pencil, Plus, RotateCcw, Search, Server, StickyNote, Trash2, X } from 'lucide-react'
+import {
+  Check,
+  ClipboardList,
+  Copy,
+  CreditCard,
+  Eye,
+  EyeOff,
+  FolderPlus,
+  Globe,
+  IdCard,
+  KeyRound,
+  Landmark,
+  Lock,
+  Package,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Server,
+  ShoppingCart,
+  Smartphone,
+  Sparkles,
+  StickyNote,
+  Trash2,
+  Truck,
+  Users,
+  Warehouse,
+  X,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { useDialog } from '../components/Dialog'
@@ -19,6 +47,14 @@ const TYPE_ICON: Record<VaultItemType, typeof Lock> = {
   api_credential: KeyRound,
   server: Server,
   payment_gateway: Landmark,
+  shipping_aggregator: Truck,
+  social_login: Users,
+  mobile_login: Smartphone,
+  order_management: ClipboardList,
+  product_management: Package,
+  e_fulfillment: Warehouse,
+  ecommerce_platform: ShoppingCart,
+  generative_ai: Sparkles,
   payment_card: CreditCard,
   identity: IdCard,
   note: StickyNote,
@@ -536,7 +572,7 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
   const [detail, setDetail] = useState<VaultItemRow | null>(null)
   const [tab, setTab] = useState<'items' | 'audit'>('items')
   const [resetPinOpen, setResetPinOpen] = useState(false)
-  const { confirmDialog } = useDialog()
+  const { confirmDialog, promptDialog } = useDialog()
   const { user } = useAuth()
   const toast = useToast()
 
@@ -552,6 +588,15 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
       return true
     })
   }, [items, search, projectFilter, folderFilter])
+
+  // §Secret Vault Folder (2026-09-08) — เดิมสร้าง Folder ได้แค่ตอนอยู่ในฟอร์ม "เพิ่มรายการ" เท่านั้น (หาไม่เจอถ้าไม่ได้กำลังสร้างรายการ) เพิ่มทางลัดตรงนี้ให้กดสร้างได้เลยจากหน้ารายการ
+  const createFolderStandalone = async () => {
+    const name = await promptDialog({ title: 'สร้าง Folder ใหม่', placeholder: 'เช่น เว็บ Seller ร้าน X', confirmLabel: 'สร้าง' })
+    if (!name?.trim()) return
+    const created = await api.post<FolderOpt>('/api/vault/folders', { name: name.trim() })
+    void reloadFolders()
+    setFolderFilter(created.id)
+  }
 
   const deleteFolder = async (folder: FolderOpt) => {
     if (!(await confirmDialog({ title: `ลบ Folder "${folder.name}"?`, message: 'รายการข้างในไม่หาย แค่เอาออกจาก Folder นี้', confirmLabel: 'ลบ Folder', danger: true }))) return
@@ -609,6 +654,14 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
                 <option value="none">ไม่มี Folder</option>
                 {(folders ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
+              <button
+                type="button"
+                onClick={() => void createFolderStandalone()}
+                title="สร้าง Folder ใหม่"
+                className="text-sm text-dim hover:bg-hover shrink-0 rounded-lg p-2 flex items-center gap-1.5"
+              >
+                <FolderPlus className="w-4 h-4" />
+              </button>
               {folderFilter !== 'all' && folderFilter !== 'none' && (
                 <button
                   onClick={() => void deleteFolder((folders ?? []).find((f) => f.id === folderFilter)!)}
