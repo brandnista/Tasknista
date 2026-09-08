@@ -3,7 +3,7 @@
  * ต่อโปรเจกต์ (มี badge ชื่อโปรเจกต์) หรือส่วนกลางบริษัท (badge "บริษัท") — ต้องปลดล็อคด้วย Master PIN ก่อนเห็น/สร้าง/แก้ไข plaintext
  * PIN นี้แยกจาก login (Google OAuth ล้วน ไม่มี password) — ปลดล็อคแล้วอยู่ได้ 15 นาที (server กำหนด)
  */
-import { isSensitiveFieldLabel, VAULT_ITEM_TYPES, VAULT_TYPE_LABEL, VAULT_TYPE_SUGGESTED_FIELDS, type VaultItemType } from '@seedoffice/core'
+import { isSensitiveFieldLabel, VAULT_ITEM_TYPES, VAULT_STRUCTURED_FIELDS, VAULT_TYPE_LABEL, VAULT_TYPE_SUGGESTED_FIELDS, type VaultItemType } from '@seedoffice/core'
 import {
   Check,
   ClipboardList,
@@ -188,8 +188,10 @@ function VaultUnlockForm({ onDone }: { onDone: (token: string) => void }) {
   )
 }
 
-function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, onFolderCreated }: {
+function ItemModal({ item, revealed, projects, folders, token, onClose, onDone, onLocked, onFolderCreated }: {
   item: VaultItemRow | null
+  // §Secret Vault Partner Types (2026-09-08) — ค่าที่ reveal มาแล้วจาก DetailModal (มีเฉพาะตอนแก้ไข) ใช้ prefill ฟอร์มแบบ WYSIWYG
+  revealed: VaultItemRevealed | null
   projects: ProjectOpt[]
   folders: FolderOpt[]
   token: string
@@ -205,18 +207,45 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
   const [projectId, setProjectId] = useState(item?.projectId ?? '')
   const [folderId, setFolderId] = useState(item?.folderId ?? '')
   const [username, setUsername] = useState(item?.username ?? '')
-  const [password, setPassword] = useState('')
+  const [password, setPassword] = useState(revealed?.password ?? '')
   const [url, setUrl] = useState(item?.url ?? '')
-  const [notes, setNotes] = useState('')
-  // Pronista §Secret Vault Type (2026-09-08) — เหมือน password/notes: แก้ไขรายการเดิมเริ่มเป็นค่าว่างเสมอ (เว้นว่าง = ไม่เปลี่ยนฟิลด์เสริมเดิม) ไม่ต้อง reveal มาเติมล่วงหน้า
-  const [extraFields, setExtraFields] = useState<VaultExtraField[]>([])
+  const [notes, setNotes] = useState(revealed?.notes ?? '')
+  // §Secret Vault Type (2026-09-08) — ใช้เฉพาะ type ทั่วไป (ไม่มี fixed schema ใน VAULT_STRUCTURED_FIELDS) เพิ่ม/ลบเองได้อิสระ, แก้ไขแล้ว prefill ด้วยค่าจริง (WYSIWYG)
+  const [extraFields, setExtraFields] = useState<VaultExtraField[]>(() => (revealed && !VAULT_STRUCTURED_FIELDS[type] ? revealed.extraFields : []))
+  // §Secret Vault Partner Types (2026-09-08) — สำหรับ type พาทเนอร์ (fixed field ตาม VAULT_STRUCTURED_FIELDS) เก็บเป็น map ตาม key แทน array เพิ่ม/ลบเอง
+  const [structuredValues, setStructuredValues] = useState<Record<string, string>>(() => {
+    const defs = VAULT_STRUCTURED_FIELDS[type]
+    if (!defs || !revealed) return {}
+    const values: Record<string, string> = {}
+    for (const d of defs) {
+      const wantLabel = d.prefixWithName ? `${item?.name ?? ''} ${d.label}` : d.label
+      values[d.key] = revealed.extraFields.find((f) => f.label === wantLabel)?.value ?? ''
+    }
+    return values
+  })
+  const [enabled, setEnabled] = useState(() => {
+    if (!VAULT_STRUCTURED_FIELDS[type] || !revealed) return true
+    const found = revealed.extraFields.find((f) => f.label === `เปิดใช้งาน ${item?.name ?? ''}`)
+    return found ? found.value === 'เปิด' : true
+  })
   const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  const structuredDefs = VAULT_STRUCTURED_FIELDS[type]
+
+  // เปลี่ยนประเภท = เริ่มชุดฟิลด์ใหม่ทั้งหมดตาม type ใหม่ (ฟิลด์ของ type เดิมไม่เกี่ยวข้องกันแล้ว)
   const changeType = (next: VaultItemType) => {
     setType(next)
-    if (extraFields.length === 0) setExtraFields(VAULT_TYPE_SUGGESTED_FIELDS[next].map((label) => ({ label, value: '' })))
+    const nextDefs = VAULT_STRUCTURED_FIELDS[next]
+    if (nextDefs) {
+      setStructuredValues(Object.fromEntries(nextDefs.map((d) => [d.key, ''])))
+      setEnabled(true)
+      setExtraFields([])
+    } else {
+      setStructuredValues({})
+      setExtraFields(VAULT_TYPE_SUGGESTED_FIELDS[next].map((label) => ({ label, value: '' })))
+    }
   }
   const updateField = (i: number, patch: Partial<VaultExtraField>) => setExtraFields((fs) => fs.map((f, idx) => (idx === i ? { ...f, ...patch } : f)))
   const removeField = (i: number) => setExtraFields((fs) => fs.filter((_, idx) => idx !== i))
@@ -235,7 +264,13 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
     if (!name.trim()) return setError('ใส่ชื่อรายการ')
     setBusy(true)
     try {
-      const cleanFields = extraFields.filter((f) => f.label.trim())
+      const displayName = name.trim() || 'รายการนี้'
+      const cleanFields = structuredDefs
+        ? [
+            { label: `เปิดใช้งาน ${displayName}`, value: enabled ? 'เปิด' : 'ปิด' },
+            ...structuredDefs.map((d) => ({ label: d.prefixWithName ? `${displayName} ${d.label}` : d.label, value: structuredValues[d.key] ?? '' })),
+          ].filter((f) => f.value.trim())
+        : extraFields.filter((f) => f.label.trim())
       const payload = {
         name: name.trim(),
         type,
@@ -243,9 +278,11 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
         folderId: folderId || null,
         username: username.trim() || null,
         url: url.trim() || null,
-        ...(password ? { password } : {}),
-        ...(notes ? { notes } : {}),
-        ...(cleanFields.length > 0 ? { extraFields: cleanFields } : {}),
+        // §Secret Vault (2026-09-08) — ฟอร์มแก้ไขตอนนี้ prefill ด้วยค่าจริงที่ reveal มาแล้ว (WYSIWYG) เว้นว่าง = ล้างค่านั้นจริงๆ
+        // ต่างจากตอนสร้างใหม่ที่เว้นว่าง = ยังไม่ใส่ (ไม่ส่ง key เลยก็ผลเหมือนกัน)
+        ...(item ? { password: password || null } : password ? { password } : {}),
+        ...(item ? { notes: notes || null } : notes ? { notes } : {}),
+        ...(item ? { extraFields: cleanFields } : cleanFields.length > 0 ? { extraFields: cleanFields } : {}),
       }
       const headers = { 'x-vault-token': token }
       if (item) await api.patch(`/api/vault/items/${item.id}`, payload, headers)
@@ -296,56 +333,86 @@ function ItemModal({ item, projects, folders, token, onClose, onDone, onLocked, 
               <button type="button" onClick={() => void createFolder()} className="shrink-0 text-xs font-medium text-brand-600 hover:underline whitespace-nowrap">+ Folder</button>
             </div>
           </div>
-          <div>
-            <label className="text-[11px] text-muted block mb-0.5">Username</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} className={input} />
-          </div>
-          <div>
-            <label className="text-[11px] text-muted block mb-0.5">Password{item && ' (เว้นว่าง = ไม่เปลี่ยน)'}</label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={item ? '••••••••' : ''}
-                className={`${input} pr-9`}
-              />
-              <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-body">
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="text-[11px] text-muted block mb-0.5">URL</label>
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." className={input} />
-          </div>
-          <div>
-            <label className="text-[11px] text-muted block mb-0.5">Notes{item && ' (เว้นว่าง = ไม่เปลี่ยน)'}</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={item ? '(เว้นว่างไว้ = ไม่เปลี่ยนบันทึกเดิม)' : ''} className={input} />
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-0.5">
-              <label className="text-[11px] text-muted">ฟิลด์เสริม{item && ' (เว้นว่าง = ไม่เปลี่ยนฟิลด์เดิม)'}</label>
-              <button type="button" onClick={addField} className="text-[11px] font-medium text-brand-600 hover:underline">+ เพิ่มฟิลด์</button>
-            </div>
-            {extraFields.length > 0 && (
-              <div className="space-y-1.5">
-                {extraFields.map((f, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <input value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="ชื่อฟิลด์" className={`${input} w-2/5`} />
-                    <input
-                      value={f.value}
-                      onChange={(e) => updateField(i, { value: e.target.value })}
-                      type={isSensitiveFieldLabel(f.label) ? 'password' : 'text'}
-                      placeholder="ค่า"
-                      className={`${input} flex-1`}
-                    />
-                    <button type="button" onClick={() => removeField(i)} className="shrink-0 p-1.5 rounded hover:bg-hover text-dim"><X className="w-3.5 h-3.5" /></button>
-                  </div>
-                ))}
+
+          {structuredDefs ? (
+            // §Secret Vault Partner Types (2026-09-08) — fixed field ตายตัวตามหน้า "จัดการพาทเนอร์ > แก้ไข" ของ allnista แทนที่ username/password/url/notes/ฟิลด์เสริมทั่วไป
+            <>
+              <div className="flex items-center justify-between bg-hover rounded-lg px-3 py-2.5">
+                <span className="text-sm text-body">เปิดใช้งาน {name.trim() || 'รายการนี้'}</span>
+                <button
+                  type="button"
+                  onClick={() => setEnabled((v) => !v)}
+                  className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${enabled ? 'bg-danger-600' : 'bg-border'}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
               </div>
-            )}
-          </div>
+              {structuredDefs.map((d) => (
+                <div key={d.key}>
+                  <label className="text-[11px] text-muted block mb-0.5">{d.prefixWithName ? `${name.trim() || 'รายการนี้'} ${d.label}` : d.label}</label>
+                  <input
+                    value={structuredValues[d.key] ?? ''}
+                    onChange={(e) => setStructuredValues((v) => ({ ...v, [d.key]: e.target.value }))}
+                    type={isSensitiveFieldLabel(d.label) ? 'password' : 'text'}
+                    className={input}
+                  />
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="text-[11px] text-muted block mb-0.5">Username</label>
+                <input value={username} onChange={(e) => setUsername(e.target.value)} className={input} />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted block mb-0.5">Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`${input} pr-9`}
+                  />
+                  <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-body">
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] text-muted block mb-0.5">URL</label>
+                <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." className={input} />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted block mb-0.5">Notes</label>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={input} />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-[11px] text-muted">ฟิลด์เสริม</label>
+                  <button type="button" onClick={addField} className="text-[11px] font-medium text-brand-600 hover:underline">+ เพิ่มฟิลด์</button>
+                </div>
+                {extraFields.length > 0 && (
+                  <div className="space-y-1.5">
+                    {extraFields.map((f, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <input value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="ชื่อฟิลด์" className={`${input} w-2/5`} />
+                        <input
+                          value={f.value}
+                          onChange={(e) => updateField(i, { value: e.target.value })}
+                          type={isSensitiveFieldLabel(f.label) ? 'password' : 'text'}
+                          placeholder="ค่า"
+                          className={`${input} flex-1`}
+                        />
+                        <button type="button" onClick={() => removeField(i)} className="shrink-0 p-1.5 rounded hover:bg-hover text-dim"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           {error && <div className="text-xs text-danger-600">{error}</div>}
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
@@ -363,7 +430,7 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
   item: VaultItemRow
   token: string
   onClose: () => void
-  onEdit: () => void
+  onEdit: (revealed: VaultItemRevealed) => void
   onDeleted: () => void
   onLocked: () => void
 }) {
@@ -461,7 +528,7 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
         </div>
         <div className="flex justify-between gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
           <button onClick={() => void remove()} className="text-sm text-danger-600 hover:bg-danger-50 px-3 py-2 rounded-lg flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> ลบ</button>
-          <button onClick={onEdit} className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg flex items-center gap-1.5"><Pencil className="w-3.5 h-3.5" /> แก้ไข</button>
+          <button onClick={() => data && onEdit(data)} disabled={!data} className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-40 px-4 py-2 rounded-lg flex items-center gap-1.5"><Pencil className="w-3.5 h-3.5" /> แก้ไข</button>
         </div>
       </div>
     </div>
@@ -568,7 +635,7 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
   const [search, setSearch] = useState('')
   const [projectFilter, setProjectFilter] = useState<'all' | 'company' | string>('all')
   const [folderFilter, setFolderFilter] = useState<'all' | 'none' | string>('all')
-  const [modal, setModal] = useState<VaultItemRow | 'new' | null>(null)
+  const [modal, setModal] = useState<{ item: VaultItemRow; revealed: VaultItemRevealed } | 'new' | null>(null)
   const [detail, setDetail] = useState<VaultItemRow | null>(null)
   const [tab, setTab] = useState<'items' | 'audit'>('items')
   const [resetPinOpen, setResetPinOpen] = useState(false)
@@ -706,7 +773,8 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
 
       {modal && (
         <ItemModal
-          item={modal === 'new' ? null : modal}
+          item={modal === 'new' ? null : modal.item}
+          revealed={modal === 'new' ? null : modal.revealed}
           projects={projects ?? []}
           folders={folders ?? []}
           token={token}
@@ -721,7 +789,7 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
           item={detail}
           token={token}
           onClose={() => setDetail(null)}
-          onEdit={() => { setModal(detail); setDetail(null) }}
+          onEdit={(revealed) => { setModal({ item: detail, revealed }); setDetail(null) }}
           onDeleted={() => { setDetail(null); void reload() }}
           onLocked={() => { setDetail(null); onLocked() }}
         />
