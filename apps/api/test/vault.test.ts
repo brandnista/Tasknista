@@ -57,6 +57,20 @@ describe('§Secret Vault — PIN + unlock', () => {
     expect((await app.request('/api/vault/unlock', json(owner, { pin: '5678' }), env)).status).toBe(200)
   })
 
+  it('GET /vault/users — owner-only, คืนแค่ id/name/email ไม่มี vaultPinHash หลุดมา', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await setStaffVaultCeiling(owner, true)
+    const member = await loginAs(app, 'pond@example-co.test')
+    expect((await app.request('/api/vault/users', { headers: { cookie: member } }, env)).status).toBe(403)
+
+    const res = await app.request('/api/vault/users', { headers: { cookie: owner } }, env)
+    expect(res.status).toBe(200)
+    const list = (await res.json()) as Record<string, unknown>[]
+    expect(list.length).toBeGreaterThan(0)
+    expect(list[0]).not.toHaveProperty('vaultPinHash')
+    expect(list[0]).toMatchObject({ id: expect.any(String), name: expect.any(String), email: expect.any(String) })
+  })
+
   it('pin/reset — owner อีกคน reset ให้ได้โดยไม่ต้องรู้ PIN เดิม · non-owner (member) ต้อง 403', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     await app.request('/api/vault/pin', json(owner, { newPin: '1234' }), env)

@@ -88,6 +88,15 @@ export const vaultRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
+  // §Secret Vault Permission (2026-09-08) — รายชื่อ user (id/name/email เท่านั้น) ให้ owner เลือกตอน reset PIN คนอื่น
+  // แยกจาก /api/admin/users ตั้งใจ (endpoint นั้นเปิดกว้างกว่า non-owner บางหมวดด้วย — ไม่เอามาผูกกับ endpoint owner-only นี้)
+  .get('/users', async (c) => {
+    if (c.get('user').role !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    const db = createDb(c.env.DB)
+    const rows = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(isNull(users.deletedAt)).orderBy(users.name)
+    return c.json(rows)
+  })
+
   // §Secret Vault Permission (2026-09-08) — token คืนใน body แทน cookie (client เก็บใน memory เอง ไม่ persist ข้าม mount)
   // + แจ้งเตือนทุกคนที่มีสิทธิ์เข้าเมนูนี้ทันทีที่ปลดล็อคสำเร็จ (ยกเว้นตัวเอง) ตามที่ตกลงกันไว้
   .post('/unlock', async (c) => {

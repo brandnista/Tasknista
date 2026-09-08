@@ -4,12 +4,13 @@
  * PIN นี้แยกจาก login (Google OAuth ล้วน ไม่มี password) — ปลดล็อคแล้วอยู่ได้ 15 นาที (server กำหนด)
  */
 import { isSensitiveFieldLabel, VAULT_ITEM_TYPES, VAULT_TYPE_LABEL, VAULT_TYPE_SUGGESTED_FIELDS, type VaultItemType } from '@seedoffice/core'
-import { Check, Copy, CreditCard, Eye, EyeOff, Globe, IdCard, KeyRound, Landmark, Lock, Pencil, Plus, Search, Server, StickyNote, Trash2, X } from 'lucide-react'
+import { Check, Copy, CreditCard, Eye, EyeOff, Globe, IdCard, KeyRound, Landmark, Lock, Pencil, Plus, RotateCcw, Search, Server, StickyNote, Trash2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { useDialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
 
 // Pronista §Secret Vault Type (2026-09-08) — แม็ป VaultItemType → ไอคอนจริง (VAULT_TYPE_ICON ใน core เป็นแค่ชื่อ string ไว้อ้างอิง)
@@ -468,6 +469,62 @@ function VaultAuditLog() {
   )
 }
 
+interface PinUserOpt {
+  id: string
+  name: string
+  email: string
+}
+
+// Pronista §Secret Vault Permission (2026-09-08) — owner-only: reset PIN ให้คนอื่นที่ลืม PIN โดยไม่ต้องรู้ PIN เดิม (ดูรายชื่อจาก endpoint แยกที่ไม่มี vaultPinHash หลุดมา)
+function ResetPinModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { confirmDialog } = useDialog()
+  const { data: users } = useLoad<PinUserOpt[]>(() => api.get('/api/vault/users'))
+  const [userId, setUserId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async () => {
+    const target = (users ?? []).find((u) => u.id === userId)
+    if (!target) return setError('เลือกคนที่จะรีเซ็ต PIN ก่อน')
+    if (!(await confirmDialog({ title: `รีเซ็ต PIN ของ "${target.name}"?`, message: 'PIN เดิมของเขาจะใช้ไม่ได้ทันที ต้องตั้ง PIN ใหม่เองตอนเข้าเมนูครั้งถัดไป', confirmLabel: 'รีเซ็ต PIN' }))) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.post('/api/vault/pin/reset', { userId: target.id })
+      onDone()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'รีเซ็ตไม่สำเร็จ')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
+          <span className="font-semibold text-ink text-sm">รีเซ็ต PIN ให้คนอื่น</span>
+          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <p className="text-xs text-muted">ใช้เมื่อมีคนลืม PIN ของตัวเอง — เลือกคนที่จะรีเซ็ต แล้วเขาจะตั้ง PIN ใหม่เองได้ตอนเข้าเมนู Secret Vault ครั้งถัดไป</p>
+          <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden">
+            <option value="">— เลือกคน —</option>
+            {(users ?? []).map((u) => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+          </select>
+          {error && <div className="text-xs text-danger-600">{error}</div>}
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
+          <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
+          <button onClick={() => void submit()} disabled={!userId || busy} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40">
+            รีเซ็ต PIN
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function VaultMain({ token, onLocked }: { token: string; onLocked: () => void }) {
   const { data, reload } = useLoad<VaultItemRow[]>(() => api.get('/api/vault/items'))
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
@@ -478,7 +535,10 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
   const [modal, setModal] = useState<VaultItemRow | 'new' | null>(null)
   const [detail, setDetail] = useState<VaultItemRow | null>(null)
   const [tab, setTab] = useState<'items' | 'audit'>('items')
+  const [resetPinOpen, setResetPinOpen] = useState(false)
   const { confirmDialog } = useDialog()
+  const { user } = useAuth()
+  const toast = useToast()
 
   const items = data ?? []
   const filtered = useMemo(() => {
@@ -512,6 +572,11 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
         title="Secret Vault"
         action={
           <div className="flex items-center gap-2">
+            {user?.role === 'owner' && (
+              <button onClick={() => setResetPinOpen(true)} className="text-sm text-dim hover:bg-hover px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5" /> รีเซ็ต PIN ให้คนอื่น
+              </button>
+            )}
             <button onClick={() => void lock()} className="text-sm text-dim hover:bg-hover px-3 py-1.5 rounded-lg flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" /> ล็อค</button>
             <button onClick={() => setModal('new')} className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
               <Plus className="w-3.5 h-3.5" /> เพิ่มรายการ
@@ -606,6 +671,12 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
           onEdit={() => { setModal(detail); setDetail(null) }}
           onDeleted={() => { setDetail(null); void reload() }}
           onLocked={() => { setDetail(null); onLocked() }}
+        />
+      )}
+      {resetPinOpen && (
+        <ResetPinModal
+          onClose={() => setResetPinOpen(false)}
+          onDone={() => { setResetPinOpen(false); toast('รีเซ็ต PIN แล้ว') }}
         />
       )}
     </>
