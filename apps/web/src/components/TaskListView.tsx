@@ -12,14 +12,16 @@ export function TaskListView({ tasks, onOpenTask, soonDays }: { tasks: KanbanTas
       {/* Pronista §Mobile responsive — ตารางคงเดิมบน sm+ ขึ้นไป, มือถือใช้การ์ดแทน (ตารางคอลัมน์ตายตัวบีบอ่านยากบนจอแคบ) */}
       <table className="hidden sm:table w-full text-sm" style={{ tableLayout: 'fixed' }}>
         <colgroup>
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '34%' }} />
           <col style={{ width: '16%' }} />
-          <col style={{ width: '38%' }} />
-          <col style={{ width: '18%' }} />
-          <col style={{ width: '14%' }} />
-          <col style={{ width: '14%' }} />
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '12%' }} />
         </colgroup>
         <thead>
           <tr className="bg-hover text-[11px] text-muted uppercase tracking-wide">
+            <th className="text-left font-semibold px-3 py-2">วันที่จ่ายงาน</th>
             <th className="text-left font-semibold px-3 py-2">รหัส</th>
             <th className="text-left font-semibold px-3 py-2">ชื่องาน</th>
             <th className="text-left font-semibold px-3 py-2">โปรเจกต์</th>
@@ -34,6 +36,9 @@ export function TaskListView({ tasks, onOpenTask, soonDays }: { tasks: KanbanTas
               onClick={() => onOpenTask(t.id)}
               className={`cursor-pointer ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
             >
+              <td className="px-3 py-2.5 text-[11px] text-muted truncate">
+                {t.dispatchedAt ? new Date(t.dispatchedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
+              </td>
               <td className="px-3 py-2.5 text-[11px] font-mono text-muted truncate">{t.code ?? '—'}</td>
               <td className="px-3 py-2.5 text-body truncate">
                 <span className="truncate">{t.title}</span>
@@ -65,6 +70,8 @@ export function TaskListView({ tasks, onOpenTask, soonDays }: { tasks: KanbanTas
               <span className="text-sm text-body truncate">{t.title}</span>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-muted">
+              {t.dispatchedAt && <span className="shrink-0">จ่ายงาน {new Date(t.dispatchedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</span>}
+              {t.dispatchedAt && <span>·</span>}
               <span className="truncate">{t.projectName}</span>
               <span>·</span>
               <span className="truncate">{taskTypeLabel(t)}</span>

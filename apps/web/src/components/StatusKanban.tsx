@@ -30,6 +30,8 @@ export interface KanbanTask {
   checklistTotal?: number
   // Pronista §Kanban drag constraints (2026-08-26) — ใช้เช็คข้อยกเว้น "งานที่คีย์เอง" (ดูฟังก์ชัน allowedDragTargets)
   createdBy?: string
+  // Pronista §Task List — วันที่กด "จ่ายงาน" อย่างเป็นทางการ (tasks.dispatchedAt) — null ถ้ายังไม่เคยจ่ายอย่างเป็นทางการ (string|number มาจาก JSON serialize ของ timestamp_ms — mirror MyTask.dispatchedAt)
+  dispatchedAt?: string | number | null
 }
 
 // Pronista §Kanban drag constraints (2026-08-26) — ห้ามลากข้ามขั้นตอนตรวจงานเองบนบอร์ด "งานของฉัน" (assignee ของทุกใบในบอร์ดนี้คือผู้ใช้ที่กำลังดูอยู่เสมอ)
