@@ -77,6 +77,8 @@ export const users = sqliteTable('users', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
+  // Pronista §Employee Delete (2026-09-07) — ลบสมาชิก = soft-delete เท่านั้น (กฎเหล็ก) หายจากทุกรายการ/dropdown แต่ประวัติงาน/audit log เดิมยังอ้างชื่อได้
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 })
 
 // Pronista §Workspace Rooms — "ห้อง" ทำงานของทีม (ชื่อ + สมาชิก) คนละเรื่องกับ projects — เข้าไปแล้วเจอหน้า Workspace (Backlog/Sprint) เดิม

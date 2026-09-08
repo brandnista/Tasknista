@@ -4,11 +4,12 @@
  * ลูกค้า = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า UserSettingsCustomerDetail (/customers/:id)
  * พนักงาน = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า EmployeeDetail (/employees/:id)
  */
-import { Plus, SquarePen, UserPlus, Users } from 'lucide-react'
+import { Plus, SquarePen, Trash2, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { DateInputTH } from '../components/DateInputTH'
+import { useDialog } from '../components/Dialog'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
@@ -398,6 +399,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
 export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const navigate = useNavigate()
   const { user: me } = useAuth()
+  const { confirmDialog } = useDialog()
   const isOwner = me?.role === 'owner'
   const { data: usersList, loading, reload } = useLoad<AdminUser[]>(() => api.get('/api/admin/users'))
   const { data: teamsList, reload: reloadTeams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
@@ -409,6 +411,17 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
 
   const toggleStatus = async (u: AdminUser) => {
     await api.patch(`/api/admin/users/${u.id}`, { status: u.status === 'active' ? 'disabled' : 'active' })
+    await reload()
+  }
+  const deleteUser = async (u: AdminUser) => {
+    const yes = await confirmDialog({
+      title: `ลบสมาชิก "${u.name}"?`,
+      message: 'จะหายจากรายการนี้และเลือกเป็นผู้รับผิดชอบงานใหม่ไม่ได้อีก แต่ประวัติงาน/ประวัติการเปลี่ยนแปลงเดิมยังอยู่ครบ กู้คืนเองไม่ได้ผ่านหน้านี้',
+      confirmLabel: 'ลบสมาชิก',
+      danger: true,
+    })
+    if (!yes) return
+    await api.delete(`/api/admin/users/${u.id}`)
     await reload()
   }
   const saveUserRole = async (u: AdminUser, role: AdminUser['role']) => {
@@ -607,6 +620,14 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                             {isOwner && (
                               <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
                                 {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
+                              </button>
+                            )}
+                            {isOwner && u.id !== me?.id && (
+                              <button
+                                onClick={() => void deleteUser(u)}
+                                className="inline-flex items-center gap-1 text-[11px] text-danger-600 hover:underline"
+                              >
+                                <Trash2 className="w-3 h-3" /> ลบสมาชิก
                               </button>
                             )}
                           </div>

@@ -48,7 +48,7 @@ import {
   type TaskType,
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
-import { asc, desc, eq, isNotNull } from 'drizzle-orm'
+import { asc, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -103,7 +103,7 @@ export const adminRoutes = new Hono<AppEnv>()
     const access = await resolveUsersAccess(c)
     if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
-    const all = await db.select().from(users).orderBy(asc(users.role), asc(users.name))
+    const all = await db.select().from(users).where(isNull(users.deletedAt)).orderBy(asc(users.role), asc(users.name))
     const scoped = access === 'owner' ? all : all.filter((u) => categoryOfUserRole(u.role) === access)
     const allTeams = await db.select().from(teams)
     const teamName = new Map(allTeams.map((t) => [t.id, t.name]))
@@ -122,7 +122,7 @@ export const adminRoutes = new Hono<AppEnv>()
     if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
     const user = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
-    if (!user) return c.json({ error: 'not_found' }, 404)
+    if (!user || user.deletedAt) return c.json({ error: 'not_found' }, 404)
     if (access !== 'owner' && categoryOfUserRole(user.role) !== access) return c.json({ error: 'forbidden' }, 403)
     const links = await db.select({ projectId: customerProjects.projectId }).from(customerProjects).where(eq(customerProjects.userId, user.id))
     return c.json({ ...user, projectIds: links.map((l) => l.projectId) })
@@ -321,6 +321,20 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: { role: before.role, status: before.status }, after: body.data },
     })
     return c.json({ ...updated[0], projectIds: projectIds ?? undefined })
+  })
+
+  // Pronista §Employee Delete (2026-09-07) — ลบสมาชิก = soft-delete เท่านั้น (กฎเหล็ก) หายจากทุกรายการ/dropdown ทันที
+  // ประวัติงาน/audit log เดิมที่อ้าง userId นี้ยังอยู่ครบ ไม่พังแม้ query join users (แค่ query ที่กรอง deletedAt ชัดๆ เท่านั้นที่ไม่เห็นคนนี้อีก)
+  .delete('/users/:id', async (c) => {
+    if (c.get('user').role !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    const id = c.req.param('id')
+    if (id === c.get('user').id) return c.json({ error: 'cannot_delete_self', message: 'ลบบัญชีตัวเองไม่ได้' }, 400)
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(users).where(eq(users.id, id)).limit(1))[0]
+    if (!before || before.deletedAt) return c.json({ error: 'not_found' }, 404)
+    await db.update(users).set({ deletedAt: new Date(), status: 'disabled' }).where(eq(users.id, id))
+    await writeAudit(c.env, { actorId: c.get('user').id, action: 'user.delete', entity: 'user', entityId: id, meta: { name: before.name, email: before.email } })
+    return c.json({ ok: true })
   })
 
   // Pronista §กำหนดต้นทุน — % buffer/margin default + แคตตาล็อกตำแหน่ง (เฉพาะ owner เห็น ไม่อยู่ใน /api/config สาธารณะ)
