@@ -2253,21 +2253,32 @@ export const vaultUnlocks = sqliteTable(
 
 // Pronista §Second Brain (2026-09-08) — ลิงก์ที่ดักจับจาก LINE group เฉพาะ (Group ID = LINE_SECOND_BRAIN_GROUP_ID secret) เก็บอย่างเดียว ไม่มี AI สรุป/metadata (Phase 1)
 // v1 ยังไม่ผูกบัญชี LINE เข้ากับ user Pronista — โชว์แค่ senderDisplayName (best-effort จาก LINE Profile API) แต่เก็บ lineUserId ดิบไว้เผื่อผูกบัญชีทีหลังได้โดยไม่ต้อง backfill
+// Pronista §Second Brain Manual/Table (2026-09-08) — kind แยก 'article' (ลิงก์+note จาก LINE หรือคีย์เอง) กับ 'solution' (ปัญหา+วิธีแก้ คีย์เองเท่านั้น ไม่มีลิงก์)
+// source แยก 'line' (auto-capture, senderDisplayName เป็น best-effort จาก LINE) กับ 'manual' (createdByUserId รู้ชื่อจริงแน่นอน)
 export const secondBrainLinks = sqliteTable(
   'second_brain_links',
   {
     id: id(),
-    url: text('url').notNull(),
-    messageText: text('message_text'), // ข้อความเต็มที่พิมพ์มาพร้อมลิงก์ (บริบทเพิ่มเติม)
-    lineMessageId: text('line_message_id').notNull(), // กันข้อความซ้ำตอน LINE webhook retry (ดู unique index คู่กับ url ด้านล่าง)
+    kind: text('kind', { enum: ['article', 'solution'] }).notNull().default('article'),
+    source: text('source', { enum: ['line', 'manual'] }).notNull().default('line'),
+    url: text('url'), // nullable — solution ไม่มีลิงก์
+    note: text('note'), // แก้ไขได้เองในตาราง (kind=article)
+    problem: text('problem'), // kind=solution — "ปัญหาที่พบ"
+    solutionText: text('solution_text'), // kind=solution — "วิธีแก้ไข"
+    messageText: text('message_text'), // ข้อความดิบจาก LINE เก็บไว้อ้างอิง (source=line เท่านั้น)
+    lineMessageId: text('line_message_id'), // nullable — manual ไม่มี (กันข้อความซ้ำตอน LINE webhook retry ดู unique index ด้านล่าง)
     lineUserId: text('line_user_id'),
     senderDisplayName: text('sender_display_name'),
+    createdByUserId: text('created_by_user_id').references((): AnySQLiteColumn => users.id), // source=manual — ใครคีย์
     capturedAt: integer('captured_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()), // = "วันที่แชร่"
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
-  (t) => [uniqueIndex('second_brain_links_dedupe_idx').on(t.lineMessageId, t.url)],
+  (t) => [uniqueIndex('second_brain_links_dedupe_idx').on(t.lineMessageId, t.url)], // NULL ใน SQLite unique index ไม่ชนกันเอง — manual entries ปลอดภัย
 )
 
 export type Domain = typeof domains.$inferSelect

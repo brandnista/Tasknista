@@ -89,6 +89,12 @@ describe('§Second Brain — webhook', () => {
     const rows = await env.DB.prepare('SELECT url FROM second_brain_links ORDER BY url').all()
     expect(rows.results.map((r) => r.url)).toEqual(['https://a.com', 'https://b.com'])
   })
+
+  it('ลิงก์+โน้ตต่อท้ายในบรรทัดเดียว → note เก็บเฉพาะส่วนโน้ต ไม่มีลิงก์ซ้ำ (กันบั๊กที่เจอจริง)', async () => {
+    await postWebhook([messageEvent({ messageId: 'm-note', text: 'https://youtu.be/x อันนี้ดีมะ' })])
+    const rows = await env.DB.prepare('SELECT note FROM second_brain_links').all()
+    expect(rows.results[0]?.note).toBe('อันนี้ดีมะ')
+  })
 })
 
 const jsonReq = (cookie: string, body: unknown) => ({
@@ -143,6 +149,94 @@ describe('§Second Brain — list/delete (ผ่านเพดานสิท�
   it('ลบรายการที่ไม่มีจริง → 404', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = await app.request('/api/second-brain/links/not-a-real-id', { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(res.status).toBe(404)
+  })
+})
+
+describe('§Second Brain — เพิ่มรายการเอง (Manual)', () => {
+  it('เพิ่มแบบ "บทความ" — ได้ url/note, source=manual, คนที่แชร่ = ชื่อจริงตัวเอง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', url: 'https://example.com/manual', note: 'บทความดีมาก' }), env)
+    expect(res.status).toBe(201)
+    const created = (await res.json()) as { kind: string; source: string; url: string; note: string; creatorName: string }
+    expect(created).toMatchObject({ kind: 'article', source: 'manual', url: 'https://example.com/manual', note: 'บทความดีมาก', creatorName: 'เมธ' })
+
+    const list = (await (await app.request('/api/second-brain/links', { headers: { cookie: owner } }, env)).json()) as { creatorName: string }[]
+    expect(list[0]?.creatorName).toBe('เมธ')
+  })
+
+  it('เพิ่มแบบ "Solution" — ได้ problem/solutionText, ไม่มี url', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request(
+      '/api/second-brain/links',
+      jsonReq(owner, { kind: 'solution', problem: 'ปุ่มชำระเงินกดไม่ติด', solutionText: 'ล้าง cache แล้ว deploy ใหม่' }),
+      env,
+    )
+    expect(res.status).toBe(201)
+    const created = (await res.json()) as { kind: string; url: string | null; problem: string; solutionText: string }
+    expect(created).toMatchObject({ kind: 'solution', url: null, problem: 'ปุ่มชำระเงินกดไม่ติด', solutionText: 'ล้าง cache แล้ว deploy ใหม่' })
+  })
+
+  it('เพิ่มแบบบทความไม่ใส่ url → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', note: 'ลืมใส่ลิงก์' }), env)
+    expect(res.status).toBe(400)
+  })
+
+  it('เพิ่มแบบ Solution ไม่ใส่ solutionText → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'solution', problem: 'มีปัญหา' }), env)
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('§Second Brain — แก้ไขอินไลน์ (PATCH)', () => {
+  it('แก้ note ของรายการ kind=article สำเร็จ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (await (await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', url: 'https://example.com/edit-note' }), env)).json()) as { id: string }
+    const patch = await app.request(`/api/second-brain/links/${created.id}`, { ...jsonReq(owner, { note: 'แก้โน้ตใหม่' }), method: 'PATCH' }, env)
+    expect(patch.status).toBe(200)
+    const list = (await (await app.request('/api/second-brain/links', { headers: { cookie: owner } }, env)).json()) as { id: string; note: string }[]
+    expect(list.find((r) => r.id === created.id)?.note).toBe('แก้โน้ตใหม่')
+  })
+
+  it('แก้ problem/solutionText ของรายการ kind=solution สำเร็จ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (
+      await (
+        await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'solution', problem: 'ปัญหาเดิม', solutionText: 'วิธีแก้เดิม' }), env)
+      ).json()
+    ) as { id: string }
+    const patch = await app.request(
+      `/api/second-brain/links/${created.id}`,
+      { ...jsonReq(owner, { problem: 'ปัญหาใหม่', solutionText: 'วิธีแก้ใหม่' }), method: 'PATCH' },
+      env,
+    )
+    expect(patch.status).toBe(200)
+    const list = (await (await app.request('/api/second-brain/links', { headers: { cookie: owner } }, env)).json()) as { id: string; problem: string; solutionText: string }[]
+    const row = list.find((r) => r.id === created.id)
+    expect(row).toMatchObject({ problem: 'ปัญหาใหม่', solutionText: 'วิธีแก้ใหม่' })
+  })
+
+  it('ส่ง problem/solutionText มาแก้รายการ kind=article → 400 (ผิดประเภท)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (await (await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', url: 'https://example.com/x' }), env)).json()) as { id: string }
+    const patch = await app.request(`/api/second-brain/links/${created.id}`, { ...jsonReq(owner, { problem: 'ผิดประเภท' }), method: 'PATCH' }, env)
+    expect(patch.status).toBe(400)
+  })
+
+  it('ส่ง note มาแก้รายการ kind=solution → 400 (ผิดประเภท)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = (
+      await (await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'solution', problem: 'p', solutionText: 's' }), env)).json()
+    ) as { id: string }
+    const patch = await app.request(`/api/second-brain/links/${created.id}`, { ...jsonReq(owner, { note: 'ผิดประเภท' }), method: 'PATCH' }, env)
+    expect(patch.status).toBe(400)
+  })
+
+  it('แก้รายการที่ไม่มีจริง → 404', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request('/api/second-brain/links/not-a-real-id', { ...jsonReq(owner, { note: 'x' }), method: 'PATCH' }, env)
     expect(res.status).toBe(404)
   })
 })

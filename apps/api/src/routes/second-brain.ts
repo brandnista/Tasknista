@@ -1,7 +1,8 @@
-import { extractUrls } from '@seedoffice/core'
-import { createDb, secondBrainLinks } from '@seedoffice/db'
+import { extractUrls, stripUrls } from '@seedoffice/core'
+import { createDb, secondBrainLinks, users } from '@seedoffice/db'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { fetchLineDisplayName, verifyLineSignature } from '../lib/line'
 import type { AppEnv } from '../types'
@@ -9,7 +10,8 @@ import type { AppEnv } from '../types'
 /**
  * Pronista §Second Brain (2026-09-08) — ดักลิงก์จากห้องแชท LINE กลุ่มเดียว (LINE_SECOND_BRAIN_GROUP_ID) มาเก็บไว้ดู (Phase 1: เก็บอย่างเดียว ไม่มี AI สรุป)
  * webhook เป็น public (LINE เรียกตรง ไม่มี auth ของเรา) — mount แยกที่ /api/line/webhook ใน index.ts ไม่ผ่าน requireAuth
- * list/delete mount ที่ /api/second-brain* ผ่าน requireAuth + ceilingMenu('secondBrain') ใน index.ts
+ * list/create/patch/delete mount ที่ /api/second-brain* ผ่าน requireAuth + ceilingMenu('secondBrain') ใน index.ts
+ * §Second Brain Manual/Table (2026-09-08) — เพิ่ม kind (article/solution) + source (line/manual) + note แก้ไขได้ในตาราง
  */
 
 interface LineEvent {
@@ -38,7 +40,8 @@ export const secondBrainWebhookRoutes = new Hono<AppEnv>().post('/webhook', asyn
     if (event.source?.type !== 'group' || event.source.groupId !== c.env.LINE_SECOND_BRAIN_GROUP_ID) continue
     const groupId = event.source.groupId
     const messageId = event.message.id
-    const urls = extractUrls(event.message.text)
+    const text = event.message.text
+    const urls = extractUrls(text)
     if (urls.length === 0) continue
 
     const senderDisplayName = event.source.userId
@@ -46,11 +49,16 @@ export const secondBrainWebhookRoutes = new Hono<AppEnv>().post('/webhook', asyn
       : null
 
     for (const url of urls) {
+      // §Second Brain Manual/Table (2026-09-08) — ตัดลิงก์ออกจาก note กันโชว์ซ้ำกับลิงก์ที่โชว์แยกอยู่แล้วในตาราง (เดิมเก็บแต่ messageText ดิบ)
+      const note = stripUrls(text, [url]) || null
       await db
         .insert(secondBrainLinks)
         .values({
+          kind: 'article',
+          source: 'line',
           url,
-          messageText: event.message.text,
+          note,
+          messageText: text,
           lineMessageId: messageId,
           lineUserId: event.source.userId ?? null,
           senderDisplayName,
@@ -62,16 +70,78 @@ export const secondBrainWebhookRoutes = new Hono<AppEnv>().post('/webhook', asyn
   return c.json({ ok: true })
 })
 
+const manualCreatePayload = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('article'), url: z.string().min(1).max(2000), note: z.string().max(2000).optional() }),
+  z.object({ kind: z.literal('solution'), problem: z.string().min(1).max(2000), solutionText: z.string().min(1).max(2000) }),
+])
+const patchPayload = z.object({
+  note: z.string().max(2000).nullable().optional(),
+  problem: z.string().min(1).max(2000).optional(),
+  solutionText: z.string().min(1).max(2000).optional(),
+})
+
 export const secondBrainRoutes = new Hono<AppEnv>()
   .get('/second-brain/links', async (c) => {
     const db = createDb(c.env.DB)
     const rows = await db
-      .select()
+      .select({ link: secondBrainLinks, creatorName: users.name })
       .from(secondBrainLinks)
+      .leftJoin(users, eq(secondBrainLinks.createdByUserId, users.id))
       .where(isNull(secondBrainLinks.deletedAt))
       .orderBy(desc(secondBrainLinks.capturedAt))
       .limit(100)
-    return c.json(rows)
+    return c.json(
+      rows.map((r) => ({
+        ...r.link,
+        // แถวเก่าที่บันทึกก่อนแก้บั๊ก note ซ้ำลิงก์ (ยังไม่มี note เก็บไว้จริง) — คำนวณสดจาก messageText แทน ไม่ต้อง backfill migration
+        note: r.link.note ?? (r.link.url ? stripUrls(r.link.messageText ?? '', [r.link.url]) || null : null),
+        creatorName: r.creatorName,
+      })),
+    )
+  })
+
+  .post('/second-brain/links', async (c) => {
+    const body = manualCreatePayload.safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const created = (
+      await db
+        .insert(secondBrainLinks)
+        .values({
+          kind: body.data.kind,
+          source: 'manual',
+          url: body.data.kind === 'article' ? body.data.url : null,
+          note: body.data.kind === 'article' ? (body.data.note ?? null) : null,
+          problem: body.data.kind === 'solution' ? body.data.problem : null,
+          solutionText: body.data.kind === 'solution' ? body.data.solutionText : null,
+          createdByUserId: me.id,
+        })
+        .returning()
+    )[0]!
+    await writeAudit(c.env, { actorId: me.id, action: 'second_brain_link.create', entity: 'second_brain_link', entityId: created.id, meta: { kind: created.kind } })
+    return c.json({ ...created, creatorName: me.name }, 201)
+  })
+
+  .patch('/second-brain/links/:id', async (c) => {
+    const body = patchPayload.safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const before = (
+      await db
+        .select({ id: secondBrainLinks.id, kind: secondBrainLinks.kind })
+        .from(secondBrainLinks)
+        .where(and(eq(secondBrainLinks.id, c.req.param('id')), isNull(secondBrainLinks.deletedAt)))
+        .limit(1)
+    )[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    // เช็คว่าฟิลด์ที่ส่งมาตรงกับ kind ของแถวเดิม — article แก้ได้แค่ note, solution แก้ได้แค่ problem/solutionText
+    if (before.kind === 'article' && ('problem' in body.data || 'solutionText' in body.data)) return c.json({ error: 'wrong_kind' }, 400)
+    if (before.kind === 'solution' && 'note' in body.data) return c.json({ error: 'wrong_kind' }, 400)
+    await db.update(secondBrainLinks).set({ ...body.data, updatedAt: new Date() }).where(eq(secondBrainLinks.id, before.id))
+    await writeAudit(c.env, { actorId: me.id, action: 'second_brain_link.update', entity: 'second_brain_link', entityId: before.id, meta: {} })
+    return c.json({ ok: true })
   })
 
   .delete('/second-brain/links/:id', async (c) => {

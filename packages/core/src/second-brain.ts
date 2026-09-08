@@ -11,3 +11,10 @@ export function extractUrls(text: string): string[] {
   const matches = (text.match(URL_RE) ?? []).map((m) => m.replace(TRAILING_PUNCTUATION_RE, ''))
   return [...new Set(matches)]
 }
+
+/** ตัดลิงก์ที่ระบุออกจากข้อความ เหลือแต่ส่วนโน้ต — ใช้ตอนบันทึกจาก LINE กันโน้ตซ้ำกับลิงก์ที่โชว์แยกอยู่แล้ว (เดิมโชว์ messageText ดิบทั้งก้อนซึ่งมีลิงก์ฝังอยู่ด้วย) */
+export function stripUrls(text: string, urls: string[]): string {
+  let result = text
+  for (const url of urls) result = result.split(url).join('')
+  return result.replace(/\s+/g, ' ').trim()
+}
