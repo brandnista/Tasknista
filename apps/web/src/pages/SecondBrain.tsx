@@ -3,7 +3,7 @@
  * §Second Brain Manual/Table (2026-09-08) — 2 ประเภท: 'article' (ลิงก์+note แก้ไขได้) กับ 'solution' (ปัญหาที่พบ+วิธีแก้ไข)
  */
 import { BrainCircuit, ExternalLink, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { useDialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
@@ -25,6 +25,7 @@ interface SecondBrainLinkRow {
   capturedAt: number
 }
 
+const KIND_LABEL: Record<Kind, string> = { article: 'บทความ', solution: 'Solution' }
 const shortDate = (ms: number) => new Date(ms).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
 const sharerOf = (r: SecondBrainLinkRow) => (r.source === 'manual' ? (r.creatorName ?? '—') : (r.senderDisplayName ?? 'ไม่ทราบชื่อผู้ส่ง'))
 
@@ -196,7 +197,9 @@ export function SecondBrainPage() {
   const { confirmDialog, alertDialog } = useDialog()
   const { data, reload } = useLoad<SecondBrainLinkRow[]>(() => api.get('/api/second-brain/links'))
   const [addOpen, setAddOpen] = useState(false)
+  const [kindFilter, setKindFilter] = useState<'all' | Kind>('all')
   const rows = data ?? []
+  const filtered = useMemo(() => (kindFilter === 'all' ? rows : rows.filter((r) => r.kind === kindFilter)), [rows, kindFilter])
 
   const patch = async (id: string, body: Record<string, string>) => {
     try {
@@ -236,6 +239,18 @@ export function SecondBrainPage() {
             ยังไม่มีรายการ — แชร์ลิงก์ในห้องแชท LINE ที่ตั้งค่าไว้ให้ระบบดึงมาเก็บอัตโนมัติ หรือกด "เพิ่มรายการ" เพื่อคีย์เอง
           </div>
         ) : (
+          <>
+            <div className="flex items-center gap-2 mb-4">
+              <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value as 'all' | Kind)} className="text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden">
+                <option value="all">ทุกประเภท</option>
+                <option value="article">{KIND_LABEL.article}</option>
+                <option value="solution">{KIND_LABEL.solution}</option>
+              </select>
+              <span className="text-xs text-muted">{filtered.length} รายการ</span>
+            </div>
+            {filtered.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-14">ไม่มีรายการตรงตัวกรองที่เลือก</div>
+            ) : (
           <div className="bg-white rounded-lg shadow-xs overflow-hidden">
             {/* Pronista §Mobile responsive — ตารางคงเดิมบน sm+ ขึ้นไป, มือถือใช้การ์ดแทน */}
             <table className="hidden sm:table w-full text-sm" style={{ tableLayout: 'fixed' }}>
@@ -254,7 +269,7 @@ export function SecondBrainPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-divider">
-                {rows.map((r) => (
+                {filtered.map((r) => (
                   <tr key={r.id}>
                     <td className="px-3 py-2.5 text-[11px] text-muted align-top">{shortDate(r.capturedAt)}</td>
                     <td className="px-3 py-2.5 align-top">
@@ -271,7 +286,7 @@ export function SecondBrainPage() {
               </tbody>
             </table>
             <div className="sm:hidden divide-y divide-divider">
-              {rows.map((r) => (
+              {filtered.map((r) => (
                 <div key={r.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <div className="text-[11px] text-muted">
@@ -286,6 +301,8 @@ export function SecondBrainPage() {
               ))}
             </div>
           </div>
+            )}
+          </>
         )}
       </div>
       {addOpen && <AddItemModal onClose={() => setAddOpen(false)} onDone={() => { setAddOpen(false); void reload() }} />}
