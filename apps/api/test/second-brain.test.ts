@@ -154,7 +154,7 @@ describe('§Second Brain — list/delete (ผ่านเพดานสิท�
 })
 
 describe('§Second Brain — เพิ่มรายการเอง (Manual)', () => {
-  it('เพิ่มแบบ "บทความ" — ได้ url/note, source=manual, คนที่แชร่ = ชื่อจริงตัวเอง', async () => {
+  it('เพิ่มแบบ "บทความ" — ได้ url/note, source=manual, คนที่แชร์ = ชื่อจริงตัวเอง', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', url: 'https://example.com/manual', note: 'บทความดีมาก' }), env)
     expect(res.status).toBe(201)

@@ -4,7 +4,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
-import { fetchLineDisplayName, verifyLineSignature } from '../lib/line'
+import { fetchLineDisplayName, knownSenderName, verifyLineSignature } from '../lib/line'
 import type { AppEnv } from '../types'
 
 /**
@@ -44,8 +44,9 @@ export const secondBrainWebhookRoutes = new Hono<AppEnv>().post('/webhook', asyn
     const urls = extractUrls(text)
     if (urls.length === 0) continue
 
+    // §Second Brain sender fallback (2026-09-09) — คนที่ยังไม่ได้แอด bot เป็นเพื่อน 1:1 จะดึงชื่อจาก LINE API ไม่ได้ (404 เป็นปกติของ LINE) fallback ไปหาชื่อที่ตั้งไว้เองจาก userId ที่รู้จักแน่นอน
     const senderDisplayName = event.source.userId
-      ? await fetchLineDisplayName(groupId, event.source.userId, c.env.LINE_CHANNEL_ACCESS_TOKEN)
+      ? ((await fetchLineDisplayName(groupId, event.source.userId, c.env.LINE_CHANNEL_ACCESS_TOKEN)) ?? knownSenderName(event.source.userId, c.env.LINE_KNOWN_SENDERS))
       : null
 
     for (const url of urls) {
@@ -95,6 +96,8 @@ export const secondBrainRoutes = new Hono<AppEnv>()
         ...r.link,
         // แถวเก่าที่บันทึกก่อนแก้บั๊ก note ซ้ำลิงก์ (ยังไม่มี note เก็บไว้จริง) — คำนวณสดจาก messageText แทน ไม่ต้อง backfill migration
         note: r.link.note ?? (r.link.url ? stripUrls(r.link.messageText ?? '', [r.link.url]) || null : null),
+        // แถวเก่าที่ดึงชื่อจาก LINE ไม่ได้ตอนบันทึก (คนส่งยังไม่ได้แอด bot เป็นเพื่อน 1:1) — คำนวณสดจาก LINE_KNOWN_SENDERS แทน
+        senderDisplayName: r.link.senderDisplayName ?? (r.link.lineUserId ? knownSenderName(r.link.lineUserId, c.env.LINE_KNOWN_SENDERS) : null),
         creatorName: r.creatorName,
       })),
     )

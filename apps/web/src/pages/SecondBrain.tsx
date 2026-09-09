@@ -264,7 +264,7 @@ export function SecondBrainPage() {
                 <tr className="bg-hover text-[11px] text-muted uppercase tracking-wide">
                   <th className="text-left font-semibold px-3 py-2">วันที่แชร์</th>
                   <th className="text-left font-semibold px-3 py-2">เนื้อหา</th>
-                  <th className="text-left font-semibold px-3 py-2">คนที่แชร่</th>
+                  <th className="text-left font-semibold px-3 py-2">คนที่แชร์</th>
                   <th></th>
                 </tr>
               </thead>

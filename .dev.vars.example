@@ -13,10 +13,12 @@ INBOX_ENC_KEY=
 # Secret Vault: key เข้ารหัสรหัสผ่าน/notes ใน D1 — สร้างด้วย `openssl rand -base64 32` แยกจาก INBOX_ENC_KEY เด็ดขาด (production = wrangler secret put)
 VAULT_ENC_KEY=
 
-# Second Brain: เชื่อม LINE Messaging API (production = wrangler secret put ทั้ง 3 ตัว)
+# Second Brain: เชื่อม LINE Messaging API (production = wrangler secret put ทั้ง 4 ตัว)
 # LINE_CHANNEL_SECRET = จาก LINE Developers Console > Basic settings — ใช้ verify webhook signature
 LINE_CHANNEL_SECRET=
 # LINE_CHANNEL_ACCESS_TOKEN = จาก LINE Developers Console > Messaging API — ใช้ดึงชื่อผู้ส่ง (best-effort)
 LINE_CHANNEL_ACCESS_TOKEN=
 # LINE_SECOND_BRAIN_GROUP_ID = Group ID ของห้องแชท LINE ที่จะดักลิงก์ (เจาะจงห้องเดียว)
 LINE_SECOND_BRAIN_GROUP_ID=
+# LINE_KNOWN_SENDERS = JSON string {"lineUserId":"ชื่อ"} — fallback ตอนดึงชื่อจาก LINE API ไม่ได้ (คนนั้นยังไม่ได้แอด bot เป็นเพื่อน 1:1)
+LINE_KNOWN_SENDERS=

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { verifyLineSignature } from '../src/lib/line'
+import { knownSenderName, verifyLineSignature } from '../src/lib/line'
 
 const SECRET = 'test-line-channel-secret'
 
@@ -32,5 +32,25 @@ describe('verifyLineSignature', () => {
   it('signature ว่างเปล่า/รูปแบบผิด — verify ไม่ผ่าน ไม่ throw', async () => {
     expect(await verifyLineSignature('{}', '', SECRET)).toBe(false)
     expect(await verifyLineSignature('{}', 'not-base64-signature!!', SECRET)).toBe(false)
+  })
+})
+
+describe('knownSenderName', () => {
+  const map = JSON.stringify({ U123: 'อาร์ม' })
+
+  it('userId ตรงกับที่ตั้งไว้ — คืนชื่อ', () => {
+    expect(knownSenderName('U123', map)).toBe('อาร์ม')
+  })
+
+  it('userId ไม่ตรงกับที่ตั้งไว้ — คืน null', () => {
+    expect(knownSenderName('Uxxx', map)).toBeNull()
+  })
+
+  it('ไม่ได้ตั้งค่า env นี้เลย (undefined) — คืน null ไม่ throw', () => {
+    expect(knownSenderName('U123', undefined)).toBeNull()
+  })
+
+  it('ค่าที่ตั้งไม่ใช่ JSON ถูกต้อง — คืน null ไม่ throw', () => {
+    expect(knownSenderName('U123', 'not-json{')).toBeNull()
   })
 })

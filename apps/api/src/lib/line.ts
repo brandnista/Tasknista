@@ -37,3 +37,14 @@ export async function fetchLineDisplayName(groupId: string, userId: string, acce
     return null
   }
 }
+
+/** ชื่อสำรองตาม LINE userId ที่รู้จักแน่นอน — ใช้ตอน fetchLineDisplayName ดึงไม่ได้ (คนนั้นยังไม่ได้แอด bot เป็นเพื่อนแบบ 1:1) เก็บเป็น JSON string {userId: name} ใน secret LINE_KNOWN_SENDERS กันข้อมูลชื่อจริงหลุดเข้า repo public */
+export function knownSenderName(userId: string, knownSendersJson: string | undefined): string | null {
+  if (!knownSendersJson) return null
+  try {
+    const map = JSON.parse(knownSendersJson) as Record<string, string>
+    return map[userId] ?? null
+  } catch {
+    return null
+  }
+}
