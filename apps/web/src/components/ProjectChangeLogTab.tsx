@@ -477,9 +477,9 @@ export function ProjectChangeLogTab({
               <tr key={cl.id} className="align-top">
                 <td className="px-4 py-3 text-muted tabular-nums">#{cl.changelogNo}</td>
                 <td className="px-4 py-3">
-                  <div className="text-[11px] text-muted">{fmtThaiDate(cl.entryDate)}</div>
-                  <div className="font-semibold text-ink">{cl.title}</div>
-                  <div className="text-[11px] text-muted mt-0.5">{cl.createdByName ?? ''}</div>
+                  <div className="text-[11px] text-muted whitespace-nowrap">{fmtThaiDate(cl.entryDate)}</div>
+                  <div className="font-semibold text-ink whitespace-nowrap">{cl.title}</div>
+                  <div className="text-[11px] text-muted mt-0.5 whitespace-nowrap">{cl.createdByName ?? ''}</div>
                 </td>
                 <td className="px-4 py-3">
                   <ChangelogItemsView items={cl.items} />
