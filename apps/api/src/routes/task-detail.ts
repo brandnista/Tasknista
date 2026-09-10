@@ -24,7 +24,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyUser } from '../lib/notify'
-import { canEditTask, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
+import { canEditTask, getProjectRole, isAssigneeOnlyEditor, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
@@ -70,6 +70,9 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         .limit(1)
     )[0]
     if (!row) return c.json({ error: 'not_found' }, 404)
+    // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์อะไรเลยนอกจาก login (ยืนยันแล้วว่า guest/vendor ที่ไม่มีสิทธิ์ในโปรเจกต์ดึง detail งานได้เต็มๆ) — ใช้ helper เดียวกับที่ GET /projects/:id ใช้อยู่แล้ว
+    const me = c.get('user')
+    if (row.task.projectId && !(await isProjectVisibleToUser(db, row.task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
 
     const comments = await db
       .select({ comment: taskComments, userName: users.name, userAvatarUrl: users.avatarUrl })
@@ -129,7 +132,6 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .orderBy(asc(docLinks.createdAt))
 
     // Pronista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์ของ task นี้ ให้ FE คุม UI โดยไม่ต้อง fetch แยก
-    const me = c.get('user')
     // Pronista §permission — งาน workspace-native (projectId=null) แก้ไขได้ทุกคนอยู่แล้วตาม canEditTask ฝั่ง backend เลยให้ FE เห็นเป็น editor ตรงๆ
     const myRole = row.task.projectId ? await getProjectRole(db, row.task.projectId, me.id, me.role) : 'editor'
 
@@ -162,12 +164,21 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const manhourCategory = row.assigneeRole ? manhourCategoryOfRole(row.assigneeRole) : 'staff'
     const weeklyMinutes = resolveManhourMinutesPerDay(cfg?.manhourMinutesPerDay, cfg?.workHourCapMinutes ?? 480)[manhourCategory]
 
+    const taskFields: Record<string, unknown> = { ...row.task }
+    // §Security Recheck (2026-09-10) — vendor/guest ห้ามเห็นตัวเลขการเงินของงาน (mirror serialize() ใน projects.ts) — เดิม endpoint นี้ส่งฟิลด์เหล่านี้ออกไปตรงๆ ไม่กรองเลย
+    if (me.role === 'vendor' || me.role === 'guest') {
+      delete taskFields.quotationSatang
+      delete taskFields.costWorkMinutesPerDay
+      delete taskFields.costBufferPercent
+      delete taskFields.costRoleId
+    }
+
     return c.json({
       weeklyMinutes,
       projectMembers: projectMemberOpts,
       sprintActive,
       sprint: sprintRow ?? null,
-      ...row.task,
+      ...taskFields,
       groupName: row.groupName,
       projectName: row.projectName,
       assigneeName: row.assigneeName,
@@ -327,6 +338,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!task) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
+    // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์เลย (ยืนยันแล้วว่า guest ที่ไม่มีสิทธิ์ในโปรเจกต์คอมเมนต์เข้างานคนอื่นได้)
+    if (task.projectId && !(await isProjectVisibleToUser(db, task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
     // Pronista §Notification overhaul (2026-08-27) — หาคนที่เคยคอมเมนต์ก่อน insert แถวใหม่ (ไม่งั้นคอมเมนต์ตัวเองจะติดมาด้วย)
     const priorCommenters = await db.select({ userId: taskComments.userId }).from(taskComments).where(eq(taskComments.taskId, task.id))
     const inserted = await db
@@ -421,6 +434,10 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       await db.select().from(taskAttachments).where(eq(taskAttachments.id, c.req.param('id'))).limit(1)
     )[0]
     if (!att || !att.r2Key) return c.json({ error: 'not_found' }, 404)
+    // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์เลย (ต่างจาก PATCH/DELETE ข้างล่างที่เช็ค canEditTask) ใครก็ตามที่ login แล้วดาวน์โหลดไฟล์แนบของงานคนอื่นได้หมด
+    const me = c.get('user')
+    const ownerTask = (await db.select({ projectId: tasks.projectId }).from(tasks).where(eq(tasks.id, att.taskId)).limit(1))[0]
+    if (ownerTask?.projectId && !(await isProjectVisibleToUser(db, ownerTask.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
     const obj = await c.env.FILES.get(att.r2Key)
     if (!obj) return c.json({ error: 'object_missing' }, 404)
     const inlineSafe = /^image\/(png|jpeg|gif|webp|avif)$/.test(att.mime ?? '')

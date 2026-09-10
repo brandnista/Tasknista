@@ -101,6 +101,9 @@ const STAFF_EDITABLE_FIELDS = new Set([
   'contractType', 'contractExpiryDate', 'prefix', 'branchType', 'branchCode', 'specialNote', 'projectIds',
 ])
 
+// Pronista §Security Recheck (2026-09-10) — อยู่ใน STAFF_EDITABLE_FIELDS ได้ (แก้ "คนอื่น" ได้ตามปกติ) แต่ห้าม non-owner แก้ "ของตัวเอง" เด็ดขาด: managerId เปลี่ยนสายบังคับบัญชาตัวเองได้, costPerDaySatang เป็นค่าตอบแทน — ทั้งคู่ตรงกับ "ต้องไม่แก้หัวหน้า/ค่าตอบแทนตัวเองได้" ที่ทวนความปลอดภัยแล้ว
+const SELF_EDIT_RESTRICTED_FIELDS = new Set(['managerId', 'costPerDaySatang'])
+
 /** owner เห็น/แก้ได้ทุกอย่างเสมอ · non-owner เข้าได้เฉพาะ endpoint ที่เพดานเมนูของหมวดตัวเองอนุญาต (ดู resolveUsersAccess ด้านบน + index.ts การ mount) */
 export const adminRoutes = new Hono<AppEnv>()
 
@@ -304,6 +307,11 @@ export const adminRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     if (access !== 'owner' && categoryOfUserRole(before.role) !== access) return c.json({ error: 'forbidden' }, 403)
+    // §Security Recheck (2026-09-10) — non-owner แก้โปรไฟล์ตัวเอง (phone/name ฯลฯ) ผ่านช่องนี้ยังต้องทำได้ตามเดิม (self-service ปกติ) แต่ managerId/costPerDaySatang เป็นฟิลด์ที่กระทบสายบังคับบัญชา/ค่าตอบแทน — ห้ามแก้ของตัวเองแม้จะอยู่ใน STAFF_EDITABLE_FIELDS ก็ตาม
+    if (access !== 'owner' && before.id === c.get('user').id) {
+      const selfRestricted = Object.keys(body.data).filter((k) => SELF_EDIT_RESTRICTED_FIELDS.has(k))
+      if (selfRestricted.length > 0) return c.json({ error: 'forbidden', message: `แก้ไขฟิลด์ ${selfRestricted.join(', ')} ของตัวเองไม่ได้` }, 403)
+    }
     const nextRole = body.data.role ?? before.role
     if (nextRole === 'guest' && body.data.projectIds && body.data.projectIds.length === 0)
       return c.json({ error: 'project_required', message: 'ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์' }, 400)

@@ -155,4 +155,12 @@ describe('Pronista §Team Chat — unread count badge', () => {
     const channelId = channels.find((c) => c.projectId === p.id)!.id
     expect((await app.request(`/api/chat/channels/${channelId}/read`, { method: 'POST', headers: { cookie: pond } }, env)).status).toBe(403)
   })
+
+  it('§Security Recheck (2026-09-10) — WebSocket ห้องแชท: คนที่ไม่ใช่สมาชิกห้องเชื่อมต่อไม่ได้ (เดิมเช็คแค่ login ไม่เช็คว่าเป็นสมาชิกห้องนี้จริงไหม)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const korn = await loginAs(app, 'korn@example-co.test') // ไม่มีส่วนเกี่ยวข้องกับ DM นี้เลย
+    const dm = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/chat/channels/${dm.id}/ws`, { headers: { cookie: korn, upgrade: 'websocket' } }, env)
+    expect(res.status).toBe(403)
+  })
 })

@@ -76,6 +76,9 @@ export const users = sqliteTable('users', {
   meetingReminderMinutes: integer('meeting_reminder_minutes'),
   // Pronista §Secret Vault (2026-09-03) — PIN ปลดล็อค Vault (แยกจาก login) รูปแบบ 'v1.<salt_b64>.<iterations>.<hash_b64>' · null = ยังไม่ตั้ง
   vaultPinHash: text('vault_pin_hash'),
+  // Pronista §Security Recheck (2026-09-10) — กัน brute-force PIN: นับครั้งที่ใส่ผิดติดต่อกัน, ล็อกชั่วคราวถ้าเกินเพดาน (reset เป็น 0 ทุกครั้งที่ใส่ถูก)
+  vaultPinFailedAttempts: integer('vault_pin_failed_attempts').notNull().default(0),
+  vaultPinLockedUntil: integer('vault_pin_locked_until', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),

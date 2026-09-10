@@ -460,9 +460,10 @@ function DetailModal({ item, token, onClose, onEdit, onDeleted, onLocked }: {
   const remove = async () => {
     if (!(await confirmDialog({ title: `ลบ "${item.name}"?`, message: 'ลบแล้วกู้คืนเองไม่ได้ (soft-delete — owner ยังตาม audit log ได้)', danger: true, confirmLabel: 'ลบ' }))) return
     try {
-      await api.delete(`/api/vault/items/${item.id}`)
+      await api.delete(`/api/vault/items/${item.id}`, { 'x-vault-token': token })
       onDeleted()
     } catch (e) {
+      if (isVaultLocked(e)) return onLocked()
       await alertDialog({ title: e instanceof ApiError ? e.message : 'ลบไม่สำเร็จ' })
     }
   }

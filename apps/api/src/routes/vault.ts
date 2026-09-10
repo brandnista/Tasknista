@@ -21,6 +21,27 @@ import type { AppEnv } from '../types'
 
 const VAULT_TOKEN_HEADER = 'x-vault-token'
 
+// §Security Recheck (2026-09-10) — กัน brute-force PIN: ใส่ผิดครบ 5 ครั้งติดต่อกัน ล็อก 15 นาที (mirror TTL ของ vault unlock token)
+const MAX_PIN_ATTEMPTS = 5
+const PIN_LOCKOUT_MS = 15 * 60_000
+
+/** เช็คว่าถูกล็อกอยู่ไหม (คืน วินาทีที่เหลือถ้าล็อก) — ไม่แตะ DB ถ้าไม่จำเป็น */
+function lockoutSecondsLeft(lockedUntil: Date | null): number | null {
+  if (!lockedUntil || lockedUntil.getTime() <= Date.now()) return null
+  return Math.ceil((lockedUntil.getTime() - Date.now()) / 1000)
+}
+
+/** เรียกหลัง verifyPin เสมอ — ผิดสะสมครบเพดานแล้วล็อก, ถูกแล้วรีเซ็ตตัวนับ */
+async function recordPinAttempt(db: ReturnType<typeof createDb>, userId: string, currentAttempts: number, ok: boolean): Promise<void> {
+  if (ok) {
+    await db.update(users).set({ vaultPinFailedAttempts: 0, vaultPinLockedUntil: null }).where(eq(users.id, userId))
+    return
+  }
+  const next = currentAttempts + 1
+  const lockedUntil = next >= MAX_PIN_ATTEMPTS ? new Date(Date.now() + PIN_LOCKOUT_MS) : null
+  await db.update(users).set({ vaultPinFailedAttempts: lockedUntil ? 0 : next, vaultPinLockedUntil: lockedUntil }).where(eq(users.id, userId))
+}
+
 const pinPayload = z.object({ currentPin: z.string().optional(), newPin: z.string().min(4).max(20) })
 const pinResetPayload = z.object({ userId: z.string() })
 const unlockPayload = z.object({ pin: z.string().min(1) })
@@ -62,10 +83,19 @@ export const vaultRoutes = new Hono<AppEnv>()
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const row = (await db.select({ vaultPinHash: users.vaultPinHash }).from(users).where(eq(users.id, me.id)).limit(1))[0]
+    const row = (
+      await db
+        .select({ vaultPinHash: users.vaultPinHash, failedAttempts: users.vaultPinFailedAttempts, lockedUntil: users.vaultPinLockedUntil })
+        .from(users)
+        .where(eq(users.id, me.id))
+        .limit(1)
+    )[0]
     if (row?.vaultPinHash) {
-      if (!body.data.currentPin || !(await verifyPin(body.data.currentPin, row.vaultPinHash)))
-        return c.json({ error: 'invalid_pin', message: 'PIN เดิมไม่ถูกต้อง' }, 403)
+      const lockedFor = lockoutSecondsLeft(row.lockedUntil)
+      if (lockedFor) return c.json({ error: 'pin_locked', retryAfterSeconds: lockedFor }, 429)
+      const ok = !!body.data.currentPin && (await verifyPin(body.data.currentPin, row.vaultPinHash))
+      await recordPinAttempt(db, me.id, row.failedAttempts, ok)
+      if (!ok) return c.json({ error: 'invalid_pin', message: 'PIN เดิมไม่ถูกต้อง' }, 403)
     }
     const vaultPinHash = await hashPin(body.data.newPin)
     await db.update(users).set({ vaultPinHash }).where(eq(users.id, me.id))
@@ -104,9 +134,19 @@ export const vaultRoutes = new Hono<AppEnv>()
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const row = (await db.select({ vaultPinHash: users.vaultPinHash }).from(users).where(eq(users.id, me.id)).limit(1))[0]
+    const row = (
+      await db
+        .select({ vaultPinHash: users.vaultPinHash, failedAttempts: users.vaultPinFailedAttempts, lockedUntil: users.vaultPinLockedUntil })
+        .from(users)
+        .where(eq(users.id, me.id))
+        .limit(1)
+    )[0]
     if (!row?.vaultPinHash) return c.json({ error: 'pin_not_set' }, 400)
-    if (!(await verifyPin(body.data.pin, row.vaultPinHash))) return c.json({ error: 'invalid_pin' }, 401)
+    const lockedFor = lockoutSecondsLeft(row.lockedUntil)
+    if (lockedFor) return c.json({ error: 'pin_locked', retryAfterSeconds: lockedFor }, 429)
+    const ok = await verifyPin(body.data.pin, row.vaultPinHash)
+    await recordPinAttempt(db, me.id, row.failedAttempts, ok)
+    if (!ok) return c.json({ error: 'invalid_pin' }, 401)
     const { token } = await createVaultUnlock(c.env, me.id)
     await writeAudit(c.env, { actorId: me.id, action: 'vault.unlock', entity: 'user', entityId: me.id })
     const recipients = (await usersWithMenuAccess(db, 'vault')).filter((id) => id !== me.id)
@@ -254,7 +294,8 @@ export const vaultRoutes = new Hono<AppEnv>()
     return c.json({ ok: true })
   })
 
-  .delete('/items/:id', async (c) => {
+  // §Security Recheck (2026-09-10) — เดิมลบได้โดยไม่ต้องปลดล็อค (ต่างจาก create/update) session ที่โดนขโมยลบข้อมูลทั้ง Vault ได้โดยไม่ต้องรู้ PIN เลย
+  .delete('/items/:id', requireVaultUnlock, async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const before = (

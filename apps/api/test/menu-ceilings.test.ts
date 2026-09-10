@@ -68,6 +68,37 @@ describe('§Menu Restructure — /api/admin/users scope ตามเพดาน
     expect(res.status).toBe(200)
   })
 
+  it('§Security Recheck (2026-09-10) — member แก้ managerId/costPerDaySatang ของตัวเองไม่ได้ (403) แต่แก้ของคนอื่นในหมวดเดียวกันได้ปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await saveCeilings(owner, grantMenu('staff', 'employees'))
+    const member = await loginAs(app, 'pond@example-co.test')
+    await loginAs(app, 'korn@example-co.test') // auto-provision — id จริงเป็น uuid ไม่ใช่ 'u_korn'
+    const users = (await (await app.request('/api/admin/users', { headers: { cookie: owner } }, env)).json()) as { id: string; email: string }[]
+    const kornId = users.find((u) => u.email === 'korn@example-co.test')!.id
+
+    // แก้ของตัวเอง (u_pond) → ต้องโดนบล็อกทั้ง managerId และ costPerDaySatang
+    const selfManager = await app.request(
+      '/api/admin/users/u_pond',
+      { method: 'PATCH', headers: { cookie: member, 'content-type': 'application/json' }, body: JSON.stringify({ managerId: 'u_owner' }) },
+      env,
+    )
+    expect(selfManager.status).toBe(403)
+    const selfCost = await app.request(
+      '/api/admin/users/u_pond',
+      { method: 'PATCH', headers: { cookie: member, 'content-type': 'application/json' }, body: JSON.stringify({ costPerDaySatang: 1 }) },
+      env,
+    )
+    expect(selfCost.status).toBe(403)
+
+    // แก้ของคนอื่น (korn — member เหมือนกัน) ยังทำได้ตามปกติ ไม่ใช่บล็อกฟิลด์นี้ทั้งระบบ
+    const otherManager = await app.request(
+      `/api/admin/users/${kornId}`,
+      { method: 'PATCH', headers: { cookie: member, 'content-type': 'application/json' }, body: JSON.stringify({ managerId: 'u_owner' }) },
+      env,
+    )
+    expect(otherManager.status).toBe(200)
+  })
+
   it('member ที่ได้เพดาน employees แก้ role/status/email ไม่ได้เด็ดขาด (403) — กัน privilege escalation', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     await saveCeilings(owner, grantMenu('staff', 'employees'))

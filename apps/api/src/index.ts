@@ -1,3 +1,5 @@
+import { chatChannels, createDb } from '@seedoffice/db'
+import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { requireAuth, requireAuthOrToken } from './middleware/auth'
 import { ceilingMenu, ownerOnly, requireRole, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
@@ -7,7 +9,7 @@ import { calendarRoutes } from './routes/calendar'
 import { calendarConnectRoutes } from './routes/calendar-connect'
 import { vaultRoutes } from './routes/vault'
 import { secondBrainRoutes, secondBrainWebhookRoutes } from './routes/second-brain'
-import { chatRoutes } from './routes/chat'
+import { canAccessChannel, chatRoutes } from './routes/chat'
 import { docAttachmentsRoutes } from './routes/doc-attachments'
 import { docRoutes } from './routes/docs'
 import { docsSrsRoutes } from './routes/docs-srs'
@@ -296,6 +298,10 @@ app.get('/api/chat/channels/:id/ws', requireAuth, async (c) => {
   if (c.req.header('upgrade')?.toLowerCase() !== 'websocket')
     return c.json({ error: 'expected_websocket' }, 426)
   const me = c.get('user')
+  // §Security Recheck (2026-09-10) — เดิมไม่เช็คว่าเป็นสมาชิกห้องนี้จริงไหม ใครก็ตามที่ login แล้วเดา channel ID เชื่อมต่อดู presence/typing ของห้องอื่นได้
+  const db = createDb(c.env.DB)
+  const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
+  if (!channel || !(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
   const headers = new Headers(c.req.raw.headers)
   headers.set('x-user-id', me.id)
   headers.set('x-user-name', me.name)

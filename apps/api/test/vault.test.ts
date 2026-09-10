@@ -8,7 +8,7 @@ beforeEach(async () => {
   await env.DB.prepare('DELETE FROM secret_vault_items').run()
   await env.DB.prepare('DELETE FROM secret_vault_folders').run()
   await env.DB.prepare('DELETE FROM vault_unlocks').run()
-  await env.DB.prepare("UPDATE users SET vault_pin_hash = NULL").run()
+  await env.DB.prepare("UPDATE users SET vault_pin_hash = NULL, vault_pin_failed_attempts = 0, vault_pin_locked_until = NULL").run()
   await env.DB.prepare("UPDATE company_config SET permission_ceilings = NULL").run()
 })
 
@@ -96,6 +96,21 @@ describe('§Secret Vault — PIN + unlock', () => {
     expect(created.status).toBe(201)
   })
 
+  it('§Security Recheck (2026-09-10) — ใส่ PIN ผิดครบ 5 ครั้งติดต่อกัน → ล็อก 429 แม้ใส่ถูก · reset ตัวนับเมื่อใส่ถูกก่อนครบเพดาน', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await app.request('/api/vault/pin', json(owner, { newPin: '1234' }), env)
+
+    // ผิด 4 ครั้งแล้วใส่ถูก 1 ครั้ง — ตัวนับต้องรีเซ็ต ไม่ล็อก
+    for (let i = 0; i < 4; i++) expect((await app.request('/api/vault/unlock', json(owner, { pin: '0000' }), env)).status).toBe(401)
+    expect((await app.request('/api/vault/unlock', json(owner, { pin: '1234' }), env)).status).toBe(200)
+
+    // ผิดครบ 5 ครั้งรวด → ล็อก แม้รอบถัดไปจะใส่ถูกก็โดนบล็อกด้วย 429
+    for (let i = 0; i < 5; i++) expect((await app.request('/api/vault/unlock', json(owner, { pin: '0000' }), env)).status).toBe(401)
+    const lockedRes = await app.request('/api/vault/unlock', json(owner, { pin: '1234' }), env)
+    expect(lockedRes.status).toBe(429)
+    expect((await lockedRes.json()) as { error: string }).toMatchObject({ error: 'pin_locked' })
+  })
+
   it('role อื่น (member/vendor) เรียก endpoint ไหนก็ 403 หมด (ceiling ปิดอยู่โดย default)', async () => {
     const pond = await loginAs(app, 'pond@example-co.test')
     const somchai = await loginAs(app, 'somchai@example.com')
@@ -160,16 +175,24 @@ describe('§Secret Vault — items', () => {
     expect((await app.request('/api/vault/items', json(owner, { name: 'x' }), env)).status).toBe(401)
   })
 
-  it('soft-delete — หายจาก list, audit log บันทึก, ไม่ต้องปลดล็อค', async () => {
+  it('soft-delete — หายจาก list, audit log บันทึก, ต้องปลดล็อคก่อนถึงลบได้', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { token } = await setPinAndUnlock(owner)
     const created = (await (await app.request('/api/vault/items', { ...json(owner, { name: 'ลบทิ้ง' }), headers: { ...withToken(owner, token), 'content-type': 'application/json' } }, env)).json()) as { id: string }
-    const del = await app.request(`/api/vault/items/${created.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    const del = await app.request(`/api/vault/items/${created.id}`, { method: 'DELETE', headers: withToken(owner, token) }, env)
     expect(del.status).toBe(200)
     const list = (await (await app.request('/api/vault/items', { headers: { cookie: owner } }, env)).json()) as unknown[]
     expect(list).toHaveLength(0)
     const auditRow = await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_logs WHERE entity_id = ? AND action = 'secret_vault_item.delete'").bind(created.id).first<{ n: number }>()
     expect(auditRow?.n).toBe(1)
+  })
+
+  it('§Security Recheck — ลบโดยไม่แนบ token ปลดล็อค → 401 (เดิมลบได้เลยไม่ต้องปลดล็อค ถือเป็นช่องโหว่)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { token } = await setPinAndUnlock(owner)
+    const created = (await (await app.request('/api/vault/items', { ...json(owner, { name: 'ลบไม่ได้ถ้าไม่ปลดล็อค' }), headers: { ...withToken(owner, token), 'content-type': 'application/json' } }, env)).json()) as { id: string }
+    const del = await app.request(`/api/vault/items/${created.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(del.status).toBe(401)
   })
 
   it('แก้ไข password ผ่าน PATCH → reveal คืนค่าใหม่', async () => {

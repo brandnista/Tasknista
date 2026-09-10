@@ -188,6 +188,17 @@ describe('§Second Brain — เพิ่มรายการเอง (Manual)
     const res = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'solution', problem: 'มีปัญหา' }), env)
     expect(res.status).toBe(400)
   })
+
+  it('§Security Recheck (2026-09-10) — url เป็น javascript:/data: URI → 400 (เดิมรับได้หมด กด XSS ใส่คนอื่นในทีมได้)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    for (const evilUrl of ['javascript:alert(document.cookie)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)']) {
+      const res = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', url: evilUrl }), env)
+      expect(res.status).toBe(400)
+    }
+    // http/https ปกติยังผ่านเหมือนเดิม
+    const ok = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'article', url: 'http://example.com' }), env)
+    expect(ok.status).toBe(201)
+  })
 })
 
 describe('§Second Brain — แก้ไขอินไลน์ (PATCH)', () => {

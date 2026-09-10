@@ -75,6 +75,63 @@ describe('§Workspace/Task Jira-alignment (2026-09-09) — GET /tasks/:id/detail
   })
 })
 
+describe('§Security Recheck (2026-09-10) — guest ที่ไม่มีสิทธิ์ในโปรเจกต์ต้องเข้าไม่ได้ (เดิมไม่มีการเช็คเลย)', () => {
+  // guest ต้องผูกกับโปรเจกต์อย่างน้อย 1 อัน (validation ของ POST /api/admin/users) — สร้างโปรเจกต์คนละอันกับที่ task อยู่ กันเห็นข้าม
+  async function makeUnrelatedGuest(): Promise<string> {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const other = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์อื่นของ guest', type: 'project' }), env)).json()) as { id: string }
+    await app.request(
+      '/api/admin/users',
+      json(owner, { email: 'guest-outsider@example.com', name: 'ลูกค้าคนนอก', role: 'guest', projectIds: [other.id] }),
+      env,
+    )
+    return loginAs(app, 'guest-outsider@example.com')
+  }
+
+  it('GET /tasks/:id/detail — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const guest = await makeUnrelatedGuest()
+    const res = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: guest } }, env)
+    expect(res.status).toBe(404)
+  })
+
+  it('POST /tasks/:id/comments — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้ (เดิมคอมเมนต์ผ่านได้เฉยๆ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const guest = await makeUnrelatedGuest()
+    const res = await app.request(`/api/tasks/${t.id}/comments`, json(guest, { body: 'ไม่ควรเข้ามาคอมเมนต์ได้' }), env)
+    expect(res.status).toBe(404)
+  })
+
+  it('GET /attachments/:id — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้ (เดิมดาวน์โหลดได้เฉยๆ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const fd = new FormData()
+    fd.append('file', new File(['เนื้อหาไฟล์ลับ'], 'secret.txt', { type: 'text/plain' }))
+    const up = await app.request(`/api/tasks/${t.id}/attachments`, { method: 'POST', headers: { cookie: owner }, body: fd }, env)
+    const att = (await up.json()) as { id: string }
+    const guest = await makeUnrelatedGuest()
+    const res = await app.request(`/api/attachments/${att.id}`, { headers: { cookie: guest } }, env)
+    expect(res.status).toBe(404)
+  })
+
+  it('vendor/guest ไม่เห็นฟิลด์การเงินของ task ใน detail (เดิมส่งออกไปตรงๆ ไม่กรอง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P การเงิน', type: 'project' }), env)).json()) as { id: string }
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'G' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานมีราคา' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ quotationSatang: 500000 }) }, env)
+
+    const ownerDetail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as { quotationSatang: number | null }
+    expect(ownerDetail.quotationSatang).toBe(500000)
+
+    const vendor = await loginAs(app, 'somchai@example.com')
+    const vendorDetail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: vendor } }, env)).json()) as Record<string, unknown>
+    expect(vendorDetail.quotationSatang).toBeUndefined()
+  })
+})
+
 describe('T10 — task detail: comments + attachments + activity', () => {
   it('comment ได้ทุก role รวม vendor · เรียงเวลา · ขึ้นใน activity', async () => {
     const m = await loginAs(app, 'pond@example-co.test')

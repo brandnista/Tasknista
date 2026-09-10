@@ -71,8 +71,14 @@ export const secondBrainWebhookRoutes = new Hono<AppEnv>().post('/webhook', asyn
   return c.json({ ok: true })
 })
 
+// §Security Recheck (2026-09-10) — จำกัด scheme เป็น http(s) เท่านั้น กัน stored XSS ผ่าน javascript:/data: URI (Second Brain เห็นร่วมกันทั้งทีม คนอื่นกดลิงก์แล้วโดนได้)
+const SAFE_URL_RE = /^https?:\/\//i
 const manualCreatePayload = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('article'), url: z.string().min(1).max(2000), note: z.string().max(2000).optional() }),
+  z.object({
+    kind: z.literal('article'),
+    url: z.string().min(1).max(2000).refine((v) => SAFE_URL_RE.test(v), { message: 'ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https:// เท่านั้น' }),
+    note: z.string().max(2000).optional(),
+  }),
   z.object({ kind: z.literal('solution'), problem: z.string().min(1).max(2000), solutionText: z.string().min(1).max(2000) }),
 ])
 const patchPayload = z.object({
