@@ -3,9 +3,9 @@
  * โครงสร้างมิเรอร์ ProjectReleasesTab.tsx เป๊ะ (ฟอร์ม/การเชื่อมโยง Task-Defect-CR/แสดงผล) ต่างแค่ 5 หมวดคงที่แทน section แบบ freeform
  * (แทนที่ฟีดกิจกรรมอัตโนมัติจาก audit_logs เดิม — ตอนนี้เป็นระบบบันทึกที่ทีมพัฒนากรอกเองแล้ว)
  */
-import { CHANGELOG_CATEGORIES, type ChangelogCategory, CHANGELOG_CATEGORY_LABEL } from '@seedoffice/core'
-import { ArrowDown, ArrowUp, Link2, Pencil, Plus, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
+import { CHANGELOG_CATEGORIES, type ChangelogCategory, CHANGELOG_CATEGORY_LABEL, parseChangelogMarkdown, type ParsedChangelog } from '@seedoffice/core'
+import { ArrowDown, ArrowUp, Bug, Link2, ListPlus, Pencil, Plus, Trash2, Upload, X } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api, ApiError } from '../lib/api'
 import { fmtThaiDate } from '../lib/project-ui'
@@ -69,23 +69,32 @@ function KindBadge({ kind }: { kind: string }) {
 function ChangelogForm({
   projectId,
   changelog,
+  importedDraft,
+  canCreateTask,
   onClose,
   onSaved,
 }: {
   projectId: string
   changelog?: ChangelogRow
+  // Pronista §Import Changelog จากไฟล์ .md — เติมฟอร์มจากผลลัพธ์ parseChangelogMarkdown แทนคีย์มือทีละบรรทัด (ใช้ได้เฉพาะตอนสร้างใหม่ ไม่ใช่ตอนแก้ไข)
+  importedDraft?: ParsedChangelog
+  canCreateTask: boolean
   onClose: () => void
   onSaved: () => void
 }) {
   const toast = useToast()
+  const { alertDialog } = useDialog()
   const isEdit = !!changelog
-  const [title, setTitle] = useState(changelog?.title ?? '')
-  const [entryDate, setEntryDate] = useState(changelog?.entryDate ?? bkkToday())
-  const [items, setItems] = useState<DraftItem[]>(
-    changelog && changelog.items.length > 0
-      ? changelog.items.map((it) => ({ key: crypto.randomUUID(), category: it.category, text: it.text, linkedTasks: it.linkedTasks }))
-      : [],
-  )
+  const [title, setTitle] = useState(changelog?.title ?? importedDraft?.title ?? '')
+  const [entryDate, setEntryDate] = useState(changelog?.entryDate ?? importedDraft?.entryDate ?? bkkToday())
+  const [items, setItems] = useState<DraftItem[]>(() => {
+    if (changelog && changelog.items.length > 0)
+      return changelog.items.map((it) => ({ key: crypto.randomUUID(), category: it.category, text: it.text, linkedTasks: it.linkedTasks }))
+    if (importedDraft)
+      // หมวดที่เดาไม่ได้ (category: null) → เริ่มที่หมวดแรกไปก่อน ให้ผู้ใช้ย้ายเองผ่าน select ของแต่ละบรรทัด (ดู warnings banner ด้านล่าง)
+      return importedDraft.items.map((pi) => ({ key: crypto.randomUUID(), category: pi.category ?? CHANGELOG_CATEGORIES[0], text: pi.text, linkedTasks: [] }))
+    return []
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [linkingKey, setLinkingKey] = useState<string | null>(null)
@@ -130,6 +139,37 @@ function ChangelogForm({
     const it = items.find((i) => i.key === key)
     if (!it) return
     updateItem(key, { linkedTasks: it.linkedTasks.filter((lt) => lt.id !== taskId) })
+  }
+
+  // Pronista §Import Changelog จากไฟล์ .md — สร้าง Task/Defect ตรงจากข้อความของบรรทัดนี้เลย ไม่ต้องพิมพ์ซ้ำในอีกหน้า แล้วผูกกลับเข้า linkedTasks ทันที
+  const [creatingKey, setCreatingKey] = useState<string | null>(null)
+  const createTaskFromItem = async (it: DraftItem, asDefect: boolean) => {
+    if (creatingKey || !it.text.trim()) return
+    setCreatingKey(it.key)
+    try {
+      const firstLine = it.text.split('\n')[0] ?? ''
+      const isShort = it.text.length <= 120 && !it.text.includes('\n')
+      const created = await api.post<LinkedTask>(`/api/projects/${projectId}/tasks`, {
+        title: isShort ? it.text : firstLine.slice(0, 120),
+        description: isShort ? undefined : it.text,
+      })
+      if (!asDefect) {
+        updateItem(it.key, { linkedTasks: [...it.linkedTasks, created] })
+        return
+      }
+      try {
+        const converted = await api.post<LinkedTask>(`/api/tasks/${created.id}/convert`, { to: 'defect' })
+        updateItem(it.key, { linkedTasks: [...it.linkedTasks, converted] })
+      } catch {
+        // สร้าง task สำเร็จแล้ว แต่ convert เป็น defect ไม่ผ่าน (เช่น สิทธิ์ task.create ผ่านแต่ไม่ใช่ owner/editor ของโปรเจกต์) — ยังผูก task ธรรมดาไว้ก่อน ไม่ทิ้งงานที่สร้างไปแล้ว
+        updateItem(it.key, { linkedTasks: [...it.linkedTasks, created] })
+        await alertDialog({ title: 'สร้าง Task แล้ว แต่แปลงเป็น Defect ไม่สำเร็จ (สิทธิ์ไม่พอ) — ไปแปลงเองที่หน้า Task ได้' })
+      }
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'สร้างงานไม่สำเร็จ' })
+    } finally {
+      setCreatingKey(null)
+    }
   }
 
   const save = async () => {
@@ -178,6 +218,14 @@ function ChangelogForm({
             <button onClick={onClose} className="text-muted hover:text-soft shrink-0"><X className="w-5 h-5" /></button>
           </div>
           <div className="space-y-3">
+            {importedDraft && importedDraft.warnings.length > 0 && (
+              <div className="text-xs text-warning-800 bg-warning-100 rounded-lg p-2.5 space-y-1">
+                <div className="font-medium">นำเข้าจากไฟล์แล้ว แต่มีบางหมวดที่เดาไม่ได้ — ตรวจ/เลือกหมวดให้ถูกก่อนบันทึก:</div>
+                <ul className="list-disc pl-4">
+                  {importedDraft.warnings.map((w) => <li key={w}>{w}</li>)}
+                </ul>
+              </div>
+            )}
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className={label}>วันที่บันทึก</label>
@@ -199,13 +247,24 @@ function ChangelogForm({
                       {catItems.map((it, i) => (
                         <div key={it.key} className="bg-hover rounded-lg p-2 space-y-1.5">
                           <div className="flex items-start gap-2">
-                            <textarea
-                              value={it.text}
-                              onChange={(e) => updateItem(it.key, { text: e.target.value })}
-                              placeholder="รายละเอียดของข้อนี้..."
-                              rows={2}
-                              className="flex-1 text-sm bg-white rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:border focus:border-brand-400 resize-none"
-                            />
+                            {/* min-w-0 กันจอเล็ก — select มีข้อความยาว (เช่น "หน้าบ้าน (Frontend: Desktop + Mobile)") ถ้าไม่กัน flex item จะไม่ยอมหดต่ำกว่าความกว้างเนื้อหา ดันปุ่มไอคอนข้างๆ หลุดจอ */}
+                            <div className="flex-1 min-w-0 space-y-1">
+                              {/* Pronista §Import Changelog จากไฟล์ .md — ย้ายหมวดของบรรทัดนี้ได้เอง (ช่องว่างเดิมที่ไม่เคยแก้หมวดได้เลย ใช้ได้ทั้งตอนนำเข้าและคีย์มือ) */}
+                              <select
+                                value={it.category}
+                                onChange={(e) => updateItem(it.key, { category: e.target.value as ChangelogCategory })}
+                                className="w-full max-w-full text-[11px] bg-white rounded px-1.5 py-0.5 focus:outline-hidden"
+                              >
+                                {CHANGELOG_CATEGORIES.map((c) => <option key={c} value={c}>{CHANGELOG_CATEGORY_LABEL[c]}</option>)}
+                              </select>
+                              <textarea
+                                value={it.text}
+                                onChange={(e) => updateItem(it.key, { text: e.target.value })}
+                                placeholder="รายละเอียดของข้อนี้..."
+                                rows={2}
+                                className="w-full text-sm bg-white rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:border focus:border-brand-400 resize-none"
+                              />
+                            </div>
                             <div className="flex flex-col gap-1 shrink-0">
                               <button onClick={() => moveItem(it.key, -1)} disabled={i === 0} title="เลื่อนขึ้น" className="text-muted hover:text-ink disabled:opacity-25 disabled:hover:text-muted">
                                 <ArrowUp className="w-3.5 h-3.5" />
@@ -216,6 +275,26 @@ function ChangelogForm({
                               <button onClick={() => setLinkingKey(it.key)} title="เชื่อมโยง Task/Defect/CR" className="text-muted hover:text-brand-600">
                                 <Link2 className="w-3.5 h-3.5" />
                               </button>
+                              {canCreateTask && (
+                                <>
+                                  <button
+                                    onClick={() => void createTaskFromItem(it, false)}
+                                    disabled={!!creatingKey || !it.text.trim()}
+                                    title="สร้าง Task จากข้อความนี้"
+                                    className="text-muted hover:text-brand-600 disabled:opacity-25 disabled:hover:text-muted"
+                                  >
+                                    <ListPlus className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => void createTaskFromItem(it, true)}
+                                    disabled={!!creatingKey || !it.text.trim()}
+                                    title="สร้าง Defect จากข้อความนี้"
+                                    className="text-muted hover:text-danger-600 disabled:opacity-25 disabled:hover:text-muted"
+                                  >
+                                    <Bug className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
                               <button onClick={() => removeItem(it.key)} title="ลบข้อนี้" className="text-muted hover:text-danger-600">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -323,18 +402,37 @@ export function ProjectChangeLogTab({
   canCreate,
   canEdit,
   canDelete,
+  canCreateTask,
 }: {
   projectId: string
   canCreate: boolean
   canEdit: boolean
   canDelete: boolean
+  // Pronista §Import Changelog จากไฟล์ .md — สิทธิ์สร้าง Task/Defect จากบรรทัด changelog แยกจาก canCreate (changeLog.create) เอง
+  canCreateTask: boolean
 }) {
   const { data, reload } = useLoad<{ changelogs: ChangelogRow[] }>(() => api.get(`/api/projects/${projectId}/changelogs`))
-  const { confirmDialog } = useDialog()
+  const { confirmDialog, alertDialog } = useDialog()
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ChangelogRow | null>(null)
+  const [importedDraft, setImportedDraft] = useState<ParsedChangelog | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const changelogs = data?.changelogs ?? []
   const total = changelogs.length
+
+  // Pronista §Import Changelog จากไฟล์ .md — parse ฝั่ง browser ล้วนๆ ไม่ยิง API (ไฟล์ไม่ต้องอัปโหลดขึ้น server)
+  const onFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // เผื่อเลือกไฟล์เดิมซ้ำ ให้ onChange ยิงอีกรอบได้
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.md') && !file.name.toLowerCase().endsWith('.markdown')) {
+      await alertDialog({ title: 'รองรับเฉพาะไฟล์ .md เท่านั้น' })
+      return
+    }
+    const text = await file.text()
+    setImportedDraft(parseChangelogMarkdown(text, bkkToday()))
+    setFormOpen(true)
+  }
 
   const remove = async (id: string, title: string) => {
     const yes = await confirmDialog({ title: `ลบ Changelog "${title}"?`, message: 'กู้คืนเองไม่ได้ผ่านหน้านี้', confirmLabel: 'ลบ', danger: true })
@@ -348,9 +446,15 @@ export function ProjectChangeLogTab({
       <div className="p-4 border-b border-border-subtle flex items-center justify-between">
         <div className="font-semibold text-ink text-sm">Change Log · {total} รายการ</div>
         {canCreate && (
-          <button onClick={() => setFormOpen(true)} className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800">
-            <Plus className="w-4 h-4" /> เพิ่ม Changelog
-          </button>
+          <div className="flex items-center gap-3">
+            <input ref={fileInputRef} type="file" accept=".md,.markdown" className="hidden" onChange={(e) => void onFileSelected(e)} />
+            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+              <Upload className="w-3.5 h-3.5" /> นำเข้าจาก .md
+            </button>
+            <button onClick={() => { setImportedDraft(null); setFormOpen(true) }} className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-800">
+              <Plus className="w-4 h-4" /> เพิ่ม Changelog
+            </button>
+          </div>
         )}
       </div>
 
@@ -403,9 +507,17 @@ export function ProjectChangeLogTab({
         </div>
       )}
 
-      {formOpen && <ChangelogForm projectId={projectId} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); void reload() }} />}
+      {formOpen && (
+        <ChangelogForm
+          projectId={projectId}
+          importedDraft={importedDraft ?? undefined}
+          canCreateTask={canCreateTask}
+          onClose={() => { setFormOpen(false); setImportedDraft(null) }}
+          onSaved={() => { setFormOpen(false); setImportedDraft(null); void reload() }}
+        />
+      )}
       {editing && (
-        <ChangelogForm projectId={projectId} changelog={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void reload() }} />
+        <ChangelogForm projectId={projectId} changelog={editing} canCreateTask={canCreateTask} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void reload() }} />
       )}
     </div>
   )

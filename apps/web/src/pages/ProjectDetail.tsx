@@ -2537,6 +2537,8 @@ export function ProjectDetailPage() {
           canCreate={project.myPermissions?.actions.changeLog.create ?? false}
           canEdit={project.myPermissions?.actions.changeLog.edit ?? false}
           canDelete={project.myPermissions?.actions.changeLog.delete ?? false}
+          // Pronista §Import Changelog จากไฟล์ .md — ปุ่ม "สร้าง Task/Defect" ต่อบรรทัด เช็คสิทธิ์ task.create แยกจาก changeLog.create เอง (มิเรอร์ปุ่ม +เพิ่มงาน backlog บรรทัด 485)
+          canCreateTask={project.myPermissions?.actions.task.create ?? false}
         />
       )}
 
