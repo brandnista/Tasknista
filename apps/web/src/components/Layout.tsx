@@ -54,6 +54,9 @@ const TEAM_NOTIFICATION_TYPES = ['chat_mention', 'chat_message', 'meeting_schedu
 // Pronista §Secret Vault Permission (2026-09-08) — เมนู "Secret Vault" นับแจ้งเตือนเข้าใช้งานแยกของตัวเอง ไม่ปนกับ "งานของฉัน"
 const VAULT_NOTIFICATION_TYPES = ['vault_accessed'] as const
 const MY_TASKS_EXCLUDED_TYPES = new Set<string>([...TEAM_NOTIFICATION_TYPES, ...VAULT_NOTIFICATION_TYPES])
+// Pronista §Pin เมนู — ซ่อนปุ่ม pin/เลื่อนลำดับไว้ก่อน โผล่ตอน hover แถว (เมาส์) เท่านั้น
+// อุปกรณ์ที่ไม่มี hover จริง (มือถือ/แตะ) ให้โชว์ค้างเสมอ เพราะแตะแล้วไม่มีทาง "hover ก่อนกด" ได้
+const PIN_ROW_ACTION_VISIBILITY = 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
 // Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
 // Pronista §Menu Restructure (2026-08-28) — children.roles (ไม่บังคับ) = ซ่อน sub-menu ข้อนั้นเพิ่มเติมจาก role ที่ parent อนุญาตไว้แล้ว (ใช้กับ "ไฟล์ของฉัน"/"แชร์กับฉัน" ที่ไม่ให้ guest เห็น ทั้งที่ parent "งานของฉัน" guest เข้าได้)
@@ -343,7 +346,7 @@ export function Layout() {
     const isPinned = pinnedSet.has(to)
     return (
       <div key={to}>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 group">
           <NavLink
             to={to}
             onClick={(e) => {
@@ -373,7 +376,7 @@ export function Layout() {
                 disabled={pinCtx.index === 0}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(to, -1) }}
                 aria-label={`เลื่อน ${label} ขึ้น`}
-                className="p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none"
+                className={`p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none ${PIN_ROW_ACTION_VISIBILITY}`}
               >
                 <ChevronUp className="w-3.5 h-3.5" />
               </button>
@@ -382,7 +385,7 @@ export function Layout() {
                 disabled={pinCtx.index === pinCtx.total - 1}
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(to, 1) }}
                 aria-label={`เลื่อน ${label} ลง`}
-                className="p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none"
+                className={`p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none ${PIN_ROW_ACTION_VISIBILITY}`}
               >
                 <ChevronDown className="w-3.5 h-3.5" />
               </button>
@@ -392,7 +395,7 @@ export function Layout() {
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
             aria-label={isPinned ? `เลิกปักหมุด ${label}` : `ปักหมุด ${label}`}
-            className={`p-1 rounded hover:bg-divider ${isPinned ? 'text-brand-600' : 'text-muted'}`}
+            className={`p-1 rounded hover:bg-divider ${isPinned ? 'text-brand-600' : 'text-muted'} ${PIN_ROW_ACTION_VISIBILITY}`}
           >
             <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
           </button>
