@@ -56,6 +56,8 @@ const MY_TASKS_EXCLUDED_TYPES = new Set<string>([...TEAM_NOTIFICATION_TYPES, ...
 // Pronista §Pin เมนู — ซ่อนปุ่ม pin/เลื่อนลำดับไว้ก่อน โผล่ตอน hover แถว (เมาส์) เท่านั้น
 // อุปกรณ์ที่ไม่มี hover จริง (มือถือ/แตะ) ให้โชว์ค้างเสมอ เพราะแตะแล้วไม่มีทาง "hover ก่อนกด" ได้
 const PIN_ROW_ACTION_VISIBILITY = 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
+// Pronista §Pin เมนู — เมนูย่อยที่ path ของตัวเองเป็น prefix ของ sibling อื่นในกลุ่มเดียวกัน (เช่น "/my-tasks" กับ "/my-tasks/dispatched") ต้อง end match เป๊ะ ไม่งั้นไฮไลต์เพี้ยน
+const CHILD_EXACT_MATCH = new Set(['/', '/admin', '/members', '/my-tasks', '/my-tasks/files', '/admin/domains'])
 
 // Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
 // Pronista §Menu Restructure (2026-08-28) — children.roles (ไม่บังคับ) = ซ่อน sub-menu ข้อนั้นเพิ่มเติมจาก role ที่ parent อนุญาตไว้แล้ว (ใช้กับ "ไฟล์ของฉัน"/"แชร์กับฉัน" ที่ไม่ให้ guest เห็น ทั้งที่ parent "งานของฉัน" guest เข้าได้)
@@ -303,12 +305,35 @@ export function Layout() {
         : [],
     [user],
   )
-  // Pronista §Pin เมนู — เมนูที่ถูกปักหมุด (กรองตามสิทธิ์จริงจาก items แล้ว) ลอยบนสุดตามลำดับที่ผู้ใช้จัด ส่วนที่เหลือแสดงต่อแบบเดิม ไม่ซ้ำกัน
-  const pinnedItems = useMemo(
-    () => pinnedTo.map((to) => items.find((n) => n.to === to)).filter((n): n is (typeof items)[number] => !!n),
-    [pinnedTo, items],
+  // Pronista §Pin เมนูย่อย (2026-09-11) — เมนูย่อย (children) ก็ปักหมุดได้เหมือนเมนูหลัก ใช้ icon ของเมนูแม่แทน (เมนูย่อยไม่มี icon ของตัวเอง)
+  const childPinnables = useMemo(
+    () =>
+      items.flatMap((n) =>
+        (n.children ?? [])
+          .filter((c) => !c.roles || (user && c.roles.includes(user.role)))
+          .map((c) => ({ to: c.to, label: c.label, parentIcon: n.icon, parentLabel: n.label })),
+      ),
+    [items, user],
   )
-  const pinnedSet = useMemo(() => new Set(pinnedItems.map((n) => n.to)), [pinnedItems])
+  // Pronista §Pin เมนู — เมนูที่ถูกปักหมุด (กรองตามสิทธิ์จริงจาก items แล้ว) ลอยบนสุดตามลำดับที่ผู้ใช้จัด ส่วนที่เหลือแสดงต่อแบบเดิม ไม่ซ้ำกัน
+  // แต่ละรายการใน pinnedTo อาจเป็นเมนูหลักหรือเมนูย่อยก็ได้ — to ไม่ซ้ำกันทั้งแอป จึงหาเจอแค่ฝั่งเดียว
+  const pinnedEntries = useMemo(
+    () =>
+      pinnedTo
+        .map((to) => {
+          const topItem = items.find((n) => n.to === to)
+          if (topItem) return { kind: 'top' as const, item: topItem }
+          const child = childPinnables.find((c) => c.to === to)
+          if (child) return { kind: 'child' as const, child }
+          return null
+        })
+        .filter((e): e is NonNullable<typeof e> => !!e),
+    [pinnedTo, items, childPinnables],
+  )
+  const pinnedSet = useMemo(
+    () => new Set(pinnedEntries.map((e) => (e.kind === 'top' ? e.item.to : e.child.to))),
+    [pinnedEntries],
+  )
   const unpinnedItems = useMemo(() => items.filter((n) => !pinnedSet.has(n.to)), [items, pinnedSet])
   // Pronista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
   const activeTo = useMemo(() => {
@@ -367,25 +392,71 @@ export function Layout() {
         </div>
         {children && isOpen && (
           <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
-            {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => (
-              <NavLink
-                key={c.to}
-                to={c.to}
-                end={c.to === '/' || c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
-                onClick={() => setNavOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
-                    isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
-                  }`
-                }
-              >
-                {c.label}
-                {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
-                {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
-              </NavLink>
-            ))}
+            {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => {
+              const isChildPinned = pinnedSet.has(c.to)
+              return (
+                <div key={c.to} className="flex items-center gap-0.5 group">
+                  <NavLink
+                    to={c.to}
+                    end={CHILD_EXACT_MATCH.has(c.to)}
+                    onClick={() => setNavOpen(false)}
+                    className={({ isActive }) =>
+                      `flex-1 flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                        isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
+                      }`
+                    }
+                  >
+                    {c.label}
+                    {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
+                    {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+                  </NavLink>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(c.to) }}
+                    aria-label={isChildPinned ? `เลิกปักหมุด ${c.label}` : `ปักหมุด ${c.label}`}
+                    className={`p-1 rounded hover:bg-divider ${isChildPinned ? 'text-brand-600' : 'text-muted'} ${PIN_ROW_ACTION_VISIBILITY}`}
+                  >
+                    <Pin className={`w-3.5 h-3.5 ${isChildPinned ? 'fill-current' : ''}`} />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
+      </div>
+    )
+  }
+
+  // Pronista §Pin เมนูย่อย — แถวเมนูย่อยที่ปักหมุดในส่วน "รายการโปรด" ใช้ icon ของเมนูแม่แทน (เมนูย่อยไม่มี icon ของตัวเอง) + โชว์ชื่อเมนูแม่จางๆ กันชื่อกำกวม (เช่น "ตั้งค่า" อยู่ใต้ทั้ง "จัดการสมาชิก")
+  const renderPinnedChildRow = (child: (typeof childPinnables)[number]) => {
+    const { to, label, parentIcon: Icon, parentLabel } = child
+    return (
+      <div key={to} className="flex items-center gap-0.5 group">
+        <NavLink
+          to={to}
+          end={CHILD_EXACT_MATCH.has(to)}
+          onClick={() => setNavOpen(false)}
+          className={({ isActive }) =>
+            `flex-1 flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
+              isActive ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600' : 'text-soft hover:bg-hover'
+            }`
+          }
+        >
+          <Icon className="w-[18px] h-[18px] shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block truncate">{label}</span>
+            <span className="block truncate text-[10px] text-muted font-normal leading-tight">{parentLabel}</span>
+          </span>
+          {to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+        </NavLink>
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
+          aria-label={`เลิกปักหมุด ${label}`}
+          className={`p-1 rounded hover:bg-divider text-brand-600 ${PIN_ROW_ACTION_VISIBILITY}`}
+        >
+          <Pin className="w-3.5 h-3.5 fill-current" />
+        </button>
       </div>
     )
   }
@@ -418,10 +489,10 @@ export function Layout() {
       {/* Pronista §Navbar enrichment (2026-08-27) — บัญชีผู้ใช้ย้ายไปอยู่ที่ TopbarProfile (มุมขวาบน) แทนแล้ว ไม่ซ้ำซ้อนกับตรงนี้อีก */}
       <DevSwitcher me={user} />
       <nav className="flex-1 p-3 space-y-0.5 text-sm">
-        {pinnedItems.length > 0 && (
+        {pinnedEntries.length > 0 && (
           <>
             <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-muted uppercase tracking-wide">รายการโปรด</div>
-            {pinnedItems.map((item) => renderNavRow(item))}
+            {pinnedEntries.map((e) => (e.kind === 'top' ? renderNavRow(e.item) : renderPinnedChildRow(e.child)))}
             <div className="my-2 border-t border-border-subtle" />
           </>
         )}
