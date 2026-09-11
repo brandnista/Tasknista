@@ -189,6 +189,23 @@ describe('§Second Brain — เพิ่มรายการเอง (Manual)
     expect(res.status).toBe(400)
   })
 
+  // Pronista §Second Brain error message fix (2026-09-11) — เดิมคืน {error:'invalid'} ดิบๆ ไม่มีความหมาย ทั้งที่ frontend เอาไปโชว์ alert ตรงๆ
+  it('validation error คืนข้อความไทยที่อ่านรู้เรื่อง ไม่ใช่ "invalid" ดิบๆ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const createRes = await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'solution', problem: 'มีปัญหา', solutionText: '' }), env)
+    const createBody = (await createRes.json()) as { error: string }
+    expect(createBody.error).toBe('ต้องกรอกวิธีแก้ไข')
+
+    const item = (await (
+      await app.request('/api/second-brain/links', jsonReq(owner, { kind: 'solution', problem: 'ปัญหาเดิม', solutionText: 'วิธีแก้เดิม' }), env)
+    ).json()) as { id: string }
+    // เคลียร์ problem เป็นค่าว่าง (เช่น ลบข้อความในตัวแก้ไขอินไลน์แล้ว blur) → ต้องได้ข้อความไทยเช่นกัน ไม่ใช่ "invalid"
+    const patchRes = await app.request(`/api/second-brain/links/${item.id}`, { ...jsonReq(owner, { problem: '' }), method: 'PATCH' }, env)
+    expect(patchRes.status).toBe(400)
+    const patchBody = (await patchRes.json()) as { error: string }
+    expect(patchBody.error).toBe('ต้องกรอกปัญหาที่พบ')
+  })
+
   it('§Security Recheck (2026-09-10) — url เป็น javascript:/data: URI → 400 (เดิมรับได้หมด กด XSS ใส่คนอื่นในทีมได้)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     for (const evilUrl of ['javascript:alert(document.cookie)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)']) {

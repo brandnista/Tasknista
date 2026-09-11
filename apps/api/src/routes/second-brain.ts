@@ -76,15 +76,19 @@ const SAFE_URL_RE = /^https?:\/\//i
 const manualCreatePayload = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('article'),
-    url: z.string().min(1).max(2000).refine((v) => SAFE_URL_RE.test(v), { message: 'ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https:// เท่านั้น' }),
+    url: z.string().min(1, { message: 'ใส่ลิงก์' }).max(2000).refine((v) => SAFE_URL_RE.test(v), { message: 'ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https:// เท่านั้น' }),
     note: z.string().max(2000).optional(),
   }),
-  z.object({ kind: z.literal('solution'), problem: z.string().min(1).max(2000), solutionText: z.string().min(1).max(2000) }),
+  z.object({
+    kind: z.literal('solution'),
+    problem: z.string().min(1, { message: 'ต้องกรอกปัญหาที่พบ' }).max(2000),
+    solutionText: z.string().min(1, { message: 'ต้องกรอกวิธีแก้ไข' }).max(2000),
+  }),
 ])
 const patchPayload = z.object({
   note: z.string().max(2000).nullable().optional(),
-  problem: z.string().min(1).max(2000).optional(),
-  solutionText: z.string().min(1).max(2000).optional(),
+  problem: z.string().min(1, { message: 'ต้องกรอกปัญหาที่พบ' }).max(2000).optional(),
+  solutionText: z.string().min(1, { message: 'ต้องกรอกวิธีแก้ไข' }).max(2000).optional(),
 })
 
 export const secondBrainRoutes = new Hono<AppEnv>()
@@ -111,7 +115,8 @@ export const secondBrainRoutes = new Hono<AppEnv>()
 
   .post('/second-brain/links', async (c) => {
     const body = manualCreatePayload.safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    // Pronista §Second Brain error message fix (2026-09-11) — เดิมคืน {error:'invalid'} เฉยๆ ทั้งที่ frontend เอา error มาโชว์ตรงๆ เป็น alert ("invalid" ดิบๆ ไม่มีความหมาย) — ดึงข้อความจาก zod issue แทน ตรงกับ pattern ที่ใช้ใน admin.ts
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const created = (
@@ -134,7 +139,7 @@ export const secondBrainRoutes = new Hono<AppEnv>()
 
   .patch('/second-brain/links/:id', async (c) => {
     const body = patchPayload.safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const before = (
