@@ -1382,13 +1382,10 @@ export function TaskDetailPage() {
               </div>
             </div>
 
-            {t.sprintActive ? (
-              <div className="border-t border-border-subtle pt-4">
-                <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
-              </div>
-            ) : (
-              <div className="text-[11px] text-muted border-t border-border-subtle pt-4">ลงเวลาได้เมื่องานอยู่ใน Sprint ที่กด "เริ่ม Sprint" แล้วเท่านั้น</div>
-            )}
+            {/* Pronista §Time tracking fix (2026-09-11) — เดิมซ่อนตัวจับเวลา/manual ทั้งชุดถ้า sprint ไม่ active ทั้งที่ backend ไม่เคยเช็คเงื่อนไขนี้เลย (เช็คแค่ต้องผูกโปรเจกต์) — TimeSection เองจัดการ "ยังไม่ผูกโปรเจกต์" ให้แล้วผ่าน hasProject จึงตัดเงื่อนไข sprintActive ทิ้งให้ตรงกับ backend จริง */}
+            <div className="border-t border-border-subtle pt-4">
+              <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
+            </div>
 
             {!isAssigneeOnly && t.estimateMinutes != null && (
               <div className="border-t border-border-subtle pt-4">
