@@ -126,3 +126,45 @@ describe('X1 — External Document Version Logging', () => {
     expect(after.logs).toHaveLength(0)
   })
 })
+
+// Pronista §Document History access fix (2026-09-11) — เดิม GET /api/document-history ไม่เช็ค visibility เลย เอกสาร private รั่ว metadata ให้ทุกคนเห็น
+describe('X2 — GET /api/document-history เช็ค visibility ของเอกสาร private', () => {
+  it('เอกสาร private เห็นเฉพาะ owner บริษัท/เจ้าของเอกสาร/คนที่ถูกเชิญ — member คนอื่นมองไม่เห็นเลย', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const m = await loginAs(app, 'pond@example-co.test')
+    const other = await loginAs(app, 'korn@example-co.test') // auto-provision ตอน login — id จริงเป็น uuid ไม่ใช่ 'u_korn'
+    const otherMe = (await (await app.request('/api/me', { headers: { cookie: other } }, env)).json()) as { id: string }
+    const project = (await (
+      await app.request('/api/projects', json(owner, { name: 'โปรเจกต์ประวัติเอกสาร', type: 'project', code: 'DOCHIST' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/projects/${project.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
+    await app.request(`/api/projects/${project.id}/members`, json(owner, { userId: otherMe.id, positionId: 'pos_full_access' }), env)
+
+    const fd = new FormData()
+    fd.set('file', new File(['ลับสุดยอด'], 'สัญญาลับ.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
+    fd.set('docType', 'MOM')
+    fd.set('docNumber', 'SECRET-MOM-001')
+    fd.set('projectId', project.id)
+    const doc = (await (await app.request('/api/docs/upload', { method: 'POST', headers: { cookie: m }, body: fd }, env)).json()) as { id: string }
+    // ตั้งเป็น private (m เป็นเจ้าของเอกสาร = แก้ visibility ได้)
+    const patched = await app.request(`/api/docs/${doc.id}`, { ...json(m, { visibility: 'private' }), method: 'PATCH' }, env)
+    expect(patched.status).toBe(200)
+
+    // เจ้าของเอกสาร (m) ยังเห็นของตัวเอง
+    const asOwnerDoc = (await (await app.request('/api/document-history', { headers: { cookie: m } }, env)).json()) as { docs: { id: string }[] }
+    expect(asOwnerDoc.docs.map((d) => d.id)).toContain(doc.id)
+
+    // company owner เห็นทุกอย่างเสมอ
+    const asCompanyOwner = (await (await app.request('/api/document-history', { headers: { cookie: owner } }, env)).json()) as { docs: { id: string }[] }
+    expect(asCompanyOwner.docs.map((d) => d.id)).toContain(doc.id)
+
+    // member คนอื่นที่ไม่ได้อยู่ใน docMembers ของเอกสารนี้ — มองไม่เห็นเลย (ก่อนแก้บั๊กจะเห็น)
+    const beforeInvite = (await (await app.request('/api/document-history', { headers: { cookie: other } }, env)).json()) as { docs: { id: string }[] }
+    expect(beforeInvite.docs.map((d) => d.id)).not.toContain(doc.id)
+
+    // เชิญเข้า docMembers แล้ว → เห็นได้
+    await app.request(`/api/docs/${doc.id}/members`, json(m, { userId: otherMe.id, role: 'viewer' }), env)
+    const afterInvite = (await (await app.request('/api/document-history', { headers: { cookie: other } }, env)).json()) as { docs: { id: string }[] }
+    expect(afterInvite.docs.map((d) => d.id)).toContain(doc.id)
+  })
+})
