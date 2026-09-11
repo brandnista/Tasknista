@@ -413,7 +413,11 @@ export function MyFilesTab({ root }: { root: 'own' | 'shared' }) {
             <span className="shrink-0 w-28" />
           </div>
           {items.map((r) => {
-            const canManage = !browsingShared && (r.myRole === 'editor' || r.myRole === undefined) && (listData?.folder ? listData.folder.access !== 'viewer' : true)
+            // Pronista §My Files canManage fix (2026-09-11) — เดิม !browsingShared นำหน้าทำให้ canManage เป็น false เสมอตอนดูแท็บ "แชร์กับฉัน" (flat list) ทั้งที่ r.myRole ถูกส่งมาถูกต้องแล้วก็ตาม
+            // คนที่ถูกแชร์ไฟล์เดี่ยว (ไม่ใช่โฟลเดอร์ที่เข้าไปดูข้างในได้) เป็น editor เลยลบ/ย้ายไฟล์นั้นเองไม่ได้เลยผ่านหน้านี้ ทั้งที่ backend อนุญาต (canEditPersonalFile อนุญาต editor อยู่แล้ว)
+            const canManage = browsingShared
+              ? r.myRole === 'editor'
+              : (r.myRole === 'editor' || r.myRole === undefined) && (listData?.folder ? listData.folder.access !== 'viewer' : true)
             const isDropTarget = r.kind === 'folder' && dragOverId === r.id
             return (
               <div
