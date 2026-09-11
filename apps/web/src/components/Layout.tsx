@@ -3,6 +3,7 @@ import {
   BrainCircuit,
   Briefcase,
   ChevronDown,
+  ChevronUp,
   ClipboardList,
   Folder,
   FolderKanban,
@@ -15,6 +16,7 @@ import {
   Lock,
   MessageSquare,
   NotebookText,
+  Pin,
   Settings,
   UserCheck,
   Users,
@@ -210,6 +212,36 @@ export function Layout() {
       return next
     })
   }
+  // Pronista §Pin เมนู (2026-09-11) — ปักหมุดเมนูโปรดให้ลอยบนสุด sidebar เสมอ แทนที่การลาก-วาง (พี่แบงค์ยืนยันว่าถ้า pin ได้ Drag and Drop ก็ไม่จำเป็น) จำค่าไว้ข้าม session แบบเดียวกับ sidebarCollapsed
+  const [pinnedTo, setPinnedTo] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('pronista_pinned_menus')
+      return raw ? (JSON.parse(raw) as string[]) : []
+    } catch {
+      return []
+    }
+  })
+  const persistPinned = (next: string[]) => {
+    try {
+      localStorage.setItem('pronista_pinned_menus', JSON.stringify(next))
+    } catch {
+      // localStorage ปิด/เต็ม — ข้ามการจำค่าไปเงียบๆ ไม่กระทบการใช้งาน
+    }
+    return next
+  }
+  const togglePin = (to: string) =>
+    setPinnedTo((s) => persistPinned(s.includes(to) ? s.filter((t) => t !== to) : [...s, to]))
+  const movePin = (to: string, dir: -1 | 1) =>
+    setPinnedTo((s) => {
+      const i = s.indexOf(to)
+      const j = i + dir
+      if (i < 0 || j < 0 || j >= s.length) return s
+      const next = [...s]
+      const tmp = next[i] as string
+      next[i] = next[j] as string
+      next[j] = tmp
+      return persistPinned(next)
+    })
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   // Pronista §System Requirements Update — sub-menu ของเมนูที่มี children (เช่น "ตั้งค่า") พับเก็บเป็นค่าเริ่มต้น กดที่เมนูแม่ถึงจะกาง
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -280,6 +312,13 @@ export function Layout() {
         : [],
     [user],
   )
+  // Pronista §Pin เมนู — เมนูที่ถูกปักหมุด (กรองตามสิทธิ์จริงจาก items แล้ว) ลอยบนสุดตามลำดับที่ผู้ใช้จัด ส่วนที่เหลือแสดงต่อแบบเดิม ไม่ซ้ำกัน
+  const pinnedItems = useMemo(
+    () => pinnedTo.map((to) => items.find((n) => n.to === to)).filter((n): n is (typeof items)[number] => !!n),
+    [pinnedTo, items],
+  )
+  const pinnedSet = useMemo(() => new Set(pinnedItems.map((n) => n.to)), [pinnedItems])
+  const unpinnedItems = useMemo(() => items.filter((n) => !pinnedSet.has(n.to)), [items, pinnedSet])
   // Pronista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
   const activeTo = useMemo(() => {
     const path = location.pathname
@@ -296,6 +335,92 @@ export function Layout() {
   const topbarValue = useMemo(() => ({ setTitle, actionSlot }), [setTitle, actionSlot])
 
   if (!user) return null
+
+  // Pronista §Pin เมนู — ใช้ทั้งในลิสต์ปักหมุด (ส่ง pinCtx เพื่อโชว์ปุ่มเลื่อนขึ้น/ลง) และลิสต์ปกติ (ไม่ส่ง pinCtx)
+  const renderNavRow = (item: (typeof items)[number], pinCtx?: { index: number; total: number }) => {
+    const { to, label, icon: Icon, children } = item
+    const isOpen = !!children && openGroups.has(to)
+    const isPinned = pinnedSet.has(to)
+    return (
+      <div key={to}>
+        <div className="flex items-center gap-0.5">
+          <NavLink
+            to={to}
+            onClick={(e) => {
+              if (children) {
+                e.preventDefault()
+                toggleGroup(to)
+              } else {
+                setNavOpen(false)
+              }
+            }}
+            className={`flex-1 flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
+              to === activeTo
+                ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
+                : 'text-soft hover:bg-hover'
+            }`}
+          >
+            <Icon className="w-[18px] h-[18px]" /> {label}
+            {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
+            {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
+            {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
+            {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+          </NavLink>
+          {pinCtx && (
+            <>
+              <button
+                type="button"
+                disabled={pinCtx.index === 0}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(to, -1) }}
+                aria-label={`เลื่อน ${label} ขึ้น`}
+                className="p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={pinCtx.index === pinCtx.total - 1}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(to, 1) }}
+                aria-label={`เลื่อน ${label} ลง`}
+                className="p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
+            aria-label={isPinned ? `เลิกปักหมุด ${label}` : `ปักหมุด ${label}`}
+            className={`p-1 rounded hover:bg-divider ${isPinned ? 'text-brand-600' : 'text-muted'}`}
+          >
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
+          </button>
+        </div>
+        {children && isOpen && (
+          <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
+            {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => (
+              <NavLink
+                key={c.to}
+                to={c.to}
+                end={c.to === '/' || c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
+                onClick={() => setNavOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                    isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
+                  }`
+                }
+              >
+                {c.label}
+                {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
+                {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+              </NavLink>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const sidebar = (
     // Pronista §Mobile safe-area (2026-09-02) — drawer ชิดขอบขวา/บน/ล่างจริงบนมือถือ ต้องกัน notch/home-indicator (สเปก §3) — desktop (lg:static) env() คืน 0 อยู่แล้วไม่กระทบ
@@ -325,56 +450,14 @@ export function Layout() {
       {/* Pronista §Navbar enrichment (2026-08-27) — บัญชีผู้ใช้ย้ายไปอยู่ที่ TopbarProfile (มุมขวาบน) แทนแล้ว ไม่ซ้ำซ้อนกับตรงนี้อีก */}
       <DevSwitcher me={user} />
       <nav className="flex-1 p-3 space-y-0.5 text-sm">
-        {items.map(({ to, label, icon: Icon, children }) => {
-          const isOpen = !!children && openGroups.has(to)
-          return (
-            <div key={to}>
-              <NavLink
-                to={to}
-                onClick={(e) => {
-                  if (children) {
-                    e.preventDefault()
-                    toggleGroup(to)
-                  } else {
-                    setNavOpen(false)
-                  }
-                }}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
-                  to === activeTo
-                    ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
-                    : 'text-soft hover:bg-hover'
-                }`}
-              >
-                <Icon className="w-[18px] h-[18px]" /> {label}
-                {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
-                {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
-                {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
-                {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
-              </NavLink>
-              {children && isOpen && (
-                <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
-                  {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => (
-                    <NavLink
-                      key={c.to}
-                      to={c.to}
-                      end={c.to === '/' || c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
-                      onClick={() => setNavOpen(false)}
-                      className={({ isActive }) =>
-                        `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
-                          isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
-                        }`
-                      }
-                    >
-                      {c.label}
-                      {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
-                      {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        {pinnedItems.length > 0 && (
+          <>
+            <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-muted uppercase tracking-wide">รายการโปรด</div>
+            {pinnedItems.map((item, i) => renderNavRow(item, { index: i, total: pinnedItems.length }))}
+            <div className="my-2 border-t border-border-subtle" />
+          </>
+        )}
+        {unpinnedItems.map((item) => renderNavRow(item))}
       </nav>
     </aside>
   )
