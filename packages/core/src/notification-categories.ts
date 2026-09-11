@@ -24,6 +24,10 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'task_overdue_reminder',
       'guest_item_created',
       'task_updated',
+      // Pronista §Notification categories fix (2026-09-11) — เดิม 3 ตัวนี้ก็ไม่อยู่ในหมวดไหนเลยเหมือนกัน (ตกหล่นตั้งแต่เพิ่ม type ตอน §Assign/Accept audit 2026-09-03)
+      'task_accepted',
+      'task_rejected',
+      'task_reassigned',
     ],
   },
   { key: 'chat_mention', label: 'มีคนแท็กฉันในแชท', types: ['chat_mention'] },
@@ -42,6 +46,8 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'note_shared',
       'sellnista_expiry_reminder',
       'sellnista_expired',
+      // Pronista §Notification categories fix (2026-09-11) — เดิม vault_accessed ไม่อยู่ในหมวดไหนเลย ทำให้ filter ตามหมวด/หน้าตั้งค่าปิด-เปิดแจ้งเตือนมองไม่เห็นเลย
+      'vault_accessed',
     ],
   },
 ] as const

@@ -20,6 +20,8 @@ export function notificationHref(n: NotificationLike): string | undefined {
   if (n.type === 'note_shared') return '/my-tasks/notes'
   if (n.type === 'domain_expiry_reminder' || n.type === 'domain_expired') return '/admin/domains'
   if (n.type === 'sellnista_expiry_reminder' || n.type === 'sellnista_expired') return '/admin/sellnista'
+  // Pronista §Notification href fix (2026-09-11) — vault_accessed ไม่มี taskId/projectId/... เลย ตกไปที่ generic fallback ล่างสุดแล้วได้ undefined คลิกแล้วไม่ไปไหนเลย
+  if (n.type === 'vault_accessed') return '/vault'
   if (n.projectId) return n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`
   return undefined
 }

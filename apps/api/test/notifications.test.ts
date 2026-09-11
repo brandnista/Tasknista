@@ -204,3 +204,15 @@ describe('Pronista §System Enhancements — GET /notifications รองรั�
     expect(res.rows.every((r) => r.type === 'note_shared' || r.type === 'expiry_reminder' || r.type === 'member_expiry_reminder' || r.type === 'domain_expiry_reminder' || r.type === 'domain_expired' || r.type === 'project_member_added')).toBe(true)
   })
 })
+
+// Pronista §Notification categories fix (2026-09-11) — vault_accessed เพิ่ม type ใหม่แล้วลืมใส่ NOTIFICATION_CATEGORIES ทำให้ filter ตามหมวด/หน้าตั้งค่าแจ้งเตือนมองไม่เห็นเลย
+// กันบั๊กคลาสเดียวกันเกิดซ้ำในอนาคต — บังคับให้ทุก type ใน NOTIFICATION_TYPES ต้องอยู่ในหมวดใดหมวดหนึ่งเสมอ
+describe('X3 — NOTIFICATION_CATEGORIES ต้องครอบคลุมทุก NOTIFICATION_TYPES', () => {
+  it('ไม่มี type ไหนตกหล่นจากทุกหมวด', async () => {
+    const { NOTIFICATION_CATEGORIES } = await import('@seedoffice/core')
+    const { NOTIFICATION_TYPES } = await import('@seedoffice/db')
+    const categorized = new Set(NOTIFICATION_CATEGORIES.flatMap((c) => c.types))
+    const missing = NOTIFICATION_TYPES.filter((t) => !categorized.has(t))
+    expect(missing).toEqual([])
+  })
+})

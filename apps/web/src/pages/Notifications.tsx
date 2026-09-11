@@ -14,7 +14,7 @@ interface PagedNotifications { rows: NotificationRow[]; total: number }
 /** Pronista §System Enhancements — เมนูหลัก "การแจ้งเตือน" แยกจาก bell dropdown เดิม (จำกัดแค่ 20 แถวล่าสุด) — ดูประวัติเต็ม + filter ตามหมวดหมู่ได้ */
 export function NotificationsPage() {
   const navigate = useNavigate()
-  const { markRead, markAllRead, reload: reloadUnread } = useNotifications()
+  const { rows: unreadSignalRows, markRead, markAllRead, reload: reloadUnread } = useNotifications()
   const [category, setCategory] = useState('all')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -24,7 +24,8 @@ export function NotificationsPage() {
   )
   const rows = data?.rows ?? []
   const total = data?.total ?? 0
-  const unread = rows.filter((r) => !r.isRead).length
+  // Pronista §Notifications page fix (2026-09-11) — เดิมเช็คจาก rows ของหน้า/หมวดที่กรองอยู่ ทำให้ปุ่ม "อ่านทั้งหมด" ปิดผิดๆ เวลาหน้าที่กรองอยู่ไม่มีที่ยังไม่อ่าน ทั้งที่หมวดอื่น/หน้าอื่นยังมี (ปุ่มนี้ mark ทั้งหมดจริงเสมอ ไม่ผูกกับฟิลเตอร์ — ตรงกับ bell dropdown ที่ใช้สัญญาณ unread รวมจาก context เดียวกัน)
+  const hasUnread = (unreadSignalRows ?? []).some((r) => !r.isRead)
 
   const open = (n: NotificationRow) => {
     if (!n.isRead) {
@@ -49,7 +50,7 @@ export function NotificationsPage() {
         <button
           type="button"
           onClick={() => void markAllRead().then(() => { void reload(); reloadUnread() })}
-          disabled={unread === 0}
+          disabled={!hasUnread}
           className="text-sm text-brand-600 hover:text-brand-700 disabled:opacity-40 disabled:cursor-not-allowed ml-auto"
         >
           อ่านทั้งหมด
