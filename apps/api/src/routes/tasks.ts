@@ -621,12 +621,13 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด: ต้องอยู่ใน sprint อยู่แล้ว + คอลัมน์ต้องมีจริงใน preset ของ sprint นั้น
     if (body.data.sprintStatus !== undefined && body.data.sprintStatus !== null) {
-      if (!before.sprintId) return c.json({ error: 'not_in_sprint' }, 400)
+      // Pronista §Board error message fix (2026-09-11) — เดิม error code ดิบ (not_in_sprint/invalid_sprint_status) ไม่มี message เลย ทั้งที่ frontend ตอนนี้ดัก error มาโชว้ให้ผู้ใช้เห็นแล้ว (เจอจากบั๊กลากบอร์ดเงียบ)
+      if (!before.sprintId) return c.json({ error: 'not_in_sprint', message: 'งานนี้ไม่ได้อยู่ใน Sprint แล้ว — อาจถูกเอาออกไปโดยคนอื่น ลองรีเฟรชหน้า' }, 400)
       const sprint = (await db.select().from(sprints).where(eq(sprints.id, before.sprintId)).limit(1))[0]
       const cfg = (await db.select({ boardPresets: companyConfig.boardPresets }).from(companyConfig).limit(1))[0]
       const preset = sprint?.boardPresetId ? presetById(resolvePresets(cfg?.boardPresets), sprint.boardPresetId) : undefined
       if (!preset || !preset.columns.some((col) => col.id === body.data.sprintStatus))
-        return c.json({ error: 'invalid_sprint_status' }, 400)
+        return c.json({ error: 'invalid_sprint_status', message: 'คอลัมน์นี้ไม่มีอยู่แล้ว — บอร์ดอาจถูกปรับเปลี่ยนคอลัมน์ ลองรีเฟรชหน้า' }, 400)
     }
     // Pronista §Workspace — labelIds ทุกตัวต้องมีจริงในแคตตาล็อก company_config.labels
     if (body.data.labelIds !== undefined) {
