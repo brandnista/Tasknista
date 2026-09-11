@@ -458,7 +458,8 @@ export const adminRoutes = new Hono<AppEnv>()
         costMarginPercent: z.number().int().min(0).max(100).optional(),
       })
       .safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    // Pronista §Admin config error message fix (2026-09-11) — เดิมคืน {error:'invalid'} เฉยๆ ทั้งที่ memberDomain มี custom zod message ไว้แล้ว (เช่น พิมพ์โดเมนแบบไม่มี @ นำหน้า) แต่ frontend ไม่เคยได้เห็นข้อความนั้นเลย
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const before = (await db.select().from(companyConfig).limit(1))[0]
     const updated = await db

@@ -11,7 +11,7 @@ import { TaskTypeSettings } from '../components/TaskTypeSettings'
 import { LabelSettings } from '../components/LabelSettings'
 import { ManhourSettings } from '../components/ManhourSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useDialog } from '../components/Dialog'
 import { useLoad } from '../lib/useLoad'
 
@@ -119,10 +119,17 @@ function IcsLinkCard() {
 
 export function AdminPage() {
   const { data: cfg, reload: reloadCfg } = useLoad<Config>(() => api.get('/api/config'))
+  const { alertDialog } = useDialog()
 
+  // Pronista §Admin config error handling fix (2026-09-11) — เดิมไม่ดัก error เลย พิมพ์ค่าที่ validate ไม่ผ่าน (เช่น โดเมนไม่มี @ นำหน้า) แล้ว blur จะไม่เกิดอะไรขึ้นเลย ดูเหมือนบันทึกสำเร็จทั้งที่ค่าเดิมยังคงอยู่
   const saveCfg = async (patch: Partial<Config>) => {
-    await api.patch('/api/admin/config', patch)
-    await reloadCfg()
+    try {
+      await api.patch('/api/admin/config', patch)
+      await reloadCfg()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+      await reloadCfg()
+    }
   }
 
   return (
