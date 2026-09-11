@@ -3,7 +3,6 @@ import {
   BrainCircuit,
   Briefcase,
   ChevronDown,
-  ChevronUp,
   ClipboardList,
   Folder,
   FolderKanban,
@@ -234,17 +233,6 @@ export function Layout() {
   }
   const togglePin = (to: string) =>
     setPinnedTo((s) => persistPinned(s.includes(to) ? s.filter((t) => t !== to) : [...s, to]))
-  const movePin = (to: string, dir: -1 | 1) =>
-    setPinnedTo((s) => {
-      const i = s.indexOf(to)
-      const j = i + dir
-      if (i < 0 || j < 0 || j >= s.length) return s
-      const next = [...s]
-      const tmp = next[i] as string
-      next[i] = next[j] as string
-      next[j] = tmp
-      return persistPinned(next)
-    })
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   // Pronista §System Requirements Update — sub-menu ของเมนูที่มี children (เช่น "ตั้งค่า") พับเก็บเป็นค่าเริ่มต้น กดที่เมนูแม่ถึงจะกาง
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -339,8 +327,7 @@ export function Layout() {
 
   if (!user) return null
 
-  // Pronista §Pin เมนู — ใช้ทั้งในลิสต์ปักหมุด (ส่ง pinCtx เพื่อโชว์ปุ่มเลื่อนขึ้น/ลง) และลิสต์ปกติ (ไม่ส่ง pinCtx)
-  const renderNavRow = (item: (typeof items)[number], pinCtx?: { index: number; total: number }) => {
+  const renderNavRow = (item: (typeof items)[number]) => {
     const { to, label, icon: Icon, children } = item
     const isOpen = !!children && openGroups.has(to)
     const isPinned = pinnedSet.has(to)
@@ -369,28 +356,6 @@ export function Layout() {
             {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
             {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
           </NavLink>
-          {pinCtx && (
-            <>
-              <button
-                type="button"
-                disabled={pinCtx.index === 0}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(to, -1) }}
-                aria-label={`เลื่อน ${label} ขึ้น`}
-                className={`p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none ${PIN_ROW_ACTION_VISIBILITY}`}
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                disabled={pinCtx.index === pinCtx.total - 1}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(to, 1) }}
-                aria-label={`เลื่อน ${label} ลง`}
-                className={`p-1 rounded text-muted hover:bg-divider disabled:opacity-30 disabled:pointer-events-none ${PIN_ROW_ACTION_VISIBILITY}`}
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
           <button
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
@@ -456,7 +421,7 @@ export function Layout() {
         {pinnedItems.length > 0 && (
           <>
             <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-muted uppercase tracking-wide">รายการโปรด</div>
-            {pinnedItems.map((item, i) => renderNavRow(item, { index: i, total: pinnedItems.length }))}
+            {pinnedItems.map((item) => renderNavRow(item))}
             <div className="my-2 border-t border-border-subtle" />
           </>
         )}
