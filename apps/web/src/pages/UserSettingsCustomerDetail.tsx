@@ -64,8 +64,15 @@ export function UserSettingsCustomerDetailPage() {
     await api.patch(`/api/admin/users/${c.id}`, { status: c.status === 'active' ? 'disabled' : 'active' })
     await reload()
   }
+  // Pronista §Customer detail fix (2026-09-11) — เดิม dialog ยืนยันเขียนว่า "ปิดการใช้งาน" ตายตัวเสมอ ทั้งที่ปุ่มนี้สลับสถานะทั้งสองทาง — ถ้าลูกค้าปิดอยู่แล้วกดปุ่มนี้จะ "เปิดใช้งาน" จริง แต่ dialog หลอกว่ากำลังปิด
   const remove = async () => {
-    const ok = await confirmDialog({ title: `ปิดการใช้งานลูกค้า "${c.businessName || c.name}"?`, message: 'ลูกค้าจะ login ไม่ได้ทันที (ข้อมูลไม่ถูกลบ)', confirmLabel: 'ปิดการใช้งาน', danger: true })
+    const disabling = c.status === 'active'
+    const ok = await confirmDialog({
+      title: `${disabling ? 'ปิด' : 'เปิด'}การใช้งานลูกค้า "${c.businessName || c.name}"?`,
+      message: disabling ? 'ลูกค้าจะ login ไม่ได้ทันที (ข้อมูลไม่ถูกลบ)' : 'ลูกค้าจะ login ได้อีกครั้ง',
+      confirmLabel: `${disabling ? 'ปิด' : 'เปิด'}การใช้งาน`,
+      danger: disabling,
+    })
     if (!ok) return
     await toggleStatus()
   }
@@ -93,7 +100,7 @@ export function UserSettingsCustomerDetailPage() {
         action={
           isOwner && (
             <button onClick={() => void remove()} className="inline-flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700 border border-border-subtle rounded-lg px-3 py-1.5">
-              <Trash2 className="w-3.5 h-3.5" /> {c.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งานแล้ว'}
+              <Trash2 className="w-3.5 h-3.5" /> {c.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
             </button>
           )
         }
