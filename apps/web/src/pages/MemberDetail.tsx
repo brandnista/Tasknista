@@ -106,7 +106,7 @@ export function MemberDetailPage() {
         title={m.businessName || m.name}
         action={
           <button onClick={() => void toggleStatus()} className="inline-flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700 border border-border-subtle rounded-lg px-3 py-1.5">
-            <Trash2 className="w-3.5 h-3.5" /> {m.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งานแล้ว'}
+            <Trash2 className="w-3.5 h-3.5" /> {m.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
           </button>
         }
       />
