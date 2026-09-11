@@ -375,11 +375,12 @@ export function Layout() {
                 : 'text-soft hover:bg-hover'
             }`}
           >
-            <Icon className="w-[18px] h-[18px]" /> {label}
+            <Icon className="w-[18px] h-[18px] shrink-0" />
+            <span className="flex-1 min-w-0 truncate">{label}</span>
             {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
             {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
             {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
-            {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+            {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
           </NavLink>
           <button
             type="button"
@@ -406,7 +407,7 @@ export function Layout() {
                       }`
                     }
                   >
-                    {c.label}
+                    <span className="flex-1 min-w-0 truncate">{c.label}</span>
                     {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
                     {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
                   </NavLink>
