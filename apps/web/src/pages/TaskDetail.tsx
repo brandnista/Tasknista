@@ -637,9 +637,14 @@ export function TaskDetailPage() {
     await reload()
   }
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — toggle สถานะงานย่อยจากติ๊กตรงแถวได้เลย (เดิม checkbox เป็นแค่ span โชว์เฉยๆ ไม่มี handler)
+  // Pronista §Task Detail fix (2026-09-11) — เดิมไม่ดัก error เลย งานย่อยที่ถูกจ่ายมาจากคนอื่น (ไม่ใช่คนคีย์เอง) กำลังทำอยู่ (on_processing) ติ๊กเสร็จตรงๆ ไม่ได้ ต้องผ่าน "ส่งตรวจ" ก่อน (PATCH /tasks/:id เช็คเงื่อนไขนี้ฝั่ง server คืน 403) — กดติ๊กแล้วไม่เกิดอะไรขึ้นเลย เหมือนบั๊กเดียวกับปุ่ม "เสร็จแล้ว" ในหน้า "งานของฉัน"
   const toggleSubtaskDone = async (subtaskId: string, currentlyDone: boolean) => {
-    await api.patch(`/api/tasks/${subtaskId}`, { status: currentlyDone ? 'non_start' : 'done' })
-    await reload()
+    try {
+      await api.patch(`/api/tasks/${subtaskId}`, { status: currentlyDone ? 'non_start' : 'done' })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสถานะไม่สำเร็จ' })
+    }
   }
   const toggleSelectSubtask = (id: string) => {
     setSelectedSubtasks((prev) => {
