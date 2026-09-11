@@ -158,8 +158,15 @@ function VaultUnlockForm({ onDone }: { onDone: (token: string) => void }) {
     try {
       const res = await api.post<{ ok: true; token: string }>('/api/vault/unlock', { pin })
       onDone(res.token)
-    } catch {
-      setError('PIN ไม่ถูกต้อง')
+    } catch (e) {
+      // §Vault lockout message fix (2026-09-11) — เดิม catch เดียวโชว์ "PIN ไม่ถูกต้อง" ตายตัวทุกกรณี รวมถึงตอนโดนล็อกจากใส่ผิดครบ 5 ครั้ง (pin_locked, 429) — ผู้ใช้ไม่รู้เลยว่ากำลังโดนล็อกอยู่ ใส่ซ้ำได้เรื่อยๆ เห็นข้อความเดิม
+      if (e instanceof ApiError && e.message === 'pin_locked') {
+        const seconds = (e.data as { retryAfterSeconds?: number } | undefined)?.retryAfterSeconds
+        const minutes = seconds ? Math.ceil(seconds / 60) : null
+        setError(minutes ? `ใส่ PIN ผิดครบ 5 ครั้ง — ถูกล็อกชั่วคราว ลองใหม่ในอีกประมาณ ${minutes} นาที` : 'ใส่ PIN ผิดครบ 5 ครั้ง — ถูกล็อกชั่วคราว ลองใหม่ภายหลัง')
+      } else {
+        setError('PIN ไม่ถูกต้อง')
+      }
     } finally {
       setBusy(false)
     }

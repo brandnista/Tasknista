@@ -4,6 +4,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    // เก็บ body JSON เต็มๆ ไว้ด้วย (นอกจาก message ที่ derive แล้ว) — บาง endpoint ส่งฟิลด์เสริมมาด้วย เช่น retryAfterSeconds ของ vault pin lockout
+    public data?: unknown,
   ) {
     super(message)
   }
@@ -20,15 +22,17 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   })
   if (!res.ok) {
     let message = res.statusText
+    let data: unknown
     try {
       // Pronista §Google Meet Integration (2026-08-28) — บาง endpoint ส่ง message (ข้อความอ่านง่ายสำหรับโชว์ผู้ใช้) แยกจาก error (slug ไว้ debug) — เลือก message ก่อนถ้ามี
-      const data = (await res.json()) as { error?: string; message?: string }
-      if (data.message) message = data.message
-      else if (data.error) message = data.error
+      const parsed = (await res.json()) as { error?: string; message?: string }
+      data = parsed
+      if (parsed.message) message = parsed.message
+      else if (parsed.error) message = parsed.error
     } catch {
       // ไม่ใช่ JSON ก็ใช้ statusText
     }
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, data)
   }
   return res.json() as Promise<T>
 }
