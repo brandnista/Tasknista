@@ -230,10 +230,52 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const [convertFor, setConvertFor] = useState<ChatMessage | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  // Pronista §Team Chat history fix (2026-09-11) — เดิมโหลดแค่ 50 ข้อความล่าสุดตายตัว ไม่มีทางเห็นข้อความเก่ากว่านั้นเลย ทั้งที่ backend รองรับ ?before= อยู่แล้ว (GET /chat/channels/:id/messages) แค่ frontend ไม่เคยเรียกใช้
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  // ตอน prepend ข้อความเก่าเข้าด้านบน ต้องไม่ auto-scroll ลงล่างเหมือนข้อความใหม่ปกติ — ใช้ ref กันแทน state เพราะไม่ต้อง re-render
+  const isPrependingRef = useRef(false)
+  // §Team Chat history fix — loadingMore (state) เปลี่ยนไม่ทันทีทันใด (batched) ถ้า onScroll ยิงรัวๆ ก่อน re-render จะหลุดผ่าน guard ได้หลายรอบพร้อมกัน ยิง fetch ซ้ำ/ข้อความเก่าโผล่ซ้ำ — ใช้ ref เช็คแบบ synchronous แทน
+  const loadingMoreRef = useRef(false)
 
-  useEffect(() => { setMessages(data ?? []) }, [data])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }) }, [messages.length])
+  useEffect(() => { setMessages(data ?? []); setHasMore((data?.length ?? 0) >= 50) }, [data])
+  useEffect(() => {
+    if (isPrependingRef.current) { isPrependingRef.current = false; return }
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [messages.length])
+
+  const loadOlder = async () => {
+    if (loadingMoreRef.current || !hasMore || messages.length === 0) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    const container = scrollRef.current
+    const prevScrollHeight = container?.scrollHeight ?? 0
+    try {
+      // createdAt ที่ frontend ได้จริงคือ ISO string จาก Date.toJSON() (ชนิดที่ประกาศไว้ว่า number ไม่ตรงกับ runtime จริง) — ต้องแปลงผ่าน Date ก่อนส่งเป็น epoch ms ให้ backend Number(before) parse ได้ถูก ไม่งั้นได้ NaN เงียบๆ
+      const oldestCreatedAt = new Date(messages[0]!.createdAt).getTime()
+      const older = await api.get<ChatMessage[]>(`/api/chat/channels/${channel.id}/messages?before=${oldestCreatedAt}`)
+      if (older.length > 0) {
+        isPrependingRef.current = true
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id))
+          return [...older.filter((m) => !existingIds.has(m.id)), ...prev]
+        })
+        // รักษาตำแหน่ง scroll เดิมไว้ (ไม่งั้นพอความสูงเปลี่ยนจากข้อความเก่าที่เพิ่มเข้ามาด้านบน จอจะกระโดด)
+        requestAnimationFrame(() => {
+          if (container) container.scrollTop = container.scrollHeight - prevScrollHeight
+        })
+      }
+      setHasMore(older.length >= 50)
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }
+  const onScroll = () => {
+    if (scrollRef.current && scrollRef.current.scrollTop < 80) void loadOlder()
+  }
   // Pronista §Notification overhaul (2026-08-27) — เปิดห้องนี้แล้ว mark แจ้งเตือนแชทของห้องนี้อ่านทันที กัน badge เมนู "ทีม" ค้าง
   // Pronista §Team Chat unread badge (2026-08-28) — mark อ่านเสร็จแล้ว reload รายการห้อง กัน badge จำนวนไม่อ่านที่แถวห้องนี้ค้าง
   useEffect(() => { void markChannelRead(channel.id).then(onSent) }, [channel.id, markChannelRead, onSent])
@@ -310,7 +352,8 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
         {channel.kind === 'project' ? <Hash className="w-4 h-4 text-muted" /> : <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px]" colorClass={avatarColor(label ?? '?')} />}
         <span className="font-semibold text-ink text-sm">{label}</span>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {loadingMore && <div className="text-center text-xs text-muted py-1">กำลังโหลดข้อความเก่า…</div>}
         {messages.map((m) => (
           <MessageRow key={m.id} m={m} mine={m.senderId === meId} onDeleted={() => setMessages((prev) => prev.filter((x) => x.id !== m.id))} onConvert={() => setConvertFor(m)} />
         ))}
