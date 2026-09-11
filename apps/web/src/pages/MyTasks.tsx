@@ -10,11 +10,12 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { useDialog } from '../components/Dialog'
 import { MyWorkSummary } from '../components/MyWorkSummary'
 import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
 import { TaskListView } from '../components/TaskListView'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
 import { useLoad } from '../lib/useLoad'
@@ -188,6 +189,7 @@ function DailySummaryModal({ open, onClose, userName, completedToday, inProgress
 export function MyTasksPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { alertDialog } = useDialog()
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const { data, reload } = useLoad<MyTask[]>(() => api.get('/api/tasks/mine'))
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
@@ -206,9 +208,14 @@ export function MyTasksPage() {
   const [view, setView] = useState<'board' | 'list'>('board')
   const [summaryOpen, setSummaryOpen] = useState(false)
 
+  // Pronista §My Work fix (2026-09-11) — เดิมไม่ดัก error เลย ปุ่ม "✓ เสร็จแล้ว" ในวิดเจ็ต "งานย่อยที่รอทำ" เลยเงียบสนิทตอน backend ปฏิเสธ (เช่น งานย่อยที่ถูกจ่ายมาแล้วกำลังทำอยู่ ข้ามไป done ตรงๆ ไม่ได้ ต้องผ่าน "ส่งตรวจ" ก่อน — PATCH /tasks/:id เช็คเงื่อนไขนี้อยู่แล้วฝั่ง server) ผู้ใช้กดแล้วไม่เกิดอะไรขึ้นเลย งงว่าทำไมกดไม่ติด
   const changeStatus = async (taskId: string, status: KanbanTask['status']) => {
-    await api.patch(`/api/tasks/${taskId}`, { status })
-    await reload()
+    try {
+      await api.patch(`/api/tasks/${taskId}`, { status })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสถานะไม่สำเร็จ' })
+    }
   }
   const acceptTask = async (taskId: string) => {
     await api.post(`/api/tasks/${taskId}/accept`, {})
