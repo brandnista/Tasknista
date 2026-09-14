@@ -201,7 +201,8 @@ describe('Pronista §System Enhancements — GET /notifications รองรั�
     await app.request(`/api/my-notes/${created.id}/members`, json(owner, { userId: 'u_pond', role: 'viewer' }), env)
     const res = (await (await app.request('/api/notifications?page=1&pageSize=50&category=system', { headers: { cookie: pond } }, env)).json()) as { rows: { type: string }[] }
     expect(res.rows.length).toBeGreaterThan(0)
-    expect(res.rows.every((r) => r.type === 'note_shared' || r.type === 'expiry_reminder' || r.type === 'member_expiry_reminder' || r.type === 'domain_expiry_reminder' || r.type === 'domain_expired' || r.type === 'project_member_added')).toBe(true)
+    // Pronista §Notification categories wording (2026-09-14) — expiry_reminder/member_expiry_reminder/domain_* ถูกแยกออกไปเป็นหมวดของตัวเองแล้ว เหลือแค่ 3 อย่างนี้ใน "ระบบ/อื่นๆ"
+    expect(res.rows.every((r) => r.type === 'note_shared' || r.type === 'project_member_added' || r.type === 'vault_accessed')).toBe(true)
   })
 })
 
