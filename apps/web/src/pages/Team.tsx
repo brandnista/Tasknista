@@ -1,4 +1,4 @@
-import { Calendar, Hash, MessagesSquare, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
+import { Calendar, MessagesSquare, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -85,8 +85,6 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
     }
   }, [data, channels, initialChannelId])
 
-  const projectChannels = channels.filter((c) => c.kind === 'project')
-  const otherChannels = channels.filter((c) => c.kind !== 'project')
   const selected = channels.find((c) => c.id === selectedId) ?? null
 
   // Pronista §Team Chat (2026-08-27) — ลบห้อง dm/group ได้ (ห้อง project ผูก 1:1 กับโปรเจกต์ ลบผ่านนี้ไม่ได้)
@@ -109,15 +107,9 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {projectChannels.length > 0 && (
-            <div className="px-3 pt-3 pb-1 text-[11px] font-medium text-muted tracking-wide">ห้องสนทนาโปรเจกต์</div>
-          )}
-          {projectChannels.map((ch) => (
-            <ChannelRow key={ch.id} ch={ch} active={ch.id === selectedId} onClick={() => setSelectedId(ch.id)} />
-          ))}
-          {otherChannels.length > 0 && <div className="px-3 pt-3 pb-1 text-[11px] font-medium text-muted tracking-wide">ข้อความส่วนตัว/กลุ่ม</div>}
-          {otherChannels.map((ch) => (
-            <ChannelRow key={ch.id} ch={ch} active={ch.id === selectedId} onClick={() => setSelectedId(ch.id)} onDelete={() => void deleteChannel(ch)} />
+          {/* Pronista §Team Chat unify list (2026-09-14) — เลิกแยกโซน "ห้องสนทนาโปรเจกต์" ด้วยไอคอน # ออกจากกัน รวมเป็นลิสต์เดียวหน้าตาเหมือน DM/กลุ่มทั้งหมด เรียงตามข้อความล่าสุดปนกันไปเลย (ห้องโปรเจกต์ยังสร้างอัตโนมัติ/สมาชิกตามโปรเจกต์เหมือนเดิมทุกอย่าง แค่เปลี่ยนหน้าตา) */}
+          {channels.map((ch) => (
+            <ChannelRow key={ch.id} ch={ch} active={ch.id === selectedId} onClick={() => setSelectedId(ch.id)} onDelete={ch.kind === 'project' ? undefined : () => void deleteChannel(ch)} />
           ))}
           {channels.length === 0 && <div className="text-center text-sm text-muted py-8 px-3">ยังไม่มีห้องสนทนา — โปรเจกต์ที่คุณอยู่จะมีห้องแชทให้อัตโนมัติ</div>}
         </div>
@@ -139,11 +131,7 @@ function ChannelRow({ ch, active, onClick, onDelete }: { ch: ChatChannel; active
   return (
     <div className={`group flex items-start hover:bg-hover ${active ? 'bg-hover' : ''}`}>
       <button onClick={onClick} className="flex-1 min-w-0 text-left px-3 py-2.5 flex items-start gap-2">
-        {ch.kind === 'project' ? (
-          <Hash className="w-4 h-4 text-muted mt-0.5 shrink-0" />
-        ) : (
-          <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px] mt-0.5" colorClass={avatarColor(label ?? '?')} />
-        )}
+        <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px] mt-0.5" colorClass={avatarColor(label ?? '?')} />
         <div className="min-w-0 flex-1">
           <div className="text-sm text-body truncate">{label}</div>
           {ch.lastMessagePreview && <div className="text-[11px] text-muted truncate">{ch.lastMessagePreview}</div>}
@@ -349,7 +337,7 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border-subtle bg-hover/60">
         <button onClick={onBack} className="sm:hidden text-sm text-muted">‹</button>
-        {channel.kind === 'project' ? <Hash className="w-4 h-4 text-muted" /> : <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px]" colorClass={avatarColor(label ?? '?')} />}
+        <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px]" colorClass={avatarColor(label ?? '?')} />
         <span className="font-semibold text-ink text-sm">{label}</span>
       </div>
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
