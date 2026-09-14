@@ -113,3 +113,53 @@ describe('§Daily Report multi-recipient (2026-09-02)', () => {
     expect(res.status).toBe(403)
   })
 })
+
+// Pronista §Daily Report retract (2026-09-14) — ส่งแล้วแต่ยังไม่มีใครเปิดอ่าน ดึงกลับเป็น draft ได้ (แก้ปัญหาเดิมที่ไม่มีทางย้อนกลับเลยนอกจากรอ reviewed ก่อน)
+describe('§Daily Report retract', () => {
+  it('submitted → draft, ล้างผู้รับทิ้ง, ส่งใหม่ได้สะอาดไม่ซ้ำแถว', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-25' }), env)).json()) as { id: string }
+    await app.request(`/api/daily-reports/${created.id}/submit`, json(pond, { recipientIds: ['u_owner', 'u_nam'] }), env)
+
+    const retracted = await app.request(`/api/daily-reports/${created.id}/retract`, json(pond, {}), env)
+    expect(retracted.status).toBe(200)
+    const retractedBody = (await retracted.json()) as { status: string; recipients: unknown[]; submittedAt: number | null }
+    expect(retractedBody.status).toBe('draft')
+    expect(retractedBody.recipients).toEqual([])
+    expect(retractedBody.submittedAt).toBeFalsy()
+
+    // ส่งใหม่ให้คนละชุดผู้รับ — ต้องไม่มีแถวเก่าจาก u_owner/u_nam ค้างอยู่
+    const resubmitted = await app.request(`/api/daily-reports/${created.id}/submit`, json(pond, { recipientIds: ['u_nam'] }), env)
+    expect(resubmitted.status).toBe(200)
+    const resubmittedBody = (await resubmitted.json()) as { recipients: { id: string }[] }
+    expect(resubmittedBody.recipients.map((r) => r.id)).toEqual(['u_nam'])
+  })
+
+  it('ไม่ใช่เจ้าของรายงาน ดึงกลับไม่ได้ (403)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-26' }), env)).json()) as { id: string }
+    await app.request(`/api/daily-reports/${created.id}/submit`, json(pond, { recipientIds: ['u_owner'] }), env)
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request(`/api/daily-reports/${created.id}/retract`, json(owner, {}), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('สถานะยังเป็น draft อยู่ ดึงกลับไม่ได้ (400)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-27' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/daily-reports/${created.id}/retract`, json(pond, {}), env)
+    expect(res.status).toBe(400)
+  })
+
+  it('reviewed แล้ว (มีคนเปิดอ่าน) ดึงกลับด้วย retract ไม่ได้ (400) — ต้องใช้ "ขอแก้ไขรายงาน" แทน', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-28' }), env)).json()) as { id: string }
+    await app.request(`/api/daily-reports/${created.id}/submit`, json(pond, { recipientIds: ['u_owner'] }), env)
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await app.request(`/api/daily-reports/${created.id}`, { headers: { cookie: owner } }, env) // owner เปิดอ่าน → flip เป็น reviewed
+
+    const res = await app.request(`/api/daily-reports/${created.id}/retract`, json(pond, {}), env)
+    expect(res.status).toBe(400)
+  })
+})
