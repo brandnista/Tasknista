@@ -8,6 +8,7 @@ import { AlertTriangle, Calendar, Check, History as HistoryIcon, Plus, RefreshCw
 import { useState } from 'react'
 import { Avatar } from './Avatar'
 import { DateInputTH } from './DateInputTH'
+import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { avatarColor } from '../pages/ProjectDetail'
@@ -130,6 +131,9 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [error, setError] = useState('')
   const [manualTitle, setManualTitle] = useState('')
   const [manualHours, setManualHours] = useState('')
+  const [manualBusy, setManualBusy] = useState(false)
+  const [submitBusy, setSubmitBusy] = useState(false)
+  const { alertDialog } = useDialog()
 
   const { data: report, reload: reloadReport } = useLoad<ReportDetail | null>(async () => {
     if (openId) return api.get<ReportDetail>(`/api/daily-reports/${openId}`)
@@ -172,28 +176,47 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     setError('')
     const r = await ensureReport().catch(() => null)
     if (!r) return
-    await api.post(`/api/daily-reports/${r.id}/items`, { taskId })
-    await reloadReport()
+    try {
+      await api.post(`/api/daily-reports/${r.id}/items`, { taskId })
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มงานไม่สำเร็จ' })
+    }
   }
   const addManualItem = async () => {
-    if (!manualTitle.trim()) return
+    if (!manualTitle.trim() || manualBusy) return // กันกดรัว/ดับเบิลคลิกสร้างรายการเบิ้ล — ไม่มี de-dup ฝั่ง server แบบงานที่ผูก task
     setError('')
     const r = await ensureReport().catch(() => null)
     if (!r) return
-    const hours = Number(manualHours)
-    await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0 })
-    setManualTitle('')
-    setManualHours('')
-    await reloadReport()
+    setManualBusy(true)
+    try {
+      const hours = Number(manualHours)
+      await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0 })
+      setManualTitle('')
+      setManualHours('')
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มงานไม่สำเร็จ' })
+    } finally {
+      setManualBusy(false)
+    }
   }
   const updateItemNote = async (itemId: string, note: string) => {
     if (!report) return
-    await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, { note: note || null })
+    try {
+      await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, { note: note || null })
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+    }
   }
   const removeItem = async (itemId: string) => {
     if (!report) return
-    await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
-    await reloadReport()
+    try {
+      await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ลบไม่สำเร็จ' })
+    }
   }
   const removeItemByTaskId = async (taskId: string) => {
     const it = (report?.items ?? []).find((x) => x.taskId === taskId)
@@ -202,8 +225,12 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const saveMeta = async (patch: Partial<Pick<ReportDetail, 'notes' | 'blockerHasIssue' | 'blockerDetail' | 'blockerNeedHelpFrom'>>) => {
     const r = await ensureReport().catch(() => null)
     if (!r) return
-    await api.patch(`/api/daily-reports/${r.id}`, patch)
-    await reloadReport()
+    try {
+      await api.patch(`/api/daily-reports/${r.id}`, patch)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+    }
   }
   const openSubmitModal = () => {
     setSubmitRecipientIds(new Set())
@@ -218,22 +245,37 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     })
   }
   const doSubmit = async () => {
-    if (!report || submitRecipientIds.size === 0) return
-    const names = [...submitRecipientIds].map((id) => recipients?.recipients.find((r) => r.id === id)?.name).filter((n): n is string => !!n)
-    await api.post(`/api/daily-reports/${report.id}/submit`, { recipientIds: [...submitRecipientIds] })
-    setJustSubmitted(names)
-    await reloadReport()
+    if (!report || submitRecipientIds.size === 0 || submitBusy) return // กันดับเบิลคลิกยิงส่งซ้ำ (server ปฏิเสธครั้งที่ 2 ด้วย already_submitted)
+    setSubmitBusy(true)
+    try {
+      const names = [...submitRecipientIds].map((id) => recipients?.recipients.find((r) => r.id === id)?.name).filter((n): n is string => !!n)
+      await api.post(`/api/daily-reports/${report.id}/submit`, { recipientIds: [...submitRecipientIds] })
+      setJustSubmitted(names)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ส่งรายงานไม่สำเร็จ' })
+    } finally {
+      setSubmitBusy(false)
+    }
   }
   const requestEdit = async () => {
     if (!report) return
-    await api.post(`/api/daily-reports/${report.id}/request-edit`, {})
-    await reloadReport()
+    try {
+      await api.post(`/api/daily-reports/${report.id}/request-edit`, {})
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ขอแก้ไขรายงานไม่สำเร็จ' })
+    }
   }
   const postComment = async () => {
     if (!report || !commentBody.trim()) return
-    await api.post(`/api/daily-reports/${report.id}/comments`, { body: commentBody.trim() })
-    setCommentBody('')
-    await reloadReport()
+    try {
+      await api.post(`/api/daily-reports/${report.id}/comments`, { body: commentBody.trim() })
+      setCommentBody('')
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ส่งความเห็นไม่สำเร็จ' })
+    }
   }
 
   const openFromHistory = (id: string) => {
@@ -514,7 +556,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                           placeholder="ชม."
                           className="w-20 border border-border-subtle rounded-lg px-3 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
                         />
-                        <button onClick={() => void addManualItem()} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
+                        <button onClick={() => void addManualItem()} disabled={manualBusy} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
                       </div>
                     </div>
                   </div>
@@ -765,8 +807,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
 
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setConfirmSubmit(false)} className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-body hover:bg-hover">กลับไปแก้</button>
-                  <button onClick={() => void doSubmit()} disabled={submitRecipientIds.size === 0} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
-                    <Send className="w-3.5 h-3.5" /> ส่งถึง{submitRecipientIds.size > 0 ? ` ${submitRecipientIds.size} คน` : ''}
+                  <button onClick={() => void doSubmit()} disabled={submitRecipientIds.size === 0 || submitBusy} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
+                    <Send className="w-3.5 h-3.5" /> {submitBusy ? 'กำลังส่ง…' : `ส่งถึง${submitRecipientIds.size > 0 ? ` ${submitRecipientIds.size} คน` : ''}`}
                   </button>
                 </div>
               </>
