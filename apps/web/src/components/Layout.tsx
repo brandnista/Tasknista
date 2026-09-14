@@ -463,10 +463,11 @@ export function Layout() {
   }
 
   const sidebar = (
-    // Pronista §Mobile safe-area (2026-09-02) — drawer ชิดขอบขวา/บน/ล่างจริงบนมือถือ ต้องกัน notch/home-indicator (สเปก §3) — desktop (lg:static) env() คืน 0 อยู่แล้วไม่กระทบ
+    // Pronista §Mobile sidebar scroll fix (2026-09-14) — เปิดจากซ้าย (เดิมขวา) + ล็อกความสูงเท่า viewport ด้วย top-0/bottom-0 (กัน iOS Safari 100vh เพี้ยน)
+    // + overflow-hidden กันเนื้อหาล้นกรอบออกไปนอก fixed panel — เนื้อหาที่ scroll ได้จริงอยู่ที่ <nav> ด้านล่าง (min-h-0 คือหัวใจ ไม่ใส่แล้ว overflow-y-auto จะไม่ทำงานเพราะ flex item ขยายตาม content แทนที่จะโดน constrain)
     <aside
-      className={`fixed top-0 bottom-0 right-0 z-40 transition-[transform,width,opacity] duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] ${
-        navOpen ? 'translate-x-0' : 'translate-x-full'
+      className={`fixed top-0 bottom-0 left-0 z-40 transition-[transform,width,opacity] duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] ${
+        navOpen ? 'translate-x-0' : '-translate-x-full'
       } ${sidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none lg:overflow-hidden lg:border-0' : 'lg:w-52 lg:opacity-100'}`}
     >
       <div className="h-16 flex items-center gap-2.5 px-5 border-b border-border-subtle">
@@ -489,7 +490,13 @@ export function Layout() {
       </div>
       {/* Pronista §Navbar enrichment (2026-08-27) — บัญชีผู้ใช้ย้ายไปอยู่ที่ TopbarProfile (มุมขวาบน) แทนแล้ว ไม่ซ้ำซ้อนกับตรงนี้อีก */}
       <DevSwitcher me={user} />
-      <nav className="flex-1 p-3 space-y-0.5 text-sm">
+      {/* Pronista §Mobile sidebar scroll fix (2026-09-14) — root cause เดิม: <nav> เป็น flex-1 แต่ไม่มี min-h-0 + ไม่มี overflow-y-auto เลย
+          ทำให้เมนูยาวเกินจอ "ดัน" ความสูงของ <aside> (fixed, ล็อกสูงเท่า viewport) ล้นออกไปเงียบๆ แทนที่จะ scroll — เพิ่ม min-h-0 (บังคับให้ flex item เคารพ container แทนขยายตาม content)
+          + overflow-y-auto overflow-x-hidden (เปิด scroll แนวตั้งเฉพาะโซนนี้ กันแนวนอนหลุด) + overscroll-contain (กันลากทะลุไป scroll หน้าเว็บข้างหลัง) + -webkit-overflow-scrolling:touch (momentum scroll บน iOS Safari) */}
+      <nav
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-3 pb-6 space-y-0.5 text-sm"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         {pinnedEntries.length > 0 && (
           <>
             <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-muted uppercase tracking-wide">รายการโปรด</div>
