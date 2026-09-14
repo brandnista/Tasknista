@@ -6,7 +6,7 @@
  * §รอบ 3 (ต่อยอด) — Sprint ผูกห้อง Workspace โดยตรง (ไม่ผูกโปรเจกต์เดียวอีกต่อไป) งานในนั้นมาจากหลายโปรเจกต์ในห้องเดียวกันได้ · ห้องใหม่เริ่มว่างเปล่าจนกว่าจะดึงโปรเจกต์เข้าห้อง (แก้ไขชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้องได้ที่นี่)
  */
 import { minutesToHoursLabel, resolveTaskTypes, type Label, type TaskType } from '@seedoffice/core'
-import { AlertTriangle, ArrowLeft, CheckCircle2, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { CONVERT_LABEL, type ConvertTo } from '../components/BacklogConvertMenu'
@@ -339,6 +339,8 @@ export function WorkspacePage() {
   const [backlogView, setBacklogView] = useState<'list' | 'kanban'>('list')
   // Pronista §System Requirements Update — รหัสงานซ่อนเป็นค่าเริ่มต้น กดปุ่มถึงจะโชว์ (ใช้ localStorage key เดียวกับหน้ารายละเอียดโปรเจกต์)
   const [showCode, setShowCode] = useState(() => localStorage.getItem('tasknista_show_task_code') === '1')
+  // Pronista §Workspace ซ่อนงานทั้งหมด (2026-09-14) — ยุบทั้งแผง Backlog เวลามีงานเยอะรกจอ (เฉพาะแผง ไม่กระทบ Sprint)
+  const [backlogCollapsed, setBacklogCollapsed] = useState(false)
   const [importProjectId, setImportProjectId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
 
@@ -702,7 +704,18 @@ export function WorkspacePage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBacklogCollapsed((v) => !v)}
+                      aria-expanded={!backlogCollapsed}
+                      title={backlogCollapsed ? 'แสดงงานทั้งหมด' : 'ซ่อนงานทั้งหมด'}
+                      className="p-0.5 rounded text-dim hover:text-ink hover:bg-hover shrink-0"
+                    >
+                      {backlogCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
                     <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                    {!backlogCollapsed && (
+                    <>
                     <button
                       onClick={() => {
                         const next = !showCode
@@ -730,9 +743,11 @@ export function WorkspacePage() {
                         {deletingAll ? 'กำลังลบ…' : selectedIds.size > 0 ? `ลบที่เลือก (${selectedIds.size})` : 'ลบทั้งหมด'}
                       </button>
                     )}
+                    </>
+                    )}
                   </div>
                   {/* Pronista §Mobile responsive — Kanban ลากเปลี่ยนสถานะใช้กับสัมผัสไม่ได้ ซ่อนปุ่มสลับบนมือถือ (backlogView เริ่มต้นเป็น 'list' อยู่แล้วซึ่งมี select เปลี่ยนสถานะ) */}
-                  {room.type === 'business' && (
+                  {!backlogCollapsed && room.type === 'business' && (
                     <div className="hidden sm:flex bg-divider rounded-lg p-0.5 text-xs font-medium">
                       <button onClick={() => setBacklogView('list')} className={`px-2.5 py-1 rounded-md inline-flex items-center gap-1 ${backlogView === 'list' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
                         <ListIcon className="w-3.5 h-3.5" /> List
@@ -744,7 +759,7 @@ export function WorkspacePage() {
                   )}
                 </div>
 
-                {room.type === 'business' && backlogView === 'kanban' ? (
+                {!backlogCollapsed && (room.type === 'business' && backlogView === 'kanban' ? (
                   <div className="space-y-3">
                     {filteredItems.some((i) => i.kind === 'epic') && (
                       <div className="bg-white rounded-lg shadow-xs p-2.5 flex flex-wrap gap-2">
@@ -1032,7 +1047,7 @@ export function WorkspacePage() {
                     />
                   )}
                 </div>
-                )}
+                ))}
               </div>
 
               {/* Sprint — การ์ดต่อ sprint ผูกห้องนี้ (ข้ามโปรเจกต์ในห้องได้) — เฉพาะห้อง Developer เท่านั้น */}
