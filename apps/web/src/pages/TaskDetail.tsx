@@ -903,21 +903,6 @@ export function TaskDetailPage() {
             </div>
 
             <div>
-              {/* Pronista §Back to Basic (ต่อยอด) — บันทึกของผู้รับงานเอง แก้ได้เฉพาะ assignee ก่อนกด "ส่งงาน" · ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย */}
-              <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้รับงาน</div>
-              {isAssignee && t.status !== 'waiting_for_test' && !done ? (
-                <textarea
-                  value={draftVal('assigneeNotes') ?? ''}
-                  onChange={(e) => setDraftField('assigneeNotes', e.target.value || null)}
-                  placeholder="พิมพ์บันทึกของตัวเอง เช่น ทำไปถึงไหน ติดขัดอะไร…"
-                  className="w-full min-h-24 text-sm text-soft bg-hover rounded-lg p-3 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
-                />
-              ) : (
-                <p className="text-sm text-soft whitespace-pre-line">{t.assigneeNotes ?? '—'}</p>
-              )}
-            </div>
-
-            <div>
               <div className="text-xs font-medium text-muted mb-2">เกณฑ์ว่าเสร็จ (Acceptance Criteria) <span className="text-border">({t.checklist.filter((i) => i.done).length}/{t.checklist.length})</span></div>
               {t.checklist.length === 0 && <div className="text-sm text-border mb-2">ยังไม่มีเกณฑ์ — เพิ่มให้ชัดว่า "เสร็จ" คือแบบไหน</div>}
               <div className="space-y-1.5 mb-2">
