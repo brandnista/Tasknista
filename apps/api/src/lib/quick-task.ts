@@ -25,6 +25,9 @@ export async function createQuickTask(
         groupId: group.id,
         sortOrder: siblings.length,
         createdBy: opts.createdBy,
+        // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้ง assigneeId ตรงตอนสร้างเลย แต่เดิมไม่เคยเซ็ต assignedBy คู่กัน
+        // (assignedBy เดิมถูกเซ็ตแค่ตอน PATCH เปลี่ยน assignee ทีหลังเท่านั้น) ทำให้งานที่ระบุผู้รับผิดชอบตั้งแต่สร้างไม่มี assignedBy เลย — mirror pattern เดียวกับ import-data.ts/sow-breakout-tasks.ts
+        assignedBy: opts.assigneeId ? opts.createdBy : null,
         code,
         title: opts.title.slice(0, 200),
         description: opts.description ?? null,

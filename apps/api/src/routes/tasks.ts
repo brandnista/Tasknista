@@ -190,6 +190,8 @@ export const taskRoutes = new Hono<AppEnv>()
         groupId: group.id,
         sortOrder: siblings.length,
         createdBy: me.id,
+        // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้งผู้รับผิดชอบตอนสร้างเลย ต้องเซ็ต assignedBy คู่กันด้วย (เดิมเซ็ตแค่ตอน PATCH ทีหลัง ทำให้ assignedBy===null ทั้งที่มี assignee แล้ว)
+        assignedBy: body.data.assigneeId ? me.id : null,
         code,
         ...body.data,
       })
@@ -237,7 +239,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const created = (
       await db
         .insert(tasks)
-        .values({ projectId, groupId: group.id, sortOrder: siblings.length, createdBy: me.id, code, ...body.data })
+        // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้ง assignedBy คู่ assigneeId ตอนสร้าง (ดู comment เดียวกันที่ POST /groups/:id/tasks)
+        .values({ projectId, groupId: group.id, sortOrder: siblings.length, createdBy: me.id, assignedBy: body.data.assigneeId ? me.id : null, code, ...body.data })
         .returning()
     )[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
@@ -414,7 +417,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const code = await nextTaskCode(db, 'BL')
     const t = await db
       .insert(tasks)
-      .values({ projectId: null, groupId: null, sortOrder: 0, createdBy: me.id, code, ...body.data })
+      // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้ง assignedBy คู่ assigneeId ตอนสร้าง (ดู comment เดียวกันที่ POST /groups/:id/tasks)
+      .values({ projectId: null, groupId: null, sortOrder: 0, createdBy: me.id, assignedBy: body.data.assigneeId ? me.id : null, code, ...body.data })
       .returning()
     const created = t[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
@@ -530,17 +534,20 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Kanban drag constraints (2026-08-26) — งด "ลาก/สั่งข้ามขั้น" สถานะเอง สำหรับใครก็ตามที่เป็น assignee ของงานนี้
     // (ไม่ใช่แค่ isAssigneeOnly ด้านบน — เดิมคนที่เป็น assignee ของตัวเอง "และ" เป็น owner/editor โปรเจกต์ด้วย (self-assign) หลุดเช็คนี้ไปเลย ลากข้ามขั้นได้อิสระผ่าน Kanban)
     // (2026-09-15 fix) — เดิม createdBy === me.id ข้ามเช็คนี้ไปทั้งบล็อก ทำให้คนคีย์งานขึ้นเองปรับสถานะเป็นอะไรก็ได้ไม่จำกัด แม้งานผ่าน จ่ายงาน→รับงาน→ส่งงาน มาเต็ม flow แล้ว (ช่องโหว่)
-    // แก้เป็น: ยังต้องเดินตาม state machine เสมอเมื่อจ่ายงานแล้ว แค่ "คนคีย์งานเอง" ได้สิทธิ์ปิดงานลัดขั้นได้ (on_processing/waiting_for_test → done) ไม่ต้องรอคนอื่นอนุมัติ ตรงกับปุ่ม "ปิดงานเอง" ที่มีอยู่แล้วฝั่ง frontend เท่านั้น — ห้ามกระโดดไปสถานะอื่นที่ไม่ได้อนุญาต (เช่น ดึงกลับ non_start เอง)
+    // แก้เป็น: ยังต้องเดินตาม state machine เสมอเมื่อจ่ายงานแล้ว แค่คนที่ "จ่ายงานให้ตัวเองจริง" ได้สิทธิ์ปิดงานลัดขั้นได้ (on_processing/waiting_for_test → done) ไม่ต้องรอคนอื่นอนุมัติ ตรงกับปุ่ม "ปิดงานเอง" ที่มีอยู่แล้วฝั่ง frontend เท่านั้น — ห้ามกระโดดไปสถานะอื่นที่ไม่ได้อนุญาต (เช่น ดึงกลับ non_start เอง)
+    // (2026-09-15 follow-up) — ใช้ assignedBy===assigneeId (คนที่ "มอบหมายงานรอบปัจจุบัน" กับ "คนรับงาน" เป็นคนเดียวกันจริง) แทน createdBy (แค่ "คนคีย์ Task ขึ้นในระบบ")
+    // ตาม Business Rules spec ข้อ 9 ที่ระบุชัดว่า createdBy ไม่ควรมีสิทธิ์ข้าม Workflow ใดๆ — createdBy เป็นแค่ metadata ผู้สร้าง ไม่ใช่สัญญาณว่าใครกำลังทำงานให้ตัวเอง
+    // (ต้องเซ็ต assignedBy ให้ครบทุก path สร้างงานก่อนแล้ว — ดู POST /groups/:id/tasks, /projects/:id/tasks, /tasks/backlog, createQuickTask())
     // ยกเว้นงานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) ยังไม่เข้า workflow ตรวจงานจริง เปลี่ยนสถานะเองได้อิสระ ไม่ต้องกันไว้
     if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.dispatchedAt) {
       const nextStatus = body.data.status
-      const isSelfKeyed = before.createdBy === me.id
+      const isSelfDispatched = before.assignedBy === me.id
       const assigneeAllowedNext: Partial<Record<(typeof TASK_STATUSES)[number], (typeof TASK_STATUSES)[number][]>> = {
         non_start: ['on_processing'],
-        on_processing: isSelfKeyed ? ['waiting_for_test', 'done'] : ['waiting_for_test'],
+        on_processing: isSelfDispatched ? ['waiting_for_test', 'done'] : ['waiting_for_test'],
         // §ดึงงานกลับ — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ต่อเองได้
-        // isSelfKeyed เพิ่ม → done ได้ด้วย (self-approve งานที่คีย์เอง ไม่ต้องรอผู้จ่ายงานคนอื่นอนุมัติ)
-        waiting_for_test: isSelfKeyed ? ['on_processing', 'done'] : ['on_processing'],
+        // isSelfDispatched เพิ่ม → done ได้ด้วย (self-approve งานที่จ่ายให้ตัวเอง ไม่ต้องรอผู้จ่ายงานคนอื่นอนุมัติ)
+        waiting_for_test: isSelfDispatched ? ['on_processing', 'done'] : ['on_processing'],
       }
       if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)

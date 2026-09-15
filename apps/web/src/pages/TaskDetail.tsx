@@ -709,8 +709,9 @@ export function TaskDetailPage() {
   // Pronista §Workspace/Task Jira-alignment (2026-09-07) — "รายละเอียดจากผู้จ่ายงาน" ปกติแก้ได้เฉพาะ editor/owner (canEdit && !isAssigneeOnly)
   // ยกเว้นกรณีพิเศษ: ผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบปัจจุบัน เป็นคนคนเดียวกัน (จ่ายงานให้ตัวเอง) — ให้แก้ช่องนี้ได้เองแม้เป็นแค่ assignee ธรรมดา
   const canEditDispatcherNotes = (canEdit && !isAssigneeOnly) || (isAssignee && !!t.assignedBy && t.assignedBy === t.assigneeId)
-  // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ (ผ่านปุ่ม "ปิดงานเอง" ที่ scope เฉพาะ done เท่านั้น ไม่ใช่ dropdown อิสระด้านล่าง)
-  const isSelfKeyed = !!user && t.createdBy === user.id
+  // ผู้จ่ายงานให้ตัวเองจริง (assignedBy === assigneeId) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ (ผ่านปุ่ม "ปิดงานเอง" ที่ scope เฉพาะ done เท่านั้น ไม่ใช่ dropdown อิสระด้านล่าง)
+  // (2026-09-15 follow-up) — เดิมใช้ createdBy (แค่คนคีย์ Task ขึ้นในระบบ) เปลี่ยนมาใช้ assignedBy===assigneeId (คนที่มอบหมายงานรอบปัจจุบันกับคนรับงาน เป็นคนเดียวกันจริง) ให้ตรงกับ Business Rules spec ข้อ 9 (createdBy ไม่ควรมีสิทธิ์ข้าม Workflow) — mirror สัญญาณเดียวกับ canEditDispatcherNotes ด้านบน และ backend (PATCH /tasks/:id)
+  const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId
   // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
   // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
   const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt)
@@ -1432,7 +1433,7 @@ export function TaskDetailPage() {
                       <button onClick={() => void patchNow({ status: 'on_processing' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
                         <RotateCcw className="w-4 h-4" /> ดึงงานกลับ
                       </button>
-                      {isSelfKeyed && (
+                      {isSelfDispatched && (
                         <button onClick={() => void patchNow({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                           <Check className="w-4 h-4" /> ปิดงานเอง
                         </button>
@@ -1443,8 +1444,8 @@ export function TaskDetailPage() {
                       <button onClick={() => void patchNow({ status: 'waiting_for_test' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                         <CheckCircle2 className="w-4 h-4" /> ส่งงาน
                       </button>
-                      {isSelfKeyed && (
-                        // Pronista §Kanban drag constraints 3.2 — ผู้คีย์งานเองปิดงานได้ทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
+                      {isSelfDispatched && (
+                        // Pronista §Kanban drag constraints 3.2 — ผู้จ่ายงานให้ตัวเองปิดงานได้ทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
                         <button onClick={() => void patchNow({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-success-200 text-success-700 hover:bg-success-50 px-3 py-2 rounded-lg font-medium">
                           <Check className="w-4 h-4" /> ปิดงานเอง
                         </button>

@@ -439,4 +439,57 @@ describe('§createdBy status-transition loophole — คีย์งานเอ
     const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'non_start' }), env)
     expect(res.status).toBe(403)
   })
+
+  // (2026-09-15 follow-up) — สัญญาณ "ปิดงานเองได้" ต้องเป็น assignedBy===assigneeId (จ่ายงานให้ตัวเองจริง) ไม่ใช่ createdBy (แค่คนคีย์ Task ขึ้นในระบบ)
+  // เคสนี้พิสูจน์ว่าทั้งสองสัญญาณให้ผลต่างกันจริง: createdBy===assigneeId แต่ assignedBy เป็นคนอื่น (T14-style จากสเปก) ต้อง "ไม่ได้" สิทธิ์ปิดงานเอง
+  it('createdBy===assigneeId แต่คนอื่นเป็นคนจ่ายงานจริง (assignedBy≠assigneeId) → ไม่ได้สิทธิ์ปิดงานเอง (ต่างจาก createdBy signal เดิม)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    // pond คีย์งานขึ้นเอง แต่ "ยังไม่ระบุผู้รับผิดชอบ" ตอนสร้าง
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งาน' }), env)).json()) as { id: string }
+    const owner = await loginAs(app, 'owner@example-co.test')
+    // owner เป็นคนกดมอบหมายให้ pond ทีหลัง (assignedBy=owner) — แม้ createdBy จะเท่ากับ assigneeId (ทั้งคู่คือ pond) พอดี
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { assigneeId: 'u_pond' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test' }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(403)
+  })
+})
+
+// (2026-09-15) §createdBy loophole follow-up — assignedBy ต้องถูกเซ็ตตอนสร้างงานพร้อมผู้รับผิดชอบเลยทันทีทุก endpoint ไม่ใช่แค่ตอน PATCH ทีหลัง
+describe('§assignedBy population — เซ็ตตั้งแต่ตอนสร้างงานถ้าระบุ assigneeId มาด้วย', () => {
+  it('POST /groups/:id/tasks ระบุ assigneeId ตอนสร้าง → assignedBy = คนสร้าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+  })
+
+  it('POST /groups/:id/tasks ไม่ระบุ assigneeId ตอนสร้าง → assignedBy = null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBeNull()
+  })
+
+  it('POST /tasks/backlog ระบุ assigneeId ตอนสร้าง → assignedBy = คนสร้าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = (await (
+      await app.request('/api/tasks/backlog', json(owner, { title: 'งาน backlog', assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+  })
+
+  it('POST /projects/:id/tasks ระบุ assigneeId ตอนสร้าง → assignedBy = คนสร้าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/projects/${p.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+  })
 })
