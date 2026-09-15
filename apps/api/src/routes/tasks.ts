@@ -521,6 +521,13 @@ export const taskRoutes = new Hono<AppEnv>()
     // กันย้อนกลับไปเป็นช่องโหว่แบบเดียวกับที่เพิ่งแก้ createdBy — ถ้าปล่อยให้ dropdown อิสระตั้งตรงได้ จะข้ามการบังคับเหตุผลไปเลย
     if (body.data.status === 'rejected' || body.data.status === 'cancelled')
       return c.json({ error: 'invalid_status', message: 'ตั้งสถานะนี้ตรงๆ ไม่ได้ ต้องใช้ปุ่ม "ยกเลิกงาน" หรือให้ระบบตั้งเองตอนปฏิเสธงาน' }, 400)
+    // Pronista §Business Rules Workflow (เฟส C, 2026-09-15) — ก่อนส่งตรวจ/ปิดงาน (waiting_for_test/done) ต้องเช็คงานย่อยให้ครบก่อน
+    // cancelled = ไม่ต้องทำแล้ว ไม่นับเป็นตัวบล็อก · rejected/สถานะอื่นๆ ยังบล็อกอยู่ (ยังไม่จบงานจริง) — ใช้จุดเดียว ครอบทั้ง assignee กดส่งงานเอง และผู้จ่ายงาน/reviewer กดอนุมัติ (ทั้งคู่ผ่าน PATCH นี้)
+    if ((body.data.status === 'waiting_for_test' || body.data.status === 'done') && body.data.status !== before.status) {
+      const children = await db.select({ status: tasks.status }).from(tasks).where(eq(tasks.parentId, before.id))
+      if (children.some((c2) => c2.status !== 'done' && c2.status !== 'cancelled'))
+        return c.json({ error: 'subtasks_incomplete', message: 'ยังมีงานย่อยที่ยังไม่เสร็จ ปิด/ส่งงานนี้ไม่ได้จนกว่าจะเคลียร์ให้ครบ' }, 400)
+    }
     const isAssigneeOnly = await isAssigneeOnlyEditor(db, before, me, permissions)
     // Pronista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
     if (before.projectId && !isAssigneeOnly && me.role === 'member') {

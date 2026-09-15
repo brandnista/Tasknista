@@ -658,3 +658,58 @@ describe('§Business Rules Workflow — Rejected/Cancelled status', () => {
     expect(cancelDone.status).toBe(400)
   })
 })
+
+// (2026-09-15) §Business Rules Workflow เฟส C — Sub-task completion gate
+describe('§Business Rules Workflow — Sub-task completion gate', () => {
+  const patchJson4 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('งานย่อยยังไม่เสร็จ → ส่งงาน/ปิดงานแม่ไม่ได้ (400 subtasks_incomplete)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+
+    const toWaiting = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'waiting_for_test' }), env)
+    expect(toWaiting.status).toBe(400)
+    const toDone = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(toDone.status).toBe(400)
+  })
+
+  it('งานย่อยเสร็จครบแล้ว → ปิดงานแม่ได้ปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    const sub = (await (
+      await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${sub.id}`, patchJson4(owner, { status: 'done' }), env)
+
+    const res = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('งานย่อยถูกยกเลิก (cancelled) → ไม่นับเป็นตัวบล็อก ปิดงานแม่ได้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    const sub = (await (
+      await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${sub.id}/cancel`, json(owner, { reason: 'ไม่ต้องทำแล้ว' }), env)
+
+    const res = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('งานที่ไม่มีงานย่อยเลย → ปิดงานได้ปกติ (ไม่กระทบ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานเดี่ยว' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+})
