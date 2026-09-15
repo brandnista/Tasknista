@@ -789,3 +789,29 @@ describe('§Business Rules Workflow — Version / optimistic concurrency', () =>
     expect(current.priority).toBe('high')
   })
 })
+
+// (2026-09-16) §My Tasks dispatcher view fix — เจอบั๊กจริง: จ่ายงานคีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์) ให้คนอื่น
+// แล้วหาไม่เจอในหน้า "งานที่จ่ายให้คนอื่น" เลย — root cause: GET /tasks/dispatched-by-me ใช้ innerJoin(projects) ทำให้งานที่ projectId เป็น null หลุดออกจากลิสต์ทั้งหมด
+describe('§My Tasks dispatcher view fix — GET /tasks/dispatched-by-me ต้องเห็นงานคีย์ตรงใน Workspace ด้วย', () => {
+  it('จ่ายงาน Backlog ที่คีย์ตรงในห้อง (ไม่ผูกโปรเจกต์) ให้คนอื่น → โผล่ในลิสต์ "จ่ายให้คนอื่น" พร้อมชื่อห้องแทนชื่อโปรเจกต์', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const ws = (await (
+      await app.request('/api/workspaces', json(owner, { name: 'ห้องทดสอบ dispatch', type: 'business' }), env)
+    ).json()) as { id: string; name: string }
+    const t = (await (
+      await app.request(`/api/workspaces/${ws.id}/backlog`, json(owner, { title: 'งานคีย์ตรงในห้อง' }), env)
+    ).json()) as { id: string }
+    expect(t.id).toBeTruthy()
+
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { assigneeId: 'u_pond' }), env)
+    const dispatchRes = await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    expect(dispatchRes.status).toBe(200)
+
+    const list = (await (
+      await app.request('/api/tasks/dispatched-by-me', { headers: { cookie: owner } }, env)
+    ).json()) as { id: string; projectName: string | null }[]
+    const row = list.find((r) => r.id === t.id)
+    expect(row).toBeTruthy()
+    expect(row?.projectName).toBe(ws.name) // fallback เป็นชื่อ Workspace room เพราะไม่มีโปรเจกต์
+  })
+})

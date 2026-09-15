@@ -42,7 +42,7 @@ export function ProjectMembersPicker({
         {admins.map((u) => (
           <label key={u.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
             <span className="flex-1 text-sm text-body">{u.name}</span>
-            <span className="text-xs text-muted">Admin · เข้าถึงเต็มรูปแบบทุกโปรเจกต์เสมอ (ติ๊กแค่ให้แสดงในรายชื่อสมาชิก)</span>
+            <span className="text-xs text-muted">Admin</span>
             <input type="checkbox" checked={extraMembers[u.id] ?? false} onChange={(e) => onToggleExtra(u.id, e.target.checked)} />
           </label>
         ))}
