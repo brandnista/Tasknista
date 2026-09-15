@@ -1,240 +1,128 @@
-# Pronista (newtask-app) — Development Handoff
+# HANDOFF — Pronista (จาก Claude Code ส่งต่อให้ Codex)
 
-> เขียนไว้ให้ทำงานต่อได้ในเครื่อง/session อื่น โดยไม่ต้องไล่อ่าน conversation เดิม
-> อัปเดตล่าสุด: 2026-08-06 — **เปิดไฟล์นี้ก่อนเริ่มคุยกับ Claude Code ใน session ใหม่เสมอ** (พิมพ์ "อ่าน HANDOFF.md ก่อนเริ่มทำงาน" เป็นข้อความแรก) ดู §3-C สำหรับสถานะล่าสุด
+วันที่ส่งต่อ: 2026-09-16 · Branch ทำงาน: `staging-deploy` · Repo root: `C:\Users\wanna\newtask-app`
 
-## 1. โปรเจกต์นี้คืออะไร
+## 1. เป้าหมายสุดท้ายของงาน
 
-**Pronista** — แอปบริหารงาน (task/project management) ที่ fork มาจาก **SeedOffice** (internal tool ของทีม SeedWebs สำหรับ งาน→ชั่วโมง→เงิน) แล้วต่อยอดเพิ่มระบบ **Backlog + Sprint + Sub-tasks + Product/Project task types + ระบบเอกสาร (Document Management/Traceability)** ที่ไม่มีใน SeedOffice ต้นทาง
+Pronista เป็นระบบ PM ภายในของบริษัท (Cloudflare Workers/Hono API + React Router v7 + Drizzle/D1, pnpm monorepo)
+งานล่าสุดในเซสชันนี้คือ**แก้บั๊กที่กระทบผู้ใช้งานจริงบน production** — งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์)
+เมื่อจ่ายให้คนอื่นแล้วหายไปจากเมนู "งานที่จ่ายให้คนอื่น" ของผู้จ่ายงาน — **แก้เสร็จแล้ว ตรวจสอบผ่านหมดแล้ว
+ขึ้น staging แล้ว รอแค่คำสั่ง deploy production จากเจ้าของงาน (อาร์ม)**
 
-- `CLAUDE.md` (root) = กติกาการทำงานเดิมของ SeedOffice (ภาษาไทย, เงิน=สตางค์ integer, Tailwind v4 token ฯลฯ) — **ยังใช้ได้กับ repo นี้เกือบทั้งหมด**
-- `SPEC.md`, `tasks/PROGRESS.md`, `tasks/plan.md`, `tasks/todo.md` = เอกสารของ **SeedOffice ต้นทาง** (ก่อน fork) — **ล้าสมัยสำหรับฟีเจอร์ Pronista** (Sprint/SRS/Docs/Traceability ทั้งหมดด้านล่างไม่ได้ sync เข้าไฟล์พวกนี้) ใช้อ้างอิงเฉพาะ stack/convention/กฎเหล็กเท่านั้น
-- เอกสารนี้ (`HANDOFF.md`) คือ source of truth ของสิ่งที่ต่อยอดเพิ่มบน Pronista
+เกณฑ์ว่าเสร็จ: โค้ด fix ถูก merge เข้า `master` แล้ว deploy ขึ้น production (`pnpm exec wrangler deploy`, D1 database
+`seedoffice`) — ปัจจุบันยังอยู่ที่ branch `staging-deploy`/staging เท่านั้น
 
-## 2. Stack & โครงสร้าง
+## 2. สถานะปัจจุบัน
 
-pnpm workspaces:
-- `apps/web` — React 19 + Vite + React Router 7 + Tailwind v4 (ดูตารางแปลง class v3→v4 + design token ใน `CLAUDE.md`)
-- `apps/api` — Hono 4 บน Cloudflare Workers
-- `packages/db` — Drizzle ORM + D1 (sqlite) — schema: `packages/db/src/schema.ts`, migrations: `packages/db/migrations/0000...0049*.sql` (hand-written ปนกับ generated — ดู §6)
-- `packages/core` — pure domain logic (เทสต์ง่าย ไม่แตะ DB/HTTP)
-- ไฟล์แนบ = R2 (binding `FILES`)
-- **เป็น git repo แล้ว** (init 2026-07-30) — remote: `https://github.com/thanawatbrandnista-arm/Pronista` (branch `master`) มี commit เดียว ("Initial commit") ยังไม่มี PR/branch workflow ให้ไล่ ใช้ไฟล์นี้แทนถ้าต้องการ context เชิงฟีเจอร์ (commit history มีแค่ snapshot เดียว ไม่ได้ไล่ตามลำดับ stream)
-  - ⚠️ **ไฟล์ที่ไม่ติดไปกับ git** (อยู่ใน `.gitignore` โดยตั้งใจ): `.dev.vars` (secret จริง — คัดลอกจากเครื่องเดิมเอง หรือ copy จาก `.dev.vars.example` แล้วกรอกใหม่), `.wrangler/` (ฐานข้อมูล D1 local ทั้งหมด — เครื่องใหม่จะเริ่มด้วยฐานข้อมูลว่าง ต้อง `pnpm db:migrate` แล้ว seed/สร้างข้อมูลทดสอบเองใหม่ หรือคัดลอกโฟลเดอร์นี้มาจากเครื่องเดิมถ้าอยากได้ข้อมูลเดิม), `node_modules/`
-  - ✅ **(อัปเดต 2026-08-06) Deploy จริงแล้ว** — Production = `https://office.pronista.com`, Staging = `https://staging.pronista.com` (env `staging` ใน `wrangler.jsonc` — D1/R2 แยกชุดจาก production เด็ดขาด) ดู §3-C สำหรับ workflow การ deploy ปัจจุบัน
+**เสร็จแล้ว** (ทดสอบผ่าน typecheck+lint+test+manual browser ครบ, deploy ขึ้น staging.pronista.com แล้ว):
+- Rich text editor สำหรับฟิลด์ "รายละเอียดจากผู้จ่ายงาน" ในหน้า Task Detail (ใช้ Tiptap ที่มีอยู่แล้วในระบบ)
+- เปิดให้เลือกสมาชิกโปรเจกต์ได้ทุกประเภทผู้ใช้งาน (Admin/พนักงาน/พาร์ทเนอร์/ลูกค้า) ตั้งแต่ตอนสร้างโปรเจกต์
+- **บั๊กหลักที่ต้องส่งต่อ**: `GET /tasks/dispatched-by-me` ใช้ `innerJoin(projects)` ทำให้งาน workspace-native
+  (`projectId IS NULL`) หายจากลิสต์ — แก้เป็น `leftJoin` แล้ว fallback ชื่อที่โชว์เป็นชื่อ Workspace room
 
-### คำสั่งหลัก
-```
-pnpm dev            # เริ่ม dev server (web :5173 proxy → api :8787 ผ่าน wrangler dev)
-pnpm typecheck       # tsc --noEmit ทั้ง web+api (หรือ pnpm --filter web/api run typecheck แยกได้)
-pnpm test            # vitest (core/db/api)
-pnpm db:migrate       # wrangler d1 migrations apply seedoffice --local
-```
-Dev login: `POST /api/auth/dev-login {"email":"bank@team.local"}` (มี dev users อื่นดูใน `packages/db` seed/schema `DEV_AUTH=1` ใน `.dev.vars`)
+**กำลังทำ/ยังค้าง**:
+- **รอการตัดสินใจของอาร์ม**: deploy fix ล่าสุด (commit `009876d`) ขึ้น production หรือไม่ — บั๊กนี้กระทบงานจริงบน
+  production อยู่ตอนนี้ (task id `86c7947e-8b07-4b16-86dd-65ee0275d60b` ใน DB `seedoffice`) แต่ตามกฎของโปรเจกต์
+  (ดู CLAUDE.md) ห้าม deploy production โดยไม่ถามก่อนเสมอ — **ยังไม่ได้รับคำตอบ**
+- `staging-deploy` ยังไม่ได้ merge เข้า `master` (มี 2 commit ใหม่ที่ยังอยู่แค่ staging-deploy: `26102d5`, `5e0e4b0`,
+  `009876d` — ดูหัวข้อ 8)
 
-⚠️ **wrangler d1 execute --local (CLI) กับ wrangler dev ที่รันอยู่แล้ว อาจเห็นข้อมูลไม่ตรงกัน** เจอบั๊กนี้ตอนเคลียร์ข้อมูลรอบล่าสุด (ดู §7) — ถ้าต้องแก้ข้อมูลตรงๆ ให้เชื่อผลจาก `curl localhost:8787/api/...` (ของจริงที่ UI เห็น) มากกว่าผลจาก `wrangler d1 execute` CLI แยก
-⚠️ wrangler dev เจอ native crash บน Windows เป็นระยะ (`Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`) — เป็น known flaky bug ของ wrangler/Windows ไม่เกี่ยวกับโค้ด
+**ขั้นตอนถัดไปที่แนะนำ**:
+1. ถามอาร์มอีกครั้งว่าจะ deploy production ตอนนี้เลยไหม (บั๊กกระทบ production จริง)
+2. ถ้าใช่ → merge `staging-deploy` เข้า `master` → รัน verify เต็ม (หัวข้อ 6) → merge `master` เข้า `production`
+   branch → `pnpm exec wrangler deploy` (ไม่มี `--env` = production) → push ทั้ง 3 branch ขึ้น `origin` และ
+   `bitbucket` remote
 
-## 3. ฟีเจอร์ที่ต่อยอดบน Pronista (เรียงตามลำดับที่ทำ)
+## 3. ไฟล์ที่แก้ไขแล้ว (commit ล่าสุด `009876d`, ก่อนหน้า `26102d5`)
 
-### 3.1 Backlog + Sprint + Board
-- Schema: `board_presets` (config), `sprints`, `tasks.sprintId`/`sprintStatus`
-- Backend: `apps/api/src/routes/sprints.ts`, board preset settings routes, cron auto-complete overdue sprints
-- Frontend: `Board.tsx` (Kanban + Timeline switcher), แท็บ Sprint ใน `ProjectDetail.tsx` (default view), Backlog/Sprint side-by-side layout, drag-to-sprint, `SprintSnapshot.tsx` (ดู sprint history เป็น board snapshot), `BoardPresetSettings.tsx`
-- Migration: `0037_sprint_board.sql`, `0038_sprint_report_snapshot.sql`, `0040_sprint_preset_at_start.sql`, `0041_sprint_task_snapshots.sql`
-
-### 3.2 SRS Document Import → แตกเป็น Task อัตโนมัติ
-- อัปโหลดเอกสาร SRS (.docx) → parse หัวข้อ/ตาราง requirement → gen task พร้อมรหัสอ้างอิง (SRS ref code) ลง Backlog
-- Backend: `apps/api/src/routes/docs-srs.ts`, `lib/srs-tasks.ts`, `lib/srs-code.ts`, `lib/docx-parse.ts`
-- Frontend: `SrsImportModal.tsx`, `SrsLinkedTasksSection.tsx`, chip อ้างอิง SRS บน Task card/`TaskDrawer.tsx`
-- Migration: `0039_srs_import.sql`
-
-### 3.3 Document Templates (สร้างเอกสารจากฟอร์ม → export DOCX/PDF)
-- ระบบ template สำหรับเอกสาร MOM/BRD/SOW/SRS/PEP/UIR — กรอกฟอร์มในเว็บ → gen ทั้งเอกสาร (พร้อมเลขที่เอกสารรันตาม codename โปรเจกต์) → export เป็น .docx (โลโก้/สีตรงแบรนด์) หรือพิมพ์เป็น PDF
-- Core: `packages/core/src/doc-templates/{mom,brd,sow,srs,pep,uir}.ts` + `registry.ts` + `schema.ts` (นิยามโครงสร้าง section ของแต่ละประเภท — ไม่เก็บใน DB)
-- Backend: doc-template routes ใน `docs.ts` (`POST /api/docs/template`, `PATCH /:id/template-values`), `lib/docx-parse.ts` (parse ตาราง), docx builder + mom-mapper (export)
-- Frontend: `TemplateFillForm` + `TemplatePickerModal.tsx` (`components/doc-templates/`), `TemplatePrintView` (พิมพ์ PDF), ปุ่ม "เอกสาร Template" ใน AddMenu ของ `Docs.tsx`
-- Folder system: เอกสาร template auto-จัดเข้าโฟลเดอร์ตามประเภท (`findOrCreateTemplateFolder` ใน `docs.ts`)
-- Migration: `0042_doc_templates.sql`
-
-### 3.4 Project Estimate
-- ประมาณการงบ/ต้นทุนโปรเจกต์ พร้อม cost buffer % (override ได้ต่อ task), ซ่อน timer ระหว่าง sprint active
-- Core: `packages/core/src/estimate.ts` (+ `estimate.test.ts`)
-- Backend: endpoints ใน `projects.ts`/`task-detail.ts` (permission-tested)
-- Frontend: `ProjectEstimateSection` (component ใน ProjectDetail), ฟิลด์ estimate ใน `Admin.tsx` + `TaskDrawer.tsx`
-- Migration: `0044_project_estimate_fields.sql`, `0045_task_cost_buffer_override.sql`
-
-### 3.5 Document Traceability (ทั่วไปสำหรับทุกประเภทเอกสาร)
-- ขยายจาก SRS-only (§3.2) ให้ครอบคลุม MOM/BRD/SOW/SRS/PEP/UIR — ทุกประเภทอัปโหลด .docx → parse ตารางเป็น task พร้อมรหัสอ้างอิงต้นทาง (`originDocType`/`originCode`/`originRefCode`/`originDocId`) และอ้างอิงข้ามเอกสาร (`task_references` — BR อ้าง MOM, FR อ้าง BR ฯลฯ)
-- Backend: `apps/api/src/routes/docs-upload-breakout.ts` (`POST /docs/upload-breakout/parse` + `/confirm`), `lib/doc-breakout-tasks.ts` (สร้าง task + resolve reference codes)
-- Frontend: `DocUploadBreakoutModal.tsx` (อัปโหลด → review → confirm), แถวอ้างอิงเอกสารใน `TaskDrawer.tsx` ("การอ้างอิงเอกสาร" section)
-- ไฟล์อ้างอิงเพิ่มเติม: `traceability-spec.md` (ถ้ายังอยู่ในโปรเจกต์ — เอกสารออกแบบละเอียดของฟีเจอร์นี้)
-
-### 3.6 Document Attachments + PEP + External Document Version Logging
-- `doc_attachments` — แนบเอกสารเข้ากับ task/sub-task (ไม่ใช่แค่ต้นทาง breakout)
-- Rename **PROP → PEP** (Project Execution Proposal) ทั่วทั้งระบบ, เพิ่ม **UIR** (เดิมชื่อ SRC) เป็นประเภทเอกสารที่ 6
-- **External Document Version Logging** — เอกสารออกแบบภายนอก (Canva/Figma ฯลฯ) ที่ไม่ได้อัปโหลดไฟล์จริงเข้าระบบ แต่ log เป็นเวอร์ชัน append-only ต่อโปรเจกต์ (status draft/under_review/approved + ผูก SOW task ที่เกี่ยวข้อง)
-  - Backend: `apps/api/src/routes/external-doc-logs.ts`
-  - Frontend: แท็บ **"External Design Assets"** ใน ProjectDetail (`ExternalDesignAssetsSection.tsx`)
-- Migration: `0046`, `0047_perfect_scourge.sql` (DOC_TYPES+PROP, doc_attachments), `0048_young_wonder_man.sql` (external_document_logs)
-
-### 3.7 Docs menu UI overhaul (Google-Docs-style)
-- เปลี่ยนหน้า "เอกสาร" จากทรีโฟลเดอร์ (MOM/BRD/SOW/... เป็นโฟลเดอร์บังคับ) → **รายการเอกสารแบบแบน** (flat list) + โฟลเดอร์แนะนำเป็นแค่ตัวกรอง (chip ด้านบน คลิกเพื่อกรอง ไม่ใช่ต้นไม้)
-- Grid view: การ์ดไอคอนสีตามประเภทไฟล์จริง (Word=น้ำเงิน "W", PDF=แดง "PDF", รูปภาพ) + ผู้แก้ไขล่าสุด/เวลา
-- List view: แถวเดิม + badge ประเภทเอกสาร + ชื่อโปรเจกต์
-- ไฟล์: `apps/web/src/pages/Docs.tsx` (ใหญ่ที่สุดในระบบเอกสาร), แท็บ "เอกสาร" ใน `ProjectDetail.tsx` (แยกซับแท็บตามประเภทเอกสาร)
-- Nav highlight bug fix: `Layout.tsx` ใช้ longest-matching-prefix แทน built-in `isActive` (กัน "เอกสาร" ติดสว่างพร้อม "ประวัติเอกสาร")
-
-### 3.8 เปิด/แก้ไขเอกสาร Word ในระบบ (ไม่ auto-download)
-- ไฟล์ Word ที่อัปโหลด (ผ่านอัปโหลดทั่วไป **หรือ** breakout §3.5) เดิม auto-download ตอนกดเปิด → แก้เป็นแสดงเนื้อหาในระบบทันที
-- อ่านอย่างเดียว: docx → HTML (escape กัน stored-XSS) แสดงใน `DocWordPreview` (`DocViewer.tsx`)
-- แก้ไขได้: กด "แก้ไขเอกสาร" → docx → Markdown (ครั้งแรกเท่านั้น, idempotent) → เปิดใน TipTap editor (`DocEditor`) แก้ทั้งข้อความและ**ตาราง** (extension `@tiptap/extension-table` = TableKit) — ไฟล์ต้นฉบับดาวน์โหลดได้เสมอ ไม่ถูกทับ
-- PDF ยังเปิด native ตามเดิม (ไม่ผ่าน flow นี้)
-- Backend: `apps/api/src/lib/docx-render.ts` (`renderDocxToHtml`, `renderDocxToMarkdown` — parse zip+regex ไม่ใช้ full DOM parser), `GET /api/docs/:id/preview`, `POST /api/docs/:id/convert-to-editable` ใน `docs.ts`
-- ข้อจำกัดที่ทราบ: ตารางที่มี **merged cells** ในไฟล์ Word ต้นฉบับ จะถูกแปลงเป็นตารางปกติ (ไม่รองรับ merge)
-
-### 3.9 Document Version History (ประวัติเอกสารทุกชนิด)
-- ก่อนหน้านี้หน้า "ประวัติเอกสาร" (`/docs/history`) โชว์แค่ External Design Assets (§3.6) — ตอนนี้ครอบคลุม**เอกสารภายในทุกชนิด**ด้วย
-- โมเดล: **ประเภท (docType) → เล่ม (docNumber) → เวอร์ชัน (docVersion)** — เอกสารไม่มี docNumber = เล่มเดี่ยว keyed by title
-- Schema: `docs.docNumber` + `docs.docVersion` (nullable, backfill จาก templateDocNumber/srsDocNumber/srsVersion เดิม) — migration `0049_doc_version_fields.sql`
-- อัปโหลดไฟล์ผ่านทั้ง breakout flow (`DocUploadBreakoutModal.tsx`) จับเวอร์ชันจากชื่อไฟล์อัตโนมัติ (`parseFilenameMeta` — regex จับ `v1.0.1` ท้ายชื่อไฟล์) แก้ไขได้ก่อน save
-- Backend: `GET /api/document-history` ใน `external-doc-logs.ts` (รวม doc ทุกชนิดที่ผูกโปรเจกต์) + ยังคงมี `GET /api/external-doc-logs` (External assets เดิม) — frontend fetch ทั้งคู่แล้วรวม
-- Frontend: `DocumentHistory.tsx` — ตารางแบน (ไม่มี expand/collapse) คอลัมน์ **ประเภท/ชื่อเล่ม/โปรเจกต์/เวอร์ชัน/ผู้อัปโหลด/แก้ไขล่าสุด** ฟิลเตอร์ dropdown ตามประเภท+โปรเจกต์
-
-### 3.10 Pagination (default 20, แก้ได้) — เมนู "เอกสาร" + "ประวัติเอกสาร"
-- Component ใช้ร่วม: `apps/web/src/components/Pager.tsx` (`DEFAULT_PAGE_SIZE = 20`, ตัวเลือก 20/50/100/200 + ก่อนหน้า/ถัดไป)
-- `Docs.tsx` แบ่งหน้าตาม "เอกสาร", `DocumentHistory.tsx` แบ่งหน้าตาม "เล่ม" (series)
-
-### 3.11 ปุ่มจัดการเอกสาร (⋮ เปลี่ยนชื่อ/ย้ายไปโฟลเดอร์/ลบ)
-- ทุกเอกสารในเมนู "เอกสาร" (List/Grid) ที่ user แก้ไขได้ (owner/editor) มีปุ่ม ⋮ hover-only
-- 3 action: **เปลี่ยนชื่อ** (PATCH title), **ย้ายไปโฟลเดอร์** (modal เลือกโฟลเดอร์ปลายทางจากทุกโฟลเดอร์ในระบบ พร้อมย่อหน้าตามความลึก — PATCH parentId), **ลบ** (DELETE, soft-delete)
-- Backend ไม่ต้องแก้ — ใช้ `PATCH /api/docs/:id` และ `DELETE /api/docs/:id` เดิม (มีอยู่แล้วรองรับ parentId/title/delete)
-- Component ใหม่ใน `Docs.tsx`: `DocActionsMenu`, `MoveDocModal`, `buildFolderOptions()`, `DocGridCard`/`DocListRow` (แยกจาก DocsPage รับ prop `onMenu`)
-
-## 3-B. "Back to Basic" — โครงสร้าง Task/Epic/Story/Sprint ใหม่ + Task Detail workflow (2026-07-27 – 2026-07-30)
-
-หลัง §3.1-3.11 (เอกสาร/traceability) เจ้าของโปรเจกต์ขอกลับมาโฟกัสแกนหลัก Task/Epic/Story/Sprint ให้ลื่นไหลจริง งานรอบนี้ทำเป็นหลาย stream ต่อเนื่องกัน สรุปตามหัวข้อ (ไม่ใช่ตามลำดับ stream letter เพราะยาวเกินไป):
-
-### 3-B.1 โครงสร้าง Task hierarchy (structural ไม่ใช่ enum-based)
-- **Epic** = แถวแยกในตาราง `epics` (คนละตารางกับ `tasks`) — 1 Epic มีได้หลาย Story
-- **Story** = แถวใน `tasks` ที่ `parentId IS NULL` (ระดับบนสุด)
-- **Task** = ลูกของ Story (`parentId` ชี้ Story) — รหัสแบบจุด `<parentCode>.N`
-- **Subtask** = ลูกของ Task (ชั้นที่ 3) — รหัสแบบจุดต่อกัน `<taskCode>.N`
-- `tasks.kind` (`'task' | 'defect' | 'cr' | 'backlog'`) เป็นแค่ตัวบ่งชี้ประเภทงาน **ไม่เกี่ยวกับความลึกของ hierarchy** — Defect/CR ผูกกับ Epic/Story/Task/CR อื่นแบบ**อ้างอิง** (`task_references` table, มีมาตั้งแต่ migration `0046` ทำไว้เพื่อ traceability เอกสาร แล้วเอามาใช้ซ้ำ) ไม่ใช่ลูก-แม่
-- `kind='backlog'` (ใหม่ล่าสุด, ดู §3-B.6) = งานทั่วไปที่ยังไม่จัดประเภท ไม่มีผลต่อ hierarchy เช่นกัน
-
-### 3-B.2 เลขรหัส Task รูปแบบใหม่
-- Format: `<ProjectCodePrefix>-<TypeLabel>-<ddmmyyyy>-<0001>` เช่น `MAK-Task-30072026-0001`, `MAK-Defect-30072026-0001`, `MAK-Backlog-30072026-0001` — `TypeLabel` ∈ `Epic/Story/Task/Defect/CR/Backlog` นับต่อเนื่องต่อ (โปรเจกต์+ประเภท) ไม่รีเซตรายวัน
-- Logic อยู่ที่ `apps/api/src/lib/task-code.ts` (`nextTypedTaskCode`, `nextTypedEpicCode`) — เลขรหัส **regenerate ใหม่ทุกครั้งที่ convert ประเภท** (เก็บ oldCode→newCode ไว้ใน `audit_logs.meta` โผล่เป็น activity log ในหน้า Task Detail อัตโนมัติ ไม่ต้องมี table/endpoint แยก)
-- รหัสลูกแบบจุด (Task/Subtask ระดับ 2-3) ยังใช้ `nextSubTaskCode` เดิม ไม่เกี่ยวกับ scheme นี้
-
-### 3-B.3 จัดตำแหน่ง Tab ใหม่ (`ProjectDetail.tsx`)
-- Tab บนสุดของหน้าโปรเจกต์เหลือแค่ **Sprint / เอกสาร / ประวัติเอกสาร** (API Document/Project Estimate tab ถอดออกจาก nav แต่ component/backend ยังอยู่ — deferred ไม่ใช่ลบ)
-- Epic/Story/Task/Defect/CR ย้ายมาเป็น **sub-tab คงที่ของ Backlog** (`FIXED_BACKLOG_TABS`) ต่อท้าย tab เอกสารเดิม (ทั่วไป/SOW/MOM/...)
-- แต่ละ tab มีเมนู "..." เชื่อมโยง/ยกระดับกันได้ (Epic↔Story ผ่าน `epicId`, Story↔Task ผ่าน `parentId`+convert, Defect/CR ผ่าน `task_references` โดยตรง) — component: `ProjectEpicTab`, `ProjectHierarchyTab` (ใช้ร่วม story/task/cr แยกด้วย prop `level`), `ProjectDefectSection`, `LinkOrCreateModal.tsx` (modal เลือก "สร้างใหม่" หรือ "เลือกที่มีอยู่แล้ว" ใช้ซ้ำหลายจุด)
-- เพิ่ม sub-tab ใหม่ **"🌳 ภาพรวมโครงสร้าง"** (`ProjectSummaryTab`) — tree view Epic > Story > Task > Subtask ทั้งโปรเจกต์ (ไม่ใช่แค่ SOW) ดูอย่างเดียว ไม่มี drag/checkbox
-
-### 3-B.4 Sprint: หลาย Sprint พร้อมกันได้จริง + Board แยกต่อ Sprint
-- เดิมมีบั๊ก 2 ชั้น: (1) Sprint ที่ "รอคิว" ลากงานเข้าไม่ได้เลย (มีแค่ sprint แรกที่ลากได้) — แก้แล้ว ทุก sprint ที่ยังไม่ปิดมี dropzone ของตัวเอง (`GET /projects/:id/sprints/current` คืน `tasks` ของทุก sprint ไม่ใช่แค่ตัวแรก)
-- (2) แม้ลากงานเข้าได้ทุกใบ แต่ **Start ได้แค่ 1 sprint ต่อโปรเจกต์พร้อมกัน** (เดิมมี guard `active_sprint_exists`) — **เอา guard นี้ออกแล้ว** Start ได้พร้อมกันหลายใบจริง แต่ละใบแยก **Board เป็นของตัวเอง** ผ่าน route `projects/:id/sprints/:sprintId/board` (เดิม `projects/:id/board` ตัวเดียว) + endpoint ใหม่ `GET /api/sprints/:id/board`
-- ไฟล์หลัก: `apps/api/src/routes/sprints.ts`, `apps/web/src/pages/Board.tsx`, ส่วน `SprintSection`/`renderSprintCard` ใน `ProjectDetail.tsx`
-
-### 3-B.5 Task Detail: สร้าง/ผูกเอกสาร + workflow "จ่ายงาน → ส่งงาน → อนุมัติ/ตีกลับ"
-- **สร้าง/ผูกเอกสาร**: ปุ่ม "สร้าง/ผูกเอกสาร MOM/BRD/SOW/SRS/PEP/UIR/CR" ในหน้า Task Detail — สร้างจาก Template (reuse `TemplatePickerModal`), อัปโหลดไฟล์ระบุประเภท, หรือผูกเอกสารที่มีอยู่แล้วในโปรเจกต์เดียวกัน (ทั้งหมด reuse endpoint เดิมของเมนู "เอกสาร")
-- **ตัดออก**: section "ข้อมูลเพิ่มเติม" (custom fields) และปุ่ม "เปลี่ยนผู้รับผิดชอบ" ที่ซ้ำซ้อนกับ select ด้านบน
-- **เกต "จ่ายงาน" (`dispatchedAt`)**: assign คนแล้วงานยัง**ไม่โผล่**ในหน้า "งานของฉัน" ของคนนั้นจนกว่าผู้จ่ายงานจะกดปุ่ม "จ่ายงาน" (`POST /tasks/:id/dispatch` — เฉพาะผู้จ่ายงานเท่านั้น ไม่ใช่ assignee เอง) — เปลี่ยน assigneeId ใหม่ (รวมถึงเคลียร์เป็นว่าง) จะรีเซต `dispatchedAt` กลับเป็น null อัตโนมัติเสมอ
-- **คนถูก assign เปลี่ยนสถานะเองได้แค่ผ่านปุ่ม** — dropdown สถานะอิสระถูกล็อกสำหรับ assignee (เห็นแค่ badge อ่านอย่างเดียว) กดปุ่ม "ส่งงาน" ได้ทางเดียว (`on_processing → waiting_for_test`) กระโดดไป Done เองไม่ได้ — ฝั่งผู้จ่ายงานเห็นปุ่ม "อนุมัติ ปิดงาน" (→done) หรือ "ตีกลับ ให้แก้ไข" (→on_processing) เมื่อสถานะเป็น waiting_for_test
-- `TASK_STATUS_LABEL.waiting_for_test` label เปลี่ยนจาก "Waiting for Test" → **"Waiting for Review"** (enum value เดิมไม่แตะ กัน migration)
-- ไฟล์หลัก: `apps/web/src/pages/TaskDetail.tsx`, `apps/api/src/routes/tasks.ts` (`POST /tasks/:id/dispatch`, `GET /tasks/mine` filter `isNotNull(dispatchedAt)`)
-
-### 3-B.6 Backlog แยกประเภทจริง (`kind='backlog'`)
-- ปัญหาที่พบ: แท็บ "ทั่วไป" ของ Backlog ดึงงานที่คีย์ลอยๆ จากแท็บ Story/Defect/CR มาปนด้วย เพราะทางโครงสร้าง งานเหล่านี้ (`parentId=null`, ไม่มี `originDocType`) หน้าตาเหมือนงานทั่วไปเป๊ะ แยกไม่ออก
-- แก้ด้วยการเพิ่มค่า `kind='backlog'` ใหม่ (เฉพาะงานที่คีย์จากแท็บ "ทั่วไป" โดยตรง) — `GET /projects/:id/backlog` กรองเฉพาะ `kind='backlog'` หรือมี `originDocType` เท่านั้น ตัด Story/Defect/CR/Task-ลอยออกจากผลลัพธ์นี้ไปเลย (ไปโผล่เฉพาะแท็บของตัวเองผ่าน `/tasks/all`)
-- ผลข้างเคียง: **ย้อนกลับ** ปุ่ม "สร้าง Task ลอยๆ" ในแท็บ Task ที่เคยเพิ่มไประหว่างทาง (ทำให้คีย์ Task แล้วดันไปโผล่แท็บ Story เพราะโครงสร้างเหมือนกันเป๊ะ) — แท็บ Task บังคับ "เลือก Story" ก่อนสร้างเหมือนเดิม
-
-### Migrations 0050–0055 (schema เพิ่มของรอบนี้)
-| Migration | เนื้อหา |
+| ไฟล์ | การเปลี่ยนแปลง |
 |---|---|
-| `0050_remarkable_overlord.sql` | `notifications` table, `projects.apiDocNotes`, `tasks.assignedBy` |
-| `0051_many_peter_parker.sql` | `task_checklist_items` table (เกณฑ์ว่าเสร็จ), `task_comments.isBlocked` |
-| `0052_previous_monster_badoon.sql` | `epics` table + `tasks.epicId` |
-| `0053_stiff_ezekiel_stane.sql` | `projects.deletedAt` (soft-delete โปรเจกต์) |
-| `0054_material_captain_cross.sql` | `sprints.goal` |
-| `0055_funny_bloodaxe.sql` | `tasks.dispatchedAt` (เกตจ่ายงาน §3-B.5) |
+| `apps/api/src/routes/tasks.ts` | `GET /tasks/dispatched-by-me`: เปลี่ยน `innerJoin(projects)`→`leftJoin` + เพิ่ม `leftJoin(workspaces)`, fallback `projectName` เป็นชื่อ workspace room เมื่อไม่มีโปรเจกต์ (บั๊กหลัก) · เพิ่ม `.max(10000)` cap ให้ฟิลด์ `description` 2 จุด (เดิมไม่มี cap / cap 2000 เดิมเล็กไปสำหรับ markdown) |
+| `apps/api/src/routes/projects.ts` | `POST /:id/members`: เอาเงื่อนไขปฏิเสธ owner ออก (เดิม 400 `owner_has_full_access`) ให้เลือก Admin เป็นสมาชิกได้เหมือน vendor/guest (positionId เป็น null เสมอ ไม่กระทบสิทธิ์จริง เพราะ owner bypass การเช็คสิทธิ์จาก `project_members` อยู่แล้วทุกจุด) · `POST /` (สร้างโปรเจกต์): ทำ insert เป็น role-aware แทน blind-insert เดิม |
+| `apps/web/src/pages/TaskDetail.tsx` | ฟิลด์ "รายละเอียดจากผู้จ่ายงาน" เปลี่ยนจาก `<textarea>` เป็น `<RichTextEditor>` (Tiptap, เก็บเป็น Markdown) ทั้งโหมดแก้ไขและอ่านอย่างเดียว |
+| `apps/web/src/components/ProjectMembersPicker.tsx` | **ไฟล์ใหม่** — แยกออกมาจาก `ProjectEdit.tsx` เดิม (`MembersSection`) ให้ใช้ร่วมกันได้ทั้งตอนสร้าง/แก้ไขโปรเจกต์ รองรับเลือก Admin ได้แล้ว + prop `teamMode` ควบคุมว่าจะให้เลือกตำแหน่งละเอียด (`'select'`, ใช้ตอนแก้ไข) หรือ checkbox ง่ายๆ (`'checkbox'`, ใช้ตอนสร้าง) |
+| `apps/web/src/pages/ProjectEdit.tsx` | ใช้ `ProjectMembersPicker` แทน `MembersSection` เดิมที่ลบออกแล้ว |
+| `apps/web/src/pages/Projects.tsx` | `NewProjectModal`: เอาการกรอง `role==='member'` ออก ใช้ `ProjectMembersPicker` (`teamMode="checkbox"`) แทน checklist เดิม |
+| `apps/web/src/pages/MyTasksDispatched.tsx` | รองรับ `projectName`/`projectId` เป็น `null` ได้ (งาน workspace-native) — render แบบ `.filter(Boolean).join(' · ')` กันช่องว่างเพี้ยน |
+| `apps/api/test/tasks.test.ts` | เพิ่มเทสต์ regression ครอบ `dispatched-by-me` fix + `notifyOnUpdate` gate fix (commit ก่อนหน้า) |
+| `apps/api/test/projects.test.ts` | เพิ่มเทสต์ครอบ `POST /:id/members` (owner) และ `POST /` (mixed roles) |
 
-`tasks.kind` enum ขยายจาก `'task'\|'defect'` → เพิ่ม `'cr'` (ระหว่างทาง) → เพิ่ม `'backlog'` (ล่าสุด) **ไม่มี migration ของทั้งคู่** เพราะคอลัมน์เป็น TEXT ธรรมดาใน SQLite ไม่มี CHECK constraint บังคับ (แก้แค่ TS-level enum ที่ `packages/db/src/schema.ts`)
+## 4. ไฟล์ที่ Codex ควรอ่านต่อ (ยังไม่ได้แก้ แต่เกี่ยวข้อง)
 
-## 3-C. Git branch/deploy workflow + Subscription Notify + fixes (2026-08-06)
+- `CLAUDE.md` (root) — กฎเหล็กของโปรเจกต์ทั้งหมด (ภาษาไทยเท่านั้น, ห้าม deploy production โดยไม่ถาม, ตรรกะเงิน/เวลาต้องเป็น pure function ใน `packages/core`, ฯลฯ) **ต้องอ่านก่อนแก้อะไรเพิ่ม**
+- `apps/api/src/lib/project-role.ts` — `getProjectPermissions`/`getProjectRole` ที่ owner bypass ทุกจุด (สำคัญกับการเปลี่ยนแปลงข้อ 3 เรื่อง project members)
+- `apps/web/src/components/RichTextEditor.tsx` — Tiptap wrapper กลาง ใช้ทั้ง Docs/My Note/Task description แล้ว เก็บเป็น Markdown เสมอ (ห้ามเปลี่ยนเป็น HTML ดิบ)
+- `apps/api/src/routes/workspace-rooms.ts` — endpoint สร้างงาน workspace-native (`POST /workspaces/:id/backlog`) ที่เกี่ยวกับบั๊กที่เพิ่งแก้
 
-### Workflow ปัจจุบัน (สำคัญ — อ่านก่อนแก้อะไร)
+## 5. จุดเริ่มต้นการทำงานต่อ
 
-- **`master`** = source of truth, deploy ได้ทุกเมื่อที่พี่ (เจ้าของ) อนุมัติ
-- งานใหม่ทุกชิ้น → แตก **feature branch** จาก `master` → ทำ+verify (typecheck/lint/test) → **ถามพี่ก่อน merge เข้า master เสมอ** (ไม่ merge เองอัตโนมัติ)
-- Deploy: `pnpm build && npx wrangler deploy --env staging` (Staging) หรือไม่ใส่ `--env` (Production) — **ถามก่อน deploy production เสมอ** (กฎเดิมใน `CLAUDE.md`), Staging ถามก่อนเช่นกันแต่ผ่อนกว่า
-- Migration ต้อง apply แยกทั้ง local (`pnpm db:migrate`), staging remote (`npx wrangler d1 migrations apply seedoffice-staging --env staging --remote`), และ production remote (`npx wrangler d1 migrations apply seedoffice --remote`) — คนละฐานข้อมูลกันหมด
-- ⚠️ **เทสฟีเจอร์ที่ยังไม่ merge เข้า master บน Staging ได้** โดยไม่ต้อง merge จริง — สร้างแบรนช์ชั่วคราว (เช่น `staging-deploy`) จาก `master` แล้ว `git merge feature/xxx` เข้าไป, build+deploy จากแบรนช์นั้น, merge เสร็จ deploy เสร็จก็ลบแบรนช์ชั่วคราวทิ้งได้ (ประวัติจริงอยู่ที่ `master` + `feature/xxx` เท่านั้น)
-- **สถานะ ณ ตอนเขียน (2026-08-06 18:15)**:
-  - `master`: มี Import Data (คืนกลับมาแล้ว) + fix บั๊กสมาชิกโปรเจกต์ 2 ตัว (ดูล่าง) — **ยังไม่ deploy ขึ้น production**
-  - `feature/subscription-notify`: ฟีเจอร์ Subscription Notify ครบ — **ยังไม่ merge เข้า master** (รอพี่อนุมัติหลังทดสอบ)
-  - Staging (`staging.pronista.com`) ตอนนี้รันโค้ดจาก **`master` + `feature/subscription-notify` รวมกัน** (deploy จากแบรนช์ชั่วคราว ไม่ใช่จาก `master` เพียวๆ)
-  - Production (`office.pronista.com`) ยังเป็นเวอร์ชันเก่าก่อนหน้าเซสชันนี้ทั้งหมด — รอคำสั่ง deploy
+- `apps/api/src/routes/tasks.ts` — endpoint `.get('/tasks/dispatched-by-me', ...)` (บรรทัด ~485) — จุดที่เพิ่งแก้
+- `apps/web/src/pages/MyTasksDispatched.tsx` — หน้า "งานที่จ่ายให้คนอื่น" ทั้งไฟล์ (55 บรรทัด สั้นมาก)
+- ถ้าจะ deploy production: ดูขั้นตอนเป๊ะๆ ในหัวข้อ 6
 
-### ฟีเจอร์ Subscription Notify (ใหม่ — บน `feature/subscription-notify`)
+## 6. วิธีตรวจสอบงาน
 
-แจ้งเตือนวันหมดอายุบริการของโปรเจกต์ล่วงหน้า:
-- Schema: `projects.serviceType/serviceStartDate/serviceEndDate/notifyBeforeDays/expiryNotifiedAt`, `company_config.serviceTypes` (แคตตาล็อกประเภทโปรเจกต์ แก้ไขได้ที่ตั้งค่า) — migration `0061_familiar_karma.sql`
-- Core: `packages/core/src/subscription.ts` (`isNearExpiry`, `resolveServiceTypes` ฯลฯ + เทสต์)
-- Backend: `GET/PUT /api/admin/service-types` (`admin.ts`), ฟิลด์ service ใน `POST/PATCH /api/projects` (`projects.ts`), cron แจ้งเตือนรายวันใน `scheduled.ts` (ผูกกับรอบ backup 03:00 BKK — ส่ง notification type `expiry_reminder` ไปหา `projects.leadId`)
-- Frontend: `ServiceTypeSettings.tsx` (ตั้งค่า), ฟิลด์ในฟอร์มสร้าง/แก้ไขโปรเจกต์ (`Projects.tsx`/`ProjectEdit.tsx`), แท็บ "⚠️ บริการใกล้หมดอายุ" ที่หน้า Projects list (`ExpiringServicesTable` ใน `Projects.tsx`)
-- ⚠️ พบว่า **cron ทำงานจริงบน Staging** ทั้งที่ comment ใน `wrangler.jsonc` ตั้งใจให้ staging ไม่มี cron ("กัน cron ยิงงานจริงบน staging") — ยังไม่ได้แก้ ถ้าจะแก้ต้องดูว่า cron triggers scope ต่อ environment ได้จริงไหมใน wrangler รุ่นนี้
+```bash
+pnpm install                          # ติดตั้ง dependencies (ถ้ายังไม่ได้ทำ)
+pnpm typecheck && pnpm lint && pnpm test   # ทั้ง monorepo (web+api+mcp)
+pnpm --filter @seedoffice/web build   # build production bundle
+```
 
-### บั๊กที่แก้ (บน `master` แล้ว)
+**ผลล่าสุด (ที่ commit `009876d`)**: ทั้งหมดผ่านเขียวหมด — typecheck 5 package ผ่าน, lint ผ่าน,
+test 18+57+1 = 76 test files / 532+13 = 545+ tests ผ่านหมด (ไม่มี error ค้าง), build สำเร็จ (bundle ~592KB gzip
+— มี warning เรื่อง chunk size ใหญ่ แต่ไม่ใช่ error)
 
-1. **สมาชิกโปรเจกต์นับไม่ตรงกัน** — ตอนสร้างโปรเจกต์ checkbox "สมาชิกในโปรเจกต์" เคยให้เลือก owner ได้ด้วย (`role !== 'vendor'`) ทำให้เกิดแถว `project_members` ที่หน้าแก้ไขโปรเจกต์มองไม่เห็น (หน้าแก้ไขกรองแค่ `role === 'member'` ตรงกับที่ `POST /:id/members` ยอมรับ) → แก้ checklist ให้เลือกได้แค่ `role === 'member'` (`Projects.tsx`)
-2. **ผลกระทบต่อเนื่อง** — การแก้ข้อ 1 ทำให้ dropdown "Project Lead" ที่ใช้ลิสต์เดียวกันเลือก owner ไม่ได้ไปด้วย (ทั้งที่ Lead เป็นแค่ field ข้อมูล ไม่ผ่านระบบตำแหน่ง) → แยกลิสต์ `team` (member checklist) กับ `leadOptions` (`role !== 'vendor'`, สำหรับ Lead) ออกจากกัน
+**Deploy staging** (ทำไปแล้ว):
+```bash
+pnpm exec wrangler deploy --env staging
+```
 
-## 4. Schema/Migration reference (docs-related fields สำคัญ)
+**Deploy production** (ยังไม่ได้ทำ — ต้องได้รับคำสั่งจากอาร์มก่อนเสมอ ตาม CLAUDE.md):
+```bash
+git checkout master && git merge --no-ff staging-deploy   # เอา 3 commit ใหม่เข้า master
+pnpm typecheck && pnpm lint && pnpm test                  # verify ซ้ำบน master
+pnpm exec wrangler d1 migrations apply seedoffice --remote # เช็ค pending migration ก่อนเสมอ (ตอนนี้ไม่มีค้าง)
+pnpm run deploy                                             # = pnpm build && wrangler deploy (ไม่มี --env = production)
+git checkout production && git merge --no-ff master
+git push origin production master && git push bitbucket production master
+```
+หมายเหตุ: `pnpm deploy` เฉยๆ จะชนกับ pnpm built-in command ต้องใช้ `pnpm run deploy` เท่านั้น
 
-`docs` table (ดูเต็มที่ `packages/db/src/schema.ts`):
-- `kind`: `'page' | 'link' | 'file' | 'template' | 'folder'`
-- `docType`: `'MOM' | 'BRD' | 'SOW' | 'SRS' | 'PEP' | 'UIR' | 'CR'`
-- `docNumber` / `docVersion` — เลขที่เอกสาร(เล่ม) + เวอร์ชัน (§3.9)
-- `templateDocNumber` — เลขที่เอกสารที่ gen จาก template (§3.3, คนละ concept กับ docNumber แต่ backfill ไปแล้ว)
-- `srsDocNumber` / `srsVersion` — ของเดิมก่อนจะ generalize เป็น docNumber/docVersion (ยังอยู่ใน schema เพื่อ backward-compat)
-- `r2Key` / `mime` / `filename` — ไฟล์ที่อัปโหลด (R2)
-- `contentMarkdown` — สำหรับหน้า wiki ปกติ และเอกสาร Word ที่แปลงเป็น editable แล้ว (§3.8)
+## 7. การตัดสินใจและข้อจำกัด
 
-ตารางที่เกี่ยวข้อง: `doc_links` (ผูก doc กับ project/task), `doc_members` (private sharing), `doc_attachments` (แนบเข้า task), `doc_template_values`, `doc_images`, `external_document_logs` (+ `external_document_log_sow_tasks` pivot), `task_references`, `sprints`, `board_presets`
+- **ห้าม deploy production โดยไม่ถามอาร์ม (เจ้าของงาน) ก่อนทุกครั้ง** — กฎนี้เขียนไว้ใน CLAUDE.md ชัดเจน
+- **Owner ที่ถูกเพิ่มเข้า `project_members`** เป็นแค่ข้อมูลแสดงผล (ให้ขึ้นในรายชื่อ/ไอคอนสมาชิก) **ไม่กระทบสิทธิ์จริงเลย**
+  เพราะ `getProjectPermissions`/`getProjectRole` เช็ค `role==='owner'` bypass ก่อนอ่าน `project_members` เสมอ —
+  ห้ามเข้าใจผิดว่าต้องเพิ่ม permission logic ใหม่ให้ owner ตรงนี้
+- **Rich text เก็บเป็น Markdown เสมอ ไม่ใช่ HTML** — ตาม convention เดิมของ `RichTextEditor.tsx` (ใช้กับ
+  Docs/My Note อยู่แล้ว) ห้ามเปลี่ยนไปเก็บ HTML ดิบเพราะจะเสี่ยง XSS และไม่ตรงกับของเดิมในระบบ
+  - Tiptap render ผ่าน ProseMirror schema ไม่ใช่ `dangerouslySetInnerHTML` จาก string ดิบ จึงไม่ต้องเพิ่ม
+    sanitize library ใหม่ (DOMPurify ฯลฯ) — ตรวจสอบแล้วว่าปลอดภัยโดยธรรมชาติของ pattern นี้
+- **แนวทางที่ลองแล้วแต่ไม่ใช้**: ตอนแรกพิจารณาให้ `ProjectMembersPicker` ใช้ UI เดียวกันทั้งตอนสร้าง/แก้ไข
+  (position `<select>` ทุกที่) แต่จะทำให้ตอนสร้างโปรเจกต์ซับซ้อนเกินจำเป็น (ของเดิมไม่เคยเลือกตำแหน่งละเอียด
+  ตอนสร้าง) จึงเพิ่ม prop `teamMode` แทนเพื่อคงพฤติกรรมเดิมของหน้าสร้างไว้
+- **Business Rules Workflow (state machine)**: หลังงานถูก "จ่ายงาน" อย่างเป็นทางการแล้ว (`dispatchedAt` ไม่ว่าง)
+  ผู้รับงานจะเปลี่ยนสถานะเองอิสระไม่ได้อีกต่อไป ต้องผ่านปุ่ม "รับงาน"/"ส่งงาน" เท่านั้น (`apps/api/src/routes/tasks.ts`
+  `assigneeAllowedNext` ~บรรทัด 562) — **นี่คือพฤติกรรมที่ตั้งใจ ไม่ใช่บั๊ก** ถ้ามีคนแจ้งว่า "ปรับสถานะไม่ได้"
+  ให้เช็คก่อนว่าเป็นเคสนี้หรือเป็นบั๊กจริงอื่น
 
-Migrations 0037–0049 = ทั้งหมดของงานใน §3 (เรียงตามลำดับเวลา) — บาง migration hand-written (ดู pattern ที่ `CLAUDE.md` ไม่ได้พูดถึงแต่ทำตามมาตลอด: แก้ schema.ts → เขียน .sql มือ → patch `meta/*_snapshot.json` + `_journal.json` → apply ด้วย `wrangler d1 execute --local --file` ถ้า `pnpm db:migrate` ชนบั๊ก wrangler native crash)
+## 8. สถานะ Git
 
-## 5. ข้อมูล local dev ปัจจุบัน (2026-07-23 — ⚠️ อาจไม่ตรงกับปัจจุบันแล้ว หลัง §3-B มีการสร้าง/ลบโปรเจกต์ทดสอบเพิ่ม เช่นโปรเจกต์ชื่อ "test" ที่ใช้ verify งานทุก stream ใน §3-B — เชื่อของจริงจาก UI/`GET /api/projects` มากกว่ารายการด้านล่างนี้)
+```
+Branch ปัจจุบัน: staging-deploy
+Tracking: origin/master (ahead 2, behind 1 — ไม่ได้ตั้งใจ track master ตรงๆ เป็นความเพี้ยนของ upstream config เดิม ไม่ต้องแก้)
+Working tree: สะอาด (ไม่มีการแก้ไขค้าง ยกเว้นโฟลเดอร์ .scratch/ ที่ untracked ไม่เกี่ยวข้อง)
 
-- Local D1 มี **5 โปรเจกต์**: MakantestDoc, ทดสอบโปรเจคเฮอ, Makan App Demo, Makantest, Makan Halal-Route
-- เมนู "เอกสาร" **เคลียร์ mock data เก่าทั้งหมดแล้ว** (เดิมมี ~47 เอกสาร demo) เหลือแค่ **5 ไฟล์จริง** ที่อัปโหลดเข้าโปรเจกต์ **MakantestDoc**: `02_BRD_MAKAN_Redesign` (v1.2), `03_SOW_MAKAN_Redesign` (v1.2), `04_SRS_MAKAN_Redesign` (v1.2), `05_PEP_MAKAN_Redesign` (v1.2), `UIR_MAKAN_Redesign` (v1.0.1) — มาจาก `C:\Users\wanna\OneDrive\Desktop\Template เอกสาร BNT\TestDoctasknista\Redesign01` — **ไม่มีไฟล์ MOM** ในโฟลเดอร์ต้นทาง ถ้ามีเพิ่มทีหลังค่อยอัปโหลดเข้า
-- Task ของโปรเจกต์อื่น (Makan App Demo/Makan Halal-Route/ทดสอบโปรเจคเฮอ) ที่เคยแตก task มาจาก mock doc เก่า (93 tasks) ยัง**อยู่ครบ** แต่ **chip "การอ้างอิงเอกสาร" ใน TaskDrawer จะไม่มีลิงก์เปิดเอกสารต้นทางแล้ว** (เอกสารต้นทางถูกลบ, ป้าย docType/refCode ยังโชว์ปกติเพราะเก็บแยกใน tasks table)
-- Backup ของข้อมูลก่อนเคลียร์อยู่ที่ scratchpad ของ session นั้น (`docs-backup-2026-07-23/*.json`) — เป็น temp folder อาจถูกล้างไปแล้ว อย่าพึ่งพา
-- มีโฟลเดอร์ระดับบนสุด 6 อัน (MOM/BRD/SRS/PEP/UIR/SOW) อยู่ว่างๆ ที่ root (parentId null, ไม่มีเอกสารข้างใน) — ไม่แน่ใจสาเหตุที่ยังไม่ถูกลบตอนเคลียร์ข้อมูล (ดูเหมือนเป็น artifact ของ wrangler dev vs wrangler CLI ไม่ sync กัน — ไม่กระทบการใช้งาน ลบทิ้งได้ถ้าไม่ต้องการ ผ่านปุ่ม "ลบโฟลเดอร์" ในหน้าเอกสาร)
+git log -5 --oneline:
+009876d fix(tasks): งานคีย์ตรงใน Workspace หายไปจากเมนู "งานที่จ่ายให้คนอื่น"
+26102d5 feat(task,project): rich text ฟิลด์รายละเอียดจากผู้จ่ายงาน + เปิดเลือกสมาชิกโปรเจกต์ได้ทุกประเภทผู้ใช้งาน
+5e0e4b0 fix(tasks): ไม่แจ้งเตือน "งานถูกแก้ไข" ก่อนจ่ายงานจริง + แก้ปุ่มให้ตรงบริบท
+1bde865 chore(web): ลบหน้า /clients, /inbox, /expenses ที่ไม่มีลิงก์เมนูให้กดแล้ว
+4fca517 fix(settings): เพิ่ม Alert/Confirm ก่อน action ที่มีผลกระทบสูง + ดัก error ให้ครบ
+```
 
-## 6. ยังไม่ได้ทำ / ข้อจำกัดที่ทราบ
+Branch อื่นที่เกี่ยวข้อง: `master` (ยังไม่มี 3 commit ล่าสุด), `production` (deploy ล่าสุดไปวันนี้ก่อนหน้านี้แล้ว
+ถึง commit ที่ต่ำกว่า `master` — ยังไม่มี fix ชุดนี้เลย), `staging` (ไม่ได้ใช้งานจริง เป็น branch เก่า)
 
-- ตาราง Word ที่มี merged cells → แปลงเป็นตารางปกติเวลาแก้ไข (§3.8)
-- ไม่มี diff/เทียบเนื้อหาระหว่างเวอร์ชันเอกสาร (§3.9) — มีแค่ list เวอร์ชัน
-- ไม่มี flow "อัปโหลดเวอร์ชันใหม่" แยกจากอัปโหลดเดิม — ใช้ระบุเลขที่เอกสารเดิม + เวอร์ชันใหม่ตอนอัปโหลดผ่าน breakout modal
-- โฟลเดอร์ว่าง 6 อันที่ root (ดู §5) — cosmetic เท่านั้น
-- `SPEC.md`/`tasks/*.md` ไม่ได้ sync กับฟีเจอร์ Pronista เลย (เป็นของ SeedOffice ต้นทาง) — ถ้าจะ sync ต้องเขียนใหม่หรือเพิ่ม section ทั้งหมด ยังไม่ได้ทำ
-- **ยังไม่เคย deploy ขึ้น Cloudflare** และ **ยังไม่ apply migration ขึ้น D1 remote** — ต้อง `wrangler login` ก่อนถึงจะรัน `pnpm db:migrate:remote` / `pnpm deploy` ได้ (ดู §2)
-- API Document tab / Project Estimate tab ถอดออกจาก nav บนสุดแล้ว (§3-B.3) แต่ component+backend ยังอยู่ครบ — ถ้าจะเอากลับมาแค่เพิ่มกลับเข้า `tabs` array ใน `ProjectDetailPage`
-- Defect ที่ convert จาก Backlog "..." menu ตอนนี้ **ไม่บังคับเลือก parent แล้ว** (ผูกแบบอ้างอิงผ่าน `task_references` แทน) — ถ้าเจอ Defect เก่าที่ยังมี `parentId` ตั้งแต่ก่อนแก้ ให้ถือเป็นข้อมูลเดิม ไม่ต้อง migrate ย้อนหลัง
-
-## 7. วิธี resume งานต่อ (เครื่องใหม่)
-
-1. `git clone https://github.com/thanawatbrandnista-arm/Pronista.git` แล้ว `cd Pronista`
-2. `pnpm install`
-3. คัดลอก `.dev.vars` จากเครื่องเดิมมาวางที่ root (ไม่ติดมากับ git — ดู §2) หรือ copy จาก `.dev.vars.example` แล้วกรอกค่าใหม่เอง (`DEV_AUTH=1` ต้องเปิดถึงจะมีปุ่ม dev-login)
-4. `pnpm db:migrate` — สร้างตาราง D1 local ให้ตรง schema ล่าสุด (ฐานข้อมูลจะว่างเปล่า ไม่มีข้อมูลทดสอบเดิม เว้นแต่คัดลอกโฟลเดอร์ `.wrangler/` มาจากเครื่องเดิมด้วย — ดู §2)
-5. อ่าน `CLAUDE.md` (กฎเหล็ก/stack/design token) + ไฟล์นี้ทั้งหมด (โดยเฉพาะ §3-B ถ้าจะแก้ Task/Epic/Story/Sprint) ก่อนแก้อะไร
-6. `pnpm dev` แล้ว dev-login เข้าไปดูของจริงก่อนแก้อะไร
-7. ทำทีละจุดเล็กๆ ตามสไตล์เดิม (`CLAUDE.md` §"วิธีทำงานกับเจ้าของ") — `pnpm typecheck` ก่อนรายงานทุกครั้ง เปิด browser preview verify การเปลี่ยนแปลงจริงก่อนบอกว่าเสร็จ
-8. ถ้าแก้ schema → ลอง `pnpm db:generate` (drizzle-kit auto-gen จาก diff ของ `schema.ts`) ก่อน ถ้าชนบั๊ก wrangler native crash บน Windows ค่อย hand-write migration ตาม pattern เดิม (§3-B/§4)
-9. ถ้าจะ deploy จริง: `wrangler login` ก่อน (ยังไม่เคย auth บนเครื่องไหนเลย ณ จุดที่เขียนไฟล์นี้) แล้ว `pnpm db:migrate:remote` (apply migration ค้าง 0050-0055 ขึ้น production D1) ก่อน `pnpm deploy` เสมอ ไม่งั้น API จะพังเพราะ column ไม่ตรงกับโค้ด
+Remote: `origin` (github.com/brandnista/Tasknista), `bitbucket` (bitbucket.org/devnista/pronista) — ทั้งคู่ sync
+กันปกติ, push ล่าสุดคือตอน deploy production รอบก่อนหน้า (ยังไม่ได้ push commit ของฟีเจอร์/บั๊กรอบนี้)

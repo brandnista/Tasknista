@@ -6,6 +6,7 @@ import { ClientCombobox } from '../components/ClientCombobox'
 import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { ProjectIcon } from '../components/ProjectIcon'
+import { ProjectMembersPicker } from '../components/ProjectMembersPicker'
 import { StatusDonut } from '../components/StatusDonut'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -25,7 +26,6 @@ import {
   type ProjectRow,
 } from '../lib/project-ui'
 import { avatarColor } from './ProjectDetail'
-import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
 function ProgressBar({ p }: { p: ProjectRow }) {
@@ -450,7 +450,7 @@ function SearchModal({ rows, onClose }: { rows: ProjectRow[]; onClose: () => voi
   )
 }
 
-interface TeamUser { id: string; name: string; role: string }
+interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }
 
 /** Pronista §2.4 — คำนวณวันคาดว่าเสร็จจากวันเริ่ม + จำนวนสัปดาห์ของ Sprint */
 const addWeeks = (start: string, weeks: string) => {
@@ -474,10 +474,8 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const clients = clientData?.rows ?? []
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const productTypes = productTypeData?.productTypes ?? []
-  // Pronista §Position-based permission fix — checklist "สมาชิกในโปรเจกต์" เลือกได้เฉพาะ role member เท่านั้น (owner มีสิทธิ์เต็มอยู่แล้วไม่ต้องตั้งตำแหน่ง · vendor ต้องผ่าน teamOnly ชั้นนอก)
-  // ตรงกับที่ POST /:id/members และหน้าแก้ไขโปรเจกต์รองรับ — เลือก owner/vendor ตรงนี้จะสร้างแถวสมาชิกที่หน้าแก้ไขโปรเจกต์จัดการไม่ได้ (นับใน "สมาชิก (N)" แต่หายไปจากลิสต์แก้ไข)
-  const team = (users ?? []).filter((u) => u.role === 'member')
-  // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — owner เป็น Lead ได้ปกติ จึงใช้ลิสต์แยก ไม่ผูกกับ team ด้านบน
+  // Pronista §Project members — open to all roles (2026-09-15) — เดิมกรองเหลือแค่ role='member' (เหตุผลเดิม: หน้าแก้ไขโปรเจกต์จัดการ owner/vendor ที่ถูกเพิ่มมาไม่ได้) ตอนนี้หน้าแก้ไขรองรับครบทุก role แล้ว เลยเปิดเลือกได้ทุกประเภทเหมือน Workspace (ผ่าน ProjectMembersPicker ด้านล่าง แทนลิสต์ team เดิม)
+  // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — owner เป็น Lead ได้ปกติ จึงใช้ลิสต์แยก ไม่ผูกกับสมาชิกโปรเจกต์
   const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor')
 
   const [form, setForm] = useState({
@@ -489,8 +487,6 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [codeTouched, setCodeTouched] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   const [error, setError] = useState('')
-
-  const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
   const submit = async () => {
     try {
@@ -646,15 +642,17 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
             </div>
 
             <div>
-              <label className={label}>สมาชิกในโปรเจกต์ (เลือกได้หลายคน)</label>
-              <div className="border border-border-subtle rounded-lg max-h-32 overflow-y-auto divide-y divide-divider">
-                {team.map((u) => (
-                  <label key={u.id} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-hover">
-                    <input type="checkbox" checked={members.includes(u.id)} onChange={() => setMembers(toggle(members, u.id))} />
-                    <span className="text-body">{u.name}</span>
-                    <span className="text-[11px] text-muted ml-auto">{ROLE_LABEL[u.role as keyof typeof ROLE_LABEL] ?? u.role}</span>
-                  </label>
-                ))}
+              <label className={label}>สมาชิกในโปรเจกต์ (เลือกได้หลายคน — ทุกประเภทผู้ใช้งาน)</label>
+              <div className="border border-border-subtle rounded-lg max-h-72 overflow-y-auto p-3">
+                <ProjectMembersPicker
+                  users={users ?? []}
+                  assignments={{}}
+                  extraMembers={Object.fromEntries(members.map((id) => [id, true]))}
+                  positions={[]}
+                  onChangePosition={() => {}}
+                  onToggleExtra={(userId, checked) => setMembers((m) => (checked ? [...m, userId] : m.filter((id) => id !== userId)))}
+                  teamMode="checkbox"
+                />
               </div>
               {members.length > 0 && <div className="text-[11px] text-brand-700 mt-1">เลือก {members.length} คน</div>}
             </div>

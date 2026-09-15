@@ -268,4 +268,44 @@ describe('Pronista §Notification overhaul (2026-08-27) — เพิ่มเ�
     )
     expect(await notifCount(pond)).toBe(before + 1) // ยังคงเท่าเดิม ไม่เพิ่ม
   })
+
+  // Pronista §Project members — open to all roles (2026-09-15) — เดิม POST /:id/members ปฏิเสธ owner ตรงๆ ('owner_has_full_access' 400)
+  // ตอนนี้เลือกได้เหมือน vendor/guest — positionId ต้องเป็น null เสมอ (owner ไม่เคยอ่านสิทธิ์จาก project_members อยู่แล้ว เป็นแค่ข้อมูลแสดงผล)
+  it('เพิ่ม owner (Admin) เข้าสมาชิกโปรเจกต์ได้แล้ว — positionId เป็น null เสมอ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await createProject(owner, { name: 'P-admin-member', type: 'project' })).json()) as { id: string }
+
+    const addRes = await app.request(
+      `/api/projects/${p.id}/members`,
+      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ userId: 'u_owner' }) },
+      env,
+    )
+    expect(addRes.status).toBe(200)
+    const added = (await addRes.json()) as { positionId: string | null }
+    expect(added.positionId).toBeNull()
+
+    const detail = (await (await app.request(`/api/projects/${p.id}`, { headers: { cookie: owner } }, env)).json()) as {
+      members: { id: string; role: string; positionId: string | null }[]
+    }
+    const adminRow = detail.members.find((m) => m.id === 'u_owner')
+    expect(adminRow?.role).toBe('owner')
+    expect(adminRow?.positionId).toBeNull()
+  })
+
+  // Pronista §Project members — open to all roles (2026-09-15) — เดิม POST / (สร้างโปรเจกต์) blind-insert positionId เต็มทุกคนไม่แยก role
+  // (ใช้ได้ตอนเลือกได้แค่ role=member) — ตอนนี้เลือกได้ทุก role ตอนสร้างแล้ว ต้อง role-aware เหมือน POST /:id/members
+  it('สร้างโปรเจกต์พร้อมสมาชิกหลาย role ในทีเดียว → member ได้ตำแหน่งเต็มรูปแบบ, owner/vendor ได้ positionId null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (
+      await createProject(owner, { name: 'P-mixed-roles', type: 'project', members: ['u_owner', 'u_pond', 'u_somchai'] })
+    ).json()) as { id: string }
+
+    const detail = (await (await app.request(`/api/projects/${p.id}`, { headers: { cookie: owner } }, env)).json()) as {
+      members: { id: string; role: string; positionId: string | null }[]
+    }
+    const byId = Object.fromEntries(detail.members.map((m) => [m.id, m]))
+    expect(byId.u_pond?.positionId).toBe('pos_full_access')
+    expect(byId.u_owner?.positionId).toBeNull()
+    expect(byId.u_somchai?.positionId).toBeNull()
+  })
 })
