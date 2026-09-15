@@ -3,8 +3,9 @@
  * PM เลือก "คน" + "Role" ใน Project Estimate แล้วต้นทุน/วันจะดึงมาจากตำแหน่งที่กำหนดไว้ที่นี่ (ไม่ผูกกับตัวคนตายตัว)
  */
 import { CostRoleSettings } from '../components/CostRoleSettings'
+import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 
 interface CostConfig {
@@ -14,10 +15,17 @@ interface CostConfig {
 
 export function AdminCostPage() {
   const { data: cfg, reload: reloadCfg } = useLoad<CostConfig>(() => api.get('/api/admin/config'))
+  const { alertDialog } = useDialog()
 
+  // Pronista §Admin UX fix (2026-09-15) — เดิมไม่ดัก error เลย (ค่า default ที่ใช้คำนวณต้นทุนทุก Task ในระบบ) พิมพ์ค่าที่ validate ไม่ผ่านแล้ว blur จะดูเหมือนบันทึกสำเร็จทั้งที่ค่าเดิมยังอยู่ mirror fix เดียวกับ Admin.tsx saveCfg
   const saveCostCfg = async (patch: Partial<CostConfig>) => {
-    await api.patch('/api/admin/config', patch)
-    await reloadCfg()
+    try {
+      await api.patch('/api/admin/config', patch)
+      await reloadCfg()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+      await reloadCfg()
+    }
   }
 
   return (

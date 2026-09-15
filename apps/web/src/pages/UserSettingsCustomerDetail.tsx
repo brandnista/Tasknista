@@ -50,19 +50,39 @@ export function UserSettingsCustomerDetailPage() {
       setError(e instanceof ApiError && e.message === 'email_exists' ? 'อีเมลนี้ถูกใช้แล้ว' : 'บันทึกไม่สำเร็จ')
     }
   }
-  const toggleProject = async (projectId: string) => {
-    const next = c.projectIds.includes(projectId) ? c.projectIds.filter((x) => x !== projectId) : [...c.projectIds, projectId]
+  // Pronista §Admin UX fix (2026-09-15) — ถอดโปรเจกต์ออก = ลูกค้าเห็นข้อมูลโปรเจกต์นั้นไม่ได้อีกทันที ควรถามยืนยัน + เดิมไม่มี try/catch เลยทั้งฟังก์ชัน (error จะเงียบ)
+  const toggleProject = async (projectId: string, projectLabel: string) => {
+    const removing = c.projectIds.includes(projectId)
+    const next = removing ? c.projectIds.filter((x) => x !== projectId) : [...c.projectIds, projectId]
     if (next.length === 0) {
       setError('ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์')
       return
     }
+    if (removing) {
+      const ok = await confirmDialog({
+        title: `ถอดโปรเจกต์ "${projectLabel}" ออกจากลูกค้านี้?`,
+        message: 'ลูกค้าจะมองไม่เห็นข้อมูลโปรเจกต์นี้อีกทันที',
+        confirmLabel: 'ถอดออก',
+        danger: true,
+      })
+      if (!ok) return
+    }
     setError('')
-    await api.patch(`/api/admin/users/${c.id}`, { projectIds: next })
-    await reload()
+    try {
+      await api.patch(`/api/admin/users/${c.id}`, { projectIds: next })
+      await reload()
+    } catch {
+      setError('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง')
+    }
   }
+  // Pronista §Admin UX fix (2026-09-15) — เดิมไม่มี try/catch เลย (ปิดการใช้งาน = ลูกค้า login ไม่ได้ทันที error ต้องไม่เงียบ)
   const toggleStatus = async () => {
-    await api.patch(`/api/admin/users/${c.id}`, { status: c.status === 'active' ? 'disabled' : 'active' })
-    await reload()
+    try {
+      await api.patch(`/api/admin/users/${c.id}`, { status: c.status === 'active' ? 'disabled' : 'active' })
+      await reload()
+    } catch {
+      setError('ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง')
+    }
   }
   // Pronista §Customer detail fix (2026-09-11) — เดิม dialog ยืนยันเขียนว่า "ปิดการใช้งาน" ตายตัวเสมอ ทั้งที่ปุ่มนี้สลับสถานะทั้งสองทาง — ถ้าลูกค้าปิดอยู่แล้วกดปุ่มนี้จะ "เปิดใช้งาน" จริง แต่ dialog หลอกว่ากำลังปิด
   const remove = async () => {
@@ -196,7 +216,7 @@ export function UserSettingsCustomerDetailPage() {
             {(projects ?? []).length === 0 && <div className="text-xs text-muted px-3 py-4 text-center">ยังไม่มีโปรเจกต์ในระบบ</div>}
             {(projects ?? []).map((p) => (
               <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-hover">
-                <input type="checkbox" checked={c.projectIds.includes(p.id)} onChange={() => void toggleProject(p.id)} />
+                <input type="checkbox" checked={c.projectIds.includes(p.id)} onChange={() => void toggleProject(p.id, p.name)} />
                 <span className="text-body truncate">{p.name}</span>
                 {p.code && <span className="text-[10px] font-mono text-muted ml-auto shrink-0">{p.code}</span>}
               </label>
