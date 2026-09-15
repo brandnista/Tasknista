@@ -8,7 +8,6 @@ import { useMemo, useState } from 'react'
 import { Avatar } from '../components/Avatar'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
-import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
 type ViewMode = 'daily' | 'weekly' | 'monthly' | 'sprint'
@@ -101,8 +100,6 @@ export function WorkloadPage() {
 
   const showSprintEmpty = view === 'sprint' && !sprintId
   const rows = data ?? EMPTY_WORKLOAD
-  // Pronista §Workload role filter (2026-09-15) — ตัวเลือกในดรอปดาวน์ ดึงเฉพาะ role ที่มีคนจริงในทีมตอนนี้ (roster ฝั่ง backend มีแค่ owner/member/vendor อยู่แล้ว ไม่มี guest)
-  const availableRoles = useMemo(() => [...new Set(rows.people.map((p) => p.role))], [rows.people])
   const filteredPeople = roleFilter === 'all' ? rows.people : rows.people.filter((p) => p.role === roleFilter)
 
   return (
@@ -146,15 +143,12 @@ export function WorkloadPage() {
             </button>
           </div>
         )}
-        {/* Pronista §Workload role filter (2026-09-15) — กรองประเภทผู้ใช้งาน (เฉพาะ role ที่มีคนจริงในทีมตอนนี้) */}
-        {availableRoles.length > 1 && (
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
-            <option value="all">ทุกประเภท</option>
-            {availableRoles.map((r) => (
-              <option key={r} value={r}>{ROLE_LABEL[r as keyof typeof ROLE_LABEL] ?? r}</option>
-            ))}
-          </select>
-        )}
+        {/* Pronista §Workload role filter (2026-09-15) — กรองประเภทผู้ใช้งาน: ทั้งหมด/พนักงาน/พาร์ทเนอร์ เท่านั้น (ไม่แยก Admin ออกมาเป็นตัวเลือก — ยังเห็นได้ผ่าน "ทั้งหมด") */}
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
+          <option value="all">ทั้งหมด</option>
+          <option value="member">พนักงาน</option>
+          <option value="vendor">พาร์ทเนอร์</option>
+        </select>
 
         <span className="text-sm text-muted ml-1 tabular-nums">
           {showSprintEmpty ? '' : `${from} – ${to}`}
