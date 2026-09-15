@@ -1,7 +1,7 @@
 import { minutesToHoursLabel } from '@seedoffice/core'
 import { type DragEvent, useState } from 'react'
 import { dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
-import { TASK_STATUS_DOT, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { KANBAN_TASK_STATUS_ORDER, TASK_STATUS_DOT, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { Avatar } from './Avatar'
 import { taskTypeLabel } from './MyWorkSummary'
 import { avatarColor } from '../pages/ProjectDetail'
@@ -43,7 +43,8 @@ const ASSIGNEE_DRAG_TARGETS: Partial<Record<TaskStatus, TaskStatus[]>> = {
   waiting_for_test: ['on_processing'],
 }
 function allowedDragTargets(t: KanbanTask, meId?: string): TaskStatus[] {
-  if (meId && t.createdBy === meId) return TASK_STATUS_ORDER.filter((s) => s !== t.status)
+  // Pronista §Business Rules Workflow (2026-09-15) — คงเหลือแค่ 4 คอลัมน์ Kanban หลัก (ไม่รวม rejected/cancelled ที่เพิ่มเข้า TaskStatus แล้ว ต้องผ่านปุ่มเฉพาะเท่านั้น)
+  if (meId && t.createdBy === meId) return KANBAN_TASK_STATUS_ORDER.filter((s) => s !== t.status)
   return ASSIGNEE_DRAG_TARGETS[t.status] ?? []
 }
 
@@ -82,7 +83,7 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      {TASK_STATUS_ORDER.map((status) => {
+      {KANBAN_TASK_STATUS_ORDER.map((status) => {
         const col = tasks.filter((t) => t.status === status)
         const dropOk = !!dragTask && editableOf(dragTask) && allowedDragTargets(dragTask, meId).includes(status)
         return (

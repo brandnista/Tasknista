@@ -35,7 +35,7 @@ type TaskDocType = (typeof TASK_DOC_TYPES)[number]
 interface ProjectDocOpt { id: string; title: string; docType: TaskDocType | 'API' | null }
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { FREE_EDIT_TASK_STATUS_ORDER, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { useTimer } from '../lib/timer'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
@@ -241,6 +241,10 @@ interface Detail {
   assignedByAvatarUrl: string | null
   createdByName: string | null
   createdByAvatarUrl: string | null
+  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ใช้พฤติกรรมเดิม editor/owner โปรเจกต์คนไหนก็อนุมัติได้)
+  reviewerId: string | null
+  reviewerName: string | null
+  reviewerAvatarUrl: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
   dispatchedAt: number | null
   createdBy: string
@@ -295,6 +299,7 @@ interface TaskDraftFields {
   originCode: string | null
   status: TaskStatus
   assigneeId: string | null
+  reviewerId: string | null
   priority: 'low' | 'normal' | 'high'
   labelIds: string[]
   taskType: string | null
@@ -334,12 +339,14 @@ const ACTION_LABEL: Record<string, string> = {
   'task.dispatch': 'จ่ายงาน',
   'task.accept': 'รับงาน',
   'task.reject': 'ปฏิเสธงาน',
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15)
+  'task.cancel': 'ยกเลิกงาน',
   'time_entry.create': 'ลงเวลา',
   'time_entry.update': 'แก้เวลา',
   'time_entry.delete': 'ลบเวลา',
 }
 // Pronista §System Requirements Update — แท็บ "ประวัติการเปลี่ยนแปลง" แยกจากฟีดคอมเมนต์ — เฉพาะ action ที่เป็นความเคลื่อนไหวของสถานะ/ผู้รับผิดชอบงาน (ไม่รวมคอมเมนต์/แนบไฟล์/เวลา)
-const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.done', 'task.convert', 'task.update'])
+const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.cancel', 'task.done', 'task.convert', 'task.update'])
 // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — renderer แบบ generic (best-effort) สำหรับ action='task.update' จากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" — meta.after มีแค่ฟิลด์ที่แก้ (ไม่มี "ค่าเดิม" ต่อฟิลด์ ยกเว้น status/convert ที่มี before ให้เห็นอยู่แล้วด้านบน)
 const FIELD_LABEL: Record<string, string> = {
   title: 'ชื่องาน', description: 'รายละเอียดจากผู้จ่ายงาน', assigneeNotes: 'รายละเอียดจากผู้รับงาน', originCode: 'Reference Code',
@@ -459,14 +466,20 @@ export function TaskDetailPage() {
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — เฉพาะปุ่ม action หลักทีละคลิก (เริ่มทำ/ปิดงานเอง ฯลฯ) ที่ยังคง instant-patch เดิม ไม่ผ่าน draft (ทีละ action ชัดเจนอยู่แล้ว ไม่ใช่การแก้ฟอร์ม)
   // เคลียร์ key ที่ patch ตรงนี้ออกจาก draft ด้วย (ถ้ามีค้าง) กันสถานะเก่าที่ยังไม่บันทึกจาก dropdown มาทับค่าจริงที่เพิ่ง patch ไป
   const patchNow = async (data: Record<string, unknown>) => {
-    await api.patch(`/api/tasks/${t.id}`, data)
-    setDraft((d) => {
-      const next = { ...d }
-      for (const key of Object.keys(data)) delete next[key as keyof TaskDraftFields]
-      return next
-    })
-    await reload()
-    toast('บันทึกสำเร็จ')
+    // Pronista §Business Rules Workflow (2026-09-15) — เดิมไม่มี try/catch เลย ปุ่ม action ทั้งหมด (ส่งงาน/อนุมัติ/ตีกลับ/ปิดงานเอง) ที่เรียกผ่านฟังก์ชันนี้
+    // ถ้า backend ปฏิเสธ (403 ไม่ใช่ reviewer ที่ระบุ, 400 subtasks_incomplete ฯลฯ) จะโดนเงียบแบบ "กดแล้วไม่มีอะไรเกิดขึ้น" (unhandled promise rejection)
+    try {
+      await api.patch(`/api/tasks/${t.id}`, data)
+      setDraft((d) => {
+        const next = { ...d }
+        for (const key of Object.keys(data)) delete next[key as keyof TaskDraftFields]
+        return next
+      })
+      await reload()
+      toast('บันทึกสำเร็จ')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   // labelIds ใน Detail (server) เป็น string[] | null แต่ draft ประกาศไว้เป็น string[] เสมอ (กัน .includes()/.filter() พังตอนยังไม่เคยตั้งแท็กเลย) — coerce null → [] ตรงนี้ที่เดียว
   const draftVal = <K extends keyof TaskDraftFields>(key: K): TaskDraftFields[K] => {
@@ -534,21 +547,42 @@ export function TaskDetailPage() {
       await api.post(`/api/tasks/${t.id}/dispatch`, {})
       await reload()
       toast('จ่ายงานสำเร็จ')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'จ่ายงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
     } finally {
       setDispatching(false)
     }
   }
   // Pronista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
   const accept = async () => {
-    await api.post(`/api/tasks/${t.id}/accept`, {})
-    await reload()
+    try {
+      await api.post(`/api/tasks/${t.id}/accept`, {})
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'รับงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   // Pronista §Assign/Accept audit (2026-09-03) — assignee ปฏิเสธงานที่จ่ายมา (ก่อนกดรับ) ต้องกรอกเหตุผลให้ผู้จ่ายงานรู้
   const reject = async () => {
     const reason = await promptDialog({ title: 'ปฏิเสธงาน', message: 'บอกเหตุผลให้ผู้จ่ายงานรู้ทันที', placeholder: 'เช่น scope ไม่ตรง / ยังไม่มีคิวว่าง', confirmLabel: 'ปฏิเสธงาน' })
     if (!reason?.trim()) return
-    await api.post(`/api/tasks/${t.id}/reject`, { reason: reason.trim() })
-    await reload()
+    try {
+      await api.post(`/api/tasks/${t.id}/reject`, { reason: reason.trim() })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ปฏิเสธงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
+  }
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner เท่านั้น บังคับใส่เหตุผลเสมอ (mirror reject)
+  const cancelTask = async () => {
+    const reason = await promptDialog({ title: 'ยกเลิกงาน', message: 'บอกเหตุผลที่ยกเลิกงานนี้', placeholder: 'เช่น scope เปลี่ยน / ลูกค้ายกเลิก', confirmLabel: 'ยกเลิกงาน' })
+    if (!reason?.trim()) return
+    try {
+      await api.post(`/api/tasks/${t.id}/cancel`, { reason: reason.trim() })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ยกเลิกงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   const addReference = async (picked: PickableTask) => {
     setLinkPickerOpen(false)
@@ -711,7 +745,10 @@ export function TaskDetailPage() {
   const canEditDispatcherNotes = (canEdit && !isAssigneeOnly) || (isAssignee && !!t.assignedBy && t.assignedBy === t.assigneeId)
   // ผู้จ่ายงานให้ตัวเองจริง (assignedBy === assigneeId) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ (ผ่านปุ่ม "ปิดงานเอง" ที่ scope เฉพาะ done เท่านั้น ไม่ใช่ dropdown อิสระด้านล่าง)
   // (2026-09-15 follow-up) — เดิมใช้ createdBy (แค่คนคีย์ Task ขึ้นในระบบ) เปลี่ยนมาใช้ assignedBy===assigneeId (คนที่มอบหมายงานรอบปัจจุบันกับคนรับงาน เป็นคนเดียวกันจริง) ให้ตรงกับ Business Rules spec ข้อ 9 (createdBy ไม่ควรมีสิทธิ์ข้าม Workflow) — mirror สัญญาณเดียวกับ canEditDispatcherNotes ด้านบน และ backend (PATCH /tasks/:id)
-  const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId
+  // (เฟส A, 2026-09-15) — ต้อง "ไม่มี Reviewer" ด้วยถึงจะปิดงานเองได้ (สเปกข้อ 7/8: self-assign มี reviewer → ต้องรอ approve เหมือนงานทั่วไป ไม่ใช่ปิดเองอิสระ)
+  const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId && !t.reviewerId
+  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ถ้าระบุ Reviewer ไว้ เฉพาะ reviewer คนนั้น (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงาน "รอตรวจ" ได้ — ไม่มี reviewer (ค่าเริ่มต้น) = ใครก็ได้ที่ canEdit เหมือนเดิม
+  const canReviewSubmission = !t.reviewerId || t.reviewerId === user?.id || user?.role === 'owner'
   // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
   // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
   const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt)
@@ -1179,7 +1216,7 @@ export function TaskDetailPage() {
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
                   {canEditStatusFreely ? (
                     <select value={draftVal('status')} onChange={(e) => setDraftField('status', e.target.value as TaskStatus)} aria-label="สถานะงาน" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[draftVal('status')]}`}>
-                      {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                      {FREE_EDIT_TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                     </select>
                   ) : (
                     <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
@@ -1212,6 +1249,24 @@ export function TaskDetailPage() {
                         {t.assignedByName ?? t.createdByName}
                       </span>
                     </>
+                  )}
+
+                  {/* Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (ว่าง = editor/owner โปรเจกต์คนไหนก็อนุมัติได้เหมือนเดิม) — เลือกจาก list เดียวกับผู้รับผิดชอบ */}
+                  <span className="text-dim">ผู้ตรวจงาน</span>
+                  {canEdit && !isAssigneeOnly ? (
+                    <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-fit min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                      <option value="">— ไม่ระบุ (ใครก็อนุมัติได้) —</option>
+                      {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  ) : (
+                    t.reviewerName ? (
+                      <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
+                        <Avatar name={t.reviewerName} avatarUrl={t.reviewerAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(t.reviewerName)} />
+                        {t.reviewerName}
+                      </span>
+                    ) : (
+                      <span className="w-fit text-muted text-xs">— ไม่ระบุ —</span>
+                    )
                   )}
 
                   {/* Pronista §Workspace/Task Jira-alignment (2026-09-09) — "Sprint" แบบ Jira: โชว์ชื่อ Sprint ที่งานนี้สังกัดอยู่ พร้อมลิงก์กลับไปที่บอร์ด (โปรเจกต์ หรือ Workspace แล้วแต่ Sprint นี้ผูกกับอันไหน) */}
@@ -1375,9 +1430,12 @@ export function TaskDetailPage() {
             </div>
 
             {/* Pronista §Time tracking fix (2026-09-11) — เดิมซ่อนตัวจับเวลา/manual ทั้งชุดถ้า sprint ไม่ active ทั้งที่ backend ไม่เคยเช็คเงื่อนไขนี้เลย (เช็คแค่ต้องผูกโปรเจกต์) — TimeSection เองจัดการ "ยังไม่ผูกโปรเจกต์" ให้แล้วผ่าน hasProject จึงตัดเงื่อนไข sprintActive ทิ้งให้ตรงกับ backend จริง */}
-            <div className="border-t border-border-subtle pt-4">
-              <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
-            </div>
+            {/* (2026-09-15 fix) — เดิมโชว์ตัวจับเวลาตั้งแต่สร้างงาน/ยังไม่ได้กด "รับงาน" เลยด้วยซ้ำ (status ยังเป็น non_start) ทั้งที่ยังไม่มีใครเริ่มทำจริง — ซ่อนจนกว่าจะผ่านขั้นรับงานแล้ว (status ขยับพ้น non_start) */}
+            {t.status !== 'non_start' && (
+              <div className="border-t border-border-subtle pt-4">
+                <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
+              </div>
+            )}
 
             {!isAssigneeOnly && t.estimateMinutes != null && (
               <div className="border-t border-border-subtle pt-4">
@@ -1466,6 +1524,11 @@ export function TaskDetailPage() {
                     <div className="text-xs text-muted text-center py-2">รอ{t.assigneeName ? ` ${t.assigneeName}` : ''}กดรับงาน</div>
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
+                ) : t.status === 'waiting_for_test' && !canReviewSubmission ? (
+                  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ระบุ Reviewer ไว้แล้ว แต่ผู้ใช้ปัจจุบันไม่ใช่ reviewer คนนั้น/owner — ไม่เห็นปุ่มอนุมัติ/ตีกลับเลย เห็นแค่สถานะรอ
+                  <>
+                    <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2">งานนี้ส่งมารอตรวจอยู่ — รอ{t.reviewerName ? ` ${t.reviewerName}` : 'ผู้ตรวจที่ระบุไว้'}พิจารณา</div>
+                  </>
                 ) : (
                   <>
                     {t.status === 'waiting_for_test' && (
@@ -1482,6 +1545,15 @@ export function TaskDetailPage() {
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น (ไม่ใช่ assignee-only) ซ่อนถ้าปิด/ยกเลิกไปแล้ว */}
+            {canEdit && !isAssigneeOnly && t.status !== 'done' && t.status !== 'cancelled' && (
+              <div className="border-t border-border-subtle pt-4">
+                <button onClick={() => void cancelTask()} className="w-full flex items-center justify-center gap-1.5 text-sm border border-danger-200 text-danger-600 hover:bg-danger-50 px-3 py-2 rounded-lg">
+                  <XCircle className="w-4 h-4" /> ยกเลิกงาน
+                </button>
               </div>
             )}
           </div>

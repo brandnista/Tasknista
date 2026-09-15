@@ -20,7 +20,7 @@ import {
   timerSessions,
   users,
 } from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -41,6 +41,8 @@ const taskPatchSchema = z.object({
   // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
   assigneeNotes: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
+  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ไม่มีผู้ตรวจเฉพาะ ใช้พฤติกรรมเดิม)
+  reviewerId: z.string().nullable().optional(),
   // Pronista §SOW Task/Subtask — Reference Code แก้ไขได้ (เดิมตั้งได้แค่ตอนแตกเอกสาร)
   originCode: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).optional(),
@@ -515,6 +517,10 @@ export const taskRoutes = new Hono<AppEnv>()
     const permissions =
       before.projectId && me.role === 'member' ? await getProjectPermissions(db, before.projectId, me.id, me.role) : undefined
     if (!(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ห้ามตั้ง status เป็น 'rejected'/'cancelled' ตรงๆ ผ่าน PATCH ทั่วไปเด็ดขาด ต้องผ่าน /tasks/:id/reject (ระบบตั้งเองตอน assignee ปฏิเสธ) หรือ /tasks/:id/cancel (บังคับเหตุผล) เท่านั้น
+    // กันย้อนกลับไปเป็นช่องโหว่แบบเดียวกับที่เพิ่งแก้ createdBy — ถ้าปล่อยให้ dropdown อิสระตั้งตรงได้ จะข้ามการบังคับเหตุผลไปเลย
+    if (body.data.status === 'rejected' || body.data.status === 'cancelled')
+      return c.json({ error: 'invalid_status', message: 'ตั้งสถานะนี้ตรงๆ ไม่ได้ ต้องใช้ปุ่ม "ยกเลิกงาน" หรือให้ระบบตั้งเองตอนปฏิเสธงาน' }, 400)
     const isAssigneeOnly = await isAssigneeOnlyEditor(db, before, me, permissions)
     // Pronista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
     if (before.projectId && !isAssigneeOnly && me.role === 'member') {
@@ -541,7 +547,8 @@ export const taskRoutes = new Hono<AppEnv>()
     // ยกเว้นงานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) ยังไม่เข้า workflow ตรวจงานจริง เปลี่ยนสถานะเองได้อิสระ ไม่ต้องกันไว้
     if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.dispatchedAt) {
       const nextStatus = body.data.status
-      const isSelfDispatched = before.assignedBy === me.id
+      // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — self-close ลัดขั้นได้เฉพาะ "ไม่มี Reviewer" ด้วย (ตรงสเปกข้อ 7/8: self-assign ไม่มี reviewer→ปิดเองได้เลย, มี reviewer→ต้องรอ approve เหมือนงานทั่วไป)
+      const isSelfDispatched = before.assignedBy === me.id && !before.reviewerId
       const assigneeAllowedNext: Partial<Record<(typeof TASK_STATUSES)[number], (typeof TASK_STATUSES)[number][]>> = {
         non_start: ['on_processing'],
         on_processing: isSelfDispatched ? ['waiting_for_test', 'done'] : ['waiting_for_test'],
@@ -551,6 +558,19 @@ export const taskRoutes = new Hono<AppEnv>()
       }
       if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)
+    }
+    // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ถ้ามีการระบุ Reviewer ไว้ (ไม่บังคับเลือก) เฉพาะ Reviewer คนนั้น (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงานที่ "รอตรวจ" ได้
+    // ไม่กระทบ flow อื่นเลยถ้าไม่ได้เลือก reviewer ไว้ (reviewerId ว่าง = พฤติกรรมเดิมทุกอย่าง, editor/owner โปรเจกต์คนไหนก็ได้)
+    if (
+      body.data.status &&
+      body.data.status !== before.status &&
+      before.status === 'waiting_for_test' &&
+      before.assigneeId !== me.id &&
+      before.reviewerId &&
+      before.reviewerId !== me.id &&
+      me.role !== 'owner'
+    ) {
+      return c.json({ error: 'forbidden', message: 'งานนี้ระบุผู้ตรวจไว้แล้ว ต้องให้ผู้ตรวจที่ระบุเป็นคนอนุมัติ/ตีกลับ' }, 403)
     }
     // Pronista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
     // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา non_start (รับงานใหม่) ก่อนถึงจะแก้ต่อได้
@@ -779,9 +799,10 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB (ไม่ใช่แค่ check-then-act ข้างบน) กัน race จากการกดซ้ำ/พร้อมกันจริงๆ
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — งานที่เคยถูกปฏิเสธมาก่อน (status='rejected') จ่ายซ้ำ (คนเดิมหรือหลัง reassign ที่รีเซ็ตเป็น non_start ไปแล้วก็ไม่เข้าเงื่อนไขนี้อยู่แล้ว) → รีเซ็ตกลับ non_start ให้เข้ารอบ accept ใหม่ปกติ
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: new Date() })
+      .set({ dispatchedAt: new Date(), status: before.status === 'rejected' ? 'non_start' : before.status })
       .where(and(eq(tasks.id, before.id), isNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 409)
@@ -838,9 +859,11 @@ export const taskRoutes = new Hono<AppEnv>()
     if (before.assigneeId !== me.id) return c.json({ error: 'forbidden' }, 403)
     if (!before.dispatchedAt) return c.json({ error: 'not_dispatched', message: 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ' }, 400)
     if (before.status !== 'non_start') return c.json({ error: 'already_accepted' }, 409)
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — เดิมแค่เคลียร์ dispatchedAt เงียบๆ (status ไม่ขยับ) ทำให้ดูเหมือนไม่มีอะไรเกิดขึ้น
+    // เปลี่ยนเป็นตั้ง status='rejected' ค้างไว้ให้เห็นจริง จนกว่าจะจ่ายงานใหม่ (/dispatch รีเซ็ตกลับ non_start ให้อัตโนมัติ) หรือ reassign คนอื่น (logic เดิม reset เป็น non_start อยู่แล้ว)
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: null })
+      .set({ dispatchedAt: null, status: 'rejected' })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start'), isNotNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
@@ -858,6 +881,41 @@ export const taskRoutes = new Hono<AppEnv>()
         taskId: before.id,
         projectId: before.projectId,
         message: `"${me.name}" ปฏิเสธงาน "${before.title}": ${body.data.reason}`,
+      })
+    }
+    return c.json(updated[0])
+  })
+
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น ต้องระบุเหตุผลเสมอ (mirror /reject)
+  // กู้คืนผ่านกลไก reassign เดิม (เปลี่ยน assigneeId → reset เป็น non_start อัตโนมัติอยู่แล้ว) ไม่ต้องมี endpoint "reopen" แยก
+  .post('/tasks/:id/cancel', teamOnly, async (c) => {
+    const body = z.object({ reason: z.string().min(1) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid', message: 'ต้องระบุเหตุผลที่ยกเลิก' }, 400)
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (before.projectId) {
+      const role = await getProjectRole(db, before.projectId, me.id, me.role)
+      if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    } else if (me.role !== 'owner') {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (before.status === 'done' || before.status === 'cancelled') return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 400)
+    const updated = await db
+      .update(tasks)
+      .set({ status: 'cancelled' })
+      .where(and(eq(tasks.id, before.id), ne(tasks.status, 'done'), ne(tasks.status, 'cancelled')))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 409)
+    await writeAudit(c.env, { actorId: me.id, action: 'task.cancel', entity: 'task', entityId: before.id, meta: { title: before.title, reason: body.data.reason } })
+    if (before.assigneeId && before.assigneeId !== me.id) {
+      await notifyUser(db, {
+        userId: before.assigneeId,
+        type: 'task_cancelled',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ถูกยกเลิก: ${body.data.reason}`,
       })
     }
     return c.json(updated[0])

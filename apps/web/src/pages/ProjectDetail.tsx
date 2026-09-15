@@ -26,7 +26,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
-import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { isInactiveStatus, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { taskCreatedMessage } from '../lib/task-url'
 import { useLoad } from '../lib/useLoad'
 
@@ -169,7 +169,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   // Pronista §System Requirements Update — ซ่อนรหัสงานเป็นค่าเริ่มต้น กดปุ่ม "แสดงรหัสงาน" ที่ header ของ Backlog panel ถึงจะโชว์
   showCode?: boolean
 }) {
-  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]
+  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), soonDays)]
   const originBadge = t.originRefCode && t.originDocId ? (
     <a
       href={`/docs/${t.originDocId}`}
@@ -784,7 +784,7 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
       </div>
       <div className="divide-y divide-divider">
         {filtered.map((t) => (
-          <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', cfg?.dueSoonDays)]}`}>
+          <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]}`}>
             <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
             {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
             <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
@@ -1553,7 +1553,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       ) : (
         <div className="divide-y divide-divider">
           {sel.filtered.map((t) => (
-            <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]}`}>
+            <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]}`}>
               {canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
@@ -2079,7 +2079,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
               draggable={level === 'task' && canEdit}
               onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
-              className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
+              className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
             >
               {selectable && canEdit && (
                 <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />

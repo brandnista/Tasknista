@@ -1,3 +1,4 @@
+import { createDb, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
@@ -491,5 +492,169 @@ describe('§assignedBy population — เซ็ตตั้งแต่ตอน
       await app.request(`/api/projects/${p.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
     ).json()) as { assignedBy: string | null }
     expect(t.assignedBy).toBe('u_owner')
+  })
+})
+
+// (2026-09-15) §Business Rules Workflow เฟส A — Reviewer: ไม่บังคับเลือก, ว่าง=พฤติกรรมเดิม, ระบุแล้วเฉพาะ reviewer/owner อนุมัติได้
+describe('§Business Rules Workflow — Reviewer', () => {
+  const patchJson2 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('ไม่ได้เลือก Reviewer เลย → editor คนไหนก็อนุมัติได้เหมือนเดิม (regression)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+    // owner เป็นคนจ่ายงาน ไม่ใช่ reviewer ที่ระบุ (เพราะไม่มีการระบุเลย) — ยัง approve ได้ตามพฤติกรรมเดิม
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('ระบุ Reviewer ไว้ → owner บริษัท bypass อนุมัติได้เสมอแม้ไม่ใช่ reviewer ที่ระบุ (ตั้งใจ ไม่ใช่บั๊ก)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_reviewer_test', positionId: 'pos_full_access' }), env)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { reviewerId: 'u_reviewer_test' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+    const ownerApprove = await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { status: 'done' }), env)
+    expect(ownerApprove.status).toBe(200)
+  })
+
+  it('ระบุ Reviewer ไว้ → คนที่ไม่ใช่ reviewer/ไม่ใช่ owner บริษัท อนุมัติไม่ได้ (403)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_reviewer_test', positionId: 'pos_full_access' }), env)
+    // สมาชิกที่ 4: editor อีกคน ที่ไม่ใช่ reviewer และไม่ใช่ assignee — คนที่ต้องโดนบล็อก
+    await createDb(env.DB).insert(users).values({ id: 'u_other_editor', email: 'othereditor@example-co.test', name: 'บก', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_other_editor', positionId: 'pos_full_access' }), env)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { reviewerId: 'u_reviewer_test' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+
+    const otherEditor = await loginAs(app, 'othereditor@example-co.test')
+    const blocked = await app.request(`/api/tasks/${t.id}`, patchJson2(otherEditor, { status: 'done' }), env)
+    expect(blocked.status).toBe(403)
+
+    const reviewer = await loginAs(app, 'reviewtest@example-co.test')
+    const approved = await app.request(`/api/tasks/${t.id}`, patchJson2(reviewer, { status: 'done' }), env)
+    expect(approved.status).toBe(200)
+  })
+
+  it('self-dispatch (assignedBy===assigneeId) แต่มี Reviewer ระบุไว้ → ปิดงานเองไม่ได้แล้ว ต้องรอ reviewer', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งานคีย์เอง', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { reviewerId: 'u_reviewer_test' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+    // เดิม (ไม่มี reviewer) self-close ได้เลย — ตอนนี้มี reviewer แล้วต้องโดนบล็อก
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'done' }), env)
+    expect(res.status).toBe(403)
+  })
+})
+
+// (2026-09-15) §Business Rules Workflow เฟส B — สถานะ Rejected/Cancelled
+describe('§Business Rules Workflow — Rejected/Cancelled status', () => {
+  const patchJson3 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('ปฏิเสธงานก่อนรับ → status เป็น "rejected" ค้างไว้จริง (เดิมแค่เคลียร์ dispatchedAt เงียบๆ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'ไม่ถนัดงานนี้' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string; dispatchedAt: number | null }).status).toBe('rejected')
+  })
+
+  it('จ่ายงานซ้ำ (dispatch) หลังถูกปฏิเสธ (status=rejected) → รีเซ็ตกลับ non_start ให้เข้ารอบรับงานใหม่ปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'ไม่ถนัดงานนี้' }), env)
+    const res = await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string }).status).toBe('non_start')
+    const accept = await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    expect(accept.status).toBe(200)
+  })
+
+  it('ตั้ง status เป็น rejected/cancelled ตรงๆ ผ่าน PATCH ทั่วไป → 400 (ต้องผ่าน action endpoint เฉพาะเท่านั้น)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const r1 = await app.request(`/api/tasks/${t.id}`, patchJson3(owner, { status: 'rejected' }), env)
+    expect(r1.status).toBe(400)
+    const r2 = await app.request(`/api/tasks/${t.id}`, patchJson3(owner, { status: 'cancelled' }), env)
+    expect(r2.status).toBe(400)
+  })
+
+  it('ยกเลิกงาน (cancel): ไม่ใส่เหตุผล = 400 · ใส่เหตุผล = สำเร็จ status=cancelled + assignee ได้แจ้งเตือน · vendor ยกเลิกไม่ได้ = 403 · ยกเลิกงาน done แล้ว = 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+
+    const noReason = await app.request(`/api/tasks/${t.id}/cancel`, json(owner, {}), env)
+    expect(noReason.status).toBe(400)
+
+    const vendor = await loginAs(app, 'somchai@example.com')
+    const vendorTry = await app.request(`/api/tasks/${t.id}/cancel`, json(vendor, { reason: 'ลอง' }), env)
+    expect(vendorTry.status).toBe(403)
+
+    const before = (
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind('u_pond', 'task_cancelled').first<{ n: number }>()
+    )?.n ?? 0
+    const res = await app.request(`/api/tasks/${t.id}/cancel`, json(owner, { reason: 'scope เปลี่ยน' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string }).status).toBe('cancelled')
+    const after = (
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind('u_pond', 'task_cancelled').first<{ n: number }>()
+    )?.n ?? 0
+    expect(after).toBe(before + 1)
+
+    const t2 = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน done แล้ว' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t2.id}`, patchJson3(owner, { status: 'done' }), env)
+    const cancelDone = await app.request(`/api/tasks/${t2.id}/cancel`, json(owner, { reason: 'ลองยกเลิกงานที่เสร็จแล้ว' }), env)
+    expect(cancelDone.status).toBe(400)
   })
 })

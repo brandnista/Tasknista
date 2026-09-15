@@ -1,6 +1,6 @@
 import { bkkDateOf, isArchivedStatus } from '@seedoffice/core'
-import { companyConfig, createDb, projects, taskGroups, tasks, taskStars, timeEntries } from '@seedoffice/db'
-import { and, asc, eq, isNull, ne } from 'drizzle-orm'
+import { companyConfig, createDb, INACTIVE_TASK_STATUSES, projects, taskGroups, tasks, taskStars, timeEntries } from '@seedoffice/db'
+import { and, asc, eq, isNull, notInArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import type { AppEnv } from '../types'
 
@@ -42,7 +42,7 @@ export const meTodayRoutes = new Hono<AppEnv>().get('/me/today', async (c) => {
     })
     .from(tasks)
     .innerJoin(projects, eq(tasks.projectId, projects.id))
-    .where(and(eq(tasks.assigneeId, me.id), ne(tasks.status, 'done')))
+    .where(and(eq(tasks.assigneeId, me.id), notInArray(tasks.status, [...INACTIVE_TASK_STATUSES])))
     .orderBy(asc(tasks.dueDate))
     .limit(20)
 

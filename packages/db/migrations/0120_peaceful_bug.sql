@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `reviewer_id` text REFERENCES users(id);

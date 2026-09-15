@@ -1,6 +1,6 @@
 import { addDaysISO, adminUsersMenuKeyForCategory, bkkDateOf, permissionCategoryOfRole, resolvePermissionCeilings, type LoginPermissionCategory } from '@seedoffice/core'
-import { companyConfig, createDb, docMembers, docs, projectMembers, projects, tasks, users, TASK_STATUSES } from '@seedoffice/db'
-import { and, eq, gte, inArray, isNull, like, lt, lte, ne, or } from 'drizzle-orm'
+import { companyConfig, createDb, docMembers, docs, INACTIVE_TASK_STATUSES, projectMembers, projects, tasks, users, TASK_STATUSES } from '@seedoffice/db'
+import { and, eq, gte, inArray, isNull, like, lt, lte, ne, notInArray, or } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv } from '../types'
@@ -62,7 +62,7 @@ export const searchRoutes = new Hono<AppEnv>()
     if (status) taskConditions.push(eq(tasks.status, status))
     if (assigneeId) taskConditions.push(eq(tasks.assigneeId, assigneeId))
     if (due === 'today') taskConditions.push(eq(tasks.dueDate, today))
-    else if (due === 'overdue') taskConditions.push(lt(tasks.dueDate, today), ne(tasks.status, 'done'))
+    else if (due === 'overdue') taskConditions.push(lt(tasks.dueDate, today), notInArray(tasks.status, [...INACTIVE_TASK_STATUSES]))
     else if (due === 'week') taskConditions.push(gte(tasks.dueDate, today), lte(tasks.dueDate, addDaysISO(today, 6)))
     const taskRows = await db
       .select({
