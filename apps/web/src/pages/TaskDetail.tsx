@@ -709,10 +709,11 @@ export function TaskDetailPage() {
   // Pronista §Workspace/Task Jira-alignment (2026-09-07) — "รายละเอียดจากผู้จ่ายงาน" ปกติแก้ได้เฉพาะ editor/owner (canEdit && !isAssigneeOnly)
   // ยกเว้นกรณีพิเศษ: ผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบปัจจุบัน เป็นคนคนเดียวกัน (จ่ายงานให้ตัวเอง) — ให้แก้ช่องนี้ได้เองแม้เป็นแค่ assignee ธรรมดา
   const canEditDispatcherNotes = (canEdit && !isAssigneeOnly) || (isAssignee && !!t.assignedBy && t.assignedBy === t.assigneeId)
-  // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
+  // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ (ผ่านปุ่ม "ปิดงานเอง" ที่ scope เฉพาะ done เท่านั้น ไม่ใช่ dropdown อิสระด้านล่าง)
   const isSelfKeyed = !!user && t.createdBy === user.id
-  // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือเป็นงานที่คีย์เอง หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
-  const canEditStatusFreely = canEdit && (!isAssignee || isSelfKeyed || !t.dispatchedAt)
+  // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
+  // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
+  const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt)
   const done = draftVal('status') === 'done'
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
   const totalMinutes = (timeRows ?? []).reduce((s, r) => s + r.minutes, 0)

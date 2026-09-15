@@ -378,3 +378,65 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บั�
     // แค่ยืนยันว่าไม่ throw/error — ไม่มี assigneeId ให้เช็ค notifCountFor ไม่มีความหมาย
   })
 })
+
+// (2026-09-15) §createdBy status-transition loophole fix — เดิม createdBy === me.id ข้าม state machine ทั้งบล็อก
+// ทำให้คนคีย์งานขึ้นเอง (แม้จ่ายงาน→รับงาน→ส่งงานผ่าน flow จริงแล้ว) ปรับสถานะเป็นอะไรก็ได้ไม่จำกัด — ตรงกับ bug repro ที่พี่แบงค์เจอ
+describe('§createdBy status-transition loophole — คีย์งานเองยังต้องเดินตาม state machine, ปิดลัดได้แค่ → done', () => {
+  async function selfKeyedTaskAt(status: 'on_processing' | 'waiting_for_test') {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งานคีย์เอง', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    if (status === 'waiting_for_test') await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test' }), env)
+    return { pond, taskId: t.id }
+  }
+
+  it('งานคีย์เอง+จ่ายให้ตัวเอง ส่งงานแล้ว (waiting_for_test) → ดึงกลับไป non_start เอง (ข้ามขั้น) ต้องเป็น 403 (เดิมผ่านเพราะช่องโหว่)', async () => {
+    const { pond, taskId } = await selfKeyedTaskAt('waiting_for_test')
+    const res = await app.request(`/api/tasks/${taskId}`, patchJson(pond, { status: 'non_start' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('งานคีย์เอง+จ่ายให้ตัวเอง ส่งงานแล้ว (waiting_for_test) → ปิดงานเองเป็น done ได้ (scoped self-approve)', async () => {
+    const { pond, taskId } = await selfKeyedTaskAt('waiting_for_test')
+    const res = await app.request(`/api/tasks/${taskId}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string }).status).toBe('done')
+  })
+
+  it('งานคีย์เอง+จ่ายให้ตัวเอง กำลังทำอยู่ (on_processing) → ปิดงานเองข้าม waiting_for_test ตรงไป done ได้ (ตรงกับปุ่ม "ปิดงานเอง")', async () => {
+    const { pond, taskId } = await selfKeyedTaskAt('on_processing')
+    const res = await app.request(`/api/tasks/${taskId}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('งานที่คนอื่นจ่ายมา (ไม่ใช่คีย์เอง) กำลังทำอยู่ → ปิดงานเองข้าม waiting_for_test ไม่ได้ (403) ต้องส่งงานตามลำดับ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานที่จ่ายมา', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('งานที่คนอื่นจ่ายมา ส่งงานแล้ว (waiting_for_test) → ดึงกลับไป non_start เอง (ข้ามขั้น) ยังเป็น 403 เหมือนเดิม (ไม่ regress)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานที่จ่ายมา', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test' }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'non_start' }), env)
+    expect(res.status).toBe(403)
+  })
+})

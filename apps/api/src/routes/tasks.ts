@@ -529,15 +529,18 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Kanban drag constraints (2026-08-26) — งด "ลาก/สั่งข้ามขั้น" สถานะเอง สำหรับใครก็ตามที่เป็น assignee ของงานนี้
     // (ไม่ใช่แค่ isAssigneeOnly ด้านบน — เดิมคนที่เป็น assignee ของตัวเอง "และ" เป็น owner/editor โปรเจกต์ด้วย (self-assign) หลุดเช็คนี้ไปเลย ลากข้ามขั้นได้อิสระผ่าน Kanban)
-    // ยกเว้นงานที่ตัวเองเป็นคนคีย์ขึ้นมาเอง (createdBy === ตัวเอง) — ให้จบงานเองได้ทันทีตามที่ตกลง ไม่ต้องผ่านขั้นตอนอนุมัติ
-    // (2026-08-26) ยกเว้นเพิ่ม — งานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) ยังไม่เข้า workflow ตรวจงานจริง เปลี่ยนสถานะเองได้อิสระ ไม่ต้องกันไว้
-    if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.createdBy !== me.id && before.dispatchedAt) {
+    // (2026-09-15 fix) — เดิม createdBy === me.id ข้ามเช็คนี้ไปทั้งบล็อก ทำให้คนคีย์งานขึ้นเองปรับสถานะเป็นอะไรก็ได้ไม่จำกัด แม้งานผ่าน จ่ายงาน→รับงาน→ส่งงาน มาเต็ม flow แล้ว (ช่องโหว่)
+    // แก้เป็น: ยังต้องเดินตาม state machine เสมอเมื่อจ่ายงานแล้ว แค่ "คนคีย์งานเอง" ได้สิทธิ์ปิดงานลัดขั้นได้ (on_processing/waiting_for_test → done) ไม่ต้องรอคนอื่นอนุมัติ ตรงกับปุ่ม "ปิดงานเอง" ที่มีอยู่แล้วฝั่ง frontend เท่านั้น — ห้ามกระโดดไปสถานะอื่นที่ไม่ได้อนุญาต (เช่น ดึงกลับ non_start เอง)
+    // ยกเว้นงานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) ยังไม่เข้า workflow ตรวจงานจริง เปลี่ยนสถานะเองได้อิสระ ไม่ต้องกันไว้
+    if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.dispatchedAt) {
       const nextStatus = body.data.status
+      const isSelfKeyed = before.createdBy === me.id
       const assigneeAllowedNext: Partial<Record<(typeof TASK_STATUSES)[number], (typeof TASK_STATUSES)[number][]>> = {
         non_start: ['on_processing'],
-        on_processing: ['waiting_for_test'],
+        on_processing: isSelfKeyed ? ['waiting_for_test', 'done'] : ['waiting_for_test'],
         // §ดึงงานกลับ — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ต่อเองได้
-        waiting_for_test: ['on_processing'],
+        // isSelfKeyed เพิ่ม → done ได้ด้วย (self-approve งานที่คีย์เอง ไม่ต้องรอผู้จ่ายงานคนอื่นอนุมัติ)
+        waiting_for_test: isSelfKeyed ? ['on_processing', 'done'] : ['on_processing'],
       }
       if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)
