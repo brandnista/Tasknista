@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react'
 import { Avatar } from '../components/Avatar'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
+import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
 type ViewMode = 'daily' | 'weekly' | 'monthly' | 'sprint'
@@ -51,6 +52,8 @@ export function WorkloadPage() {
   const [view, setView] = useState<ViewMode>('weekly')
   const [anchor, setAnchor] = useState(today) // ใช้กับ daily/weekly/monthly
   const [sprintId, setSprintId] = useState('')
+  // Pronista §Workload role filter (2026-09-15) — กรองประเภทผู้ใช้งาน (role) ในตาราง — ฝั่ง client ล้วนๆ (ข้อมูล role มากับ /api/workload อยู่แล้ว ไม่ต้องยิง API เพิ่ม)
+  const [roleFilter, setRoleFilter] = useState<string>('all')
 
   const { data: sprintsData } = useLoad<{ sprints: SprintOption[] }>(() => api.get('/api/workload/sprints'), [])
   const sprintList = sprintsData?.sprints ?? []
@@ -98,6 +101,9 @@ export function WorkloadPage() {
 
   const showSprintEmpty = view === 'sprint' && !sprintId
   const rows = data ?? EMPTY_WORKLOAD
+  // Pronista §Workload role filter (2026-09-15) — ตัวเลือกในดรอปดาวน์ ดึงเฉพาะ role ที่มีคนจริงในทีมตอนนี้ (roster ฝั่ง backend มีแค่ owner/member/vendor อยู่แล้ว ไม่มี guest)
+  const availableRoles = useMemo(() => [...new Set(rows.people.map((p) => p.role))], [rows.people])
+  const filteredPeople = roleFilter === 'all' ? rows.people : rows.people.filter((p) => p.role === roleFilter)
 
   return (
     <div className="p-4 md:p-6">
@@ -140,6 +146,16 @@ export function WorkloadPage() {
             </button>
           </div>
         )}
+        {/* Pronista §Workload role filter (2026-09-15) — กรองประเภทผู้ใช้งาน (เฉพาะ role ที่มีคนจริงในทีมตอนนี้) */}
+        {availableRoles.length > 1 && (
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5">
+            <option value="all">ทุกประเภท</option>
+            {availableRoles.map((r) => (
+              <option key={r} value={r}>{ROLE_LABEL[r as keyof typeof ROLE_LABEL] ?? r}</option>
+            ))}
+          </select>
+        )}
+
         <span className="text-sm text-muted ml-1 tabular-nums">
           {showSprintEmpty ? '' : `${from} – ${to}`}
         </span>
@@ -153,6 +169,8 @@ export function WorkloadPage() {
         <>
           {rows.people.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted bg-white rounded-lg shadow-xs mb-4">ยังไม่มีสมาชิกในทีม</div>
+          ) : filteredPeople.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted bg-white rounded-lg shadow-xs mb-4">ไม่มีสมาชิกประเภทที่เลือก</div>
           ) : (
             <div className="bg-white rounded-lg shadow-xs overflow-hidden mb-4">
               <div className="overflow-x-auto">
@@ -177,7 +195,7 @@ export function WorkloadPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.people.map((p) => (
+                    {filteredPeople.map((p) => (
                       <tr key={p.id} className="group/row">
                         <td className="sticky left-0 z-20 bg-white group-hover/row:bg-hover px-3 py-2 shadow-[1px_0_0_var(--color-border-subtle)] whitespace-nowrap">
                           <button
