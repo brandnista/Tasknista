@@ -18,6 +18,7 @@ import { TaskListView } from '../components/TaskListView'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
+import { isInactiveStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
@@ -42,7 +43,7 @@ const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00
 /** Pronista §My Work/Notification — งานย่อยของฉันที่ยังไม่เสร็จ เรียง priority แล้ว deadline พร้อมปุ่มติ๊กเสร็จตรงๆ */
 function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onComplete: (id: string) => void }) {
   const pending = tasks
-    .filter((t) => t.parentId && t.status !== 'done')
+    .filter((t) => t.parentId && !isInactiveStatus(t.status))
     .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'))
   if (pending.length === 0) return null
   return (
@@ -224,7 +225,7 @@ export function MyTasksPage() {
   const today = bkkToday()
   const isDoneToday = (t: MyTask) => t.status === 'done' && !!t.completedAt && bkkDay(t.completedAt) === today
   const isSubmittedToday = (t: MyTask) => !!t.submittedAt && bkkDay(t.submittedAt) === today
-  const isOverdue = (t: MyTask) => !!t.dueDate && t.dueDate < today && t.status !== 'done'
+  const isOverdue = (t: MyTask) => !!t.dueDate && t.dueDate < today && !isInactiveStatus(t.status)
 
   // Pronista §My Work/Notification — 2 stat เพิ่มเติมตามสเปก (คำนวณฝั่ง client จากข้อมูลที่โหลดอยู่แล้ว ไม่ต้องเพิ่ม endpoint)
   const assignedProjectsCount = new Set(tasks.map((t) => t.projectId)).size
@@ -265,7 +266,7 @@ export function MyTasksPage() {
   // Pronista §My Work UX — Daily Accomplishment: 3 กลุ่มสำหรับ "สรุปผลงานประจำวัน" (คำนวณจากงานทั้งหมด ไม่ผูกกับตัวกรองบนจอ)
   const completedTodayList = tasks.filter((t) => isDoneToday(t) || isSubmittedToday(t))
   const inProgressList = tasks.filter((t) => t.status === 'on_processing')
-  const blockersList = tasks.filter((t) => isOverdue(t) || (t.kind === 'defect' && t.status !== 'done'))
+  const blockersList = tasks.filter((t) => isOverdue(t) || (t.kind === 'defect' && !isInactiveStatus(t.status)))
 
   return (
     <>

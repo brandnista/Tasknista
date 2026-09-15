@@ -399,7 +399,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
 export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const navigate = useNavigate()
   const { user: me } = useAuth()
-  const { confirmDialog } = useDialog()
+  const { confirmDialog, alertDialog } = useDialog()
   const isOwner = me?.role === 'owner'
   const { data: usersList, loading, reload } = useLoad<AdminUser[]>(() => api.get('/api/admin/users'))
   const { data: teamsList, reload: reloadTeams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
@@ -409,9 +409,24 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const [addingTeam, setAddingTeam] = useState(false)
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({})
 
+  // Pronista §Admin UX fix (2026-09-15) — ระงับบัญชี (active→disabled) เป็นการล็อคไม่ให้เข้าระบบได้เลย ควรถามยืนยันก่อน + ต้องมี error handling (เดิมไม่มีทั้งคู่)
   const toggleStatus = async (u: AdminUser) => {
-    await api.patch(`/api/admin/users/${u.id}`, { status: u.status === 'active' ? 'disabled' : 'active' })
-    await reload()
+    const next = u.status === 'active' ? 'disabled' : 'active'
+    if (next === 'disabled') {
+      const yes = await confirmDialog({
+        title: `ระงับบัญชี "${u.name}"?`,
+        message: 'จะเข้าสู่ระบบไม่ได้ทันที เปิดใช้งานกลับมาได้ทีหลัง',
+        confirmLabel: 'ระงับบัญชี',
+        danger: true,
+      })
+      if (!yes) return
+    }
+    try {
+      await api.patch(`/api/admin/users/${u.id}`, { status: next })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   const deleteUser = async (u: AdminUser) => {
     const yes = await confirmDialog({
@@ -421,13 +436,30 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
       danger: true,
     })
     if (!yes) return
-    await api.delete(`/api/admin/users/${u.id}`)
-    await reload()
+    // Pronista §Admin UX fix (2026-09-15) — มี confirm แล้วแต่ไม่มี try/catch เลย (การลบตามข้อความ confirm เองบอกว่ากู้คืนเองไม่ได้ — error ต้องไม่เงียบ)
+    try {
+      await api.delete(`/api/admin/users/${u.id}`)
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ลบสมาชิกไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
+  // Pronista §Admin UX fix (2026-09-15) — เดิมเปลี่ยน role ทันทีตอนเลือก dropdown เลย ไม่มีอะไรถามยืนยัน/แจ้งเตือนเลยทั้งที่เป็นการให้สิทธิ์ระดับสูงสุด (Admin) และไม่มี try/catch เลยด้วย (error จะเงียบแบบ "เลือกแล้วไม่มีอะไรเกิดขึ้น")
   const saveUserRole = async (u: AdminUser, role: AdminUser['role']) => {
     if (role === u.role) return
-    await api.patch(`/api/admin/users/${u.id}`, { role })
-    await reload()
+    const yes = await confirmDialog({
+      title: `เปลี่ยนสิทธิ์ "${u.name}" เป็น ${ROLE_LABEL[role]}?`,
+      message: role === 'owner' ? 'Admin มีสิทธิ์เข้าถึง/จัดการได้ทุกส่วนของระบบ ไม่มีเพดานจำกัด' : undefined,
+      confirmLabel: 'เปลี่ยนสิทธิ์',
+      danger: role === 'owner',
+    })
+    if (!yes) return
+    try {
+      await api.patch(`/api/admin/users/${u.id}`, { role })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสิทธิ์ไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   const saveManager = async (u: AdminUser, managerId: string) => {
     const next = managerId || null

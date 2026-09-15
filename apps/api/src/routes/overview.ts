@@ -1,6 +1,6 @@
 import { bkkDateOf } from '@seedoffice/core'
-import { createDb, projects, taskGroups, tasks, taskStars, timeEntries, timerSessions, users } from '@seedoffice/db'
-import { and, asc, eq, gte, isNull, ne } from 'drizzle-orm'
+import { createDb, INACTIVE_TASK_STATUSES, projects, taskGroups, tasks, taskStars, timeEntries, timerSessions, users } from '@seedoffice/db'
+import { and, asc, eq, gte, isNull, notInArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { ownerOnly } from '../middleware/roles'
@@ -96,7 +96,7 @@ export const overviewRoutes = new Hono<AppEnv>()
       .select({ task: tasks, projectName: projects.name, projectId: projects.id })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .where(and(eq(tasks.assigneeId, me.id), ne(tasks.status, 'done'), gte(tasks.dueDate, today)))
+      .where(and(eq(tasks.assigneeId, me.id), notInArray(tasks.status, [...INACTIVE_TASK_STATUSES]), gte(tasks.dueDate, today)))
       .orderBy(asc(tasks.dueDate))
       .limit(5)
 
@@ -123,7 +123,9 @@ export const overviewRoutes = new Hono<AppEnv>()
     const projectNameById = new Map(allProjects.map((p) => [p.id, p.name]))
 
     const allTasks = await db.select().from(tasks)
-    const overdueTasks = allTasks.filter((t) => t.status !== 'done' && t.dueDate && t.dueDate < today)
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — งานที่ถูกปฏิเสธ/ยกเลิกไม่ควรนับเป็น "งานที่ยังต้องทำ" ในภาพรวมนี้เลย (เดิมเช็คแค่ !=='done')
+    const isActiveStatus = (s: (typeof allTasks)[number]['status']) => !(INACTIVE_TASK_STATUSES as readonly string[]).includes(s)
+    const overdueTasks = allTasks.filter((t) => isActiveStatus(t.status) && t.dueDate && t.dueDate < today)
 
     const overdueDays = (dueDate: string) =>
       Math.round((Date.parse(`${today}T00:00:00+07:00`) - Date.parse(`${dueDate}T00:00:00+07:00`)) / 86_400_000)
@@ -136,7 +138,7 @@ export const overviewRoutes = new Hono<AppEnv>()
         dueDate: t.dueDate, overdueDays: overdueDays(t.dueDate!),
       }))
     const dueSoonList = allTasks
-      .filter((t) => t.status !== 'done' && t.dueDate && t.dueDate >= today && t.dueDate <= in7)
+      .filter((t) => isActiveStatus(t.status) && t.dueDate && t.dueDate >= today && t.dueDate <= in7)
       .sort((a, b) => (a.dueDate! < b.dueDate! ? -1 : 1))
       .slice(0, 12)
       .map((t) => ({
@@ -150,7 +152,7 @@ export const overviewRoutes = new Hono<AppEnv>()
     const unfinishedByUser = new Map<string, number>()
     const overdueByUser = new Map<string, number>()
     for (const t of allTasks) {
-      if (t.status === 'done' || !t.assigneeId) continue
+      if (!isActiveStatus(t.status) || !t.assigneeId) continue
       unfinishedByUser.set(t.assigneeId, (unfinishedByUser.get(t.assigneeId) ?? 0) + 1)
       if (t.dueDate && t.dueDate < today) overdueByUser.set(t.assigneeId, (overdueByUser.get(t.assigneeId) ?? 0) + 1)
     }

@@ -26,7 +26,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
-import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { isInactiveStatus, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { taskCreatedMessage } from '../lib/task-url'
 import { useLoad } from '../lib/useLoad'
 
@@ -169,7 +169,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   // Pronista §System Requirements Update — ซ่อนรหัสงานเป็นค่าเริ่มต้น กดปุ่ม "แสดงรหัสงาน" ที่ header ของ Backlog panel ถึงจะโชว์
   showCode?: boolean
 }) {
-  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]
+  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), soonDays)]
   const originBadge = t.originRefCode && t.originDocId ? (
     <a
       href={`/docs/${t.originDocId}`}
@@ -773,6 +773,51 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
   const [search, setSearch] = useState('')
   const filtered = search.trim() ? all.filter((t) => t.title.toLowerCase().includes(search.trim().toLowerCase()) || (t.code ?? '').toLowerCase().includes(search.trim().toLowerCase())) : all
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
+  // Pronista §Task-row expand (2026-09-15) — งานย่อยมากับ `filtered` อยู่แล้ว flat (มี parentId) โชว์แค่แถวบนสุด ซ่อนแถวลูกไว้ใต้ปุ่มคลี่แทน
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const filteredIds = new Set(filtered.map((t) => t.id))
+  const topLevel = filtered.filter((t) => !t.parentId || !filteredIds.has(t.parentId))
+  const childrenOf = (id: string) => filtered.filter((t) => t.parentId === id)
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
+    const children = childrenOf(t.id)
+    const hasChildren = children.length > 0
+    const isOpen = expandedIds.has(t.id)
+    return (
+      <div key={t.id}>
+        <div className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+          {hasChildren ? (
+            <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
+              <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
+          {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+          {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          {canEdit && (
+            <BacklogConvertMenu
+              onConvertDirect={(to) => setConvertModal({ taskId: t.id, to })}
+              onConvertPick={(to) => setConvertModal({ taskId: t.id, to })}
+            />
+          )}
+        </div>
+        {hasChildren && isOpen && children.map((child) => renderRow(child, depth + 1))}
+      </div>
+    )
+  }
 
   if (all.length === 0) return <div className="text-center text-xs text-muted py-6">ยังไม่มีงานในโปรเจกต์นี้</div>
 
@@ -783,22 +828,7 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
         <span className="text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
       </div>
       <div className="divide-y divide-divider">
-        {filtered.map((t) => (
-          <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', cfg?.dueSoonDays)]}`}>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
-            {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-            <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-            {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
-            {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
-            {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-            {canEdit && (
-              <BacklogConvertMenu
-                onConvertDirect={(to) => setConvertModal({ taskId: t.id, to })}
-                onConvertPick={(to) => setConvertModal({ taskId: t.id, to })}
-              />
-            )}
-          </div>
-        ))}
+        {topLevel.map((t) => renderRow(t))}
       </div>
       {convertModal && (
         <ConvertBacklogModal
@@ -1481,6 +1511,74 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'task' | 'cr' } | null>(null)
+  // Pronista §Task-row expand (2026-09-15) — งานย่อยของ Defect มากับ sel.filtered อยู่แล้ว flat โชว์แค่แถวบนสุด ซ่อนแถวลูกไว้ใต้ปุ่มคลี่แทน
+  // (fix) — งานย่อยอาจมี kind ต่างจากพ่อ (เช่น kind='task' ใต้ Defect พ่อ) ทำให้หลุด `defects` (กรอง kind==='defect' ไปแล้ว) ก่อนถึง sel.filtered เลย ต้องหาลูกจาก `data` (list เต็มไม่กรอง kind) แทน ไม่งั้นงานย่อยหายไปทั้งแถวเงียบๆ ไม่ใช่แค่ไม่ซ้อน
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const selFilteredIds = new Set(sel.filtered.map((t) => t.id))
+  const topLevel = sel.filtered.filter((t) => !t.parentId || !selFilteredIds.has(t.parentId))
+  const childrenOf = (id: string) => (data ?? []).filter((t) => t.parentId === id)
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
+    const children = childrenOf(t.id)
+    const hasChildren = children.length > 0
+    const isOpen = expandedIds.has(t.id)
+    return (
+      <div key={t.id}>
+        <div className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+          {hasChildren ? (
+            <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
+              <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          {canEdit && (
+            <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
+          )}
+          {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+          {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+          <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          {canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkingId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมโยงกับงานอื่น
+                    </button>
+                    {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                      {CONVERT_LABEL.task}
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      {CONVERT_LABEL.cr}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isOpen && children.map((child) => renderRow(child, depth + 1))}
+      </div>
+    )
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-3">
@@ -1552,43 +1650,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
         <div className="text-center text-xs text-muted py-6">{defects.length === 0 ? 'ยังไม่มี Defect ในโปรเจกต์นี้' : 'ไม่มี Defect ตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider">
-          {sel.filtered.map((t) => (
-            <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]}`}>
-              {canEdit && (
-                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
-              )}
-              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-              <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-              {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
-              {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
-              <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
-              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-              {canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkingId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมโยงกับงานอื่น
-                        </button>
-                        {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                          {CONVERT_LABEL.task}
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          {CONVERT_LABEL.cr}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          {topLevel.map((t) => renderRow(t))}
         </div>
       )}
       {canEdit && (
@@ -1991,6 +2053,127 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   }
   // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'task' | 'defect' | 'cr' } | null>(null)
+  // Pronista §Task-row expand (2026-09-15) — เฉพาะแท็บ Task ที่มี nesting จริง (Story/CR ทุกแถว parentId ว่างอยู่แล้วโดยธรรมชาติของ filter ด้านบน เลยไม่มีลูกให้คลี่เอง ไม่ต้องแยก case)
+  // (fix) — งานย่อยอาจมี kind ต่างจากพ่อ (เช่น kind='defect' ใต้ Task พ่อ) ทำให้หลุด `items` (กรอง kind/level ไปแล้ว) ก่อนถึง sel.filtered เลย ต้องหาลูกจาก `all` (list เต็มของโปรเจกต์ ไม่กรอง) แทน ไม่งั้นงานย่อยหายไปทั้งแถวเงียบๆ ไม่ใช่แค่ไม่ซ้อน
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const selFilteredIds = new Set(sel.filtered.map((t) => t.id))
+  const topLevel = sel.filtered.filter((t) => !t.parentId || !selFilteredIds.has(t.parentId))
+  const childrenOf = (id: string) => all.filter((t) => t.parentId === id)
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
+    const children = childrenOf(t.id)
+    const hasChildren = children.length > 0
+    const isOpen = expandedIds.has(t.id)
+    return (
+      <div key={t.id}>
+        <div
+          // Pronista §Sprint drag-and-drop fix — แท็บ Task (ProjectHierarchyTab) เดิมลากเข้า Sprint ไม่ได้เลย เพราะแถวไม่มี draggable/onDragStart แบบที่ BacklogTaskRow มี
+          // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
+          draggable={level === 'task' && canEdit}
+          onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
+          className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+        >
+          {hasChildren ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(t.id) }} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
+              <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          {selectable && canEdit && (
+            <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
+          )}
+          {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
+          {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          {t.parentTitle && level === 'task' && depth === 0 && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+          {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+          <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
+          {level === 'story' && canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Epic
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Task
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {level === 'cr' && canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkingRefId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมโยงกับงานอื่น
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                      {CONVERT_LABEL.task}
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      {CONVERT_LABEL.defect}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {level === 'task' && canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkTaskId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Story
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Epic
+                    </button>
+                    {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                      {CONVERT_LABEL.defect}
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      {CONVERT_LABEL.cr}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isOpen && children.map((child) => renderRow(child, depth + 1))}
+      </div>
+    )
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
@@ -2072,98 +2255,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         <div className="text-center text-xs text-muted py-6">{items.length === 0 ? meta.empty : 'ไม่มีงานตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider">
-          {sel.filtered.map((t) => (
-            <div
-              key={t.id}
-              // Pronista §Sprint drag-and-drop fix — แท็บ Task (ProjectHierarchyTab) เดิมลากเข้า Sprint ไม่ได้เลย เพราะแถวไม่มี draggable/onDragStart แบบที่ BacklogTaskRow มี
-              // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
-              draggable={level === 'task' && canEdit}
-              onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
-              className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
-            >
-              {selectable && canEdit && (
-                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
-              )}
-              {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
-              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-              <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-              {t.parentTitle && level === 'task' && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
-              {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
-              <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
-              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-              <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
-              {level === 'story' && canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Epic
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Task
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-              {level === 'cr' && canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkingRefId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมโยงกับงานอื่น
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                          {CONVERT_LABEL.task}
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          {CONVERT_LABEL.defect}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-              {level === 'task' && canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkTaskId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Story
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Epic
-                        </button>
-                        {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                          {CONVERT_LABEL.defect}
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          {CONVERT_LABEL.cr}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          {topLevel.map((t) => renderRow(t))}
         </div>
       )}
       {selectable && canEdit && (

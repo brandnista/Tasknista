@@ -1,3 +1,4 @@
+import { createDb, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
@@ -333,16 +334,32 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บั�
   const notifCountFor = async (userId: string, type: string) =>
     (await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind(userId, type).first<{ n: number }>())?.n ?? 0
 
-  it('notifyOnUpdate:true + มีผู้รับผิดชอบคนอื่น → แจ้ง task_updated ให้ผู้รับผิดชอบ', async () => {
+  it('notifyOnUpdate:true + มีผู้รับผิดชอบคนอื่น + จ่ายงานแล้ว → แจ้ง task_updated ให้ผู้รับผิดชอบ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const before = await notifCountFor('u_pond', 'task_updated')
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before + 1)
+  })
+
+  // (2026-09-15 bug fix) — พบจากการใช้งานจริง: PM ตั้งผู้รับผิดชอบ+เขียนรายละเอียดในทีเดียวผ่านปุ่ม "บันทึกเพื่ออัปเดตข้อมูล"
+  // (ยังไม่เคยกด "จ่ายงาน" เลย) เดิมยิง task_updated ไปหาผู้รับผิดชอบทันที ทั้งที่งานยังไม่โผล่ในหน้า "งานของฉัน" ของเขา (เกตจ่ายงานยังปิดอยู่)
+  // ทำให้กดจากแจ้งเตือนเข้ามาเจอปุ่ม "จ่ายงาน (ให้ตัวเอง)" แทนที่จะเป็น "รับงาน" — สับสนว่าทำไมงานที่คนอื่นมอบหมายมา ถึงกลายเป็นให้ตัวเองจ่ายเอง
+  it('notifyOnUpdate:true + ยังไม่เคยจ่ายงาน (dispatchedAt ว่าง) → ไม่แจ้ง task_updated (รอแจ้งตอน dispatch จริงแทน)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { g1 } = await setupProject(owner, 'u_pond')
     const t = (await (
       await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
     ).json()) as { id: string }
     const before = await notifCountFor('u_pond', 'task_updated')
-    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { description: 'รายละเอียดงาน', notifyOnUpdate: true }), env)
     expect(res.status).toBe(200)
-    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before + 1)
+    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before)
   })
 
   it('notifyOnUpdate ไม่ส่งมา (path อื่น เช่น toggle subtask) → ไม่แจ้ง แม้มีผู้รับผิดชอบคนอื่น', async () => {
@@ -376,5 +393,399 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บั�
     const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
     expect(res.status).toBe(200)
     // แค่ยืนยันว่าไม่ throw/error — ไม่มี assigneeId ให้เช็ค notifCountFor ไม่มีความหมาย
+  })
+})
+
+// (2026-09-15) §createdBy status-transition loophole fix — เดิม createdBy === me.id ข้าม state machine ทั้งบล็อก
+// ทำให้คนคีย์งานขึ้นเอง (แม้จ่ายงาน→รับงาน→ส่งงานผ่าน flow จริงแล้ว) ปรับสถานะเป็นอะไรก็ได้ไม่จำกัด — ตรงกับ bug repro ที่พี่แบงค์เจอ
+describe('§createdBy status-transition loophole — คีย์งานเองยังต้องเดินตาม state machine, ปิดลัดได้แค่ → done', () => {
+  async function selfKeyedTaskAt(status: 'on_processing' | 'waiting_for_test') {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งานคีย์เอง', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    if (status === 'waiting_for_test') await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test' }), env)
+    return { pond, taskId: t.id }
+  }
+
+  it('งานคีย์เอง+จ่ายให้ตัวเอง ส่งงานแล้ว (waiting_for_test) → ดึงกลับไป non_start เอง (ข้ามขั้น) ต้องเป็น 403 (เดิมผ่านเพราะช่องโหว่)', async () => {
+    const { pond, taskId } = await selfKeyedTaskAt('waiting_for_test')
+    const res = await app.request(`/api/tasks/${taskId}`, patchJson(pond, { status: 'non_start' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('งานคีย์เอง+จ่ายให้ตัวเอง ส่งงานแล้ว (waiting_for_test) → ปิดงานเองเป็น done ได้ (scoped self-approve)', async () => {
+    const { pond, taskId } = await selfKeyedTaskAt('waiting_for_test')
+    const res = await app.request(`/api/tasks/${taskId}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string }).status).toBe('done')
+  })
+
+  it('งานคีย์เอง+จ่ายให้ตัวเอง กำลังทำอยู่ (on_processing) → ปิดงานเองข้าม waiting_for_test ตรงไป done ได้ (ตรงกับปุ่ม "ปิดงานเอง")', async () => {
+    const { pond, taskId } = await selfKeyedTaskAt('on_processing')
+    const res = await app.request(`/api/tasks/${taskId}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('งานที่คนอื่นจ่ายมา (ไม่ใช่คีย์เอง) กำลังทำอยู่ → ปิดงานเองข้าม waiting_for_test ไม่ได้ (403) ต้องส่งงานตามลำดับ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานที่จ่ายมา', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('งานที่คนอื่นจ่ายมา ส่งงานแล้ว (waiting_for_test) → ดึงกลับไป non_start เอง (ข้ามขั้น) ยังเป็น 403 เหมือนเดิม (ไม่ regress)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานที่จ่ายมา', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test' }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'non_start' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  // (2026-09-15 follow-up) — สัญญาณ "ปิดงานเองได้" ต้องเป็น assignedBy===assigneeId (จ่ายงานให้ตัวเองจริง) ไม่ใช่ createdBy (แค่คนคีย์ Task ขึ้นในระบบ)
+  // เคสนี้พิสูจน์ว่าทั้งสองสัญญาณให้ผลต่างกันจริง: createdBy===assigneeId แต่ assignedBy เป็นคนอื่น (T14-style จากสเปก) ต้อง "ไม่ได้" สิทธิ์ปิดงานเอง
+  it('createdBy===assigneeId แต่คนอื่นเป็นคนจ่ายงานจริง (assignedBy≠assigneeId) → ไม่ได้สิทธิ์ปิดงานเอง (ต่างจาก createdBy signal เดิม)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    // pond คีย์งานขึ้นเอง แต่ "ยังไม่ระบุผู้รับผิดชอบ" ตอนสร้าง
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งาน' }), env)).json()) as { id: string }
+    const owner = await loginAs(app, 'owner@example-co.test')
+    // owner เป็นคนกดมอบหมายให้ pond ทีหลัง (assignedBy=owner) — แม้ createdBy จะเท่ากับ assigneeId (ทั้งคู่คือ pond) พอดี
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { assigneeId: 'u_pond' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test' }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'done' }), env)
+    expect(res.status).toBe(403)
+  })
+})
+
+// (2026-09-15) §createdBy loophole follow-up — assignedBy ต้องถูกเซ็ตตอนสร้างงานพร้อมผู้รับผิดชอบเลยทันทีทุก endpoint ไม่ใช่แค่ตอน PATCH ทีหลัง
+describe('§assignedBy population — เซ็ตตั้งแต่ตอนสร้างงานถ้าระบุ assigneeId มาด้วย', () => {
+  it('POST /groups/:id/tasks ระบุ assigneeId ตอนสร้าง → assignedBy = คนสร้าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+  })
+
+  it('POST /groups/:id/tasks ไม่ระบุ assigneeId ตอนสร้าง → assignedBy = null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBeNull()
+  })
+
+  it('POST /tasks/backlog ระบุ assigneeId ตอนสร้าง → assignedBy = คนสร้าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = (await (
+      await app.request('/api/tasks/backlog', json(owner, { title: 'งาน backlog', assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+  })
+
+  it('POST /projects/:id/tasks ระบุ assigneeId ตอนสร้าง → assignedBy = คนสร้าง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/projects/${p.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+  })
+})
+
+// (2026-09-15) §Business Rules Workflow เฟส A — Reviewer: ไม่บังคับเลือก, ว่าง=พฤติกรรมเดิม, ระบุแล้วเฉพาะ reviewer/owner อนุมัติได้
+describe('§Business Rules Workflow — Reviewer', () => {
+  const patchJson2 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  // (2026-09-15 follow-up) — ไม่ระบุ Reviewer ตรงๆ → fallback เป็น "ผู้จ่ายงาน" (assignedBy) โดยอัตโนมัติ แทน "editor/owner โปรเจกต์คนไหนก็ได้" แบบเดิม (ยืนยันแล้ว)
+  it('ไม่ได้เลือก Reviewer เลย → fallback เป็นผู้จ่ายงาน (assignedBy) อนุมัติได้ ส่วน editor คนอื่นที่ไม่ใช่ผู้จ่ายงานอนุมัติไม่ได้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_other_editor', email: 'othereditor@example-co.test', name: 'บก', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_other_editor', positionId: 'pos_full_access' }), env)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    // owner เป็นคนกดจ่ายงาน (assignedBy=owner) ไม่ได้ระบุ reviewer เลย
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+
+    // editor คนอื่นที่ไม่ใช่ owner บริษัทและไม่ใช่ assignedBy → ต้องโดนบล็อกแล้ว (พฤติกรรมใหม่)
+    const otherEditor = await loginAs(app, 'othereditor@example-co.test')
+    const blocked = await app.request(`/api/tasks/${t.id}`, patchJson2(otherEditor, { status: 'done' }), env)
+    expect(blocked.status).toBe(403)
+
+    // owner (บริษัท) ยัง bypass ได้เสมอ
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('ระบุ Reviewer ไว้ → owner บริษัท bypass อนุมัติได้เสมอแม้ไม่ใช่ reviewer ที่ระบุ (ตั้งใจ ไม่ใช่บั๊ก)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_reviewer_test', positionId: 'pos_full_access' }), env)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { reviewerId: 'u_reviewer_test' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+    const ownerApprove = await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { status: 'done' }), env)
+    expect(ownerApprove.status).toBe(200)
+  })
+
+  it('ระบุ Reviewer ไว้ → คนที่ไม่ใช่ reviewer/ไม่ใช่ owner บริษัท อนุมัติไม่ได้ (403)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_reviewer_test', positionId: 'pos_full_access' }), env)
+    // สมาชิกที่ 4: editor อีกคน ที่ไม่ใช่ reviewer และไม่ใช่ assignee — คนที่ต้องโดนบล็อก
+    await createDb(env.DB).insert(users).values({ id: 'u_other_editor', email: 'othereditor@example-co.test', name: 'บก', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_other_editor', positionId: 'pos_full_access' }), env)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { reviewerId: 'u_reviewer_test' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+
+    const otherEditor = await loginAs(app, 'othereditor@example-co.test')
+    const blocked = await app.request(`/api/tasks/${t.id}`, patchJson2(otherEditor, { status: 'done' }), env)
+    expect(blocked.status).toBe(403)
+
+    const reviewer = await loginAs(app, 'reviewtest@example-co.test')
+    const approved = await app.request(`/api/tasks/${t.id}`, patchJson2(reviewer, { status: 'done' }), env)
+    expect(approved.status).toBe(200)
+  })
+
+  it('self-dispatch (assignedBy===assigneeId) แต่มี Reviewer ระบุไว้ → ปิดงานเองไม่ได้แล้ว ต้องรอ reviewer', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งานคีย์เอง', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { reviewerId: 'u_reviewer_test' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
+    // เดิม (ไม่มี reviewer) self-close ได้เลย — ตอนนี้มี reviewer แล้วต้องโดนบล็อก
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'done' }), env)
+    expect(res.status).toBe(403)
+  })
+})
+
+// (2026-09-15) §Business Rules Workflow เฟส B — สถานะ Rejected/Cancelled
+describe('§Business Rules Workflow — Rejected/Cancelled status', () => {
+  const patchJson3 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('ปฏิเสธงานก่อนรับ → status เป็น "rejected" ค้างไว้จริง (เดิมแค่เคลียร์ dispatchedAt เงียบๆ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'ไม่ถนัดงานนี้' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string; dispatchedAt: number | null }).status).toBe('rejected')
+  })
+
+  it('จ่ายงานซ้ำ (dispatch) หลังถูกปฏิเสธ (status=rejected) → รีเซ็ตกลับ non_start ให้เข้ารอบรับงานใหม่ปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${t.id}/reject`, json(pond, { reason: 'ไม่ถนัดงานนี้' }), env)
+    const res = await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string }).status).toBe('non_start')
+    const accept = await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    expect(accept.status).toBe(200)
+  })
+
+  it('ตั้ง status เป็น rejected/cancelled ตรงๆ ผ่าน PATCH ทั่วไป → 400 (ต้องผ่าน action endpoint เฉพาะเท่านั้น)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const r1 = await app.request(`/api/tasks/${t.id}`, patchJson3(owner, { status: 'rejected' }), env)
+    expect(r1.status).toBe(400)
+    const r2 = await app.request(`/api/tasks/${t.id}`, patchJson3(owner, { status: 'cancelled' }), env)
+    expect(r2.status).toBe(400)
+  })
+
+  it('ยกเลิกงาน (cancel): ไม่ใส่เหตุผล = 400 · ใส่เหตุผล = สำเร็จ status=cancelled + assignee ได้แจ้งเตือน · vendor ยกเลิกไม่ได้ = 403 · ยกเลิกงาน done แล้ว = 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+
+    const noReason = await app.request(`/api/tasks/${t.id}/cancel`, json(owner, {}), env)
+    expect(noReason.status).toBe(400)
+
+    const vendor = await loginAs(app, 'somchai@example.com')
+    const vendorTry = await app.request(`/api/tasks/${t.id}/cancel`, json(vendor, { reason: 'ลอง' }), env)
+    expect(vendorTry.status).toBe(403)
+
+    const before = (
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind('u_pond', 'task_cancelled').first<{ n: number }>()
+    )?.n ?? 0
+    const res = await app.request(`/api/tasks/${t.id}/cancel`, json(owner, { reason: 'scope เปลี่ยน' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { status: string }).status).toBe('cancelled')
+    const after = (
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind('u_pond', 'task_cancelled').first<{ n: number }>()
+    )?.n ?? 0
+    expect(after).toBe(before + 1)
+
+    const t2 = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน done แล้ว' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t2.id}`, patchJson3(owner, { status: 'done' }), env)
+    const cancelDone = await app.request(`/api/tasks/${t2.id}/cancel`, json(owner, { reason: 'ลองยกเลิกงานที่เสร็จแล้ว' }), env)
+    expect(cancelDone.status).toBe(400)
+  })
+})
+
+// (2026-09-15) §Business Rules Workflow เฟส C — Sub-task completion gate
+describe('§Business Rules Workflow — Sub-task completion gate', () => {
+  const patchJson4 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('งานย่อยยังไม่เสร็จ → ส่งงาน/ปิดงานแม่ไม่ได้ (400 subtasks_incomplete)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+
+    const toWaiting = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'waiting_for_test' }), env)
+    expect(toWaiting.status).toBe(400)
+    const toDone = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(toDone.status).toBe(400)
+  })
+
+  it('งานย่อยเสร็จครบแล้ว → ปิดงานแม่ได้ปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    const sub = (await (
+      await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${sub.id}`, patchJson4(owner, { status: 'done' }), env)
+
+    const res = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('งานย่อยถูกยกเลิก (cancelled) → ไม่นับเป็นตัวบล็อก ปิดงานแม่ได้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    const sub = (await (
+      await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${sub.id}/cancel`, json(owner, { reason: 'ไม่ต้องทำแล้ว' }), env)
+
+    const res = await app.request(`/api/tasks/${parent.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('งานที่ไม่มีงานย่อยเลย → ปิดงานได้ปกติ (ไม่กระทบ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานเดี่ยว' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson4(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+  })
+})
+
+// (2026-09-15) §Business Rules Workflow เฟส D — Version / Optimistic concurrency
+describe('§Business Rules Workflow — Version / optimistic concurrency', () => {
+  const patchJson5 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('สร้างงานใหม่ → version เริ่มที่ 1', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { version: number }
+    expect(t.version).toBe(1)
+  })
+
+  it('ไม่ส่ง expectedVersion มา → ข้ามเช็ค ทำงานได้ปกติ (backward-compat) และ version ยังบวกขึ้น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string; version: number }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'high' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { version: number }).version).toBe(2)
+  })
+
+  it('ส่ง expectedVersion ตรงกับปัจจุบัน → สำเร็จ, version บวกขึ้น 1', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string; version: number }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'high', expectedVersion: t.version }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { version: number }).version).toBe(2)
+  })
+
+  it('ส่ง expectedVersion เก่า (มีคนแก้ไปก่อนแล้ว) → 409 stale_version ไม่ทับข้อมูลคนอื่น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string; version: number }
+    // คนแรกแก้ไปแล้ว (version 1 → 2)
+    await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'high', expectedVersion: t.version }), env)
+    // คนที่สองยังถือ version เก่า (1) อยู่ พยายามแก้ต่อ
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'low', expectedVersion: t.version }), env)
+    expect(res.status).toBe(409)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe('stale_version')
+    // ยืนยันว่าค่าจริงในระบบยังเป็นของคนแรก ไม่ถูกคนที่สองทับ
+    const current = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as { priority: string }
+    expect(current.priority).toBe('high')
   })
 })

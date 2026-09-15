@@ -482,7 +482,12 @@ export const sprintTaskSnapshots = sqliteTable(
 export const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR', 'API'] as const
 
 // Pronista §2.12 — สถานะ task ตายตัว 4 ค่า (Kanban ทุกโปรเจกต์ ไม่ว่า Product/Project) แทนที่ todo/doing/done เดิม
-export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done'] as const
+// Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — เพิ่ม 'rejected'/'cancelled' เป็นสถานะข้อยกเว้น (ไม่ใช่คอลัมน์ Kanban หลัก — ดู StatusKanban.tsx) เข้าถึงได้เฉพาะผ่าน action endpoint เฉพาะ (reject/cancel) ห้ามตั้งตรงผ่าน PATCH ทั่วไป
+export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done', 'rejected', 'cancelled'] as const
+// สถานะที่ถือว่า "จบแล้ว ไม่ต้อง action อีก" — ใช้แทน `ne(tasks.status,'done')` ในจุดที่หมายถึง "งานที่ยังต้องทำอยู่" (overdue/my-tasks/search ฯลฯ)
+export const INACTIVE_TASK_STATUSES = ['done', 'rejected', 'cancelled'] as const
+// สถานะที่เลือกได้ตรงๆ ผ่าน dropdown อิสระ (canEditStatusFreely) — ไม่รวม rejected/cancelled เพราะต้องผ่าน action ที่บังคับเหตุผลเท่านั้น (endpoint /reject, /cancel)
+export const FREE_EDIT_TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done'] as const
 // Pronista §5 (2026-07-03) — Defect มีชุดสถานะของตัวเอง แยกจาก TASK_STATUSES (ใช้เฉพาะเมื่อ kind==='defect')
 export const DEFECT_STATUSES = ['reported', 'fixing', 'waiting_verify', 'closed'] as const
 
@@ -535,6 +540,10 @@ export const tasks = sqliteTable(
     assigneeId: text('assignee_id').references(() => users.id),
     // Pronista §My Work/Notification — คนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     assignedBy: text('assigned_by').references(() => users.id),
+    // Pronista §Business Rules Workflow (2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ใช้พฤติกรรมเดิม: editor/owner โปรเจกต์คนไหนก็อนุมัติได้) — เลือกได้จากสมาชิกโปรเจกต์คนไหนก็ได้เหมือน assigneeId
+    reviewerId: text('reviewer_id').references(() => users.id),
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency: บวก 1 ทุกครั้งที่แก้ไข task นี้สำเร็จ (PATCH ทั่วไป) เอาไว้ให้ client แนบ expectedVersion กันแก้ทับกันเงียบๆ
+    version: integer('version').notNull().default(1),
     // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId
     dispatchedAt: integer('dispatched_at', { mode: 'timestamp_ms' }),
     status: text('status', { enum: TASK_STATUSES }).notNull().default('non_start'),
@@ -1796,6 +1805,8 @@ export const NOTIFICATION_TYPES = [
   'sellnista_expired',
   // Pronista §Secret Vault Permission (2026-09-08) — แจ้งทุกคนที่มีสิทธิ์เข้าเมนู Secret Vault เมื่อมีคนปลดล็อคสำเร็จ (ยกเว้นตัวเอง)
   'vault_accessed',
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — แจ้ง assignee (ถ้ามี) ตอนงานถูกยกเลิก
+  'task_cancelled',
 ] as const
 
 export const notifications = sqliteTable(
