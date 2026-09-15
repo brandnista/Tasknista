@@ -7,9 +7,10 @@ import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgen
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
+// Pronista §My Tasks dispatcher view fix (2026-09-16) — projectName สืบมาจาก KanbanTask (string | undefined) พอแล้ว
+// backend อาจส่ง null มาได้ (งานคีย์ตรงใน Workspace ไม่ผูกโปรเจกต์ — fallback เป็นชื่อ Workspace room แทน) แต่ .filter(Boolean) ตอน render กัน null/undefined เหมือนกันอยู่แล้วไม่ต้องเข้มงวดกับ type ตรงนี้
 interface DispatchedRow extends KanbanTask {
-  projectId: string
-  projectName: string
+  projectId: string | null
 }
 
 /** Pronista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
@@ -41,7 +42,7 @@ export function MyTasksDispatchedPage() {
                       <span className="ml-2 text-[11px] text-dim">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>
                     )}
                   </div>
-                  <div className="text-[11px] text-muted mt-0.5">{t.projectName}{t.assigneeName ? ` · ${t.assigneeName}` : ''}</div>
+                  <div className="text-[11px] text-muted mt-0.5">{[t.projectName, t.assigneeName].filter(Boolean).join(' · ')}</div>
                 </div>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
               </button>

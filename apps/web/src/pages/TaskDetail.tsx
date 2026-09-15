@@ -24,6 +24,7 @@ import { Avatar } from '../components/Avatar'
 import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
+import { RichTextEditor } from '../components/RichTextEditor'
 import { STATUS_SWATCH } from '../lib/project-ui'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
@@ -944,14 +945,20 @@ export function TaskDetailPage() {
             <div>
               <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้จ่ายงาน</div>
               {canEditDispatcherNotes ? (
-                <textarea
-                  value={draftVal('description') ?? ''}
-                  onChange={(e) => setDraftField('description', e.target.value || null)}
+                // Pronista §Rich text description (2026-09-15) — ใช้ RichTextEditor ตัวเดียวกับ Docs/My Note (Tiptap เก็บเป็น Markdown)
+                // เป็น uncontrolled component (content = ค่าเริ่มต้นครั้งเดียว ไม่ re-render ตาม prop เปลี่ยน) — ผูก content จาก t.description (ค่า server) ไม่ใช่ draftVal
+                // key={t.id} บังคับ remount สดตอนสลับเปิดคนละ Task กันเนื้อหาเก่าค้าง (mirror pattern key={resetKey} ของ MyNoteTab.tsx)
+                <RichTextEditor
+                  key={t.id}
+                  content={t.description ?? ''}
+                  onChange={(md) => setDraftField('description', md || null)}
                   placeholder="เพิ่มรายละเอียดงาน..."
-                  className="w-full min-h-24 text-sm text-soft bg-hover rounded-lg p-3 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
+                  minHeight="min-h-24"
                 />
+              ) : t.description ? (
+                <RichTextEditor content={t.description} editable={false} bare />
               ) : (
-                <p className="text-sm text-soft whitespace-pre-line">{t.description ?? '—'}</p>
+                <p className="text-sm text-soft">—</p>
               )}
             </div>
 

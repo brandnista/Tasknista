@@ -19,6 +19,7 @@ import {
   timeEntries,
   timerSessions,
   users,
+  workspaces,
 } from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
@@ -37,7 +38,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const taskPatchSchema = z.object({
   title: z.string().min(1).optional(),
-  description: z.string().nullable().optional(),
+  // Pronista §Rich text description (2026-09-15) — เก็บเป็น Markdown แล้ว (RichTextEditor) — cap เดียวกับ My Note (my-notes.ts) เพื่อความสม่ำเสมอ
+  description: z.string().max(10000).nullable().optional(),
   // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
   assigneeNotes: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
@@ -217,7 +219,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const body = z
       .object({
         title: z.string().min(1),
-        description: z.string().max(2000).optional(),
+        description: z.string().max(10000).optional(),
         status: z.enum(TASK_STATUSES).optional(),
         priority: z.enum(['low', 'normal', 'high']).optional(),
         assigneeId: z.string().optional(),
@@ -481,13 +483,16 @@ export const taskRoutes = new Hono<AppEnv>()
   })
 
   // Pronista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
+  // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
+  // ทั้งที่จ่ายไปจริง (assignedBy ตรง) เปลี่ยนเป็น leftJoin ทั้งคู่ (projects/workspaces) แล้ว fallback ชื่อที่โชว์เป็นชื่อ Workspace room แทนตอนไม่มีโปรเจกต์
   .get('/tasks/dispatched-by-me', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const rows = await db
-      .select({ task: tasks, projectName: projects.name, assigneeName: users.name })
+      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name, assigneeName: users.name })
       .from(tasks)
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .where(eq(tasks.assignedBy, me.id))
       .orderBy(asc(tasks.dueDate))
@@ -495,7 +500,7 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(
       rows.map((r) => ({
         ...r.task,
-        projectName: r.projectName,
+        projectName: r.projectName ?? r.workspaceName,
         assigneeName: r.assigneeName,
         checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
         checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,

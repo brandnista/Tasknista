@@ -5,10 +5,10 @@ import { useNavigate, useParams } from 'react-router'
 import { ClientCombobox } from '../components/ClientCombobox'
 import { DateInputTH } from '../components/DateInputTH'
 import { IconPicker } from '../components/IconPicker'
+import { ProjectMembersPicker } from '../components/ProjectMembersPicker'
 import { useToast } from '../components/Toast'
 import { api } from '../lib/api'
 import { type ProjectRow } from '../lib/project-ui'
-import { ROLE_LABEL } from '../lib/role-label'
 import { useLoad } from '../lib/useLoad'
 
 interface EditableProject extends ProjectRow {
@@ -21,98 +21,6 @@ interface ServiceTypeOpt { id: string; name: string }
 interface ProductTypeOpt { id: string; name: string }
 
 const input = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
-
-/**
- * Pronista §Position-based permission — owner assign ตำแหน่ง (BA/PM/ฯลฯ) ให้ member เป็นรายโปรเจกต์ (สิทธิ์มาจากตำแหน่งที่เลือกล้วนๆ)
- * Pronista §7 (2026-07-03) — controlled component: แค่เก็บ positionId ที่เลือกไว้ใน state ของหน้าแม่ ไม่ยิง API เอง — รอปุ่ม "บันทึก" เดียวที่ด้านล่างสุดจัดการให้ทั้งคู่พร้อมกัน
- * Pronista §Member Management — เพิ่ม/ลบ vendor(outsource)/guest(ลูกค้า) เป็นสมาชิกโปรเจกต์ได้ด้วย (ไม่มีตำแหน่ง สิทธิ์มาจากเพดานหมวดตรงๆ) แยก state จาก member เพราะไม่มี positionId
- */
-function MembersSection({
-  users,
-  assignments,
-  extraMembers,
-  positions,
-  onChangePosition,
-  onToggleExtra,
-}: {
-  users: TeamUser[]
-  assignments: Record<string, string>
-  extraMembers: Record<string, boolean>
-  positions: PositionOpt[]
-  onChangePosition: (userId: string, positionId: string) => void
-  onToggleExtra: (userId: string, checked: boolean) => void
-}) {
-  // ตำแหน่ง (catalog) มีผลเฉพาะ role=member — vendor/guest ไม่มีตำแหน่งของตัวเอง (สิทธิ์มาจากเพดานหมวดโดยตรง)
-  const team = users.filter((u) => u.role === 'member')
-  const outsource = users.filter((u) => u.role === 'vendor')
-  const customers = users.filter((u) => u.role === 'guest')
-  // Pronista §Member Management feedback — owner(Admin) เข้าถึงทุกโปรเจกต์เต็มรูปแบบเสมออยู่แล้ว (backend ปฏิเสธการเพิ่มเข้า project_members ตรงๆ)
-  // แต่ owner ก็ถูก assign งานในโปรเจกต์ได้เหมือนกัน จึงโชว์ในลิสต์สมาชิกไว้ให้เห็น (read-only ไม่มีปุ่มให้กด เพราะไม่มีอะไรต้องตั้งค่าเพิ่ม)
-  const admins = users.filter((u) => u.role === 'owner')
-  return (
-    <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
-      <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
-      <p className="text-xs text-muted mb-4">
-        สิทธิ์แก้ไข/มองเห็นเมนูมาจากตำแหน่งที่เลือก (ตั้งค่าตำแหน่งได้ที่ ตั้งค่า → ตำแหน่งและสิทธิ์) · ยังไม่ตั้งค่า = ยังไม่ใช่สมาชิก · กด "บันทึก" ด้านล่างเพื่อยืนยัน
-      </p>
-
-      <div className="text-[11px] font-medium text-muted mb-1.5">Admin (owner)</div>
-      <div className="divide-y divide-divider mb-4">
-        {admins.map((u) => (
-          <div key={u.id} className="flex items-center gap-3 py-2.5">
-            <span className="flex-1 text-sm text-body">{u.name}</span>
-            <span className="text-xs text-muted">Admin · เข้าถึงเต็มรูปแบบทุกโปรเจกต์เสมอ</span>
-          </div>
-        ))}
-        {admins.length === 0 && <div className="text-sm text-muted py-3">ไม่มี Admin ในระบบ</div>}
-      </div>
-
-      <div className="text-[11px] font-medium text-muted mb-1.5 pt-3 border-t border-border-subtle">ทีมงาน (member)</div>
-      <div className="divide-y divide-divider mb-4">
-        {team.map((u) => (
-          <div key={u.id} className="flex items-center gap-3 py-2.5">
-            <span className="flex-1 text-sm text-body">{u.name}</span>
-            <select
-              value={assignments[u.id] ?? ''}
-              onChange={(e) => onChangePosition(u.id, e.target.value)}
-              className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
-            >
-              <option value="">— ยังไม่ใช่สมาชิก — (เอาออก)</option>
-              {positions.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-        ))}
-        {team.length === 0 && <div className="text-sm text-muted py-3">ไม่มีพนักงาน (member) ในระบบ</div>}
-      </div>
-
-      <div className="text-[11px] font-medium text-muted mb-1.5 pt-3 border-t border-border-subtle">Outsource (vendor)</div>
-      <div className="divide-y divide-divider mb-4">
-        {outsource.map((u) => (
-          <label key={u.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
-            <span className="flex-1 text-sm text-body">{u.name}</span>
-            <span className="text-xs text-muted">{ROLE_LABEL[u.role]} · สิทธิ์ตามเพดาน outsource</span>
-            <input type="checkbox" checked={extraMembers[u.id] ?? false} onChange={(e) => onToggleExtra(u.id, e.target.checked)} />
-          </label>
-        ))}
-        {outsource.length === 0 && <div className="text-sm text-muted py-3">ไม่มี outsource ในระบบ</div>}
-      </div>
-
-      <div className="text-[11px] font-medium text-muted mb-1.5 pt-3 border-t border-border-subtle">ลูกค้า (guest)</div>
-      <div className="divide-y divide-divider">
-        {customers.map((u) => (
-          <label key={u.id} className="flex items-center gap-3 py-2.5 cursor-pointer">
-            <span className="flex-1 text-sm text-body">{u.name}</span>
-            <span className="text-xs text-muted">{ROLE_LABEL[u.role]} · สิทธิ์ตามเพดานลูกค้า</span>
-            <input type="checkbox" checked={extraMembers[u.id] ?? false} onChange={(e) => onToggleExtra(u.id, e.target.checked)} />
-          </label>
-        ))}
-        {customers.length === 0 && <div className="text-sm text-muted py-3">ไม่มีลูกค้าในระบบ</div>}
-      </div>
-    </div>
-  )
-}
 
 export function ProjectEditPage() {
   const toast = useToast()
@@ -396,14 +304,20 @@ export function ProjectEditPage() {
       </div>
 
       {canEditProject && (
-        <MembersSection
-          users={allUsers}
-          assignments={memberAssignments}
-          extraMembers={extraMembers}
-          positions={cfg?.positions ?? []}
-          onChangePosition={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
-          onToggleExtra={(userId, checked) => setExtraMembers((a) => ({ ...a, [userId]: checked }))}
-        />
+        <div className="bg-white rounded-lg shadow-xs p-5 sm:p-6 mt-5">
+          <h2 className="font-semibold text-ink mb-1">สมาชิกโปรเจกต์</h2>
+          <p className="text-xs text-muted mb-4">
+            สิทธิ์แก้ไข/มองเห็นเมนูมาจากตำแหน่งที่เลือก (ตั้งค่าตำแหน่งได้ที่ ตั้งค่า → ตำแหน่งและสิทธิ์) · ยังไม่ตั้งค่า = ยังไม่ใช่สมาชิก · กด "บันทึก" ด้านล่างเพื่อยืนยัน
+          </p>
+          <ProjectMembersPicker
+            users={allUsers}
+            assignments={memberAssignments}
+            extraMembers={extraMembers}
+            positions={cfg?.positions ?? []}
+            onChangePosition={(userId, positionId) => setMemberAssignments((a) => ({ ...a, [userId]: positionId }))}
+            onToggleExtra={(userId, checked) => setExtraMembers((a) => ({ ...a, [userId]: checked }))}
+          />
+        </div>
       )}
 
       {error && <div className="text-xs text-danger-600 mt-4">{error}</div>}
