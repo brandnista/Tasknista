@@ -789,7 +789,8 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" (ตัด Auto-save แล้ว) แจ้งผู้รับผิดชอบว่างานถูกแก้ไข
     // ข้ามถ้าไม่มีผู้รับผิดชอบ หรือคนกดบันทึกคือผู้รับผิดชอบเอง (กันแจ้งเตือนตัวเอง) — notifyOnUpdate เป็น signal จากปุ่มนี้เท่านั้น กัน path อื่น (toggle subtask/kanban) ยิงซ้ำ
-    if (body.data.notifyOnUpdate && updated[0]!.assigneeId && updated[0]!.assigneeId !== me.id) {
+    // (2026-09-15 fix) — เดิมไม่เช็ค dispatchedAt เลย ทำให้ตั้งผู้รับผิดชอบครั้งแรก+เขียนรายละเอียดแล้วกด "บันทึก" ในทีเดียว ยิงแจ้งเตือน "งานได้รับการแก้ไข" ไปหาคนที่เพิ่งถูกตั้งเป็นผู้รับผิดชอบ ทั้งที่ยังไม่ถูก "จ่ายงาน" อย่างเป็นทางการ (เกตจ่ายงานยังปิดอยู่ — งานยังไม่โผล่ในหน้า "งานของฉัน" กดจากแจ้งเตือนเข้ามาเจอปุ่ม "จ่ายงาน (ให้ตัวเอง)" แทน "รับงาน" งงว่าทำไมไม่ใช่คนรับงาน) — mirror เงื่อนไขเดียวกับ notify ตอน reassign ด้านบน (บรรทัด 722) ที่เช็ค dispatchedAt อยู่แล้ว
+    if (body.data.notifyOnUpdate && updated[0]!.assigneeId && updated[0]!.assigneeId !== me.id && updated[0]!.dispatchedAt) {
       await notifyUser(db, {
         userId: updated[0]!.assigneeId,
         type: 'task_updated',

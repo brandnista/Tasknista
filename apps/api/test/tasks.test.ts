@@ -334,16 +334,32 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บั�
   const notifCountFor = async (userId: string, type: string) =>
     (await env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND type = ?').bind(userId, type).first<{ n: number }>())?.n ?? 0
 
-  it('notifyOnUpdate:true + มีผู้รับผิดชอบคนอื่น → แจ้ง task_updated ให้ผู้รับผิดชอบ', async () => {
+  it('notifyOnUpdate:true + มีผู้รับผิดชอบคนอื่น + จ่ายงานแล้ว → แจ้ง task_updated ให้ผู้รับผิดชอบ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    const before = await notifCountFor('u_pond', 'task_updated')
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before + 1)
+  })
+
+  // (2026-09-15 bug fix) — พบจากการใช้งานจริง: PM ตั้งผู้รับผิดชอบ+เขียนรายละเอียดในทีเดียวผ่านปุ่ม "บันทึกเพื่ออัปเดตข้อมูล"
+  // (ยังไม่เคยกด "จ่ายงาน" เลย) เดิมยิง task_updated ไปหาผู้รับผิดชอบทันที ทั้งที่งานยังไม่โผล่ในหน้า "งานของฉัน" ของเขา (เกตจ่ายงานยังปิดอยู่)
+  // ทำให้กดจากแจ้งเตือนเข้ามาเจอปุ่ม "จ่ายงาน (ให้ตัวเอง)" แทนที่จะเป็น "รับงาน" — สับสนว่าทำไมงานที่คนอื่นมอบหมายมา ถึงกลายเป็นให้ตัวเองจ่ายเอง
+  it('notifyOnUpdate:true + ยังไม่เคยจ่ายงาน (dispatchedAt ว่าง) → ไม่แจ้ง task_updated (รอแจ้งตอน dispatch จริงแทน)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const { g1 } = await setupProject(owner, 'u_pond')
     const t = (await (
       await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
     ).json()) as { id: string }
     const before = await notifCountFor('u_pond', 'task_updated')
-    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { description: 'รายละเอียดงาน', notifyOnUpdate: true }), env)
     expect(res.status).toBe(200)
-    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before + 1)
+    expect(await notifCountFor('u_pond', 'task_updated')).toBe(before)
   })
 
   it('notifyOnUpdate ไม่ส่งมา (path อื่น เช่น toggle subtask) → ไม่แจ้ง แม้มีผู้รับผิดชอบคนอื่น', async () => {

@@ -747,6 +747,8 @@ export function TaskDetailPage() {
   }
 
   const isAssignee = !!user && t.assigneeId === user.id
+  // Pronista §Reassign-notify fix (2026-09-15) — แยก "จ่ายงานให้ตัวเอง" จริง (ไม่มีใครมอบหมายมา) ออกจาก "ถูกคนอื่นตั้งเป็นผู้รับผิดชอบแล้วยังไม่ถูกจ่ายอย่างเป็นทางการ" — เดิมสองเคสนี้ขึ้นปุ่ม/ข้อความ "จ่ายงาน (ให้ตัวเอง)" เหมือนกันหมด ทำให้ assignee ที่ถูกคนอื่นมอบหมายมางง (เจอบั๊กจริง: อัญมอบหมายให้อาร์ม แต่อาร์มเห็นปุ่มเหมือนกำลังจ่ายงานให้ตัวเอง)
+  const assignedByOther = isAssignee && !!t.assignedBy && t.assignedBy !== t.assigneeId
   // Pronista §Task Workflow fix (2026-08-26) — isAssignee เดิมใช้ซ่อน "ฝั่งผู้จ่ายงาน" ทั้งหมดรวมถึงตอนจ่ายงานให้ตัวเอง (self-assign)
   // ทำให้กรอกเวลาประเมิน/ลำดับความสำคัญ/ประเภทงาน/กำหนดการฯลฯ ไม่ได้เลยระหว่างจ่ายให้ตัวเอง — isAssigneeOnly แยกกรณีนี้ออก: true เฉพาะเป็น assignee "อย่างเดียว" (ไม่มีสิทธิ์ editor/owner โปรเจกต์ด้วย)
   const isAssigneeOnly = isAssignee && t.myRole !== 'owner' && t.myRole !== 'editor'
@@ -1482,9 +1484,13 @@ export function TaskDetailPage() {
                   !t.dispatchedAt ? (
                     <>
                       <button onClick={() => void dispatch()} disabled={dispatching} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
-                        <CheckCircle2 className="w-4 h-4" /> จ่ายงาน (ให้ตัวเอง)
+                        <CheckCircle2 className="w-4 h-4" /> {assignedByOther ? 'ยืนยันรับงาน' : 'จ่ายงาน (ให้ตัวเอง)'}
                       </button>
-                      <div className="text-[11px] text-muted text-center">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย</div>
+                      <div className="text-[11px] text-muted text-center">
+                        {assignedByOther
+                          ? `${t.assignedByName ?? 'ผู้จ่ายงาน'} มอบหมายงานนี้ให้คุณแล้ว แต่ยังไม่ได้กด "จ่ายงาน" อย่างเป็นทางการ — กดยืนยันเพื่อเริ่มทำได้เลย`
+                          : 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย'}
+                      </div>
                     </>
                   ) : t.status === 'non_start' ? (
                     <>
