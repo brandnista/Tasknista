@@ -713,3 +713,53 @@ describe('§Business Rules Workflow — Sub-task completion gate', () => {
     expect(res.status).toBe(200)
   })
 })
+
+// (2026-09-15) §Business Rules Workflow เฟส D — Version / Optimistic concurrency
+describe('§Business Rules Workflow — Version / optimistic concurrency', () => {
+  const patchJson5 = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('สร้างงานใหม่ → version เริ่มที่ 1', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { version: number }
+    expect(t.version).toBe(1)
+  })
+
+  it('ไม่ส่ง expectedVersion มา → ข้ามเช็ค ทำงานได้ปกติ (backward-compat) และ version ยังบวกขึ้น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string; version: number }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'high' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { version: number }).version).toBe(2)
+  })
+
+  it('ส่ง expectedVersion ตรงกับปัจจุบัน → สำเร็จ, version บวกขึ้น 1', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string; version: number }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'high', expectedVersion: t.version }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { version: number }).version).toBe(2)
+  })
+
+  it('ส่ง expectedVersion เก่า (มีคนแก้ไปก่อนแล้ว) → 409 stale_version ไม่ทับข้อมูลคนอื่น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string; version: number }
+    // คนแรกแก้ไปแล้ว (version 1 → 2)
+    await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'high', expectedVersion: t.version }), env)
+    // คนที่สองยังถือ version เก่า (1) อยู่ พยายามแก้ต่อ
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson5(owner, { priority: 'low', expectedVersion: t.version }), env)
+    expect(res.status).toBe(409)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe('stale_version')
+    // ยืนยันว่าค่าจริงในระบบยังเป็นของคนแรก ไม่ถูกคนที่สองทับ
+    const current = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as { priority: string }
+    expect(current.priority).toBe('high')
+  })
+})

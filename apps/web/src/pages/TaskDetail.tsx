@@ -216,6 +216,8 @@ function TimeSection({
 interface Detail {
   id: string
   projectId: string | null
+  // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency: ส่งกลับมาพร้อม expectedVersion ตอนกด "บันทึกเพื่ออัปเดตข้อมูล" กันแก้ทับกันเงียบๆ
+  version: number
   // Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — Manhour/วันของหมวด assignee ปัจจุบัน ใช้คำนวณ "ประเมิน ชม." แนะนำตอนเปลี่ยนวันที่
   weeklyMinutes: WeeklyMinutes
   title: string
@@ -511,7 +513,8 @@ export function TaskDetailPage() {
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ปุ่มเดียวรวมบันทึกทุกฟิลด์ที่แก้ไว้ใน draft (แทนที่ auto-save เดิมทั้งหมด) + แจ้งผู้รับผิดชอบว่างานถูกอัปเดต (notifyOnUpdate)
   const saveUpdate = async () => {
     if (!hasDraft || saving) return
-    const payload: Record<string, unknown> = { ...draft, notifyOnUpdate: true }
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — แนบ version ปัจจุบันไปด้วยเสมอ กันแก้ทับกันเงียบๆ ตอนมี 2 คนเปิดหน้าเดียวกันพร้อมกัน
+    const payload: Record<string, unknown> = { ...draft, notifyOnUpdate: true, expectedVersion: t.version }
     if ('title' in payload) {
       const trimmed = String(payload.title ?? '').trim()
       if (!trimmed) delete payload.title
@@ -524,7 +527,14 @@ export function TaskDetailPage() {
       await reload()
       toast('บันทึกสำเร็จ')
     } catch (e) {
-      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง' })
+      if (e instanceof ApiError && e.data && typeof e.data === 'object' && 'error' in e.data && e.data.error === 'stale_version') {
+        // มีคนแก้ไขงานนี้ไปพร้อมกัน — โหลดข้อมูลล่าสุดมาแทน draft เดิม (merge เองซับซ้อนเกินจำเป็นสำหรับตอนนี้ ให้ผู้ใช้เห็นของใหม่แล้วแก้ต่อเอง)
+        await alertDialog({ title: 'มีคนแก้ไขงานนี้ไปพร้อมกัน', message: 'กำลังโหลดข้อมูลล่าสุดให้ใหม่ — กรุณาตรวจสอบแล้วแก้ไขอีกครั้ง' })
+        setDraft({})
+        await reload()
+      } else {
+        await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง' })
+      }
     } finally {
       setSaving(false)
     }

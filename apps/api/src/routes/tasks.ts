@@ -20,7 +20,7 @@ import {
   timerSessions,
   users,
 } from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -74,6 +74,8 @@ const taskPatchSchema = z.object({
   subTaskType: z.string().nullable().optional(),
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — สัญญาณจากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" เท่านั้น (ไม่ใช่คอลัมน์ DB จริง ตัดออกก่อนอัปเดต) กันการ patch เส้นทางอื่น (เช่น toggle subtask/kanban drag) ยิงแจ้งเตือนซ้ำ/ผิดจุดโดยไม่ตั้งใจ
   notifyOnUpdate: z.boolean().optional(),
+  // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency แบบ optional: ไม่ส่งมา = ข้ามการเช็ค (กัน caller เก่า/action ทีละคลิกพัง) ส่งมา = ต้องตรงกับ version ปัจจุบันถึงจะเขียนได้
+  expectedVersion: z.number().int().optional(),
 })
 
 /** board ของโปรเจกต์ + CRUD group/task — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation) */
@@ -617,6 +619,9 @@ export const taskRoutes = new Hono<AppEnv>()
 
     const patch: Record<string, unknown> = { ...body.data }
     delete patch.notifyOnUpdate
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — expectedVersion ใช้แค่ตัดสินใจ WHERE guard ด้านล่าง ไม่ใช่คอลัมน์จริง (ตัดออกก่อนเขียน DB เหมือน notifyOnUpdate)
+    delete patch.expectedVersion
+    patch.version = sql`${tasks.version} + 1`
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
@@ -681,7 +686,13 @@ export const taskRoutes = new Hono<AppEnv>()
         return c.json({ error: 'invalid_task_type' }, 400)
     }
 
-    const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — ถ้า client แนบ expectedVersion มา ต้องตรงกับ version ปัจจุบันถึงจะเขียนได้ (mirror pattern WHERE guard เดียวกับ dispatch/accept/reject) — ไม่ส่งมา = ข้ามเช็คนี้ (backward-compat)
+    const updated = await db
+      .update(tasks)
+      .set(patch)
+      .where(body.data.expectedVersion !== undefined ? and(eq(tasks.id, before.id), eq(tasks.version, body.data.expectedVersion)) : eq(tasks.id, before.id))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'stale_version', message: 'มีคนแก้ไขงานนี้ไปพร้อมกัน กรุณารีเฟรชแล้วลองใหม่' }, 409)
 
     // Pronista §Board Live Update — งาน/สถานะในบอร์ดขยับ (ลากคอลัมน์เป็นเคสหลัก) บอก client ที่เปิด Board ของ sprint นี้อยู่ให้ reload สด
     if (before.sprintId) await notifyBoard(c.env, before.sprintId)
@@ -809,7 +820,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — งานที่เคยถูกปฏิเสธมาก่อน (status='rejected') จ่ายซ้ำ (คนเดิมหรือหลัง reassign ที่รีเซ็ตเป็น non_start ไปแล้วก็ไม่เข้าเงื่อนไขนี้อยู่แล้ว) → รีเซ็ตกลับ non_start ให้เข้ารอบ accept ใหม่ปกติ
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: new Date(), status: before.status === 'rejected' ? 'non_start' : before.status })
+      .set({ dispatchedAt: new Date(), status: before.status === 'rejected' ? 'non_start' : before.status, version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), isNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 409)
@@ -836,7 +847,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB กัน race จากการกดซ้ำ/พร้อมกัน
     const updated = await db
       .update(tasks)
-      .set({ status: 'on_processing' })
+      .set({ status: 'on_processing', version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start')))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
@@ -870,7 +881,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // เปลี่ยนเป็นตั้ง status='rejected' ค้างไว้ให้เห็นจริง จนกว่าจะจ่ายงานใหม่ (/dispatch รีเซ็ตกลับ non_start ให้อัตโนมัติ) หรือ reassign คนอื่น (logic เดิม reset เป็น non_start อยู่แล้ว)
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: null, status: 'rejected' })
+      .set({ dispatchedAt: null, status: 'rejected', version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start'), isNotNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
@@ -911,7 +922,7 @@ export const taskRoutes = new Hono<AppEnv>()
     if (before.status === 'done' || before.status === 'cancelled') return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 400)
     const updated = await db
       .update(tasks)
-      .set({ status: 'cancelled' })
+      .set({ status: 'cancelled', version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), ne(tasks.status, 'done'), ne(tasks.status, 'cancelled')))
       .returning()
     if (!updated[0]) return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 409)
@@ -952,7 +963,7 @@ export const taskRoutes = new Hono<AppEnv>()
     }
 
     // Pronista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
-    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task' }
+    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', version: sql`${tasks.version} + 1` }
     // Pronista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
     const codePrefix = sanitizeCodePrefix(null, 'TASK')
     // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
