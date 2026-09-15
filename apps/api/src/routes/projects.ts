@@ -453,7 +453,13 @@ export const projectRoutes = new Hono<AppEnv>()
     // Pronista §Position-based permission fix — ต้องตั้ง positionId ตอนสร้างเลย ไม่งั้นค่าเริ่มต้นคือ NULL = ไม่มีสิทธิ์อะไรเลยในระบบตำแหน่งใหม่
     // (คนที่ถูกติ๊กเลือกตอนสร้างโปรเจกต์ ควรทำงานในโปรเจกต์ได้ทันที จึงให้ "เข้าถึงเต็มรูปแบบ" เป็นค่าเริ่มต้น ปรับลดทีหลังได้ที่หน้าแก้ไขโปรเจกต์)
     if (d.members && d.members.length > 0) {
-      await db.insert(projectMembers).values(d.members.map((userId) => ({ projectId: p.id, userId, positionId: POSITION_FULL_ACCESS_ID })))
+      // Pronista §Project members — open to all roles (2026-09-15) — เดิม blind-insert positionId เต็มทุกคนไม่แยก role (ใช้ได้ตอนเลือกได้แค่ member)
+      // ตอนนี้เลือกได้ทุก role แล้ว (เหมือน Workspace) ต้อง role-aware แบบเดียวกับ POST /:id/members: member = เข้าถึงเต็มรูปแบบ, owner/vendor/guest = positionId null (ไม่มีผลต่อสิทธิ์จริง แค่ข้อมูลแสดงผล)
+      const memberRoles = await db.select({ id: users.id, role: users.role }).from(users).where(inArray(users.id, d.members))
+      const roleOf = new Map(memberRoles.map((u) => [u.id, u.role]))
+      await db.insert(projectMembers).values(
+        d.members.map((userId) => ({ projectId: p.id, userId, positionId: roleOf.get(userId) === 'member' ? POSITION_FULL_ACCESS_ID : null })),
+      )
       // Pronista §Notification overhaul (2026-08-27) — ถูกเพิ่มเข้าโปรเจกต์ตั้งแต่ตอนสร้างเลย ก็ต้องแจ้งเตือนเหมือนกัน
       for (const userId of d.members) {
         if (userId === c.get('user').id) continue
@@ -1073,7 +1079,7 @@ export const projectRoutes = new Hono<AppEnv>()
     if (!canEditProject(await getProjectRole(db, project.id, me.id, me.role))) return c.json({ error: 'forbidden' }, 403)
     const targetUser = (await db.select().from(users).where(eq(users.id, body.data.userId)).limit(1))[0]
     if (!targetUser) return c.json({ error: 'user_not_found' }, 404)
-    if (targetUser.role === 'owner') return c.json({ error: 'owner_has_full_access', message: 'owner เข้าถึงได้ทุกโปรเจกต์อยู่แล้ว ไม่ต้องเพิ่มเป็นสมาชิก' }, 400)
+    // Pronista §Project members — open to all roles (2026-09-15) — เดิมปฏิเสธ owner ตรงนี้ เปลี่ยนให้เลือกได้เหมือน vendor/guest แทน (positionId เป็น null เสมอ ไม่มีผลต่อสิทธิ์จริง — owner bypass เพดาน/ตำแหน่งทุกจุดอยู่แล้วใน getProjectPermissions/getProjectRole เป็นแค่ข้อมูลแสดงผล "ใครอยู่ในทีมนี้บ้าง")
     let positionId: string | null = null
     if (targetUser.role === 'member') {
       if (!body.data.positionId) return c.json({ error: 'position_required', message: 'พนักงาน (member) ต้องเลือกตำแหน่ง' }, 400)

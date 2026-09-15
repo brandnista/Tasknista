@@ -37,7 +37,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const taskPatchSchema = z.object({
   title: z.string().min(1).optional(),
-  description: z.string().nullable().optional(),
+  // Pronista §Rich text description (2026-09-15) — เก็บเป็น Markdown แล้ว (RichTextEditor) — cap เดียวกับ My Note (my-notes.ts) เพื่อความสม่ำเสมอ
+  description: z.string().max(10000).nullable().optional(),
   // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
   assigneeNotes: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
@@ -217,7 +218,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const body = z
       .object({
         title: z.string().min(1),
-        description: z.string().max(2000).optional(),
+        description: z.string().max(10000).optional(),
         status: z.enum(TASK_STATUSES).optional(),
         priority: z.enum(['low', 'normal', 'high']).optional(),
         assigneeId: z.string().optional(),
