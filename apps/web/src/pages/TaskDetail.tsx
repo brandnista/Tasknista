@@ -758,7 +758,9 @@ export function TaskDetailPage() {
   // (เฟส A, 2026-09-15) — ต้อง "ไม่มี Reviewer" ด้วยถึงจะปิดงานเองได้ (สเปกข้อ 7/8: self-assign มี reviewer → ต้องรอ approve เหมือนงานทั่วไป ไม่ใช่ปิดเองอิสระ)
   const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId && !t.reviewerId
   // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ถ้าระบุ Reviewer ไว้ เฉพาะ reviewer คนนั้น (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงาน "รอตรวจ" ได้ — ไม่มี reviewer (ค่าเริ่มต้น) = ใครก็ได้ที่ canEdit เหมือนเดิม
-  const canReviewSubmission = !t.reviewerId || t.reviewerId === user?.id || user?.role === 'owner'
+  // (2026-09-15 follow-up) — ไม่ระบุ reviewer ตรงๆ → fallback เป็นผู้จ่ายงาน (assignedBy) แทน "editor/owner คนไหนก็ได้" ตามที่ยืนยันแล้ว — mirror สัญญาณเดียวกับ backend เป๊ะ
+  const effectiveReviewerId = t.reviewerId ?? t.assignedBy
+  const canReviewSubmission = !effectiveReviewerId || effectiveReviewerId === user?.id || user?.role === 'owner'
   // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
   // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
   const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt)
@@ -1265,7 +1267,7 @@ export function TaskDetailPage() {
                   <span className="text-dim">ผู้ตรวจงาน</span>
                   {canEdit && !isAssigneeOnly ? (
                     <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-fit min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
-                      <option value="">— ไม่ระบุ (ใครก็อนุมัติได้) —</option>
+                      <option value="">— ไม่ระบุ (ผู้จ่ายงานอนุมัติแทน) —</option>
                       {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                   ) : (
@@ -1537,7 +1539,7 @@ export function TaskDetailPage() {
                 ) : t.status === 'waiting_for_test' && !canReviewSubmission ? (
                   // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ระบุ Reviewer ไว้แล้ว แต่ผู้ใช้ปัจจุบันไม่ใช่ reviewer คนนั้น/owner — ไม่เห็นปุ่มอนุมัติ/ตีกลับเลย เห็นแค่สถานะรอ
                   <>
-                    <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2">งานนี้ส่งมารอตรวจอยู่ — รอ{t.reviewerName ? ` ${t.reviewerName}` : 'ผู้ตรวจที่ระบุไว้'}พิจารณา</div>
+                    <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2">งานนี้ส่งมารอตรวจอยู่ — รอ{(t.reviewerName ?? t.assignedByName) ? ` ${t.reviewerName ?? t.assignedByName}` : 'ผู้ตรวจ'}พิจารณา</div>
                   </>
                 ) : (
                   <>

@@ -503,17 +503,27 @@ describe('§Business Rules Workflow — Reviewer', () => {
     body: JSON.stringify(body),
   })
 
-  it('ไม่ได้เลือก Reviewer เลย → editor คนไหนก็อนุมัติได้เหมือนเดิม (regression)', async () => {
+  // (2026-09-15 follow-up) — ไม่ระบุ Reviewer ตรงๆ → fallback เป็น "ผู้จ่ายงาน" (assignedBy) โดยอัตโนมัติ แทน "editor/owner โปรเจกต์คนไหนก็ได้" แบบเดิม (ยืนยันแล้ว)
+  it('ไม่ได้เลือก Reviewer เลย → fallback เป็นผู้จ่ายงาน (assignedBy) อนุมัติได้ ส่วน editor คนอื่นที่ไม่ใช่ผู้จ่ายงานอนุมัติไม่ได้', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const { g1 } = await setupProject(owner, 'u_pond')
+    const { p, g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_other_editor', email: 'othereditor@example-co.test', name: 'บก', role: 'member' }).onConflictDoNothing()
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_other_editor', positionId: 'pos_full_access' }), env)
     const t = (await (
       await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
     ).json()) as { id: string }
+    // owner เป็นคนกดจ่ายงาน (assignedBy=owner) ไม่ได้ระบุ reviewer เลย
     await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
     const pond = await loginAs(app, 'pond@example-co.test')
     await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
     await app.request(`/api/tasks/${t.id}`, patchJson2(pond, { status: 'waiting_for_test' }), env)
-    // owner เป็นคนจ่ายงาน ไม่ใช่ reviewer ที่ระบุ (เพราะไม่มีการระบุเลย) — ยัง approve ได้ตามพฤติกรรมเดิม
+
+    // editor คนอื่นที่ไม่ใช่ owner บริษัทและไม่ใช่ assignedBy → ต้องโดนบล็อกแล้ว (พฤติกรรมใหม่)
+    const otherEditor = await loginAs(app, 'othereditor@example-co.test')
+    const blocked = await app.request(`/api/tasks/${t.id}`, patchJson2(otherEditor, { status: 'done' }), env)
+    expect(blocked.status).toBe(403)
+
+    // owner (บริษัท) ยัง bypass ได้เสมอ
     const res = await app.request(`/api/tasks/${t.id}`, patchJson2(owner, { status: 'done' }), env)
     expect(res.status).toBe(200)
   })

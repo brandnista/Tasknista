@@ -568,18 +568,20 @@ export const taskRoutes = new Hono<AppEnv>()
       if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)
     }
-    // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ถ้ามีการระบุ Reviewer ไว้ (ไม่บังคับเลือก) เฉพาะ Reviewer คนนั้น (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงานที่ "รอตรวจ" ได้
-    // ไม่กระทบ flow อื่นเลยถ้าไม่ได้เลือก reviewer ไว้ (reviewerId ว่าง = พฤติกรรมเดิมทุกอย่าง, editor/owner โปรเจกต์คนไหนก็ได้)
+    // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — เฉพาะผู้ตรวจ (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงานที่ "รอตรวจ" ได้
+    // (2026-09-15 follow-up) — ไม่ระบุ Reviewer ไว้ตรงๆ → fallback เป็น "ผู้จ่ายงาน" (assignedBy) โดยอัตโนมัติแทน editor/owner โปรเจกต์คนไหนก็ได้แบบเดิม (ตามที่อาร์มยืนยัน)
+    // เหลือ "ใครก็ได้" เฉพาะกรณีไม่มีทั้ง reviewer และไม่เคยมีคนจ่ายงานอย่างเป็นทางการเลย (effectiveReviewerId ว่างจริงๆ)
+    const effectiveReviewerId = before.reviewerId ?? before.assignedBy
     if (
       body.data.status &&
       body.data.status !== before.status &&
       before.status === 'waiting_for_test' &&
       before.assigneeId !== me.id &&
-      before.reviewerId &&
-      before.reviewerId !== me.id &&
+      effectiveReviewerId &&
+      effectiveReviewerId !== me.id &&
       me.role !== 'owner'
     ) {
-      return c.json({ error: 'forbidden', message: 'งานนี้ระบุผู้ตรวจไว้แล้ว ต้องให้ผู้ตรวจที่ระบุเป็นคนอนุมัติ/ตีกลับ' }, 403)
+      return c.json({ error: 'forbidden', message: 'งานนี้มีผู้ตรวจที่กำหนดไว้แล้ว (ผู้จ่ายงาน หรือผู้ตรวจที่ระบุ) ต้องให้คนนั้นเป็นคนอนุมัติ/ตีกลับ' }, 403)
     }
     // Pronista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
     // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา non_start (รับงานใหม่) ก่อนถึงจะแก้ต่อได้
