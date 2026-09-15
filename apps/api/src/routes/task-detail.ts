@@ -231,6 +231,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .values({
         projectId: parent.projectId,
         groupId: parent.groupId,
+        // Pronista §Task-row expand fix (2026-09-15) — เดิมไม่เคยสืบ workspaceId จาก parent เลย ทำให้งานย่อยของ Task ที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์) หายไปจาก backlog-items query ทั้งหมด (query กรองด้วย workspaceId ตรงๆ)
+        workspaceId: parent.workspaceId,
         parentId: parent.id,
         sortOrder: 0,
         createdBy: me.id,

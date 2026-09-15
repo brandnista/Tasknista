@@ -50,6 +50,8 @@ interface WsBacklogItem {
   code: string | null
   title: string
   description: string | null
+  // Pronista §Task-row expand (2026-09-15) — งานย่อย (Subtask) มากับ array เดียวกันนี้อยู่แล้ว flat — ใช้ parentId จัดกลุ่มคลี่ดูแทนที่จะเรียงแบนเหมือนเดิม
+  parentId: string | null
   kind: 'epic' | 'task' | 'backlog' | 'defect' | 'cr'
   workType: WorkType
   status: TaskStatus | null
@@ -324,6 +326,8 @@ export function WorkspacePage() {
   const [taskTypeFilter, setTaskTypeFilter] = useState('all')
   const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Pronista §Task-row expand (2026-09-15) — แถวไหนถูกคลี่ดูงานย่อยอยู่บ้าง (mirror pattern เดียวกับ expandedTasks ใน ProjectDetail.tsx)
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
@@ -565,6 +569,18 @@ export function WorkspacePage() {
     .filter((i) => subTaskTypeFilter === 'all' || i.subTaskType === subTaskTypeFilter)
     .filter((i) => !trimmedSearch || i.title.toLowerCase().includes(trimmedSearch) || (i.code ?? '').toLowerCase().includes(trimmedSearch))
     .sort((a, b) => WORKTYPE_ORDER[a.workType] - WORKTYPE_ORDER[b.workType] || a.title.localeCompare(b.title))
+  // Pronista §Task-row expand (2026-09-15) — งานย่อยมากับ filteredItems อยู่แล้ว flat: โชว์แค่แถวบนสุด (ไม่มี parent หรือ parent ไม่อยู่ใน list ที่กรองอยู่ตอนนี้) แถวลูกซ่อนไว้ใต้ปุ่มคลี่แทน
+  const filteredItemIds = new Set(filteredItems.map((i) => i.id))
+  const topLevelItems = filteredItems.filter((i) => !i.parentId || !filteredItemIds.has(i.parentId))
+  const childrenOf = (id: string) => filteredItems.filter((i) => i.parentId === id)
+  const toggleItemExpand = (id: string) => {
+    setExpandedItemIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const sprintItems = boardData?.sprints ?? []
   const openSprints = sprintItems.filter((s) => s.sprint.status !== 'completed')
@@ -605,6 +621,180 @@ export function WorkspacePage() {
       <div className="p-6">
         <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-3 mb-3">ไม่พบ Workspace นี้ หรือคุณไม่ใช่สมาชิก</div>
         <Link to="/workspace" className="text-sm text-brand-700 hover:underline inline-flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> กลับไปหน้า Workspace</Link>
+      </div>
+    )
+  }
+
+  // Pronista §Task-row expand (2026-09-15) — แถวเดียวใช้ได้ทั้ง top-level และงานย่อย (เรียกตัวเองซ้ำเผื่อซ้อนหลายชั้น) — mirror pattern renderTaskRow/renderSprintTaskRow ใน ProjectDetail.tsx
+  const renderItem = (it: WsBacklogItem, depth = 0): React.ReactNode => {
+    const children = childrenOf(it.id)
+    const hasChildren = children.length > 0
+    const isExpanded = expandedItemIds.has(it.id)
+    return (
+      <div key={it.id}>
+        <div
+          draggable={it.kind !== 'epic'}
+          onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
+          onDragEnd={() => setDragTaskId(null)}
+          className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+        >
+          {/* Pronista §Task-row expand (2026-09-15) — ลูกศรคลี่ดูงานย่อย โผล่เฉพาะแถวที่มีจริง แถวไม่มีลูกใส่ spacer แทนกันแนวเลื่อน (มือถือ: hit-area ใหญ่กว่าไอคอนจริงด้วย p-1 -m-1) */}
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); toggleItemExpand(it.id) }}
+              className="shrink-0 p-1 -m-1 text-muted hover:text-ink"
+              aria-label={isExpanded ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}
+            >
+              <ChevronRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          {room.type === 'developer' && it.kind !== 'epic' && (
+            <input
+              type="checkbox"
+              checked={selectedIds.has(it.id)}
+              onChange={() => toggleSelected(it.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0"
+            />
+          )}
+          {it.kind === 'epic' ? (
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
+          ) : (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setTypeMenuForId((v) => (v === it.id ? null : it.id))}
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded hover:opacity-80 ${WORKTYPE_BADGE[it.workType]}`}
+              >
+                {WORKTYPE_LABEL[it.workType]}
+              </button>
+              {typeMenuForId === it.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setTypeMenuForId(null)} />
+                  <div className="absolute left-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                    {CONVERT_TYPE_ORDER.filter((t) => t !== it.workType).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => pickConvertType(it, t)}
+                        className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
+                      >
+                        <span className={`w-2 h-2 rounded-full ${CONVERT_TYPE_DOT[t]}`} />
+                        {CONVERT_TYPE_LABEL[t]}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {it.projectId || it.kind === 'epic' ? (
+            <ProjectChip code={it.projectCode} name={it.projectName} />
+          ) : (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); openAttachMenu(it) }}
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-50 text-warning-700 hover:bg-warning-100 shrink-0"
+              >
+                ยังไม่ผูกโปรเจกต์
+              </button>
+              {attachMenuForId === it.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setAttachMenuForId(null)} />
+                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle p-3 z-20 text-sm space-y-2">
+                    <div className="text-xs font-medium text-muted">ผูกโปรเจกต์ (ไม่บังคับ)</div>
+                    <select value={attachProjectId} onChange={(e) => { setAttachProjectId(e.target.value); setAttachParentId('') }} className={`${selectCls} w-full`}>
+                      <option value="">— ไม่ผูก —</option>
+                      {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    {it.workType === 'task' && (
+                      <>
+                        <div className="text-xs font-medium text-muted">ผูก Story แม่ (ไม่บังคับ)</div>
+                        <select value={attachParentId} onChange={(e) => setAttachParentId(e.target.value)} className={`${selectCls} w-full`}>
+                          <option value="">— ไม่ผูก —</option>
+                          {attachParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
+                        </select>
+                      </>
+                    )}
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button onClick={() => setAttachMenuForId(null)} className="text-xs px-2 py-1 rounded hover:bg-hover">ยกเลิก</button>
+                      <button
+                        onClick={() => void attachItem(it)}
+                        disabled={!attachProjectId && !attachParentId}
+                        className="text-xs bg-brand-600 text-white px-2.5 py-1 rounded hover:bg-brand-700 disabled:opacity-40"
+                      >
+                        บันทึก
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
+          {it.kind === 'epic' ? (
+            <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
+          ) : (
+            <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
+          )}
+          {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
+          {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
+          {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
+          <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
+          {it.status && (
+            <select
+              value={it.status}
+              onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
+              className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
+            >
+              {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+            </select>
+          )}
+          <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
+          {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
+          {it.kind !== 'epic' && (
+            <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
+              🔗
+            </button>
+          )}
+          {/* Pronista §Mobile responsive — ปุ่มย้ายเข้า Sprint แทนการลาก (ลากใช้ไม่ได้บนสัมผัส) ห้อง developer เท่านั้น */}
+          {room.type === 'developer' && it.kind !== 'epic' && (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setSprintMenuForId((v) => (v === it.id ? null : it.id))}
+                title="ย้ายเข้า Sprint"
+                className="text-muted hover:text-brand-600 shrink-0 text-xs px-1"
+              >
+                ⋯
+              </button>
+              {sprintMenuForId === it.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setSprintMenuForId(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                    {openSprints.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
+                    ) : (
+                      openSprints.map(({ sprint }) => (
+                        <button
+                          key={sprint.id}
+                          onClick={() => { setSprintMenuForId(null); void assignToSprint(sprint.id, it.id) }}
+                          className="w-full text-left px-3 py-1.5 hover:bg-hover truncate"
+                        >
+                          เพิ่มเข้า Sprint: {sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isExpanded && children.map((child) => renderItem(child, depth + 1))}
       </div>
     )
   }
@@ -884,158 +1074,7 @@ export function WorkspacePage() {
                   </div>
                   {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
                   <div className="divide-y divide-divider">
-                    {filteredItems.map((it) => (
-                      <div
-                        key={it.id}
-                        draggable={it.kind !== 'epic'}
-                        onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
-                        onDragEnd={() => setDragTaskId(null)}
-                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
-                      >
-                        {room.type === 'developer' && it.kind !== 'epic' && (
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(it.id)}
-                            onChange={() => toggleSelected(it.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0"
-                          />
-                        )}
-                        {it.kind === 'epic' ? (
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
-                        ) : (
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setTypeMenuForId((v) => (v === it.id ? null : it.id))}
-                              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded hover:opacity-80 ${WORKTYPE_BADGE[it.workType]}`}
-                            >
-                              {WORKTYPE_LABEL[it.workType]}
-                            </button>
-                            {typeMenuForId === it.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setTypeMenuForId(null)} />
-                                <div className="absolute left-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
-                                  {CONVERT_TYPE_ORDER.filter((t) => t !== it.workType).map((t) => (
-                                    <button
-                                      key={t}
-                                      onClick={() => pickConvertType(it, t)}
-                                      className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
-                                    >
-                                      <span className={`w-2 h-2 rounded-full ${CONVERT_TYPE_DOT[t]}`} />
-                                      {CONVERT_TYPE_LABEL[t]}
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {it.projectId || it.kind === 'epic' ? (
-                          <ProjectChip code={it.projectCode} name={it.projectName} />
-                        ) : (
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); openAttachMenu(it) }}
-                              className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-50 text-warning-700 hover:bg-warning-100 shrink-0"
-                            >
-                              ยังไม่ผูกโปรเจกต์
-                            </button>
-                            {attachMenuForId === it.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setAttachMenuForId(null)} />
-                                <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle p-3 z-20 text-sm space-y-2">
-                                  <div className="text-xs font-medium text-muted">ผูกโปรเจกต์ (ไม่บังคับ)</div>
-                                  <select value={attachProjectId} onChange={(e) => { setAttachProjectId(e.target.value); setAttachParentId('') }} className={`${selectCls} w-full`}>
-                                    <option value="">— ไม่ผูก —</option>
-                                    {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                  </select>
-                                  {it.workType === 'task' && (
-                                    <>
-                                      <div className="text-xs font-medium text-muted">ผูก Story แม่ (ไม่บังคับ)</div>
-                                      <select value={attachParentId} onChange={(e) => setAttachParentId(e.target.value)} className={`${selectCls} w-full`}>
-                                        <option value="">— ไม่ผูก —</option>
-                                        {attachParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
-                                      </select>
-                                    </>
-                                  )}
-                                  <div className="flex justify-end gap-2 pt-1">
-                                    <button onClick={() => setAttachMenuForId(null)} className="text-xs px-2 py-1 rounded hover:bg-hover">ยกเลิก</button>
-                                    <button
-                                      onClick={() => void attachItem(it)}
-                                      disabled={!attachProjectId && !attachParentId}
-                                      className="text-xs bg-brand-600 text-white px-2.5 py-1 rounded hover:bg-brand-700 disabled:opacity-40"
-                                    >
-                                      บันทึก
-                                    </button>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
-                        {it.kind === 'epic' ? (
-                          <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
-                        ) : (
-                          <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
-                        )}
-                        {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
-                        {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
-                        {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
-                        <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
-                        {it.status && (
-                          <select
-                            value={it.status}
-                            onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
-                            className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
-                          >
-                            {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-                          </select>
-                        )}
-                        <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
-                        {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
-                        {it.kind !== 'epic' && (
-                          <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
-                            🔗
-                          </button>
-                        )}
-                        {/* Pronista §Mobile responsive — ปุ่มย้ายเข้า Sprint แทนการลาก (ลากใช้ไม่ได้บนสัมผัส) ห้อง developer เท่านั้น */}
-                        {room.type === 'developer' && it.kind !== 'epic' && (
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setSprintMenuForId((v) => (v === it.id ? null : it.id))}
-                              title="ย้ายเข้า Sprint"
-                              className="text-muted hover:text-brand-600 shrink-0 text-xs px-1"
-                            >
-                              ⋯
-                            </button>
-                            {sprintMenuForId === it.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setSprintMenuForId(null)} />
-                                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
-                                  {openSprints.length === 0 ? (
-                                    <div className="px-3 py-2 text-xs text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
-                                  ) : (
-                                    openSprints.map(({ sprint }) => (
-                                      <button
-                                        key={sprint.id}
-                                        onClick={() => { setSprintMenuForId(null); void assignToSprint(sprint.id, it.id) }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-hover truncate"
-                                      >
-                                        เพิ่มเข้า Sprint: {sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}
-                                      </button>
-                                    ))
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                    {topLevelItems.map((it) => renderItem(it))}
                   </div>
                   {room.type === 'developer' && (
                     <SprintBulkAddBar
