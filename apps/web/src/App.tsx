@@ -14,16 +14,12 @@ import { DomainDetailPage } from './pages/DomainDetail'
 import { AdminNotificationsPage } from './pages/AdminNotifications'
 import { AdminPermissionsPage } from './pages/AdminPermissions'
 import { BoardPage } from './pages/Board'
-import { ClientDetailPage } from './pages/ClientDetail'
-import { ClientsPage } from './pages/Clients'
 import { DashboardPage } from './pages/Dashboard'
 import { DocsPage } from './pages/Docs'
 import { DocumentComparePage } from './pages/DocumentCompare'
 import { DocumentHistoryPage } from './pages/DocumentHistory'
 import { DocViewerPage } from './pages/DocViewer'
 import { EmployeeDetailPage } from './pages/EmployeeDetail'
-import { ExpensesPage } from './pages/Expenses'
-import { InboxPage } from './pages/Inbox'
 import { Login } from './pages/Login'
 import { MemberDetailPage } from './pages/MemberDetail'
 import { MemberOrdersPage } from './pages/MemberOrders'
@@ -127,22 +123,6 @@ const router = createBrowserRouter([
       { path: 'projects/:id/sprints/:sprintId/board', element: <Protected menuKey="projects"><BoardPage /></Protected> },
       { path: 'projects/:id/sprints/:sprintId/snapshot', element: <Protected menuKey="projects"><SprintSnapshotPage /></Protected> },
       {
-        path: 'clients',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <ClientsPage />
-          </Protected>
-        ),
-      },
-      {
-        path: 'clients/:id',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <ClientDetailPage />
-          </Protected>
-        ),
-      },
-      {
         // Pronista §System Requirements Update — เอกสาร คุมด้วยเพดานเมนู "docs" แทน role hardcode เดิม (ลูกค้า/outsource เห็นได้ถ้าเพดานเปิด)
         path: 'docs',
         element: (
@@ -183,24 +163,8 @@ const router = createBrowserRouter([
           </Protected>
         ),
       },
-      {
-        path: 'inbox',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <InboxPage />
-          </Protected>
-        ),
-      },
       { path: 'payroll', element: <PayrollPage /> },
       { path: 'profile', element: <ProfilePage /> },
-      {
-        path: 'expenses',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <ExpensesPage />
-          </Protected>
-        ),
-      },
       {
         path: 'admin',
         element: (
