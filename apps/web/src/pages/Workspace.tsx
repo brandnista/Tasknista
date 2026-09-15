@@ -6,7 +6,7 @@
  * §รอบ 3 (ต่อยอด) — Sprint ผูกห้อง Workspace โดยตรง (ไม่ผูกโปรเจกต์เดียวอีกต่อไป) งานในนั้นมาจากหลายโปรเจกต์ในห้องเดียวกันได้ · ห้องใหม่เริ่มว่างเปล่าจนกว่าจะดึงโปรเจกต์เข้าห้อง (แก้ไขชื่อ/ลบห้อง/จัดการโปรเจกต์ในห้องได้ที่นี่)
  */
 import { minutesToHoursLabel, resolveTaskTypes, type Label, type TaskType } from '@seedoffice/core'
-import { AlertTriangle, ArrowLeft, CheckCircle2, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, LayoutGrid, Layers, List as ListIcon, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { type DragEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { CONVERT_LABEL, type ConvertTo } from '../components/BacklogConvertMenu'
@@ -17,12 +17,14 @@ import { LabelChips } from '../components/LabelChips'
 import { PageHeader } from '../components/PageHeader'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
+import { useToast, useToastAction } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate } from '../lib/project-ui'
+import { taskCreatedMessage } from '../lib/task-url'
 import { ROLE_LABEL } from '../lib/role-label'
-import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { KANBAN_TASK_STATUS_ORDER, TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor, SprintStartModal } from './ProjectDetail'
 import { Avatar } from '../components/Avatar'
@@ -48,6 +50,8 @@ interface WsBacklogItem {
   code: string | null
   title: string
   description: string | null
+  // Pronista §Task-row expand (2026-09-15) — งานย่อย (Subtask) มากับ array เดียวกันนี้อยู่แล้ว flat — ใช้ parentId จัดกลุ่มคลี่ดูแทนที่จะเรียงแบนเหมือนเดิม
+  parentId: string | null
   kind: 'epic' | 'task' | 'backlog' | 'defect' | 'cr'
   workType: WorkType
   status: TaskStatus | null
@@ -142,6 +146,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
   onChanged: () => void
   onDeleted: () => void
 }) {
+  const toast = useToast()
   const { confirmDialog } = useDialog()
   const { data: allProjects } = useLoad<{ id: string; code: string | null; name: string }[]>(() => api.get('/api/projects'))
   const { data: allUsers } = useLoad<{ id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }[]>(() => api.get('/api/users'))
@@ -179,6 +184,7 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
     setError('')
     try {
       await api.patch(`/api/workspaces/${workspaceId}`, { name: name.trim() })
+      toast('บันทึกสำเร็จ')
       onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'แก้ไขชื่อไม่สำเร็จ')
@@ -282,6 +288,8 @@ function RoomEditModal({ workspaceId, currentName, linkedProjects, members, onCl
 }
 
 export function WorkspacePage() {
+  const toast = useToast()
+  const toastAction = useToastAction()
   const navigate = useNavigate()
   const { confirmDialog } = useDialog()
   const { user } = useAuth()
@@ -318,12 +326,16 @@ export function WorkspacePage() {
   const [taskTypeFilter, setTaskTypeFilter] = useState('all')
   const [subTaskTypeFilter, setSubTaskTypeFilter] = useState('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Pronista §Task-row expand (2026-09-15) — แถวไหนถูกคลี่ดูงานย่อยอยู่บ้าง (mirror pattern เดียวกับ expandedTasks ใน ProjectDetail.tsx)
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set())
 
   const [addTitle, setAddTitle] = useState('')
   const [addProjectId, setAddProjectId] = useState('')
   const [addType, setAddType] = useState<CreateWorkType>('backlog')
   const [addTypeMenuOpen, setAddTypeMenuOpen] = useState(false)
   const [addParentId, setAddParentId] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   const [error, setError] = useState('')
   const [editingRoom, setEditingRoom] = useState(false)
@@ -331,6 +343,8 @@ export function WorkspacePage() {
   const [backlogView, setBacklogView] = useState<'list' | 'kanban'>('list')
   // Pronista §System Requirements Update — รหัสงานซ่อนเป็นค่าเริ่มต้น กดปุ่มถึงจะโชว์ (ใช้ localStorage key เดียวกับหน้ารายละเอียดโปรเจกต์)
   const [showCode, setShowCode] = useState(() => localStorage.getItem('tasknista_show_task_code') === '1')
+  // Pronista §Workspace ซ่อนงานทั้งหมด (2026-09-14) — ยุบทั้งแผง Backlog เวลามีงานเยอะรกจอ (เฉพาะแผง ไม่กระทบ Sprint)
+  const [backlogCollapsed, setBacklogCollapsed] = useState(false)
   const [importProjectId, setImportProjectId] = useState('')
   const [importOpen, setImportOpen] = useState(false)
 
@@ -367,14 +381,17 @@ export function WorkspacePage() {
     const title = addTitle.trim()
     if (!title) return
     if (parentRequired && !effectiveAddParentId) return
+    if (addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Task เบิ้ลจากกด Enter/ปุ่มรัวๆ ก่อน request แรกตอบกลับ
+    setAddBusy(true)
     setError('')
     try {
+      let createdId: string
       if (addType === 'backlog') {
-        await api.post(`/api/workspaces/${workspaceId}/backlog`, { title })
+        createdId = (await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title })).id
       } else if (addType === 'epic') {
-        await api.post(`/api/workspaces/${workspaceId}/epics`, { title })
+        createdId = (await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/epics`, { title })).id
       } else if (addType === 'story') {
-        await api.post(`/api/workspaces/${workspaceId}/backlog`, { title, kind: 'story' })
+        createdId = (await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title, kind: 'story' })).id
       } else {
         // task/subtask/defect — สร้างเป็นรายการลอยของห้องก่อน แล้วแปลงประเภท (ผูกโปรเจกต์/parent ถ้าเลือกไว้ ไม่เลือกก็สร้างลอยได้ ไปผูกทีหลังได้)
         const created = await api.post<{ id: string }>(`/api/workspaces/${workspaceId}/backlog`, { title })
@@ -382,12 +399,43 @@ export function WorkspacePage() {
         if (effectiveAddParentId) convertBody.targetParentId = effectiveAddParentId
         if (effectiveAddProjectId) convertBody.targetProjectId = effectiveAddProjectId
         await api.post(`/api/tasks/${created.id}/convert`, convertBody)
+        createdId = created.id
       }
+      toastAction(taskCreatedMessage(addType, title), createdId)
       setAddTitle('')
       setAddParentId('')
       void reloadBacklog()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'สร้างงานไม่สำเร็จ')
+    } finally {
+      setAddBusy(false)
+    }
+  }
+
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04, ปรับ 2026-09-08) — ปุ่มเดียวฉลาดขึ้น: ถ้าติ๊กเลือกไว้อยู่ ลบเฉพาะที่เลือก
+  // (ไม่ใช่ลบทุกอย่างที่กรองอยู่ทั้งหมดเหมือนเดิม) ถ้าไม่ได้ติ๊กอะไรเลย ยังคง fallback เป็น "ลบทั้งหมดที่กรองอยู่" แบบเดิม
+  // ยกเว้น Epic เสมอ (ไม่มี endpoint ลบ Epic แยก และหน้านี้ไม่เคยมีทางลบ Epic ทีละตัวอยู่แล้ว) mirror bulkDeleteConfirm ของ ProjectDetail.tsx
+  const deleteAllItems = async () => {
+    const eligibleIds = filteredItems.filter((i) => i.kind !== 'epic').map((i) => i.id)
+    const hasSelection = selectedIds.size > 0
+    const ids = hasSelection ? eligibleIds.filter((id) => selectedIds.has(id)) : eligibleIds
+    if (ids.length === 0) return
+    const yes = await confirmDialog({
+      title: hasSelection ? `ลบที่เลือก ${ids.length} รายการ?` : `ลบทั้งหมด ${ids.length} รายการ?`,
+      message: 'กู้คืนเองไม่ได้ผ่านหน้านี้',
+      confirmLabel: hasSelection ? 'ลบที่เลือก' : 'ลบทั้งหมด',
+      danger: true,
+    })
+    if (!yes) return
+    setDeletingAll(true)
+    try {
+      const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+      const failed = results.filter((r) => r.status === 'rejected').length
+      setSelectedIds(new Set())
+      void reloadBacklog()
+      if (failed > 0) setError(`ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ`)
+    } finally {
+      setDeletingAll(false)
     }
   }
 
@@ -500,6 +548,7 @@ export function WorkspacePage() {
       if (attachProjectId) patch.projectId = attachProjectId
       if (attachParentId) patch.parentId = attachParentId
       await api.patch(`/api/tasks/${item.id}`, patch)
+      toast('บันทึกสำเร็จ')
       setAttachMenuForId(null)
       void reloadBacklog()
     } catch (e) {
@@ -520,6 +569,18 @@ export function WorkspacePage() {
     .filter((i) => subTaskTypeFilter === 'all' || i.subTaskType === subTaskTypeFilter)
     .filter((i) => !trimmedSearch || i.title.toLowerCase().includes(trimmedSearch) || (i.code ?? '').toLowerCase().includes(trimmedSearch))
     .sort((a, b) => WORKTYPE_ORDER[a.workType] - WORKTYPE_ORDER[b.workType] || a.title.localeCompare(b.title))
+  // Pronista §Task-row expand (2026-09-15) — งานย่อยมากับ filteredItems อยู่แล้ว flat: โชว์แค่แถวบนสุด (ไม่มี parent หรือ parent ไม่อยู่ใน list ที่กรองอยู่ตอนนี้) แถวลูกซ่อนไว้ใต้ปุ่มคลี่แทน
+  const filteredItemIds = new Set(filteredItems.map((i) => i.id))
+  const topLevelItems = filteredItems.filter((i) => !i.parentId || !filteredItemIds.has(i.parentId))
+  const childrenOf = (id: string) => filteredItems.filter((i) => i.parentId === id)
+  const toggleItemExpand = (id: string) => {
+    setExpandedItemIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const sprintItems = boardData?.sprints ?? []
   const openSprints = sprintItems.filter((s) => s.sprint.status !== 'completed')
@@ -531,6 +592,14 @@ export function WorkspacePage() {
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
+    })
+  }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-08) — "เลือกทั้งหมด" mirror pattern เดียวกับ BulkKindActions ใน ProjectDetail.tsx — ไม่รวม epic (ไม่มี checkbox ของตัวเอง เลือกไม่ได้อยู่แล้ว)
+  const toggleSelectAllItems = () => {
+    setSelectedIds((prev) => {
+      const allIds = filteredItems.filter((i) => i.kind !== 'epic').map((i) => i.id)
+      const allSelected = allIds.length > 0 && allIds.every((id) => prev.has(id))
+      return allSelected ? new Set() : new Set(allIds)
     })
   }
   const selectedTasks = filteredItems.filter((i) => selectedIds.has(i.id))
@@ -552,6 +621,180 @@ export function WorkspacePage() {
       <div className="p-6">
         <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-3 mb-3">ไม่พบ Workspace นี้ หรือคุณไม่ใช่สมาชิก</div>
         <Link to="/workspace" className="text-sm text-brand-700 hover:underline inline-flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> กลับไปหน้า Workspace</Link>
+      </div>
+    )
+  }
+
+  // Pronista §Task-row expand (2026-09-15) — แถวเดียวใช้ได้ทั้ง top-level และงานย่อย (เรียกตัวเองซ้ำเผื่อซ้อนหลายชั้น) — mirror pattern renderTaskRow/renderSprintTaskRow ใน ProjectDetail.tsx
+  const renderItem = (it: WsBacklogItem, depth = 0): React.ReactNode => {
+    const children = childrenOf(it.id)
+    const hasChildren = children.length > 0
+    const isExpanded = expandedItemIds.has(it.id)
+    return (
+      <div key={it.id}>
+        <div
+          draggable={it.kind !== 'epic'}
+          onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
+          onDragEnd={() => setDragTaskId(null)}
+          className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+        >
+          {/* Pronista §Task-row expand (2026-09-15) — ลูกศรคลี่ดูงานย่อย โผล่เฉพาะแถวที่มีจริง แถวไม่มีลูกใส่ spacer แทนกันแนวเลื่อน (มือถือ: hit-area ใหญ่กว่าไอคอนจริงด้วย p-1 -m-1) */}
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); toggleItemExpand(it.id) }}
+              className="shrink-0 p-1 -m-1 text-muted hover:text-ink"
+              aria-label={isExpanded ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}
+            >
+              <ChevronRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          {room.type === 'developer' && it.kind !== 'epic' && (
+            <input
+              type="checkbox"
+              checked={selectedIds.has(it.id)}
+              onChange={() => toggleSelected(it.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0"
+            />
+          )}
+          {it.kind === 'epic' ? (
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
+          ) : (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setTypeMenuForId((v) => (v === it.id ? null : it.id))}
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded hover:opacity-80 ${WORKTYPE_BADGE[it.workType]}`}
+              >
+                {WORKTYPE_LABEL[it.workType]}
+              </button>
+              {typeMenuForId === it.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setTypeMenuForId(null)} />
+                  <div className="absolute left-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                    {CONVERT_TYPE_ORDER.filter((t) => t !== it.workType).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => pickConvertType(it, t)}
+                        className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
+                      >
+                        <span className={`w-2 h-2 rounded-full ${CONVERT_TYPE_DOT[t]}`} />
+                        {CONVERT_TYPE_LABEL[t]}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {it.projectId || it.kind === 'epic' ? (
+            <ProjectChip code={it.projectCode} name={it.projectName} />
+          ) : (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); openAttachMenu(it) }}
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-50 text-warning-700 hover:bg-warning-100 shrink-0"
+              >
+                ยังไม่ผูกโปรเจกต์
+              </button>
+              {attachMenuForId === it.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setAttachMenuForId(null)} />
+                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle p-3 z-20 text-sm space-y-2">
+                    <div className="text-xs font-medium text-muted">ผูกโปรเจกต์ (ไม่บังคับ)</div>
+                    <select value={attachProjectId} onChange={(e) => { setAttachProjectId(e.target.value); setAttachParentId('') }} className={`${selectCls} w-full`}>
+                      <option value="">— ไม่ผูก —</option>
+                      {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    {it.workType === 'task' && (
+                      <>
+                        <div className="text-xs font-medium text-muted">ผูก Story แม่ (ไม่บังคับ)</div>
+                        <select value={attachParentId} onChange={(e) => setAttachParentId(e.target.value)} className={`${selectCls} w-full`}>
+                          <option value="">— ไม่ผูก —</option>
+                          {attachParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
+                        </select>
+                      </>
+                    )}
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button onClick={() => setAttachMenuForId(null)} className="text-xs px-2 py-1 rounded hover:bg-hover">ยกเลิก</button>
+                      <button
+                        onClick={() => void attachItem(it)}
+                        disabled={!attachProjectId && !attachParentId}
+                        className="text-xs bg-brand-600 text-white px-2.5 py-1 rounded hover:bg-brand-700 disabled:opacity-40"
+                      >
+                        บันทึก
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
+          {it.kind === 'epic' ? (
+            <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
+          ) : (
+            <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
+          )}
+          {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
+          {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
+          {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
+          <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
+          {it.status && (
+            <select
+              value={it.status}
+              onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
+              className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
+            >
+              {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+            </select>
+          )}
+          <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
+          {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
+          {it.kind !== 'epic' && (
+            <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
+              🔗
+            </button>
+          )}
+          {/* Pronista §Mobile responsive — ปุ่มย้ายเข้า Sprint แทนการลาก (ลากใช้ไม่ได้บนสัมผัส) ห้อง developer เท่านั้น */}
+          {room.type === 'developer' && it.kind !== 'epic' && (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setSprintMenuForId((v) => (v === it.id ? null : it.id))}
+                title="ย้ายเข้า Sprint"
+                className="text-muted hover:text-brand-600 shrink-0 text-xs px-1"
+              >
+                ⋯
+              </button>
+              {sprintMenuForId === it.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setSprintMenuForId(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
+                    {openSprints.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
+                    ) : (
+                      openSprints.map(({ sprint }) => (
+                        <button
+                          key={sprint.id}
+                          onClick={() => { setSprintMenuForId(null); void assignToSprint(sprint.id, it.id) }}
+                          className="w-full text-left px-3 py-1.5 hover:bg-hover truncate"
+                        >
+                          เพิ่มเข้า Sprint: {sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isExpanded && children.map((child) => renderItem(child, depth + 1))}
       </div>
     )
   }
@@ -651,7 +894,18 @@ export function WorkspacePage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBacklogCollapsed((v) => !v)}
+                      aria-expanded={!backlogCollapsed}
+                      title={backlogCollapsed ? 'แสดงงานทั้งหมด' : 'ซ่อนงานทั้งหมด'}
+                      className="p-0.5 rounded text-dim hover:text-ink hover:bg-hover shrink-0"
+                    >
+                      {backlogCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
                     <div className="text-sm font-semibold text-ink">📥 Backlog ({filteredItems.length})</div>
+                    {!backlogCollapsed && (
+                    <>
                     <button
                       onClick={() => {
                         const next = !showCode
@@ -662,9 +916,28 @@ export function WorkspacePage() {
                     >
                       {showCode ? 'ซ่อนรหัสงาน' : 'แสดงรหัสงาน'}
                     </button>
+                    {/* Pronista §Workspace/Task Jira-alignment (2026-09-08) — เลือกทั้งหมดทีเดียว (เฉพาะห้อง developer ที่มี checkbox เลือกงานอยู่แล้วสำหรับโยนเข้า Sprint) */}
+                    {room.type === 'developer' && filteredItems.some((i) => i.kind !== 'epic') && (
+                      <label className="flex items-center gap-1 text-[11px] text-dim cursor-pointer">
+                        <input type="checkbox" checked={filteredItems.filter((i) => i.kind !== 'epic').every((i) => selectedIds.has(i.id))} onChange={toggleSelectAllItems} />
+                        เลือกทั้งหมด
+                      </label>
+                    )}
+                    {filteredItems.some((i) => i.kind !== 'epic') && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteAllItems()}
+                        disabled={deletingAll}
+                        className="text-[11px] text-danger-600 hover:text-danger-700 underline decoration-dotted disabled:opacity-40"
+                      >
+                        {deletingAll ? 'กำลังลบ…' : selectedIds.size > 0 ? `ลบที่เลือก (${selectedIds.size})` : 'ลบทั้งหมด'}
+                      </button>
+                    )}
+                    </>
+                    )}
                   </div>
                   {/* Pronista §Mobile responsive — Kanban ลากเปลี่ยนสถานะใช้กับสัมผัสไม่ได้ ซ่อนปุ่มสลับบนมือถือ (backlogView เริ่มต้นเป็น 'list' อยู่แล้วซึ่งมี select เปลี่ยนสถานะ) */}
-                  {room.type === 'business' && (
+                  {!backlogCollapsed && room.type === 'business' && (
                     <div className="hidden sm:flex bg-divider rounded-lg p-0.5 text-xs font-medium">
                       <button onClick={() => setBacklogView('list')} className={`px-2.5 py-1 rounded-md inline-flex items-center gap-1 ${backlogView === 'list' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
                         <ListIcon className="w-3.5 h-3.5" /> List
@@ -676,7 +949,7 @@ export function WorkspacePage() {
                   )}
                 </div>
 
-                {room.type === 'business' && backlogView === 'kanban' ? (
+                {!backlogCollapsed && (room.type === 'business' && backlogView === 'kanban' ? (
                   <div className="space-y-3">
                     {filteredItems.some((i) => i.kind === 'epic') && (
                       <div className="bg-white rounded-lg shadow-xs p-2.5 flex flex-wrap gap-2">
@@ -686,7 +959,7 @@ export function WorkspacePage() {
                       </div>
                     )}
                     <div className="flex gap-3 overflow-x-auto pb-2">
-                      {TASK_STATUS_ORDER.map((s) => {
+                      {KANBAN_TASK_STATUS_ORDER.map((s) => {
                         const colItems = filteredItems.filter((i) => i.status === s)
                         return (
                           <div
@@ -735,171 +1008,8 @@ export function WorkspacePage() {
                   </div>
                 ) : (
                 <div className="bg-white rounded-lg shadow-xs">
-                  {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
-                  <div className="divide-y divide-divider">
-                    {filteredItems.map((it) => (
-                      <div
-                        key={it.id}
-                        draggable={it.kind !== 'epic'}
-                        onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
-                        onDragEnd={() => setDragTaskId(null)}
-                        className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''}`}
-                      >
-                        {room.type === 'developer' && it.kind !== 'epic' && (
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(it.id)}
-                            onChange={() => toggleSelected(it.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0"
-                          />
-                        )}
-                        {it.kind === 'epic' ? (
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${WORKTYPE_BADGE[it.workType]}`}>{WORKTYPE_LABEL[it.workType]}</span>
-                        ) : (
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setTypeMenuForId((v) => (v === it.id ? null : it.id))}
-                              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded hover:opacity-80 ${WORKTYPE_BADGE[it.workType]}`}
-                            >
-                              {WORKTYPE_LABEL[it.workType]}
-                            </button>
-                            {typeMenuForId === it.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setTypeMenuForId(null)} />
-                                <div className="absolute left-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
-                                  {CONVERT_TYPE_ORDER.filter((t) => t !== it.workType).map((t) => (
-                                    <button
-                                      key={t}
-                                      onClick={() => pickConvertType(it, t)}
-                                      className="w-full text-left px-3 py-1.5 hover:bg-hover flex items-center gap-1.5"
-                                    >
-                                      <span className={`w-2 h-2 rounded-full ${CONVERT_TYPE_DOT[t]}`} />
-                                      {CONVERT_TYPE_LABEL[t]}
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {it.projectId || it.kind === 'epic' ? (
-                          <ProjectChip code={it.projectCode} name={it.projectName} />
-                        ) : (
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); openAttachMenu(it) }}
-                              className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning-50 text-warning-700 hover:bg-warning-100 shrink-0"
-                            >
-                              ยังไม่ผูกโปรเจกต์
-                            </button>
-                            {attachMenuForId === it.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setAttachMenuForId(null)} />
-                                <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle p-3 z-20 text-sm space-y-2">
-                                  <div className="text-xs font-medium text-muted">ผูกโปรเจกต์ (ไม่บังคับ)</div>
-                                  <select value={attachProjectId} onChange={(e) => { setAttachProjectId(e.target.value); setAttachParentId('') }} className={`${selectCls} w-full`}>
-                                    <option value="">— ไม่ผูก —</option>
-                                    {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                  </select>
-                                  {it.workType === 'task' && (
-                                    <>
-                                      <div className="text-xs font-medium text-muted">ผูก Story แม่ (ไม่บังคับ)</div>
-                                      <select value={attachParentId} onChange={(e) => setAttachParentId(e.target.value)} className={`${selectCls} w-full`}>
-                                        <option value="">— ไม่ผูก —</option>
-                                        {attachParentOptions.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ''}{p.title}</option>)}
-                                      </select>
-                                    </>
-                                  )}
-                                  <div className="flex justify-end gap-2 pt-1">
-                                    <button onClick={() => setAttachMenuForId(null)} className="text-xs px-2 py-1 rounded hover:bg-hover">ยกเลิก</button>
-                                    <button
-                                      onClick={() => void attachItem(it)}
-                                      disabled={!attachProjectId && !attachParentId}
-                                      className="text-xs bg-brand-600 text-white px-2.5 py-1 rounded hover:bg-brand-700 disabled:opacity-40"
-                                    >
-                                      บันทึก
-                                    </button>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
-                        {it.kind === 'epic' ? (
-                          <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
-                        ) : (
-                          <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
-                        )}
-                        {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
-                        {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
-                        {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
-                        <LabelChips catalog={cfg?.labels} ids={it.labelIds} />
-                        {it.status && (
-                          <select
-                            value={it.status}
-                            onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
-                            className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
-                          >
-                            {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-                          </select>
-                        )}
-                        <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
-                        {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
-                        {it.kind !== 'epic' && (
-                          <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
-                            🔗
-                          </button>
-                        )}
-                        {/* Pronista §Mobile responsive — ปุ่มย้ายเข้า Sprint แทนการลาก (ลากใช้ไม่ได้บนสัมผัส) ห้อง developer เท่านั้น */}
-                        {room.type === 'developer' && it.kind !== 'epic' && (
-                          <div className="relative shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setSprintMenuForId((v) => (v === it.id ? null : it.id))}
-                              title="ย้ายเข้า Sprint"
-                              className="text-muted hover:text-brand-600 shrink-0 text-xs px-1"
-                            >
-                              ⋯
-                            </button>
-                            {sprintMenuForId === it.id && (
-                              <>
-                                <div className="fixed inset-0 z-10" onClick={() => setSprintMenuForId(null)} />
-                                <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-sm">
-                                  {openSprints.length === 0 ? (
-                                    <div className="px-3 py-2 text-xs text-muted">ยังไม่มี Sprint ที่เปิดอยู่ — กดปุ่ม "+ Sprint" มุมขวาบน</div>
-                                  ) : (
-                                    openSprints.map(({ sprint }) => (
-                                      <button
-                                        key={sprint.id}
-                                        onClick={() => { setSprintMenuForId(null); void assignToSprint(sprint.id, it.id) }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-hover truncate"
-                                      >
-                                        เพิ่มเข้า Sprint: {sprint.name || `${fmtThaiDate(sprint.startDate)} – ${fmtThaiDate(sprint.endDate)}`}
-                                      </button>
-                                    ))
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {room.type === 'developer' && (
-                    <SprintBulkAddBar
-                      selectedCount={selectedTasks.length}
-                      totalMinutes={selectedTotalMinutes}
-                      sprintOptions={sprintPickerOptions}
-                      onConfirm={bulkAddToSprint}
-                      onClear={() => setSelectedIds(new Set())}
-                    />
-                  )}
-                  <div className={`flex flex-wrap items-center gap-2 p-3 rounded-b-lg border-t-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ย้ายแถวคีย์งานขึ้นบนสุด ก่อนรายการที่คีย์ไว้แล้ว */}
+                  <div className={`flex flex-wrap items-center gap-2 p-3 rounded-t-lg border-b-4 border-divider ${CREATE_TYPE_BORDER[addType]}`}>
                     <div className="relative shrink-0">
                       <button
                         type="button"
@@ -949,13 +1059,34 @@ export function WorkspacePage() {
                       value={addTitle}
                       onChange={(e) => setAddTitle(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') void addItem() }}
-                      placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter…`}
-                      disabled={!canAddSubtask}
+                      placeholder={`ชื่อ ${CREATE_TYPE_LABEL[addType]} ใหม่ แล้วกด Enter หรือกด "+เพิ่ม"…`}
+                      disabled={!canAddSubtask || addBusy}
                       className="flex-1 min-w-40 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400 disabled:bg-hover disabled:cursor-not-allowed"
                     />
+                    <button
+                      type="button"
+                      onClick={() => void addItem()}
+                      disabled={!canAddSubtask || addBusy || !addTitle.trim()}
+                      className="shrink-0 text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {addBusy ? 'กำลังเพิ่ม…' : '+เพิ่ม'}
+                    </button>
                   </div>
+                  {filteredItems.length === 0 && <div className="p-6 text-center text-sm text-muted">ไม่มีงาน — ลองปรับตัวกรองดู</div>}
+                  <div className="divide-y divide-divider">
+                    {topLevelItems.map((it) => renderItem(it))}
+                  </div>
+                  {room.type === 'developer' && (
+                    <SprintBulkAddBar
+                      selectedCount={selectedTasks.length}
+                      totalMinutes={selectedTotalMinutes}
+                      sprintOptions={sprintPickerOptions}
+                      onConfirm={bulkAddToSprint}
+                      onClear={() => setSelectedIds(new Set())}
+                    />
+                  )}
                 </div>
-                )}
+                ))}
               </div>
 
               {/* Sprint — การ์ดต่อ sprint ผูกห้องนี้ (ข้ามโปรเจกต์ในห้องได้) — เฉพาะห้อง Developer เท่านั้น */}
@@ -969,7 +1100,8 @@ export function WorkspacePage() {
                   const { sprint } = item
                   const isDropHovering = dropHoverSprintId === sprint.id
                   const canDrop = sprint.status !== 'completed' && !!dragTaskId
-                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, done: 0 }
+                  // Pronista §Business Rules Workflow (2026-09-15) — badge สรุปนี้โชว์แค่ 4 สถานะหลัก (เหมือน Kanban) เติม rejected/cancelled ไว้กันพัง TS แต่ไม่โชว์ในแถบสรุป
+                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, done: 0, rejected: 0, cancelled: 0 }
                   for (const t of item.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
                   return (
                     <div key={sprint.id} className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
@@ -982,7 +1114,7 @@ export function WorkspacePage() {
                         <div className="ml-auto flex items-center gap-2">
                           {item.tasks.length > 0 && (
                             <div className="flex items-center gap-1 shrink-0">
-                              {TASK_STATUS_ORDER.map((s) => (
+                              {KANBAN_TASK_STATUS_ORDER.map((s) => (
                                 <span key={s} title={TASK_STATUS_LABEL[s]} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TASK_STATUS_BADGE[s]}`}>{counts[s]}</span>
                               ))}
                             </div>

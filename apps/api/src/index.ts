@@ -1,3 +1,5 @@
+import { chatChannels, createDb } from '@seedoffice/db'
+import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { requireAuth, requireAuthOrToken } from './middleware/auth'
 import { ceilingMenu, ownerOnly, requireRole, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
@@ -5,7 +7,9 @@ import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { calendarRoutes } from './routes/calendar'
 import { calendarConnectRoutes } from './routes/calendar-connect'
-import { chatRoutes } from './routes/chat'
+import { vaultRoutes } from './routes/vault'
+import { secondBrainRoutes, secondBrainWebhookRoutes } from './routes/second-brain'
+import { canAccessChannel, chatRoutes } from './routes/chat'
 import { docAttachmentsRoutes } from './routes/doc-attachments'
 import { docRoutes } from './routes/docs'
 import { docsSrsRoutes } from './routes/docs-srs'
@@ -25,6 +29,7 @@ import { clientRoutes } from './routes/clients'
 import { crmItemRoutes } from './routes/crm-items'
 import { dailyReportRoutes } from './routes/daily-reports'
 import { domainRoutes } from './routes/domains'
+import { sellnistaRoutes } from './routes/sellnista'
 import { memberRoutes } from './routes/members'
 import { meetingRoutes } from './routes/meetings'
 import { myFileRoutes } from './routes/my-files'
@@ -42,6 +47,7 @@ import { searchRoutes } from './routes/search'
 import { profileRoutes } from './routes/profile'
 import { tokenRoutes } from './routes/tokens'
 import { userRoutes } from './routes/users'
+import { workloadRoutes } from './routes/workload'
 import { workspaceRoutes } from './routes/workspace'
 import { workspaceRoomRoutes } from './routes/workspace-rooms'
 import { runScheduled } from './scheduled'
@@ -73,6 +79,7 @@ app.use('/api/admin/*', requireAuth, async (c, next) => {
 app.route('/api/admin', adminRoutes)
 app.route('/api/admin', payrollAdminRoutes)
 app.route('/api/admin', domainRoutes)
+app.route('/api/admin', sellnistaRoutes)
 // Pronista §Menu Restructure — จัดการสมาชิก เปิดให้ non-owner เข้าได้ถ้าเพดานเมนู "members" ของหมวดตัวเองอนุญาต (เดิม owner-only ล้วนๆ)
 app.use('/api/members', requireAuth, ceilingMenu('members'))
 app.use('/api/members/*', requireAuth, ceilingMenu('members'))
@@ -205,6 +212,19 @@ app.use('/api/calendar-connect/*', requireAuth, ownerOnly)
 app.route('/api/calendar-connect', calendarConnectRoutes)
 app.use('/api/team-activity', requireAuth, teamOnly)
 app.route('/api/team-activity', teamActivityRoutes)
+// Pronista §Workload (Phase 2, 2026-09-04) — ภาพรวมภาระงานทีม = owner เท่านั้น (mirror /api/overview/company)
+app.use('/api/workload', requireAuth, ownerOnly)
+app.use('/api/workload/*', requireAuth, ownerOnly)
+app.route('/api', workloadRoutes)
+// Secret Vault (2026-09-03, เปิดเพดานให้ปรับได้ 2026-09-08) — เก็บรหัสผ่าน/ข้อมูลลับ owner เข้าได้เสมอ + หมวดอื่นเปิดผ่าน "เพดานสิทธิ์" ได้ (default ปิด)
+app.use('/api/vault', requireAuth, ceilingMenu('vault'))
+app.use('/api/vault/*', requireAuth, ceilingMenu('vault'))
+app.route('/api/vault', vaultRoutes)
+// Pronista §Second Brain (2026-09-08) — webhook LINE ยิงตรง ไม่มี cookie/token ของเรา ต้อง public (verify ผ่าน X-Line-Signature เองในตัว route) — mount แยก path จาก list/delete ที่ต้อง auth
+app.route('/api/line', secondBrainWebhookRoutes)
+app.use('/api/second-brain', requireAuth, ceilingMenu('secondBrain'))
+app.use('/api/second-brain/*', requireAuth, ceilingMenu('secondBrain'))
+app.route('/api', secondBrainRoutes)
 // อีเมลกลาง (SPEC §4.12) — สิทธิ์สองชั้น:
 // ใช้งาน inbox (threads/attachments) = owner+member (vendor ❌ ตาม §3)
 app.use('/api/inbox/threads', requireAuth, teamOnly)
@@ -278,6 +298,10 @@ app.get('/api/chat/channels/:id/ws', requireAuth, async (c) => {
   if (c.req.header('upgrade')?.toLowerCase() !== 'websocket')
     return c.json({ error: 'expected_websocket' }, 426)
   const me = c.get('user')
+  // §Security Recheck (2026-09-10) — เดิมไม่เช็คว่าเป็นสมาชิกห้องนี้จริงไหม ใครก็ตามที่ login แล้วเดา channel ID เชื่อมต่อดู presence/typing ของห้องอื่นได้
+  const db = createDb(c.env.DB)
+  const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
+  if (!channel || !(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
   const headers = new Headers(c.req.raw.headers)
   headers.set('x-user-id', me.id)
   headers.set('x-user-name', me.name)

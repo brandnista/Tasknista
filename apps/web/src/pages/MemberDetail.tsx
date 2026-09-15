@@ -7,6 +7,7 @@ import { Link, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 import { CLASSIFICATION_TYPE_LABEL, type ClassificationType } from './UserSettings'
@@ -36,6 +37,7 @@ interface MemberOrder { id: string; memberId: string; feeSatang: number; ordered
 const fmtBaht = (satang: number) => (satang / 100).toLocaleString('th-TH', { minimumFractionDigits: 0 })
 
 export function MemberDetailPage() {
+  const toast = useToast()
   const { id } = useParams<{ id: string }>()
   const { confirmDialog } = useDialog()
   const { data: m, reload } = useLoad<MemberDetail>(() => api.get(`/api/members/${id}`), [id])
@@ -74,6 +76,7 @@ export function MemberDetailPage() {
   }
   const recordPayment = async (orderId: string, amountSatang: number) => {
     await api.post(`/api/member-orders/${orderId}/payments`, { amountSatang })
+    toast('บันทึกสำเร็จ')
     await reloadOrders()
   }
 
@@ -103,7 +106,7 @@ export function MemberDetailPage() {
         title={m.businessName || m.name}
         action={
           <button onClick={() => void toggleStatus()} className="inline-flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700 border border-border-subtle rounded-lg px-3 py-1.5">
-            <Trash2 className="w-3.5 h-3.5" /> {m.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งานแล้ว'}
+            <Trash2 className="w-3.5 h-3.5" /> {m.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
           </button>
         }
       />

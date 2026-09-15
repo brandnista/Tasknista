@@ -103,6 +103,19 @@ describe('Pronista §Team Chat — channels & messages', () => {
     const pond = await loginAs(app, 'pond@example-co.test')
     expect((await app.request(`/api/chat/messages/${msg.id}/convert-to-task`, json(pond, { projectId: p.id }), env)).status).toBe(403)
   })
+
+  // (2026-09-15) §createdBy loophole follow-up — createQuickTask() ต้องเซ็ต assignedBy คู่ assigneeId ตอนสร้างด้วยเหมือน endpoint สร้างงานปกติ
+  it('แปลงข้อความเป็น Task พร้อมระบุ assigneeId → assignedBy = คนกดแปลง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = await makeProject(owner, 'u_pond')
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const channelId = channels.find((c) => c.projectId === p.id)!.id
+    const msg = (await (await app.request(`/api/chat/channels/${channelId}/messages`, json(owner, { body: 'ช่วยแก้บั๊ก' }), env)).json()) as { id: string }
+    const created = (await (
+      await app.request(`/api/chat/messages/${msg.id}/convert-to-task`, json(owner, { projectId: p.id, assigneeId: 'u_pond' }), env)
+    ).json()) as { assignedBy: string | null }
+    expect(created.assignedBy).toBe('u_owner')
+  })
 })
 
 describe('Pronista §Team Chat — unread count badge', () => {
@@ -154,5 +167,13 @@ describe('Pronista §Team Chat — unread count badge', () => {
     const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
     const channelId = channels.find((c) => c.projectId === p.id)!.id
     expect((await app.request(`/api/chat/channels/${channelId}/read`, { method: 'POST', headers: { cookie: pond } }, env)).status).toBe(403)
+  })
+
+  it('§Security Recheck (2026-09-10) — WebSocket ห้องแชท: คนที่ไม่ใช่สมาชิกห้องเชื่อมต่อไม่ได้ (เดิมเช็คแค่ login ไม่เช็คว่าเป็นสมาชิกห้องนี้จริงไหม)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const korn = await loginAs(app, 'korn@example-co.test') // ไม่มีส่วนเกี่ยวข้องกับ DM นี้เลย
+    const dm = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/chat/channels/${dm.id}/ws`, { headers: { cookie: korn, upgrade: 'websocket' } }, env)
+    expect(res.status).toBe(403)
   })
 })

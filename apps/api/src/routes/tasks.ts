@@ -20,7 +20,7 @@ import {
   timerSessions,
   users,
 } from '@seedoffice/db'
-import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -41,6 +41,8 @@ const taskPatchSchema = z.object({
   // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้รับงาน" ฟิลด์แยกจาก description เด็ดขาด แก้ได้เฉพาะ assignee เอง (บังคับที่ route ด้านล่าง)
   assigneeNotes: z.string().nullable().optional(),
   assigneeId: z.string().nullable().optional(),
+  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ไม่มีผู้ตรวจเฉพาะ ใช้พฤติกรรมเดิม)
+  reviewerId: z.string().nullable().optional(),
   // Pronista §SOW Task/Subtask — Reference Code แก้ไขได้ (เดิมตั้งได้แค่ตอนแตกเอกสาร)
   originCode: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).optional(),
@@ -70,6 +72,10 @@ const taskPatchSchema = z.object({
   // Pronista §System Requirements Update — ประเภทงาน/ตัวเลือกย่อย (อ้าง id ใน company_config.taskTypes) ใช้กับงานทุก kind
   taskType: z.string().nullable().optional(),
   subTaskType: z.string().nullable().optional(),
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — สัญญาณจากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" เท่านั้น (ไม่ใช่คอลัมน์ DB จริง ตัดออกก่อนอัปเดต) กันการ patch เส้นทางอื่น (เช่น toggle subtask/kanban drag) ยิงแจ้งเตือนซ้ำ/ผิดจุดโดยไม่ตั้งใจ
+  notifyOnUpdate: z.boolean().optional(),
+  // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency แบบ optional: ไม่ส่งมา = ข้ามการเช็ค (กัน caller เก่า/action ทีละคลิกพัง) ส่งมา = ต้องตรงกับ version ปัจจุบันถึงจะเขียนได้
+  expectedVersion: z.number().int().optional(),
 })
 
 /** board ของโปรเจกต์ + CRUD group/task — vendor อ่านได้ แก้ไม่ได้ (teamOnly เฉพาะ mutation) */
@@ -188,6 +194,8 @@ export const taskRoutes = new Hono<AppEnv>()
         groupId: group.id,
         sortOrder: siblings.length,
         createdBy: me.id,
+        // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้งผู้รับผิดชอบตอนสร้างเลย ต้องเซ็ต assignedBy คู่กันด้วย (เดิมเซ็ตแค่ตอน PATCH ทีหลัง ทำให้ assignedBy===null ทั้งที่มี assignee แล้ว)
+        assignedBy: body.data.assigneeId ? me.id : null,
         code,
         ...body.data,
       })
@@ -235,7 +243,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const created = (
       await db
         .insert(tasks)
-        .values({ projectId, groupId: group.id, sortOrder: siblings.length, createdBy: me.id, code, ...body.data })
+        // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้ง assignedBy คู่ assigneeId ตอนสร้าง (ดู comment เดียวกันที่ POST /groups/:id/tasks)
+        .values({ projectId, groupId: group.id, sortOrder: siblings.length, createdBy: me.id, assignedBy: body.data.assigneeId ? me.id : null, code, ...body.data })
         .returning()
     )[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
@@ -284,7 +293,7 @@ export const taskRoutes = new Hono<AppEnv>()
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
       .where(eq(tasks.projectId, c.req.param('id')))
-      .orderBy(asc(tasks.createdAt))
+      .orderBy(desc(tasks.createdAt))
     const titleOf = new Map(rows.map((r) => [r.id, r.title]))
     // Pronista §Card glance-at-a-glance — ความคืบหน้าเช็กลิสต์ "☑ x/y" บนแถว Epic/Story/Task/Defect/CR tab (pattern เดียวกับ GET /tasks/mine)
     const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.id))
@@ -302,7 +311,7 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/projects/:id/epics', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
-    const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(asc(epics.createdAt))
+    const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(desc(epics.createdAt))
     const epicIds = epicRows.map((e) => e.id)
     const progressByEpic = new Map<string, { done: number; total: number }>()
     if (epicIds.length > 0) {
@@ -412,7 +421,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const code = await nextTaskCode(db, 'BL')
     const t = await db
       .insert(tasks)
-      .values({ projectId: null, groupId: null, sortOrder: 0, createdBy: me.id, code, ...body.data })
+      // Pronista §createdBy loophole follow-up (2026-09-15) — ตั้ง assignedBy คู่ assigneeId ตอนสร้าง (ดู comment เดียวกันที่ POST /groups/:id/tasks)
+      .values({ projectId: null, groupId: null, sortOrder: 0, createdBy: me.id, assignedBy: body.data.assigneeId ? me.id : null, code, ...body.data })
       .returning()
     const created = t[0]
     if (!created) return c.json({ error: 'insert_failed' }, 500)
@@ -428,7 +438,7 @@ export const taskRoutes = new Hono<AppEnv>()
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .where(isNull(tasks.projectId))
-      .orderBy(asc(tasks.createdAt))
+      .orderBy(desc(tasks.createdAt))
     return c.json(rows.map((r) => ({ ...r.task, assigneeName: r.assigneeName })))
   })
 
@@ -509,6 +519,17 @@ export const taskRoutes = new Hono<AppEnv>()
     const permissions =
       before.projectId && me.role === 'member' ? await getProjectPermissions(db, before.projectId, me.id, me.role) : undefined
     if (!(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ห้ามตั้ง status เป็น 'rejected'/'cancelled' ตรงๆ ผ่าน PATCH ทั่วไปเด็ดขาด ต้องผ่าน /tasks/:id/reject (ระบบตั้งเองตอน assignee ปฏิเสธ) หรือ /tasks/:id/cancel (บังคับเหตุผล) เท่านั้น
+    // กันย้อนกลับไปเป็นช่องโหว่แบบเดียวกับที่เพิ่งแก้ createdBy — ถ้าปล่อยให้ dropdown อิสระตั้งตรงได้ จะข้ามการบังคับเหตุผลไปเลย
+    if (body.data.status === 'rejected' || body.data.status === 'cancelled')
+      return c.json({ error: 'invalid_status', message: 'ตั้งสถานะนี้ตรงๆ ไม่ได้ ต้องใช้ปุ่ม "ยกเลิกงาน" หรือให้ระบบตั้งเองตอนปฏิเสธงาน' }, 400)
+    // Pronista §Business Rules Workflow (เฟส C, 2026-09-15) — ก่อนส่งตรวจ/ปิดงาน (waiting_for_test/done) ต้องเช็คงานย่อยให้ครบก่อน
+    // cancelled = ไม่ต้องทำแล้ว ไม่นับเป็นตัวบล็อก · rejected/สถานะอื่นๆ ยังบล็อกอยู่ (ยังไม่จบงานจริง) — ใช้จุดเดียว ครอบทั้ง assignee กดส่งงานเอง และผู้จ่ายงาน/reviewer กดอนุมัติ (ทั้งคู่ผ่าน PATCH นี้)
+    if ((body.data.status === 'waiting_for_test' || body.data.status === 'done') && body.data.status !== before.status) {
+      const children = await db.select({ status: tasks.status }).from(tasks).where(eq(tasks.parentId, before.id))
+      if (children.some((c2) => c2.status !== 'done' && c2.status !== 'cancelled'))
+        return c.json({ error: 'subtasks_incomplete', message: 'ยังมีงานย่อยที่ยังไม่เสร็จ ปิด/ส่งงานนี้ไม่ได้จนกว่าจะเคลียร์ให้ครบ' }, 400)
+    }
     const isAssigneeOnly = await isAssigneeOnlyEditor(db, before, me, permissions)
     // Pronista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
     if (before.projectId && !isAssigneeOnly && me.role === 'member') {
@@ -518,24 +539,49 @@ export const taskRoutes = new Hono<AppEnv>()
     // ห้ามแก้ไขฟิลด์ของผู้จ่ายงานเลย — แก้ได้แค่ assigneeNotes (บันทึกของตัวเอง) กับกด "ส่งงาน" (status: on_processing→waiting_for_test) เท่านั้น
     // เกณฑ์ว่าเสร็จ/ไฟล์แนบ ผ่านคนละ endpoint (checklist/attachments) จึงไม่ต้องเช็คตรงนี้
     if (isAssigneeOnly) {
-      const allowedKeys = new Set(['assigneeNotes', 'status'])
-      if (Object.keys(body.data).some((k) => !allowedKeys.has(k)))
+      // Pronista §Workspace/Task Jira-alignment (2026-09-07) — ถ้าผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบเป็นคนเดียวกัน (จ่ายงานให้ตัวเอง) ให้แก้ "รายละเอียดจากผู้จ่ายงาน" (description) เองได้ด้วย
+      const allowedKeys = new Set(before.assignedBy === me.id ? ['assigneeNotes', 'status', 'description'] : ['assigneeNotes', 'status'])
+      // Pronista §Workspace/Task Jira-alignment (2026-09-07 fix) — notifyOnUpdate เป็นแค่ signal ไม่ใช่ฟิลด์จริง (ลบออกจาก patch ทีหลังบรรทัด 580) ต้องไม่นับตรงนี้ด้วย
+      // ไม่งั้นปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ใหม่ (ส่ง notifyOnUpdate:true มาด้วยเสมอ) จะโดน 403 ทุกครั้งสำหรับ assignee-only แม้แก้แค่ assigneeNotes ที่อนุญาตอยู่แล้ว
+      if (Object.keys(body.data).some((k) => k !== 'notifyOnUpdate' && !allowedKeys.has(k)))
         return c.json({ error: 'forbidden', message: 'แก้ไขได้แค่บันทึกของตัวเองกับกด "ส่งงาน" เท่านั้น ให้ผู้จ่ายงานเป็นคนแก้ไขฟิลด์อื่น' }, 403)
     }
     // Pronista §Kanban drag constraints (2026-08-26) — งด "ลาก/สั่งข้ามขั้น" สถานะเอง สำหรับใครก็ตามที่เป็น assignee ของงานนี้
     // (ไม่ใช่แค่ isAssigneeOnly ด้านบน — เดิมคนที่เป็น assignee ของตัวเอง "และ" เป็น owner/editor โปรเจกต์ด้วย (self-assign) หลุดเช็คนี้ไปเลย ลากข้ามขั้นได้อิสระผ่าน Kanban)
-    // ยกเว้นงานที่ตัวเองเป็นคนคีย์ขึ้นมาเอง (createdBy === ตัวเอง) — ให้จบงานเองได้ทันทีตามที่ตกลง ไม่ต้องผ่านขั้นตอนอนุมัติ
-    // (2026-08-26) ยกเว้นเพิ่ม — งานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) ยังไม่เข้า workflow ตรวจงานจริง เปลี่ยนสถานะเองได้อิสระ ไม่ต้องกันไว้
-    if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.createdBy !== me.id && before.dispatchedAt) {
+    // (2026-09-15 fix) — เดิม createdBy === me.id ข้ามเช็คนี้ไปทั้งบล็อก ทำให้คนคีย์งานขึ้นเองปรับสถานะเป็นอะไรก็ได้ไม่จำกัด แม้งานผ่าน จ่ายงาน→รับงาน→ส่งงาน มาเต็ม flow แล้ว (ช่องโหว่)
+    // แก้เป็น: ยังต้องเดินตาม state machine เสมอเมื่อจ่ายงานแล้ว แค่คนที่ "จ่ายงานให้ตัวเองจริง" ได้สิทธิ์ปิดงานลัดขั้นได้ (on_processing/waiting_for_test → done) ไม่ต้องรอคนอื่นอนุมัติ ตรงกับปุ่ม "ปิดงานเอง" ที่มีอยู่แล้วฝั่ง frontend เท่านั้น — ห้ามกระโดดไปสถานะอื่นที่ไม่ได้อนุญาต (เช่น ดึงกลับ non_start เอง)
+    // (2026-09-15 follow-up) — ใช้ assignedBy===assigneeId (คนที่ "มอบหมายงานรอบปัจจุบัน" กับ "คนรับงาน" เป็นคนเดียวกันจริง) แทน createdBy (แค่ "คนคีย์ Task ขึ้นในระบบ")
+    // ตาม Business Rules spec ข้อ 9 ที่ระบุชัดว่า createdBy ไม่ควรมีสิทธิ์ข้าม Workflow ใดๆ — createdBy เป็นแค่ metadata ผู้สร้าง ไม่ใช่สัญญาณว่าใครกำลังทำงานให้ตัวเอง
+    // (ต้องเซ็ต assignedBy ให้ครบทุก path สร้างงานก่อนแล้ว — ดู POST /groups/:id/tasks, /projects/:id/tasks, /tasks/backlog, createQuickTask())
+    // ยกเว้นงานที่ยังไม่ถูก "จ่ายงาน" (dispatchedAt ว่าง) ยังไม่เข้า workflow ตรวจงานจริง เปลี่ยนสถานะเองได้อิสระ ไม่ต้องกันไว้
+    if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.dispatchedAt) {
       const nextStatus = body.data.status
+      // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — self-close ลัดขั้นได้เฉพาะ "ไม่มี Reviewer" ด้วย (ตรงสเปกข้อ 7/8: self-assign ไม่มี reviewer→ปิดเองได้เลย, มี reviewer→ต้องรอ approve เหมือนงานทั่วไป)
+      const isSelfDispatched = before.assignedBy === me.id && !before.reviewerId
       const assigneeAllowedNext: Partial<Record<(typeof TASK_STATUSES)[number], (typeof TASK_STATUSES)[number][]>> = {
         non_start: ['on_processing'],
-        on_processing: ['waiting_for_test'],
+        on_processing: isSelfDispatched ? ['waiting_for_test', 'done'] : ['waiting_for_test'],
         // §ดึงงานกลับ — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ต่อเองได้
-        waiting_for_test: ['on_processing'],
+        // isSelfDispatched เพิ่ม → done ได้ด้วย (self-approve งานที่จ่ายให้ตัวเอง ไม่ต้องรอผู้จ่ายงานคนอื่นอนุมัติ)
+        waiting_for_test: isSelfDispatched ? ['on_processing', 'done'] : ['on_processing'],
       }
       if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)
+    }
+    // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — เฉพาะผู้ตรวจ (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงานที่ "รอตรวจ" ได้
+    // (2026-09-15 follow-up) — ไม่ระบุ Reviewer ไว้ตรงๆ → fallback เป็น "ผู้จ่ายงาน" (assignedBy) โดยอัตโนมัติแทน editor/owner โปรเจกต์คนไหนก็ได้แบบเดิม (ตามที่อาร์มยืนยัน)
+    // เหลือ "ใครก็ได้" เฉพาะกรณีไม่มีทั้ง reviewer และไม่เคยมีคนจ่ายงานอย่างเป็นทางการเลย (effectiveReviewerId ว่างจริงๆ)
+    const effectiveReviewerId = before.reviewerId ?? before.assignedBy
+    if (
+      body.data.status &&
+      body.data.status !== before.status &&
+      before.status === 'waiting_for_test' &&
+      before.assigneeId !== me.id &&
+      effectiveReviewerId &&
+      effectiveReviewerId !== me.id &&
+      me.role !== 'owner'
+    ) {
+      return c.json({ error: 'forbidden', message: 'งานนี้มีผู้ตรวจที่กำหนดไว้แล้ว (ผู้จ่ายงาน หรือผู้ตรวจที่ระบุ) ต้องให้คนนั้นเป็นคนอนุมัติ/ตีกลับ' }, 403)
     }
     // Pronista §Back to Basic (ต่อยอด) — assigneeNotes เป็นของ assignee คนเดียวเท่านั้น ผู้จ่ายงานแก้ไม่ได้เลยแม้เป็น owner/editor
     // และ assignee เองก็แก้ไม่ได้แล้วหลังส่งงาน (waiting_for_test/done) — ต้องรอ "ตีกลับ" กลับมา non_start (รับงานใหม่) ก่อนถึงจะแก้ต่อได้
@@ -567,7 +613,17 @@ export const taskRoutes = new Hono<AppEnv>()
       }
     }
 
+    // Pronista §Workspace/Task Jira-alignment (2026-09-04) — วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ (เช็คกับค่าที่มีอยู่เดิมด้วย กัน PATCH ทีละฟิลด์ทำข้อมูลขัดกัน)
+    const nextStartDate = 'startDate' in body.data ? body.data.startDate : before.startDate
+    const nextDueDate = 'dueDate' in body.data ? body.data.dueDate : before.dueDate
+    if (nextStartDate && nextDueDate && nextStartDate > nextDueDate)
+      return c.json({ error: 'invalid_date_range', message: 'วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ' }, 400)
+
     const patch: Record<string, unknown> = { ...body.data }
+    delete patch.notifyOnUpdate
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — expectedVersion ใช้แค่ตัดสินใจ WHERE guard ด้านล่าง ไม่ใช่คอลัมน์จริง (ตัดออกก่อนเขียน DB เหมือน notifyOnUpdate)
+    delete patch.expectedVersion
+    patch.version = sql`${tasks.version} + 1`
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
@@ -609,12 +665,13 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Sprint & Board — ลากข้ามคอลัมน์บอร์ด: ต้องอยู่ใน sprint อยู่แล้ว + คอลัมน์ต้องมีจริงใน preset ของ sprint นั้น
     if (body.data.sprintStatus !== undefined && body.data.sprintStatus !== null) {
-      if (!before.sprintId) return c.json({ error: 'not_in_sprint' }, 400)
+      // Pronista §Board error message fix (2026-09-11) — เดิม error code ดิบ (not_in_sprint/invalid_sprint_status) ไม่มี message เลย ทั้งที่ frontend ตอนนี้ดัก error มาโชว้ให้ผู้ใช้เห็นแล้ว (เจอจากบั๊กลากบอร์ดเงียบ)
+      if (!before.sprintId) return c.json({ error: 'not_in_sprint', message: 'งานนี้ไม่ได้อยู่ใน Sprint แล้ว — อาจถูกเอาออกไปโดยคนอื่น ลองรีเฟรชหน้า' }, 400)
       const sprint = (await db.select().from(sprints).where(eq(sprints.id, before.sprintId)).limit(1))[0]
       const cfg = (await db.select({ boardPresets: companyConfig.boardPresets }).from(companyConfig).limit(1))[0]
       const preset = sprint?.boardPresetId ? presetById(resolvePresets(cfg?.boardPresets), sprint.boardPresetId) : undefined
       if (!preset || !preset.columns.some((col) => col.id === body.data.sprintStatus))
-        return c.json({ error: 'invalid_sprint_status' }, 400)
+        return c.json({ error: 'invalid_sprint_status', message: 'คอลัมน์นี้ไม่มีอยู่แล้ว — บอร์ดอาจถูกปรับเปลี่ยนคอลัมน์ ลองรีเฟรชหน้า' }, 400)
     }
     // Pronista §Workspace — labelIds ทุกตัวต้องมีจริงในแคตตาล็อก company_config.labels
     if (body.data.labelIds !== undefined) {
@@ -631,7 +688,13 @@ export const taskRoutes = new Hono<AppEnv>()
         return c.json({ error: 'invalid_task_type' }, 400)
     }
 
-    const updated = await db.update(tasks).set(patch).where(eq(tasks.id, before.id)).returning()
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — ถ้า client แนบ expectedVersion มา ต้องตรงกับ version ปัจจุบันถึงจะเขียนได้ (mirror pattern WHERE guard เดียวกับ dispatch/accept/reject) — ไม่ส่งมา = ข้ามเช็คนี้ (backward-compat)
+    const updated = await db
+      .update(tasks)
+      .set(patch)
+      .where(body.data.expectedVersion !== undefined ? and(eq(tasks.id, before.id), eq(tasks.version, body.data.expectedVersion)) : eq(tasks.id, before.id))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'stale_version', message: 'มีคนแก้ไขงานนี้ไปพร้อมกัน กรุณารีเฟรชแล้วลองใหม่' }, 409)
 
     // Pronista §Board Live Update — งาน/สถานะในบอร์ดขยับ (ลากคอลัมน์เป็นเคสหลัก) บอก client ที่เปิด Board ของ sprint นี้อยู่ให้ reload สด
     if (before.sprintId) await notifyBoard(c.env, before.sprintId)
@@ -724,6 +787,18 @@ export const taskRoutes = new Hono<AppEnv>()
         message: `งาน "${before.title}" ถูกตีกลับให้แก้ไข`,
       })
     }
+    // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" (ตัด Auto-save แล้ว) แจ้งผู้รับผิดชอบว่างานถูกแก้ไข
+    // ข้ามถ้าไม่มีผู้รับผิดชอบ หรือคนกดบันทึกคือผู้รับผิดชอบเอง (กันแจ้งเตือนตัวเอง) — notifyOnUpdate เป็น signal จากปุ่มนี้เท่านั้น กัน path อื่น (toggle subtask/kanban) ยิงซ้ำ
+    // (2026-09-15 fix) — เดิมไม่เช็ค dispatchedAt เลย ทำให้ตั้งผู้รับผิดชอบครั้งแรก+เขียนรายละเอียดแล้วกด "บันทึก" ในทีเดียว ยิงแจ้งเตือน "งานได้รับการแก้ไข" ไปหาคนที่เพิ่งถูกตั้งเป็นผู้รับผิดชอบ ทั้งที่ยังไม่ถูก "จ่ายงาน" อย่างเป็นทางการ (เกตจ่ายงานยังปิดอยู่ — งานยังไม่โผล่ในหน้า "งานของฉัน" กดจากแจ้งเตือนเข้ามาเจอปุ่ม "จ่ายงาน (ให้ตัวเอง)" แทน "รับงาน" งงว่าทำไมไม่ใช่คนรับงาน) — mirror เงื่อนไขเดียวกับ notify ตอน reassign ด้านบน (บรรทัด 722) ที่เช็ค dispatchedAt อยู่แล้ว
+    if (body.data.notifyOnUpdate && updated[0]!.assigneeId && updated[0]!.assigneeId !== me.id && updated[0]!.dispatchedAt) {
+      await notifyUser(db, {
+        userId: updated[0]!.assigneeId,
+        type: 'task_updated',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ได้รับการแก้ไข/อัปเดตข้อมูล`,
+      })
+    }
     return c.json(updated[0])
   })
 
@@ -745,9 +820,10 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     // Pronista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB (ไม่ใช่แค่ check-then-act ข้างบน) กัน race จากการกดซ้ำ/พร้อมกันจริงๆ
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — งานที่เคยถูกปฏิเสธมาก่อน (status='rejected') จ่ายซ้ำ (คนเดิมหรือหลัง reassign ที่รีเซ็ตเป็น non_start ไปแล้วก็ไม่เข้าเงื่อนไขนี้อยู่แล้ว) → รีเซ็ตกลับ non_start ให้เข้ารอบ accept ใหม่ปกติ
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: new Date() })
+      .set({ dispatchedAt: new Date(), status: before.status === 'rejected' ? 'non_start' : before.status, version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), isNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 409)
@@ -774,7 +850,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB กัน race จากการกดซ้ำ/พร้อมกัน
     const updated = await db
       .update(tasks)
-      .set({ status: 'on_processing' })
+      .set({ status: 'on_processing', version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start')))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
@@ -804,9 +880,11 @@ export const taskRoutes = new Hono<AppEnv>()
     if (before.assigneeId !== me.id) return c.json({ error: 'forbidden' }, 403)
     if (!before.dispatchedAt) return c.json({ error: 'not_dispatched', message: 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ' }, 400)
     if (before.status !== 'non_start') return c.json({ error: 'already_accepted' }, 409)
+    // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — เดิมแค่เคลียร์ dispatchedAt เงียบๆ (status ไม่ขยับ) ทำให้ดูเหมือนไม่มีอะไรเกิดขึ้น
+    // เปลี่ยนเป็นตั้ง status='rejected' ค้างไว้ให้เห็นจริง จนกว่าจะจ่ายงานใหม่ (/dispatch รีเซ็ตกลับ non_start ให้อัตโนมัติ) หรือ reassign คนอื่น (logic เดิม reset เป็น non_start อยู่แล้ว)
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: null })
+      .set({ dispatchedAt: null, status: 'rejected', version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start'), isNotNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
@@ -824,6 +902,41 @@ export const taskRoutes = new Hono<AppEnv>()
         taskId: before.id,
         projectId: before.projectId,
         message: `"${me.name}" ปฏิเสธงาน "${before.title}": ${body.data.reason}`,
+      })
+    }
+    return c.json(updated[0])
+  })
+
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น ต้องระบุเหตุผลเสมอ (mirror /reject)
+  // กู้คืนผ่านกลไก reassign เดิม (เปลี่ยน assigneeId → reset เป็น non_start อัตโนมัติอยู่แล้ว) ไม่ต้องมี endpoint "reopen" แยก
+  .post('/tasks/:id/cancel', teamOnly, async (c) => {
+    const body = z.object({ reason: z.string().min(1) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid', message: 'ต้องระบุเหตุผลที่ยกเลิก' }, 400)
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (before.projectId) {
+      const role = await getProjectRole(db, before.projectId, me.id, me.role)
+      if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    } else if (me.role !== 'owner') {
+      return c.json({ error: 'forbidden' }, 403)
+    }
+    if (before.status === 'done' || before.status === 'cancelled') return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 400)
+    const updated = await db
+      .update(tasks)
+      .set({ status: 'cancelled', version: sql`${tasks.version} + 1` })
+      .where(and(eq(tasks.id, before.id), ne(tasks.status, 'done'), ne(tasks.status, 'cancelled')))
+      .returning()
+    if (!updated[0]) return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 409)
+    await writeAudit(c.env, { actorId: me.id, action: 'task.cancel', entity: 'task', entityId: before.id, meta: { title: before.title, reason: body.data.reason } })
+    if (before.assigneeId && before.assigneeId !== me.id) {
+      await notifyUser(db, {
+        userId: before.assigneeId,
+        type: 'task_cancelled',
+        taskId: before.id,
+        projectId: before.projectId,
+        message: `งาน "${before.title}" ถูกยกเลิก: ${body.data.reason}`,
       })
     }
     return c.json(updated[0])
@@ -853,7 +966,7 @@ export const taskRoutes = new Hono<AppEnv>()
     }
 
     // Pronista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
-    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task' }
+    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', version: sql`${tasks.version} + 1` }
     // Pronista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
     const codePrefix = sanitizeCodePrefix(null, 'TASK')
     // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)

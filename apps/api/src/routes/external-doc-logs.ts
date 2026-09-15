@@ -1,4 +1,4 @@
-import { createDb, docLinks, docs, externalDocumentLogs, externalDocumentLogSowTasks, projects, tasks, users } from '@seedoffice/db'
+import { createDb, docLinks, docMembers, docs, externalDocumentLogs, externalDocumentLogSowTasks, projects, tasks, users } from '@seedoffice/db'
 import { and, desc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
@@ -19,7 +19,8 @@ export const externalDocLogRoutes = new Hono<AppEnv>()
   // คืน doc ที่ผูกโปรเจกต์ (ไม่รวมโฟลเดอร์) พร้อมเลขที่เอกสาร(เล่ม)+เวอร์ชัน → frontend จัดกลุ่ม โปรเจกต์→ประเภท→เล่ม→เวอร์ชัน
   .get('/document-history', teamOrMenu('docsHistory'), async (c) => {
     const db = createDb(c.env.DB)
-    const rows = await db
+    const me = c.get('user')
+    const allRows = await db
       .select({
         id: docs.id,
         title: docs.title,
@@ -32,10 +33,18 @@ export const externalDocLogRoutes = new Hono<AppEnv>()
         createdAt: docs.createdAt,
         updatedBy: docs.updatedBy,
         createdBy: docs.createdBy,
+        ownerId: docs.ownerId,
+        visibility: docs.visibility,
       })
       .from(docs)
       .where(and(isNull(docs.deletedAt), ne(docs.kind, 'folder')))
       .orderBy(desc(docs.updatedAt))
+
+    // Pronista §Document History access fix (2026-09-11) — เดิมไม่เช็ค visibility เลย เอกสาร private ของทุกโปรเจกต์เลยรั่ว metadata (ชื่อ/เลขที่/ผู้อัปโหลด) ให้ทุกคนที่เข้าเมนูนี้ได้
+    // กรองเหมือน GET /docs (roleOf): private เห็นได้เฉพาะ owner บริษัท / เจ้าของเอกสาร / คนที่อยู่ใน docMembers เท่านั้น — team มองเห็นได้ทุกคนเหมือนเดิม (ไม่ต้องกรอง)
+    const myMemberships = me.role === 'owner' ? [] : await db.select({ docId: docMembers.docId }).from(docMembers).where(eq(docMembers.userId, me.id))
+    const memberDocIds = new Set(myMemberships.map((m) => m.docId))
+    const rows = allRows.filter((r) => me.role === 'owner' || r.visibility !== 'private' || r.ownerId === me.id || memberDocIds.has(r.id))
 
     // โปรเจกต์แรกที่แต่ละ doc ผูกไว้ (1 doc อาจผูกหลายโปรเจกต์ — เอาอันแรกพอ เหมือน docs.ts GET /)
     const projectLinks = await db

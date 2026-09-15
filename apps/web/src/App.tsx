@@ -1,25 +1,25 @@
 import type { ReactNode } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 import { DialogProvider } from './components/Dialog'
+import { ToastProvider } from './components/Toast'
 import { Layout } from './components/Layout'
 import { AuthProvider, useAuth, type Me, type MenuKey } from './lib/auth'
 import { AdminPage } from './pages/Admin'
 import { AdminCostPage } from './pages/AdminCost'
 import { AdminDomainsPage } from './pages/AdminDomains'
+import { AdminSellnistaPage } from './pages/AdminSellnista'
+import { VaultPage } from './pages/Vault'
+import { SecondBrainPage } from './pages/SecondBrain'
 import { DomainDetailPage } from './pages/DomainDetail'
 import { AdminNotificationsPage } from './pages/AdminNotifications'
 import { AdminPermissionsPage } from './pages/AdminPermissions'
 import { BoardPage } from './pages/Board'
-import { ClientDetailPage } from './pages/ClientDetail'
-import { ClientsPage } from './pages/Clients'
 import { DashboardPage } from './pages/Dashboard'
 import { DocsPage } from './pages/Docs'
 import { DocumentComparePage } from './pages/DocumentCompare'
 import { DocumentHistoryPage } from './pages/DocumentHistory'
 import { DocViewerPage } from './pages/DocViewer'
 import { EmployeeDetailPage } from './pages/EmployeeDetail'
-import { ExpensesPage } from './pages/Expenses'
-import { InboxPage } from './pages/Inbox'
 import { Login } from './pages/Login'
 import { MemberDetailPage } from './pages/MemberDetail'
 import { MemberOrdersPage } from './pages/MemberOrders'
@@ -33,6 +33,7 @@ import { MyTasksDailyReportPage } from './pages/MyTasksDailyReport'
 import { MyTasksDispatchedPage } from './pages/MyTasksDispatched'
 import { MyTasksMeetingsPage } from './pages/MyTasksMeetings'
 import { MyTasksNotesPage } from './pages/MyTasksNotes'
+import { NotificationsPage } from './pages/Notifications'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { ProjectEditPage } from './pages/ProjectEdit'
 import { PayrollPage } from './pages/Payroll'
@@ -45,6 +46,8 @@ import { TaskDetailPage } from './pages/TaskDetail'
 import { TeamPage } from './pages/Team'
 import { UserSettingsPage } from './pages/UserSettings'
 import { UserSettingsCustomerDetailPage } from './pages/UserSettingsCustomerDetail'
+import { WorkloadPage } from './pages/Workload'
+import { EmployeeWorkloadPage } from './pages/EmployeeWorkload'
 import { WorkspacePage } from './pages/Workspace'
 import { WorkspaceBoardPage } from './pages/WorkspaceBoard'
 import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
@@ -89,6 +92,8 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <DashboardGate /> },
+      { path: 'workload', element: <Protected roles={['owner']}><WorkloadPage /></Protected> },
+      { path: 'workload/:userId', element: <Protected roles={['owner']}><EmployeeWorkloadPage /></Protected> },
       { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
       { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
       { path: 'my-tasks/daily-report', element: <Protected menuKey="myTasks"><MyTasksDailyReportPage /></Protected> },
@@ -118,22 +123,6 @@ const router = createBrowserRouter([
       { path: 'projects/:id/sprints/:sprintId/board', element: <Protected menuKey="projects"><BoardPage /></Protected> },
       { path: 'projects/:id/sprints/:sprintId/snapshot', element: <Protected menuKey="projects"><SprintSnapshotPage /></Protected> },
       {
-        path: 'clients',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <ClientsPage />
-          </Protected>
-        ),
-      },
-      {
-        path: 'clients/:id',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <ClientDetailPage />
-          </Protected>
-        ),
-      },
-      {
         // Pronista §System Requirements Update — เอกสาร คุมด้วยเพดานเมนู "docs" แทน role hardcode เดิม (ลูกค้า/outsource เห็นได้ถ้าเพดานเปิด)
         path: 'docs',
         element: (
@@ -147,6 +136,14 @@ const router = createBrowserRouter([
         element: (
           <Protected menuKey="docsHistory">
             <DocumentHistoryPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'notifications',
+        element: (
+          <Protected menuKey="notifications">
+            <NotificationsPage />
           </Protected>
         ),
       },
@@ -166,24 +163,8 @@ const router = createBrowserRouter([
           </Protected>
         ),
       },
-      {
-        path: 'inbox',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <InboxPage />
-          </Protected>
-        ),
-      },
       { path: 'payroll', element: <PayrollPage /> },
       { path: 'profile', element: <ProfilePage /> },
-      {
-        path: 'expenses',
-        element: (
-          <Protected roles={['owner', 'member']}>
-            <ExpensesPage />
-          </Protected>
-        ),
-      },
       {
         path: 'admin',
         element: (
@@ -324,6 +305,30 @@ const router = createBrowserRouter([
           </Protected>
         ),
       },
+      {
+        path: 'admin/sellnista',
+        element: (
+          <Protected roles={['owner']}>
+            <AdminSellnistaPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'vault',
+        element: (
+          <Protected menuKey="vault">
+            <VaultPage />
+          </Protected>
+        ),
+      },
+      {
+        path: 'second-brain',
+        element: (
+          <Protected menuKey="secondBrain">
+            <SecondBrainPage />
+          </Protected>
+        ),
+      },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
@@ -333,7 +338,9 @@ export function App() {
   return (
     <AuthProvider>
       <DialogProvider>
-        <RouterProvider router={router} />
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
       </DialogProvider>
     </AuthProvider>
   )

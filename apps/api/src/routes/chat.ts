@@ -24,7 +24,7 @@ async function myProjectIds(db: ReturnType<typeof createDb>, me: { id: string; r
 }
 
 /** true ถ้าฉันมีสิทธิ์อ่าน/เขียนห้องนี้ */
-async function canAccessChannel(db: ReturnType<typeof createDb>, channel: { kind: string; projectId: string | null; id: string }, me: { id: string; role: string }): Promise<boolean> {
+export async function canAccessChannel(db: ReturnType<typeof createDb>, channel: { kind: string; projectId: string | null; id: string }, me: { id: string; role: string }): Promise<boolean> {
   if (channel.kind === 'project') {
     if (me.role === 'owner') return true
     if (!channel.projectId) return false

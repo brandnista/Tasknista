@@ -7,11 +7,13 @@ import { Check, ChevronDown, ChevronUp, ListTree, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const randomTypeId = () => `tt_${Math.random().toString(36).slice(2, 8)}`
 const randomSubTypeId = () => `tts_${Math.random().toString(36).slice(2, 8)}`
 
 export function TaskTypeSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/admin/task-types'))
   const [list, setList] = useState<TaskType[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -87,6 +89,7 @@ export function TaskTypeSettings() {
       }))
       await api.put('/api/admin/task-types', { taskTypes })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

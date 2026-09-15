@@ -9,6 +9,7 @@ import {
   permissionCategoryOfRole,
   resolveCostRoles,
   resolveLabels,
+  resolveManhourMinutesPerDay,
   resolveParameterRoles,
   resolvePresets,
   resolvePermissionCeilings,
@@ -20,6 +21,7 @@ import {
   STATUS_COLOR_KEYS,
   validateCostRoles,
   validateLabels,
+  validateManhourMinutesPerDay,
   validateParameterRoles,
   validatePermissionCeilings,
   validatePositions,
@@ -28,21 +30,25 @@ import {
   validateServiceTypes,
   validateStatuses,
   validateTaskTypes,
+  WEEKDAYS,
   type BoardPreset,
   type CeilingPermissions,
   type CostRole,
   type Label,
   type LoginPermissionCategory,
+  type ManhourUserType,
   type ParameterRole,
   type PermissionCategory,
   type Position,
   type ProductType,
+  type Weekday,
+  type WeeklyMinutes,
   type ProjectStatus,
   type ServiceType,
   type TaskType,
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
-import { asc, desc, eq, isNotNull } from 'drizzle-orm'
+import { asc, desc, eq, getTableColumns, isNotNull, isNull } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -50,6 +56,13 @@ import { newToken } from '../lib/session'
 import type { AppEnv } from '../types'
 
 const icsUrl = (appUrl: string, token: string) => `${appUrl}/api/calendar/feed/${token}`
+
+// Pronista §Secret Vault — vaultPinHash เป็น hash ของ PIN ต้องไม่หลุดออกจาก server เด็ดขาด (เทียบเท่า password hash)
+// ใช้กับทุก endpoint ที่ส่ง full user row กลับไป client เพื่อกันหลุดโดย getTableColumns sync กับ schema อัตโนมัติ ไม่ต้อง maintain รายชื่อคอลัมน์เอง
+const allUserColumns = getTableColumns(users)
+const safeUserColumns = Object.fromEntries(
+  Object.entries(allUserColumns).filter(([key]) => key !== 'vaultPinHash'),
+) as Omit<typeof allUserColumns, 'vaultPinHash'>
 
 // Pronista §Entity Types Alignment — เลขบัตร ปชช./ทะเบียนนิติบุคคล 13 หลัก, รหัสสาขา 5 หลัก
 const ID_CARD_SCHEMA = z
@@ -88,6 +101,9 @@ const STAFF_EDITABLE_FIELDS = new Set([
   'contractType', 'contractExpiryDate', 'prefix', 'branchType', 'branchCode', 'specialNote', 'projectIds',
 ])
 
+// Pronista §Security Recheck (2026-09-10) — อยู่ใน STAFF_EDITABLE_FIELDS ได้ (แก้ "คนอื่น" ได้ตามปกติ) แต่ห้าม non-owner แก้ "ของตัวเอง" เด็ดขาด: managerId เปลี่ยนสายบังคับบัญชาตัวเองได้, costPerDaySatang เป็นค่าตอบแทน — ทั้งคู่ตรงกับ "ต้องไม่แก้หัวหน้า/ค่าตอบแทนตัวเองได้" ที่ทวนความปลอดภัยแล้ว
+const SELF_EDIT_RESTRICTED_FIELDS = new Set(['managerId', 'costPerDaySatang'])
+
 /** owner เห็น/แก้ได้ทุกอย่างเสมอ · non-owner เข้าได้เฉพาะ endpoint ที่เพดานเมนูของหมวดตัวเองอนุญาต (ดู resolveUsersAccess ด้านบน + index.ts การ mount) */
 export const adminRoutes = new Hono<AppEnv>()
 
@@ -97,7 +113,7 @@ export const adminRoutes = new Hono<AppEnv>()
     const access = await resolveUsersAccess(c)
     if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
-    const all = await db.select().from(users).orderBy(asc(users.role), asc(users.name))
+    const all = await db.select(safeUserColumns).from(users).where(isNull(users.deletedAt)).orderBy(asc(users.role), asc(users.name))
     const scoped = access === 'owner' ? all : all.filter((u) => categoryOfUserRole(u.role) === access)
     const allTeams = await db.select().from(teams)
     const teamName = new Map(allTeams.map((t) => [t.id, t.name]))
@@ -115,8 +131,8 @@ export const adminRoutes = new Hono<AppEnv>()
     const access = await resolveUsersAccess(c)
     if (!access) return c.json({ error: 'forbidden' }, 403)
     const db = createDb(c.env.DB)
-    const user = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
-    if (!user) return c.json({ error: 'not_found' }, 404)
+    const user = (await db.select(safeUserColumns).from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
+    if (!user || user.deletedAt) return c.json({ error: 'not_found' }, 404)
     if (access !== 'owner' && categoryOfUserRole(user.role) !== access) return c.json({ error: 'forbidden' }, 403)
     const links = await db.select({ projectId: customerProjects.projectId }).from(customerProjects).where(eq(customerProjects.userId, user.id))
     return c.json({ ...user, projectIds: links.map((l) => l.projectId) })
@@ -291,6 +307,11 @@ export const adminRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(users).where(eq(users.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     if (access !== 'owner' && categoryOfUserRole(before.role) !== access) return c.json({ error: 'forbidden' }, 403)
+    // §Security Recheck (2026-09-10) — non-owner แก้โปรไฟล์ตัวเอง (phone/name ฯลฯ) ผ่านช่องนี้ยังต้องทำได้ตามเดิม (self-service ปกติ) แต่ managerId/costPerDaySatang เป็นฟิลด์ที่กระทบสายบังคับบัญชา/ค่าตอบแทน — ห้ามแก้ของตัวเองแม้จะอยู่ใน STAFF_EDITABLE_FIELDS ก็ตาม
+    if (access !== 'owner' && before.id === c.get('user').id) {
+      const selfRestricted = Object.keys(body.data).filter((k) => SELF_EDIT_RESTRICTED_FIELDS.has(k))
+      if (selfRestricted.length > 0) return c.json({ error: 'forbidden', message: `แก้ไขฟิลด์ ${selfRestricted.join(', ')} ของตัวเองไม่ได้` }, 403)
+    }
     const nextRole = body.data.role ?? before.role
     if (nextRole === 'guest' && body.data.projectIds && body.data.projectIds.length === 0)
       return c.json({ error: 'project_required', message: 'ลูกค้าต้องผูกอย่างน้อย 1 โปรเจกต์' }, 400)
@@ -315,6 +336,20 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: { role: before.role, status: before.status }, after: body.data },
     })
     return c.json({ ...updated[0], projectIds: projectIds ?? undefined })
+  })
+
+  // Pronista §Employee Delete (2026-09-07) — ลบสมาชิก = soft-delete เท่านั้น (กฎเหล็ก) หายจากทุกรายการ/dropdown ทันที
+  // ประวัติงาน/audit log เดิมที่อ้าง userId นี้ยังอยู่ครบ ไม่พังแม้ query join users (แค่ query ที่กรอง deletedAt ชัดๆ เท่านั้นที่ไม่เห็นคนนี้อีก)
+  .delete('/users/:id', async (c) => {
+    if (c.get('user').role !== 'owner') return c.json({ error: 'forbidden' }, 403)
+    const id = c.req.param('id')
+    if (id === c.get('user').id) return c.json({ error: 'cannot_delete_self', message: 'ลบบัญชีตัวเองไม่ได้' }, 400)
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(users).where(eq(users.id, id)).limit(1))[0]
+    if (!before || before.deletedAt) return c.json({ error: 'not_found' }, 404)
+    await db.update(users).set({ deletedAt: new Date(), status: 'disabled' }).where(eq(users.id, id))
+    await writeAudit(c.env, { actorId: c.get('user').id, action: 'user.delete', entity: 'user', entityId: id, meta: { name: before.name, email: before.email } })
+    return c.json({ ok: true })
   })
 
   // Pronista §กำหนดต้นทุน — % buffer/margin default + แคตตาล็อกตำแหน่ง (เฉพาะ owner เห็น ไม่อยู่ใน /api/config สาธารณะ)
@@ -423,7 +458,8 @@ export const adminRoutes = new Hono<AppEnv>()
         costMarginPercent: z.number().int().min(0).max(100).optional(),
       })
       .safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    // Pronista §Admin config error message fix (2026-09-11) — เดิมคืน {error:'invalid'} เฉยๆ ทั้งที่ memberDomain มี custom zod message ไว้แล้ว (เช่น พิมพ์โดเมนแบบไม่มี @ นำหน้า) แต่ frontend ไม่เคยได้เห็นข้อความนั้นเลย
+    if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const before = (await db.select().from(companyConfig).limit(1))[0]
     const updated = await db
@@ -631,6 +667,40 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.permissionCeilings ?? null, after: ceilingsData },
     })
     return c.json({ ceilings: resolvePermissionCeilings(ceilingsData) })
+  })
+
+  // Pronista §System Enhancements — Manhour/วัน แยกตามประเภทผู้ใช้งาน (staff/outsource/customer) — mirror permission-ceilings เป๊ะ
+  .get('/manhour', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay, workHourCapMinutes: companyConfig.workHourCapMinutes }).from(companyConfig).limit(1))[0]
+    return c.json({ manhourMinutesPerDay: resolveManhourMinutesPerDay(cfg?.manhourMinutesPerDay, cfg?.workHourCapMinutes ?? 480) })
+  })
+
+  .put('/manhour', async (c) => {
+    const weeklyShape = z.object(Object.fromEntries(WEEKDAYS.map((d) => [d, z.number().int()])) as Record<Weekday, z.ZodNumber>)
+    const body = z
+      .object({
+        manhourMinutesPerDay: z.object(
+          Object.fromEntries(PERMISSION_CATEGORIES.filter((c) => c !== 'membership').map((cat) => [cat, weeklyShape])) as Record<Exclude<PermissionCategory, 'membership'>, typeof weeklyShape>,
+        ),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const manhourData = body.data.manhourMinutesPerDay as Record<ManhourUserType, WeeklyMinutes>
+    const check = validateManhourMinutesPerDay(manhourData)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const before = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay }).from(companyConfig).limit(1))[0]
+    await db.update(companyConfig).set({ manhourMinutesPerDay: manhourData }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, {
+      actorId: c.get('user').id,
+      action: 'config.manhour',
+      entity: 'company_config',
+      entityId: '1',
+      meta: { before: before?.manhourMinutesPerDay ?? null, after: manhourData },
+    })
+    return c.json({ manhourMinutesPerDay: manhourData })
   })
 
   // Pronista §Subscription Notify — แคตตาล็อกประเภทโปรเจกต์ (Website Dev/Mobile App/ฯลฯ)

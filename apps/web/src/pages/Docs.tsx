@@ -529,9 +529,11 @@ export function DocsPage() {
   const folderOptions = useMemo(() => buildFolderOptions((nodes ?? []).filter((n) => n.kind === 'folder')), [nodes])
 
   // เปลี่ยนชื่อ/ย้าย/ลบ เอกสารทั่วไป (ไม่ใช่โฟลเดอร์) — ใช้จากปุ่มจัดการ (⋮) ในมุมมองรายการ/ตาราง
+  // Pronista §Docs rename fix (2026-09-11) — เดิม initialValue ใช้ templateDocNumber (เลขที่เอกสารที่ระบบ gen ให้ เช่น "SAP-DOC-11092026-0001") แทน title จริง สำหรับเอกสารที่มาจาก template
+  // ถ้าผู้ใช้กดบันทึกโดยไม่ทันสังเกต ชื่อเอกสารจริงจะถูกทับด้วยเลขที่เอกสารทันที (เทียบ dirty-check กับ n.title อยู่แล้ว แค่ initialValue ผิดฟิลด์)
   const renameDoc = useCallback(
     async (n: DocNode) => {
-      const title = await promptDialog({ title: 'เปลี่ยนชื่อเอกสาร', initialValue: n.templateDocNumber ?? n.title, confirmLabel: 'บันทึก' })
+      const title = await promptDialog({ title: 'เปลี่ยนชื่อเอกสาร', initialValue: n.title, confirmLabel: 'บันทึก' })
       if (!title?.trim() || title.trim() === n.title) return
       await api.patch(`/api/docs/${n.id}`, { title: title.trim() })
       await reloadTree()

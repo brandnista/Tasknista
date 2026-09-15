@@ -74,9 +74,16 @@ export const users = sqliteTable('users', {
   notificationPrefs: text('notification_prefs', { mode: 'json' }).$type<string[]>(),
   // Pronista §Meeting Schedule Tab (2026-08-27) — นาทีล่วงหน้าก่อนประชุมเริ่มที่จะเตือน (null = ใช้ค่าเริ่มต้น 5 นาที ใน core)
   meetingReminderMinutes: integer('meeting_reminder_minutes'),
+  // Pronista §Secret Vault (2026-09-03) — PIN ปลดล็อค Vault (แยกจาก login) รูปแบบ 'v1.<salt_b64>.<iterations>.<hash_b64>' · null = ยังไม่ตั้ง
+  vaultPinHash: text('vault_pin_hash'),
+  // Pronista §Security Recheck (2026-09-10) — กัน brute-force PIN: นับครั้งที่ใส่ผิดติดต่อกัน, ล็อกชั่วคราวถ้าเกินเพดาน (reset เป็น 0 ทุกครั้งที่ใส่ถูก)
+  vaultPinFailedAttempts: integer('vault_pin_failed_attempts').notNull().default(0),
+  vaultPinLockedUntil: integer('vault_pin_locked_until', { mode: 'timestamp_ms' }),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .$defaultFn(() => new Date()),
+  // Pronista §Employee Delete (2026-09-07) — ลบสมาชิก = soft-delete เท่านั้น (กฎเหล็ก) หายจากทุกรายการ/dropdown แต่ประวัติงาน/audit log เดิมยังอ้างชื่อได้
+  deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
 })
 
 // Pronista §Workspace Rooms — "ห้อง" ทำงานของทีม (ชื่อ + สมาชิก) คนละเรื่องกับ projects — เข้าไปแล้วเจอหน้า Workspace (Backlog/Sprint) เดิม
@@ -212,6 +219,12 @@ export const companyConfig = sqliteTable('company_config', {
   id: integer('id').primaryKey().default(1),
   cutoffDay: integer('cutoff_day').notNull().default(25), // งวด 25→24 จ่าย 26
   workHourCapMinutes: integer('work_hour_cap_minutes').notNull().default(480), // 8 ชม./วัน
+  // Pronista §System Enhancements — Manhour/วัน แยกตาม "ประเภทผู้ใช้งาน" (staff/outsource/customer เดียวกับ permissionCeilings)
+  // §Workload (2026-09-04) — แยกรายวันในสัปดาห์ได้ด้วย (เดิมเลขเดียวคงที่) — ค่าอาจเป็นเลขแบนราบเก่าก็ได้ resolveManhourMinutesPerDay รองรับทั้งคู่
+  // null = ยังไม่ตั้งค่า ใช้ workHourCapMinutes ด้านบนเป็นค่าเริ่มต้นทุกวัน (resolve ใน core/manhour) — consume จริงใน GET /api/workload
+  manhourMinutesPerDay: text('manhour_minutes_per_day', { mode: 'json' }).$type<
+    Record<'staff' | 'outsource' | 'customer', number | Partial<Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', number>>>
+  >(),
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่การ์ด/แถวเริ่มเตือนสีเหลือง (soon) — ปรับได้ที่ตั้งค่าทั่วไป
   dueSoonDays: integer('due_soon_days').notNull().default(3),
   // โดเมน auto-provision member (SPEC §4.1) — '' = ปิด · default ตอน migrate กัน production เดิมพัง
@@ -469,7 +482,12 @@ export const sprintTaskSnapshots = sqliteTable(
 export const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR', 'API'] as const
 
 // Pronista §2.12 — สถานะ task ตายตัว 4 ค่า (Kanban ทุกโปรเจกต์ ไม่ว่า Product/Project) แทนที่ todo/doing/done เดิม
-export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done'] as const
+// Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — เพิ่ม 'rejected'/'cancelled' เป็นสถานะข้อยกเว้น (ไม่ใช่คอลัมน์ Kanban หลัก — ดู StatusKanban.tsx) เข้าถึงได้เฉพาะผ่าน action endpoint เฉพาะ (reject/cancel) ห้ามตั้งตรงผ่าน PATCH ทั่วไป
+export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done', 'rejected', 'cancelled'] as const
+// สถานะที่ถือว่า "จบแล้ว ไม่ต้อง action อีก" — ใช้แทน `ne(tasks.status,'done')` ในจุดที่หมายถึง "งานที่ยังต้องทำอยู่" (overdue/my-tasks/search ฯลฯ)
+export const INACTIVE_TASK_STATUSES = ['done', 'rejected', 'cancelled'] as const
+// สถานะที่เลือกได้ตรงๆ ผ่าน dropdown อิสระ (canEditStatusFreely) — ไม่รวม rejected/cancelled เพราะต้องผ่าน action ที่บังคับเหตุผลเท่านั้น (endpoint /reject, /cancel)
+export const FREE_EDIT_TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done'] as const
 // Pronista §5 (2026-07-03) — Defect มีชุดสถานะของตัวเอง แยกจาก TASK_STATUSES (ใช้เฉพาะเมื่อ kind==='defect')
 export const DEFECT_STATUSES = ['reported', 'fixing', 'waiting_verify', 'closed'] as const
 
@@ -522,6 +540,10 @@ export const tasks = sqliteTable(
     assigneeId: text('assignee_id').references(() => users.id),
     // Pronista §My Work/Notification — คนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     assignedBy: text('assigned_by').references(() => users.id),
+    // Pronista §Business Rules Workflow (2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ใช้พฤติกรรมเดิม: editor/owner โปรเจกต์คนไหนก็อนุมัติได้) — เลือกได้จากสมาชิกโปรเจกต์คนไหนก็ได้เหมือน assigneeId
+    reviewerId: text('reviewer_id').references(() => users.id),
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency: บวก 1 ทุกครั้งที่แก้ไข task นี้สำเร็จ (PATCH ทั่วไป) เอาไว้ให้ client แนบ expectedVersion กันแก้ทับกันเงียบๆ
+    version: integer('version').notNull().default(1),
     // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId
     dispatchedAt: integer('dispatched_at', { mode: 'timestamp_ms' }),
     status: text('status', { enum: TASK_STATUSES }).notNull().default('non_start'),
@@ -1776,6 +1798,15 @@ export const NOTIFICATION_TYPES = [
   'task_accepted',
   'task_rejected',
   'task_reassigned',
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ตัด Auto-save แล้ว กดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" แจ้งผู้รับผิดชอบว่า Task ถูกแก้ไข (เฉพาะตอนมีผู้รับผิดชอบ + ไม่ใช่คนกดบันทึกเอง)
+  'task_updated',
+  // Pronista §System Enhancements — เตือน Sellnista ใกล้/หมดอายุ (mirror domain_expiry_reminder/domain_expired เป๊ะ)
+  'sellnista_expiry_reminder',
+  'sellnista_expired',
+  // Pronista §Secret Vault Permission (2026-09-08) — แจ้งทุกคนที่มีสิทธิ์เข้าเมนู Secret Vault เมื่อมีคนปลดล็อคสำเร็จ (ยกเว้นตัวเอง)
+  'vault_accessed',
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — แจ้ง assignee (ถ้ามี) ตอนงานถูกยกเลิก
+  'task_cancelled',
 ] as const
 
 export const notifications = sqliteTable(
@@ -1798,6 +1829,8 @@ export const notifications = sqliteTable(
     chatChannelId: text('chat_channel_id').references((): AnySQLiteColumn => chatChannels.id),
     // Pronista §Domain Management (2026-08-27) — deep-link ตรงไปยังโดเมนที่ใกล้/หมดอายุ
     domainId: text('domain_id').references((): AnySQLiteColumn => domains.id),
+    // Pronista §System Enhancements — deep-link ตรงไปยัง Sellnista subscription ที่ใกล้/หมดอายุ
+    sellnistaSubscriptionId: text('sellnista_subscription_id').references((): AnySQLiteColumn => sellnistaSubscriptions.id),
     message: text('message').notNull(),
     isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -2146,6 +2179,122 @@ export const domains = sqliteTable(
   (t) => [index('domains_expiry_idx').on(t.expiryDate)],
 )
 
+// Pronista §System Enhancements — Sellnista: บริการ Subscription แยกระบบจาก domains/productTypes โดยตั้งใจ (พี่ยืนยันแยกต่างหาก)
+// โครง/ฟิลด์เดียวกับ domains (ลอก pattern reminder tier/expired ตรงๆ) แต่ตัดฟิลด์เฉพาะโดเมน (nameservers/DNS/ฯลฯ) ออก — เหลือแค่ที่ spec ระบุ (ชื่อบริการ/วันหมดอายุ/แจ้งเตือน)
+export const sellnistaSubscriptions = sqliteTable(
+  'sellnista_subscriptions',
+  {
+    id: id(),
+    name: text('name').notNull(), // ชื่อบริการที่ Subscribe
+    expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
+    notifyEnabled: integer('notify_enabled', { mode: 'boolean' }).notNull().default(true),
+    notifiedTiers: text('notified_tiers', { mode: 'json' }).$type<number[]>(),
+    expiredNotifiedAt: integer('expired_notified_at', { mode: 'timestamp_ms' }),
+    createdBy: text('created_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('sellnista_subscriptions_expiry_idx').on(t.expiryDate)],
+)
+
+// Pronista §Secret Vault Folder (2026-09-08) — Folder แยกอิสระ ไม่ผูกกับโปรเจกต์ (คู่ขนานกับ secretVaultItems.projectId เดิม ใช้ได้ทั้งคู่/ไม่ใช้เลยก็ได้)
+// สร้าง/แก้ไขได้ทุกคนที่เข้าเมนู Vault ได้ (organize ร่วมกันทั้งทีม เหมือนแชร์ list กัน)
+export const secretVaultFolders = sqliteTable('secret_vault_folders', {
+  id: id(),
+  name: text('name').notNull(),
+  createdBy: text('created_by')
+    .notNull()
+    .references((): AnySQLiteColumn => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
+// Pronista §Secret Vault (2026-09-03) — เก็บรหัสผ่าน/ข้อมูลลับ owner-only (LastPass-style เบาๆ) — ต่อโปรเจกต์ (projectId มีค่า) หรือส่วนกลางบริษัท (projectId ว่าง)
+// password/notes เข้ารหัส AES-GCM ผ่าน crypto.ts (key = VAULT_ENC_KEY wrangler secret) — decrypt เฉพาะตอนเรียก /reveal ที่ผ่าน vault unlock session แล้วเท่านั้น
+export const secretVaultItems = sqliteTable(
+  'secret_vault_items',
+  {
+    id: id(),
+    projectId: text('project_id').references(() => projects.id),
+    // Pronista §Secret Vault Folder (2026-09-08) — จัดกลุ่มอิสระจากโปรเจกต์ (ลบ Folder แล้วรายการไม่หาย แค่กลับมาเป็น null)
+    folderId: text('folder_id').references((): AnySQLiteColumn => secretVaultFolders.id),
+    // Pronista §Secret Vault Type (2026-09-08) — ค่าที่ยอมรับคุมที่ Zod ฝั่ง apps/api (ดู VAULT_ITEM_TYPES ใน packages/core/vault-types.ts — core เป็น pure package แยกจาก db เด็ดขาด ไม่ import ข้ามกัน)
+    type: text('type').notNull().default('website'),
+    name: text('name').notNull(),
+    username: text('username'),
+    passwordEnc: text('password_enc'),
+    url: text('url'),
+    notesEnc: text('notes_enc'),
+    // Pronista §Secret Vault Type (2026-09-08) — ฟิลด์เสริมอิสระ [{label,value}] เข้ารหัสเป็น JSON ก้อนเดียว (เหมือน notesEnc) เช่น API Secret/Merchant ID/เลขบัตร
+    extraFieldsEnc: text('extra_fields_enc'),
+    createdBy: text('created_by')
+      .notNull()
+      .references((): AnySQLiteColumn => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('secret_vault_items_project_idx').on(t.projectId), index('secret_vault_items_folder_idx').on(t.folderId)],
+)
+
+// Pronista §Secret Vault (2026-09-03) — session ปลดล็อค Vault อายุสั้น (15 นาที) แยกจาก session login หลัก — mirror ตาราง sessions เป๊ะ (id = SHA-256 hash ของ token สุ่ม)
+export const vaultUnlocks = sqliteTable(
+  'vault_unlocks',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('vault_unlocks_user_idx').on(t.userId)],
+)
+
+// Pronista §Second Brain (2026-09-08) — ลิงก์ที่ดักจับจาก LINE group เฉพาะ (Group ID = LINE_SECOND_BRAIN_GROUP_ID secret) เก็บอย่างเดียว ไม่มี AI สรุป/metadata (Phase 1)
+// v1 ยังไม่ผูกบัญชี LINE เข้ากับ user Pronista — โชว์แค่ senderDisplayName (best-effort จาก LINE Profile API) แต่เก็บ lineUserId ดิบไว้เผื่อผูกบัญชีทีหลังได้โดยไม่ต้อง backfill
+// Pronista §Second Brain Manual/Table (2026-09-08) — kind แยก 'article' (ลิงก์+note จาก LINE หรือคีย์เอง) กับ 'solution' (ปัญหา+วิธีแก้ คีย์เองเท่านั้น ไม่มีลิงก์)
+// source แยก 'line' (auto-capture, senderDisplayName เป็น best-effort จาก LINE) กับ 'manual' (createdByUserId รู้ชื่อจริงแน่นอน)
+export const secondBrainLinks = sqliteTable(
+  'second_brain_links',
+  {
+    id: id(),
+    kind: text('kind', { enum: ['article', 'solution'] }).notNull().default('article'),
+    source: text('source', { enum: ['line', 'manual'] }).notNull().default('line'),
+    url: text('url'), // nullable — solution ไม่มีลิงก์
+    note: text('note'), // แก้ไขได้เองในตาราง (kind=article)
+    problem: text('problem'), // kind=solution — "ปัญหาที่พบ"
+    solutionText: text('solution_text'), // kind=solution — "วิธีแก้ไข"
+    messageText: text('message_text'), // ข้อความดิบจาก LINE เก็บไว้อ้างอิง (source=line เท่านั้น)
+    lineMessageId: text('line_message_id'), // nullable — manual ไม่มี (กันข้อความซ้ำตอน LINE webhook retry ดู unique index ด้านล่าง)
+    lineUserId: text('line_user_id'),
+    senderDisplayName: text('sender_display_name'),
+    createdByUserId: text('created_by_user_id').references((): AnySQLiteColumn => users.id), // source=manual — ใครคีย์
+    capturedAt: integer('captured_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()), // = "วันที่แชร่"
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [uniqueIndex('second_brain_links_dedupe_idx').on(t.lineMessageId, t.url)], // NULL ใน SQLite unique index ไม่ชนกันเอง — manual entries ปลอดภัย
+)
+
 export type Domain = typeof domains.$inferSelect
 export type DomainDnsRecord = NonNullable<Domain['dnsRecords']>[number]
 export type DomainDsRecord = NonNullable<Domain['dsRecords']>[number]
@@ -2205,3 +2354,7 @@ export type ChatMessageAttachment = typeof chatMessageAttachments.$inferSelect
 export type Meeting = typeof meetings.$inferSelect
 export type MeetingParticipant = typeof meetingParticipants.$inferSelect
 export type MeetingActionItem = typeof meetingActionItems.$inferSelect
+export type SecretVaultItem = typeof secretVaultItems.$inferSelect
+export type SecretVaultFolder = typeof secretVaultFolders.$inferSelect
+export type VaultUnlock = typeof vaultUnlocks.$inferSelect
+export type SecondBrainLink = typeof secondBrainLinks.$inferSelect

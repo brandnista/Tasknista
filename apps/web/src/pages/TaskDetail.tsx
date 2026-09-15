@@ -1,4 +1,4 @@
-import { formatHMS, minutesToHoursLabel, resolveLabels, resolveTaskTypes, type Label, type TaskType } from '@seedoffice/core'
+import { formatHMS, minutesToHoursLabel, resolveLabels, resolveTaskTypes, suggestEstimateMinutes, type Label, type TaskType, type WeeklyMinutes } from '@seedoffice/core'
 import {
   AlertTriangle,
   Check,
@@ -27,6 +27,7 @@ import { LabelChips } from '../components/LabelChips'
 import { STATUS_SWATCH } from '../lib/project-ui'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
+import { useToast } from '../components/Toast'
 
 // Pronista §Back to Basic — 7 ประเภทเอกสารที่ต้องสร้าง/อัปโหลด/ผูกได้ตรงจากหน้ารายละเอียด Task (เหมือน Docs.tsx)
 const TASK_DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR'] as const
@@ -34,7 +35,7 @@ type TaskDocType = (typeof TASK_DOC_TYPES)[number]
 interface ProjectDocOpt { id: string; title: string; docType: TaskDocType | 'API' | null }
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { FREE_EDIT_TASK_STATUS_ORDER, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { useTimer } from '../lib/timer'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
@@ -215,6 +216,10 @@ function TimeSection({
 interface Detail {
   id: string
   projectId: string | null
+  // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency: ส่งกลับมาพร้อม expectedVersion ตอนกด "บันทึกเพื่ออัปเดตข้อมูล" กันแก้ทับกันเงียบๆ
+  version: number
+  // Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — Manhour/วันของหมวด assignee ปัจจุบัน ใช้คำนวณ "ประเมิน ชม." แนะนำตอนเปลี่ยนวันที่
+  weeklyMinutes: WeeklyMinutes
   title: string
   // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน
   description: string | null
@@ -231,11 +236,24 @@ interface Detail {
   subTaskType: string | null
   assigneeId: string | null
   assigneeName: string | null
+  assigneeAvatarUrl: string | null
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — "Reporter" สไตล์ Jira: ผู้กด "จ่ายงาน" ล่าสุด (assignedBy)
+  assignedBy: string | null
+  assignedByName: string | null
+  assignedByAvatarUrl: string | null
+  createdByName: string | null
+  createdByAvatarUrl: string | null
+  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ใช้พฤติกรรมเดิม editor/owner โปรเจกต์คนไหนก็อนุมัติได้)
+  reviewerId: string | null
+  reviewerName: string | null
+  reviewerAvatarUrl: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
   dispatchedAt: number | null
   createdBy: string
   myRole: 'owner' | 'editor' | 'viewer'
   sprintActive: boolean
+  // Pronista §Workspace/Task Jira-alignment (2026-09-09) — Sprint ที่งานนี้สังกัดอยู่ (แบบ Jira: โชว์ชื่อ + ลิงก์กลับไปบอร์ด) — null = ยังไม่ได้ลากเข้า Sprint ไหน
+  sprint: { id: string; name: string | null; status: 'planned' | 'active' | 'completed'; projectId: string | null; workspaceId: string | null } | null
   estimateMinutes: number | null
   costWorkMinutesPerDay: number | null
   startDate: string | null
@@ -260,6 +278,7 @@ interface Detail {
     title: string
     code: string | null
     status: TaskStatus
+    priority: 'low' | 'normal' | 'high'
     assigneeName: string | null
     estimateMinutes: number | null
     originCode: string | null
@@ -273,6 +292,23 @@ interface Detail {
   activity: { id: string; action: string; actorName: string; actorAvatarUrl?: string | null; meta: Record<string, unknown> | null; at: number }[]
   // Pronista §Assign/Accept audit (2026-09-03) — สมาชิกโปรเจกต์นี้ (null = backlog task ไม่ผูกโปรเจกต์ ใช้ userOpts ทั้งบริษัทแทน) ใช้กรอง assignee picker
   projectMembers: { id: string; name: string }[] | null
+}
+// Pronista §Workspace/Task Jira-alignment (2026-09-04) — ฟิลด์ที่ตัด Auto-save ออกทั้งหมด แก้เป็น draft ในเครื่องก่อน รวมบันทึกทีเดียวตอนกด "บันทึกเพื่ออัปเดตข้อมูล"
+interface TaskDraftFields {
+  title: string
+  description: string | null
+  assigneeNotes: string | null
+  originCode: string | null
+  status: TaskStatus
+  assigneeId: string | null
+  reviewerId: string | null
+  priority: 'low' | 'normal' | 'high'
+  labelIds: string[]
+  taskType: string | null
+  subTaskType: string | null
+  startDate: string | null
+  dueDate: string | null
+  estimateMinutes: number | null
 }
 interface UserOpt { id: string; name: string }
 interface TraceRow {
@@ -291,9 +327,6 @@ interface RefRow { refId: string; id: string; code: string | null; title: string
 
 const PRIORITY_THAI = { low: 'ต่ำ', normal: 'กลาง', high: 'สูง' } as const
 const PRIORITY_CLASS = { low: 'bg-divider text-dim', normal: 'bg-info-50 text-info-700', high: 'bg-danger-50 text-danger-600' } as const
-const DEFECT_STATUS_ORDER = ['reported', 'fixing', 'waiting_verify', 'closed'] as const
-const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
-const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
 const ACTION_LABEL: Record<string, string> = {
   'task.create': 'สร้างงานนี้',
   'task.update': 'แก้รายละเอียดงาน',
@@ -308,12 +341,26 @@ const ACTION_LABEL: Record<string, string> = {
   'task.dispatch': 'จ่ายงาน',
   'task.accept': 'รับงาน',
   'task.reject': 'ปฏิเสธงาน',
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15)
+  'task.cancel': 'ยกเลิกงาน',
   'time_entry.create': 'ลงเวลา',
   'time_entry.update': 'แก้เวลา',
   'time_entry.delete': 'ลบเวลา',
 }
 // Pronista §System Requirements Update — แท็บ "ประวัติการเปลี่ยนแปลง" แยกจากฟีดคอมเมนต์ — เฉพาะ action ที่เป็นความเคลื่อนไหวของสถานะ/ผู้รับผิดชอบงาน (ไม่รวมคอมเมนต์/แนบไฟล์/เวลา)
-const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.done', 'task.convert'])
+const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.cancel', 'task.done', 'task.convert', 'task.update'])
+// Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — renderer แบบ generic (best-effort) สำหรับ action='task.update' จากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" — meta.after มีแค่ฟิลด์ที่แก้ (ไม่มี "ค่าเดิม" ต่อฟิลด์ ยกเว้น status/convert ที่มี before ให้เห็นอยู่แล้วด้านบน)
+const FIELD_LABEL: Record<string, string> = {
+  title: 'ชื่องาน', description: 'รายละเอียดจากผู้จ่ายงาน', assigneeNotes: 'รายละเอียดจากผู้รับงาน', originCode: 'Reference Code',
+  assigneeId: 'ผู้รับผิดชอบ', priority: 'ความสำคัญ', labelIds: 'Labels', taskType: 'ประเภทงาน', subTaskType: 'ตัวเลือกย่อย',
+  startDate: 'วันที่เริ่ม', dueDate: 'วันที่คาดว่าเสร็จ', estimateMinutes: 'ประเมิน ชม.',
+}
+function genericChangedFields(after: unknown): string[] {
+  if (!after || typeof after !== 'object') return []
+  return Object.keys(after as Record<string, unknown>)
+    .filter((k) => k !== 'notifyOnUpdate' && k !== 'status' && k !== 'assigneeId')
+    .map((k) => FIELD_LABEL[k] ?? k)
+}
 function isTaskStatus(v: unknown): v is { status: TaskStatus } {
   return !!v && typeof v === 'object' && typeof (v as { status?: unknown }).status === 'string' && (v as { status: string }).status in TASK_STATUS_LABEL
 }
@@ -332,6 +379,7 @@ export function TaskDetailPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { alertDialog, confirmDialog, promptDialog } = useDialog()
+  const toast = useToast()
   const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
@@ -341,7 +389,8 @@ export function TaskDetailPage() {
   const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   // Pronista §System Requirements Update — สลับฟีด "ความเคลื่อนไหวทั้งหมด" (คอมเมนต์+ประวัติ) กับ "ประวัติการเปลี่ยนแปลง" (เฉพาะสถานะ/ผู้รับผิดชอบ ไม่มีคอมเมนต์)
-  const [feedTab, setFeedTab] = useState<'all' | 'history'>('all')
+  // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — รวม "ความเคลื่อนไหว" (comment+activity) กับ "ประวัติการเปลี่ยนแปลง" เป็นแท็บย่อยเดียวกันสไตล์ Jira Activity (All/Comments/History/Work log) แทนตัวสลับ 2 ทางเดิมที่ซ่อนทั้งหน้าไปเลย
+  const [activityTab, setActivityTab] = useState<'all' | 'comments' | 'history' | 'worklog'>('all')
   const { data: trace } = useLoad<TraceResponse>(() => api.get(`/api/tasks/${taskId}/trace`), [taskId])
   // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ
   const { data: refs, reload: reloadRefs } = useLoad<RefRow[]>(() => api.get(`/api/tasks/${taskId}/references`), [taskId])
@@ -352,13 +401,16 @@ export function TaskDetailPage() {
   )
   const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
   const [comment, setComment] = useState('')
-  const [descDraft, setDescDraft] = useState<string | null>(null)
-  const [titleDraft, setTitleDraft] = useState<string | null>(null)
   const [dispatching, setDispatching] = useState(false)
-  const [assigneeNotesDraft, setAssigneeNotesDraft] = useState<string | null>(null)
-  const [refCodeDraft, setRefCodeDraft] = useState<string | null>(null)
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ตัด Auto-save ทั้งหมด: ทุกฟิลด์ทั่วไปแก้เป็น draft ในเครื่องก่อน ไม่ยิง PATCH จนกว่าจะกด "บันทึกเพื่ออัปเดตข้อมูล"
+  // key มีอยู่ใน draft = ผู้ใช้แตะฟิลด์นั้นแล้ว (แม้ค่าจะเป็น null/ว่างก็ตาม) — ไม่มี key = ยังไม่แตะ ใช้ค่าจาก server (t) ตรงๆ ผ่าน draftVal()
+  const [draft, setDraft] = useState<Partial<TaskDraftFields>>({})
+  const [saving, setSaving] = useState(false)
   const [newSubtask, setNewSubtask] = useState('')
   const [newSubtaskCode, setNewSubtaskCode] = useState('')
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — เลือกงานย่อยหลายรายการเพื่อลบทีเดียว (คนละ checkbox กับ toggle สถานะ)
+  const [selectedSubtasks, setSelectedSubtasks] = useState<Set<string>>(new Set())
+  const [deletingSubtasks, setDeletingSubtasks] = useState(false)
   const [newChecklistText, setNewChecklistText] = useState('')
   const [renamingAttachment, setRenamingAttachment] = useState<{ id: string; draft: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -413,9 +465,79 @@ export function TaskDetailPage() {
 
   if (!t) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
-  const patch = async (data: Record<string, unknown>) => {
-    await api.patch(`/api/tasks/${t.id}`, data)
-    await reload()
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — เฉพาะปุ่ม action หลักทีละคลิก (เริ่มทำ/ปิดงานเอง ฯลฯ) ที่ยังคง instant-patch เดิม ไม่ผ่าน draft (ทีละ action ชัดเจนอยู่แล้ว ไม่ใช่การแก้ฟอร์ม)
+  // เคลียร์ key ที่ patch ตรงนี้ออกจาก draft ด้วย (ถ้ามีค้าง) กันสถานะเก่าที่ยังไม่บันทึกจาก dropdown มาทับค่าจริงที่เพิ่ง patch ไป
+  const patchNow = async (data: Record<string, unknown>) => {
+    // Pronista §Business Rules Workflow (2026-09-15) — เดิมไม่มี try/catch เลย ปุ่ม action ทั้งหมด (ส่งงาน/อนุมัติ/ตีกลับ/ปิดงานเอง) ที่เรียกผ่านฟังก์ชันนี้
+    // ถ้า backend ปฏิเสธ (403 ไม่ใช่ reviewer ที่ระบุ, 400 subtasks_incomplete ฯลฯ) จะโดนเงียบแบบ "กดแล้วไม่มีอะไรเกิดขึ้น" (unhandled promise rejection)
+    try {
+      await api.patch(`/api/tasks/${t.id}`, data)
+      setDraft((d) => {
+        const next = { ...d }
+        for (const key of Object.keys(data)) delete next[key as keyof TaskDraftFields]
+        return next
+      })
+      await reload()
+      toast('บันทึกสำเร็จ')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
+  }
+  // labelIds ใน Detail (server) เป็น string[] | null แต่ draft ประกาศไว้เป็น string[] เสมอ (กัน .includes()/.filter() พังตอนยังไม่เคยตั้งแท็กเลย) — coerce null → [] ตรงนี้ที่เดียว
+  const draftVal = <K extends keyof TaskDraftFields>(key: K): TaskDraftFields[K] => {
+    if (key in draft) return draft[key] as TaskDraftFields[K]
+    const raw = t[key as keyof Detail]
+    return (key === 'labelIds' ? (raw ?? []) : raw) as unknown as TaskDraftFields[K]
+  }
+  const setDraftField = <K extends keyof TaskDraftFields>(key: K, value: TaskDraftFields[K]) => setDraft((d) => ({ ...d, [key]: value }))
+  const hasDraft = Object.keys(draft).length > 0
+  // Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — เปลี่ยนวันที่เริ่ม/คาดว่าจะเสร็จ → คำนวณ+เติมค่าประเมินแนะนำใน draft ทันที (ปลอดภัยเพราะยังไม่ยิง PATCH จริงจนกว่าจะกด "บันทึก" — ผู้ใช้แก้เลขต่อเองได้เสมอ)
+  const applyEstimateSuggestion = (startDate: string | null, dueDate: string | null) => {
+    const suggested = suggestEstimateMinutes(startDate, dueDate, t.weeklyMinutes)
+    if (suggested > 0) setDraftField('estimateMinutes', suggested)
+  }
+  const setStartDateDraft = (v: string) => {
+    const next = v || null
+    const due = draftVal('dueDate')
+    if (next && due && next > due) return void alertDialog({ title: 'วันที่เริ่มต้องไม่เกินวันที่คาดว่าเสร็จ' })
+    setDraftField('startDate', next)
+    applyEstimateSuggestion(next, due)
+  }
+  const setDueDateDraft = (v: string) => {
+    const next = v || null
+    const start = draftVal('startDate')
+    if (next && start && start > next) return void alertDialog({ title: 'วันที่คาดว่าเสร็จต้องไม่ก่อนวันที่เริ่ม' })
+    setDraftField('dueDate', next)
+    applyEstimateSuggestion(start, next)
+  }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ปุ่มเดียวรวมบันทึกทุกฟิลด์ที่แก้ไว้ใน draft (แทนที่ auto-save เดิมทั้งหมด) + แจ้งผู้รับผิดชอบว่างานถูกอัปเดต (notifyOnUpdate)
+  const saveUpdate = async () => {
+    if (!hasDraft || saving) return
+    // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — แนบ version ปัจจุบันไปด้วยเสมอ กันแก้ทับกันเงียบๆ ตอนมี 2 คนเปิดหน้าเดียวกันพร้อมกัน
+    const payload: Record<string, unknown> = { ...draft, notifyOnUpdate: true, expectedVersion: t.version }
+    if ('title' in payload) {
+      const trimmed = String(payload.title ?? '').trim()
+      if (!trimmed) delete payload.title
+      else payload.title = trimmed
+    }
+    setSaving(true)
+    try {
+      await api.patch(`/api/tasks/${t.id}`, payload)
+      setDraft({})
+      await reload()
+      toast('บันทึกสำเร็จ')
+    } catch (e) {
+      if (e instanceof ApiError && e.data && typeof e.data === 'object' && 'error' in e.data && e.data.error === 'stale_version') {
+        // มีคนแก้ไขงานนี้ไปพร้อมกัน — โหลดข้อมูลล่าสุดมาแทน draft เดิม (merge เองซับซ้อนเกินจำเป็นสำหรับตอนนี้ ให้ผู้ใช้เห็นของใหม่แล้วแก้ต่อเอง)
+        await alertDialog({ title: 'มีคนแก้ไขงานนี้ไปพร้อมกัน', message: 'กำลังโหลดข้อมูลล่าสุดให้ใหม่ — กรุณาตรวจสอบแล้วแก้ไขอีกครั้ง' })
+        setDraft({})
+        await reload()
+      } else {
+        await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง' })
+      }
+    } finally {
+      setSaving(false)
+    }
   }
   // Pronista §Assign/Accept audit (2026-09-03) — งานที่ผูกโปรเจกต์: กรองตัวเลือกเหลือแค่สมาชิกโปรเจกต์นั้น (เดิมโชว์ active user ทั้งบริษัท)
   // ยังคงโชว์ assignee ปัจจุบันไว้เสมอแม้ไม่อยู่ใน list แล้ว (เช่นถูกถอดออกจากโปรเจกต์หลังถูก assign ไปแล้ว) กัน select โชว์ว่างงงๆ
@@ -424,11 +546,8 @@ export function TaskDetailPage() {
     t.assigneeId && t.assigneeName && !assigneeOptsBase.some((u) => u.id === t.assigneeId)
       ? [...assigneeOptsBase, { id: t.assigneeId, name: t.assigneeName }]
       : assigneeOptsBase
-  const changeAssignee = (assigneeId: string | null) => {
-    void patch({ assigneeId }).catch((err) => {
-      void alertDialog({ title: err instanceof ApiError ? err.message : 'เปลี่ยนผู้รับผิดชอบไม่สำเร็จ ลองใหม่อีกครั้ง' })
-    })
-  }
+  // Pronista §Workspace/Task Jira-alignment (3.1, 2026-09-04) — "Assign to me" เหมือน Jira: ตั้ง draft ผู้รับผิดชอบ = ตัวเอง (ยังไม่ยิง PATCH จนกด "บันทึก" ตาม flow draft ใหม่)
+  const assignToMe = () => { if (user) setDraftField('assigneeId', user.id) }
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
   // (2026-08-25) กัน busy ระหว่างรอ reload — ดับเบิลคลิกปุ่มก่อนหน้านี้ยิง dispatch ซ้ำ ทำให้แจ้งเตือนเบิ้ล
   const dispatch = async () => {
@@ -437,21 +556,43 @@ export function TaskDetailPage() {
     try {
       await api.post(`/api/tasks/${t.id}/dispatch`, {})
       await reload()
+      toast('จ่ายงานสำเร็จ')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'จ่ายงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
     } finally {
       setDispatching(false)
     }
   }
   // Pronista §Task lifecycle accept step — assignee กดรับงานเอง ถึงจะเปลี่ยนเป็นกำลังทำ
   const accept = async () => {
-    await api.post(`/api/tasks/${t.id}/accept`, {})
-    await reload()
+    try {
+      await api.post(`/api/tasks/${t.id}/accept`, {})
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'รับงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   // Pronista §Assign/Accept audit (2026-09-03) — assignee ปฏิเสธงานที่จ่ายมา (ก่อนกดรับ) ต้องกรอกเหตุผลให้ผู้จ่ายงานรู้
   const reject = async () => {
     const reason = await promptDialog({ title: 'ปฏิเสธงาน', message: 'บอกเหตุผลให้ผู้จ่ายงานรู้ทันที', placeholder: 'เช่น scope ไม่ตรง / ยังไม่มีคิวว่าง', confirmLabel: 'ปฏิเสธงาน' })
     if (!reason?.trim()) return
-    await api.post(`/api/tasks/${t.id}/reject`, { reason: reason.trim() })
-    await reload()
+    try {
+      await api.post(`/api/tasks/${t.id}/reject`, { reason: reason.trim() })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ปฏิเสธงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
+  }
+  // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner เท่านั้น บังคับใส่เหตุผลเสมอ (mirror reject)
+  const cancelTask = async () => {
+    const reason = await promptDialog({ title: 'ยกเลิกงาน', message: 'บอกเหตุผลที่ยกเลิกงานนี้', placeholder: 'เช่น scope เปลี่ยน / ลูกค้ายกเลิก', confirmLabel: 'ยกเลิกงาน' })
+    if (!reason?.trim()) return
+    try {
+      await api.post(`/api/tasks/${t.id}/cancel`, { reason: reason.trim() })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ยกเลิกงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   const addReference = async (picked: PickableTask) => {
     setLinkPickerOpen(false)
@@ -539,6 +680,46 @@ export function TaskDetailPage() {
     setNewSubtaskCode('')
     await reload()
   }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-04) — toggle สถานะงานย่อยจากติ๊กตรงแถวได้เลย (เดิม checkbox เป็นแค่ span โชว์เฉยๆ ไม่มี handler)
+  // Pronista §Task Detail fix (2026-09-11) — เดิมไม่ดัก error เลย งานย่อยที่ถูกจ่ายมาจากคนอื่น (ไม่ใช่คนคีย์เอง) กำลังทำอยู่ (on_processing) ติ๊กเสร็จตรงๆ ไม่ได้ ต้องผ่าน "ส่งตรวจ" ก่อน (PATCH /tasks/:id เช็คเงื่อนไขนี้ฝั่ง server คืน 403) — กดติ๊กแล้วไม่เกิดอะไรขึ้นเลย เหมือนบั๊กเดียวกับปุ่ม "เสร็จแล้ว" ในหน้า "งานของฉัน"
+  const toggleSubtaskDone = async (subtaskId: string, currentlyDone: boolean) => {
+    try {
+      await api.patch(`/api/tasks/${subtaskId}`, { status: currentlyDone ? 'non_start' : 'done' })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสถานะไม่สำเร็จ' })
+    }
+  }
+  const toggleSelectSubtask = (id: string) => {
+    setSelectedSubtasks((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  // Pronista §Workspace/Task Jira-alignment (2026-09-08) — "เลือกทั้งหมด" งานย่อย mirror pattern เดียวกับ BulkKindActions ใน ProjectDetail.tsx
+  const toggleSelectAllSubtasks = () => {
+    setSelectedSubtasks((prev) => {
+      const allIds = t.subtasks.map((s) => s.id)
+      const allSelected = allIds.length > 0 && allIds.every((id) => prev.has(id))
+      return allSelected ? new Set() : new Set(allIds)
+    })
+  }
+  const deleteSelectedSubtasks = async () => {
+    const ids = [...selectedSubtasks]
+    if (ids.length === 0) return
+    const yes = await confirmDialog({ title: `ลบงานย่อย ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', confirmLabel: 'ลบ', danger: true })
+    if (!yes) return
+    setDeletingSubtasks(true)
+    try {
+      await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+      setSelectedSubtasks(new Set())
+      await reload()
+    } finally {
+      setDeletingSubtasks(false)
+    }
+  }
   const addChecklistItem = async () => {
     if (!newChecklistText.trim()) return
     await api.post(`/api/tasks/${t.id}/checklist`, { text: newChecklistText.trim() })
@@ -566,15 +747,26 @@ export function TaskDetailPage() {
   }
 
   const isAssignee = !!user && t.assigneeId === user.id
+  // Pronista §Reassign-notify fix (2026-09-15) — แยก "จ่ายงานให้ตัวเอง" จริง (ไม่มีใครมอบหมายมา) ออกจาก "ถูกคนอื่นตั้งเป็นผู้รับผิดชอบแล้วยังไม่ถูกจ่ายอย่างเป็นทางการ" — เดิมสองเคสนี้ขึ้นปุ่ม/ข้อความ "จ่ายงาน (ให้ตัวเอง)" เหมือนกันหมด ทำให้ assignee ที่ถูกคนอื่นมอบหมายมางง (เจอบั๊กจริง: อัญมอบหมายให้อาร์ม แต่อาร์มเห็นปุ่มเหมือนกำลังจ่ายงานให้ตัวเอง)
+  const assignedByOther = isAssignee && !!t.assignedBy && t.assignedBy !== t.assigneeId
   // Pronista §Task Workflow fix (2026-08-26) — isAssignee เดิมใช้ซ่อน "ฝั่งผู้จ่ายงาน" ทั้งหมดรวมถึงตอนจ่ายงานให้ตัวเอง (self-assign)
   // ทำให้กรอกเวลาประเมิน/ลำดับความสำคัญ/ประเภทงาน/กำหนดการฯลฯ ไม่ได้เลยระหว่างจ่ายให้ตัวเอง — isAssigneeOnly แยกกรณีนี้ออก: true เฉพาะเป็น assignee "อย่างเดียว" (ไม่มีสิทธิ์ editor/owner โปรเจกต์ด้วย)
   const isAssigneeOnly = isAssignee && t.myRole !== 'owner' && t.myRole !== 'editor'
-  // ผู้คีย์งานขึ้นมาเอง (ไม่ว่าจะจ่ายให้ใคร) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
-  const isSelfKeyed = !!user && t.createdBy === user.id
-  const canQuickToggleDone = canEdit && (!isAssignee || isSelfKeyed)
-  // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือเป็นงานที่คีย์เอง หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
-  const canEditStatusFreely = canEdit && (!isAssignee || isSelfKeyed || !t.dispatchedAt)
-  const done = t.status === 'done'
+  // Pronista §Workspace/Task Jira-alignment (2026-09-07) — "รายละเอียดจากผู้จ่ายงาน" ปกติแก้ได้เฉพาะ editor/owner (canEdit && !isAssigneeOnly)
+  // ยกเว้นกรณีพิเศษ: ผู้จ่ายงานจริง (assignedBy) กับผู้รับผิดชอบปัจจุบัน เป็นคนคนเดียวกัน (จ่ายงานให้ตัวเอง) — ให้แก้ช่องนี้ได้เองแม้เป็นแค่ assignee ธรรมดา
+  const canEditDispatcherNotes = (canEdit && !isAssigneeOnly) || (isAssignee && !!t.assignedBy && t.assignedBy === t.assigneeId)
+  // ผู้จ่ายงานให้ตัวเองจริง (assignedBy === assigneeId) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ (ผ่านปุ่ม "ปิดงานเอง" ที่ scope เฉพาะ done เท่านั้น ไม่ใช่ dropdown อิสระด้านล่าง)
+  // (2026-09-15 follow-up) — เดิมใช้ createdBy (แค่คนคีย์ Task ขึ้นในระบบ) เปลี่ยนมาใช้ assignedBy===assigneeId (คนที่มอบหมายงานรอบปัจจุบันกับคนรับงาน เป็นคนเดียวกันจริง) ให้ตรงกับ Business Rules spec ข้อ 9 (createdBy ไม่ควรมีสิทธิ์ข้าม Workflow) — mirror สัญญาณเดียวกับ canEditDispatcherNotes ด้านบน และ backend (PATCH /tasks/:id)
+  // (เฟส A, 2026-09-15) — ต้อง "ไม่มี Reviewer" ด้วยถึงจะปิดงานเองได้ (สเปกข้อ 7/8: self-assign มี reviewer → ต้องรอ approve เหมือนงานทั่วไป ไม่ใช่ปิดเองอิสระ)
+  const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId && !t.reviewerId
+  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ถ้าระบุ Reviewer ไว้ เฉพาะ reviewer คนนั้น (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงาน "รอตรวจ" ได้ — ไม่มี reviewer (ค่าเริ่มต้น) = ใครก็ได้ที่ canEdit เหมือนเดิม
+  // (2026-09-15 follow-up) — ไม่ระบุ reviewer ตรงๆ → fallback เป็นผู้จ่ายงาน (assignedBy) แทน "editor/owner คนไหนก็ได้" ตามที่ยืนยันแล้ว — mirror สัญญาณเดียวกับ backend เป๊ะ
+  const effectiveReviewerId = t.reviewerId ?? t.assignedBy
+  const canReviewSubmission = !effectiveReviewerId || effectiveReviewerId === user?.id || user?.role === 'owner'
+  // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
+  // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
+  const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt)
+  const done = draftVal('status') === 'done'
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
   const totalMinutes = (timeRows ?? []).reduce((s, r) => s + r.minutes, 0)
 
@@ -588,6 +780,8 @@ export function TaskDetailPage() {
   ].sort((a, b) => a.at - b.at)
   // Pronista §System Requirements Update — ประวัติการเปลี่ยนแปลง: เฉพาะความเคลื่อนไหวสถานะ/ผู้รับผิดชอบ/ประเภทงาน ไม่รวมคอมเมนต์/แนบไฟล์/เวลา
   const historyFeed = feed.filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
+  // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แท็บ "Comments" แยกเฉพาะคอมเมนต์ ไม่ปนกิจกรรม
+  const commentsFeed = feed.filter((f): f is FeedEntry & { kind: 'comment' } => f.kind === 'comment')
 
   const siblingTotal = t.siblings.length + 1
   const siblingDone = t.siblings.filter((s) => s.status === 'done').length + (done ? 1 : 0)
@@ -606,6 +800,8 @@ export function TaskDetailPage() {
             </button>
           )}
           <span className="text-muted">{t.projectName ?? 'Backlog'}{t.groupName ? ` · ${t.groupName}` : ''}</span>
+          {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ย้ายรหัส Task มาอยู่แถวเดียวกับชื่อโปรเจกต์ (เดิมอยู่คนละแถวด้านล่าง) */}
+          {t.code && <span className="text-xs font-mono text-muted bg-white border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span>}
           {t.epic && (
             <span className="text-xs font-medium text-teal-700 bg-teal-50 border border-teal-100 rounded-full px-2.5 py-0.5" title={t.epic.code ?? undefined}>
               {t.epic.title}
@@ -622,39 +818,26 @@ export function TaskDetailPage() {
         </div>
 
         <div className="px-5 pt-5 pb-4 border-b border-border-subtle">
-          <div className="flex items-center justify-between gap-2">
-            {t.code ? <span className="text-xs font-mono text-muted bg-hover border border-border-subtle rounded px-1.5 py-0.5">{t.code}</span> : <span />}
-            {viewers.length > 0 && (
-              <div className="flex items-center -space-x-1.5" title={`${viewers.length} คนกำลังเปิด Task นี้อยู่: ${viewers.map((v) => v.name).join(', ')}`}>
-                {viewers.slice(0, 5).map((v) => (
-                  <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
-                ))}
-                {viewers.length > 5 && (
-                  <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
-                )}
-              </div>
-            )}
-          </div>
+          {viewers.length > 0 && (
+            <div className="flex items-center justify-end -space-x-1.5" title={`${viewers.length} คนกำลังเปิด Task นี้อยู่: ${viewers.map((v) => v.name).join(', ')}`}>
+              {viewers.slice(0, 5).map((v) => (
+                <Avatar key={v.userId} name={v.name} avatarUrl={null} className="w-6 h-6 text-[10px] ring-2 ring-white" colorClass={avatarColor(v.name)} />
+              ))}
+              {viewers.length > 5 && (
+                <span className="w-6 h-6 rounded-full bg-divider text-[10px] text-dim flex items-center justify-center ring-2 ring-white">+{viewers.length - 5}</span>
+              )}
+            </div>
+          )}
+          {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — เอา checkbox toggle-done หน้าไตเติลออก (ตามอ้างอิง Jira ไม่มี) — สลับสถานะยังทำได้ผ่าน dropdown สถานะด้านล่างตามปกติ ไม่เสียความสามารถ */}
           <div className="flex items-start gap-2.5 mt-2">
-            <button
-              onClick={() => canQuickToggleDone && void patch({ status: done ? 'non_start' : 'done' })}
-              title={canQuickToggleDone ? (done ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ') : 'ต้องมีสิทธิ์แก้ไข (ผู้จ่ายงาน) ในโปรเจกต์นี้'}
-              className={`shrink-0 mt-0.5 w-7 h-7 rounded-lg border-2 grid place-items-center transition ${done ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'} ${canQuickToggleDone ? '' : 'opacity-60 cursor-default'}`}
-            >
-              {done && <Check className="w-4 h-4" />}
-            </button>
             {canEdit && !isAssigneeOnly ? (
               <textarea
-                value={titleDraft ?? t.title}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onBlur={() => {
-                  const next = (titleDraft ?? t.title).trim()
-                  if (titleDraft !== null && next && next !== t.title) void patch({ title: next })
-                  setTitleDraft(null)
-                }}
+                value={draftVal('title')}
+                onChange={(e) => setDraftField('title', e.target.value)}
                 rows={2}
                 aria-label="ชื่องาน"
-                className={`flex-1 min-w-0 resize-none text-xl font-semibold bg-transparent rounded-lg -mx-1.5 px-1.5 py-0.5 hover:bg-hover focus:bg-hover focus:outline-hidden ${done ? 'text-muted line-through' : 'text-ink'}`}
+                title="คลิกเพื่อแก้ไขชื่องาน"
+                className={`flex-1 min-w-0 resize-none text-xl font-semibold bg-hover rounded-lg -mx-1.5 px-1.5 py-0.5 hover:bg-divider focus:bg-white focus:ring-2 focus:ring-brand-200 focus:outline-hidden ${done ? 'text-muted line-through' : 'text-ink'}`}
               />
             ) : (
               <h1 className={`text-xl font-semibold text-wrap ${done ? 'text-muted line-through' : 'text-ink'}`}>{t.title}</h1>
@@ -667,64 +850,108 @@ export function TaskDetailPage() {
           )}
         </div>
 
-        {/* Pronista §System Requirements Update — ย้ายแท็บ "ประวัติการเปลี่ยนแปลง" ขึ้นมาไว้ใต้หัวเรื่องเลย ไม่ต้องเลื่อนลงไปหาในฟีดด้านล่าง */}
+        {/* Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — ย้ายแท็บ All/Comments/History/Work log ขึ้นมาไว้ใต้หัวเรื่องทันที ตำแหน่ง/สไตล์เดียวกับแท็บ "รายละเอียด/ประวัติการเปลี่ยนแปลง" บน PRD เดิม */}
         <div className="px-5 pt-3 border-b border-border-subtle">
           <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit mb-3">
-            <button onClick={() => setFeedTab('all')} className={`px-2.5 py-1 rounded-md ${feedTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายละเอียด</button>
-            <button onClick={() => setFeedTab('history')} className={`px-2.5 py-1 rounded-md ${feedTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ประวัติการเปลี่ยนแปลง</button>
+            <button onClick={() => setActivityTab('all')} className={`px-2.5 py-1 rounded-md ${activityTab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>All</button>
+            <button onClick={() => setActivityTab('comments')} className={`px-2.5 py-1 rounded-md ${activityTab === 'comments' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>Comments</button>
+            <button onClick={() => setActivityTab('history')} className={`px-2.5 py-1 rounded-md ${activityTab === 'history' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>History</button>
+            <button onClick={() => setActivityTab('worklog')} className={`px-2.5 py-1 rounded-md ${activityTab === 'worklog' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>Work log</button>
           </div>
         </div>
 
-        {feedTab === 'history' ? (
-          <div className="p-5 space-y-3">
-            {historyFeed.length === 0 && <div className="text-sm text-border">ยังไม่มีประวัติการเปลี่ยนแปลง</div>}
-            {historyFeed.map((f) => (
-              <div key={`h-${f.id}`} className="flex gap-2 text-xs">
-                <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
-                <div className="flex-1 leading-snug pt-0.5">
-                  <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
-                  {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
-                    <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
-                  )}
-                  {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
-                    <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
-                  )}
+        {/* Pronista §Workspace/Task Jira-alignment (2026-09-07) — กดแท็บไหนก็สลับทั้งหน้าเลยเหมือนพฤติกรรมเดิมบน PRD (ไม่ใช่แค่ส่วนย่อยเหมือนที่ทำไปก่อนหน้า) — All ไปโชว์เนื้อหาปกติทั้งหมดด้านล่างแทน ตรงนี้จัดการเฉพาะ Comments/History/Work log */}
+        {activityTab !== 'all' && (
+        <div className="p-5 border-b border-border-subtle">
+          {activityTab === 'worklog' ? (
+            <div className="space-y-2">
+              {(timeRows ?? []).length === 0 && <div className="text-sm text-border">ยังไม่มีการลงเวลา</div>}
+              {(timeRows ?? []).map((r) => (
+                <div key={r.id} className="flex items-center gap-2 text-xs bg-hover rounded-lg px-3 py-2">
+                  <span className="font-medium text-body">{r.userName}</span>
+                  <span className="text-muted">{r.workDate}</span>
+                  <span className="ml-auto font-semibold text-ink tabular-nums">{minutesToHoursLabel(r.minutes)} ชม.</span>
+                  {r.note && <span className="text-muted truncate max-w-32" title={r.note}>· {r.note}</span>}
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(activityTab === 'comments' ? commentsFeed : historyFeed).length === 0 && (
+                <div className="text-sm text-border">ยังไม่มีรายการ</div>
+              )}
+              {(activityTab === 'comments' ? commentsFeed : historyFeed).map((f) =>
+                f.kind === 'comment' ? (
+                  <div key={`c-${f.id}`} className="flex gap-2">
+                    <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
+                    <div className="min-w-0">
+                      <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
+                        <b className="text-body">{f.userName}</b> · {f.body}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
+                        {f.isBlocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger-700 bg-danger-100 px-1.5 py-0.5 rounded-full">
+                            <AlertTriangle className="w-3 h-3" /> ติดขัด
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={`a-${f.id}`} className="flex gap-2 text-xs">
+                    <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
+                    <div className="flex-1 leading-snug pt-0.5">
+                      <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
+                      {/* Pronista §System Requirements Update — ประวัติเปลี่ยนสถานะ: โชว์ "สถานะเดิม → สถานะใหม่" จาก audit meta.before/after */}
+                      {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
+                        <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
+                      )}
+                      {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
+                      {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
+                        <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
+                      )}
+                      {/* Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แก้ทั่วไปผ่านปุ่ม "บันทึกเพื่ออัปเดตข้อมูล": โชว์รายชื่อฟิลด์ที่เปลี่ยน (best-effort ไม่มีค่าเดิมรายฟิลด์) */}
+                      {f.action === 'task.update' && genericChangedFields(f.meta?.after).length > 0 && (
+                        <div className="text-[11px] text-muted mt-0.5">แก้ไข: {genericChangedFields(f.meta?.after).join(', ')}</div>
+                      )}
+                    </div>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
+
+          {activityTab === 'comments' && (
+            <div className="flex gap-2 mt-3">
+              <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 min-w-0 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
+              {isAssignee && (
+                <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
+                  <AlertTriangle className="w-4 h-4" /> ติดขัด
+                </button>
+              )}
+              <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* Pronista §Workspace/Task Jira-alignment (2026-09-07) — แท็บ All เท่านั้นที่โชว์หน้าปกติทั้งหมด (Comments/History/Work log สลับทั้งหน้าแทน เหมือนพฤติกรรมเดิมบน PRD) */}
+        {activityTab === 'all' && (
         <div className="grid md:grid-cols-[minmax(0,1fr)_300px]">
           <div className="p-5 space-y-6 border-b md:border-b-0 md:border-r border-border-subtle min-w-0">
 
             <div>
               <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้จ่ายงาน</div>
-              {canEdit && !isAssigneeOnly ? (
+              {canEditDispatcherNotes ? (
                 <textarea
-                  value={descDraft ?? t.description ?? ''}
-                  onChange={(e) => setDescDraft(e.target.value)}
-                  onBlur={() => { if (descDraft !== null && descDraft !== (t.description ?? '')) void patch({ description: descDraft || null }) }}
+                  value={draftVal('description') ?? ''}
+                  onChange={(e) => setDraftField('description', e.target.value || null)}
                   placeholder="เพิ่มรายละเอียดงาน..."
                   className="w-full min-h-24 text-sm text-soft bg-hover rounded-lg p-3 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
                 />
               ) : (
                 <p className="text-sm text-soft whitespace-pre-line">{t.description ?? '—'}</p>
-              )}
-            </div>
-
-            <div>
-              {/* Pronista §Back to Basic (ต่อยอด) — บันทึกของผู้รับงานเอง แก้ได้เฉพาะ assignee ก่อนกด "ส่งงาน" · ผู้จ่ายงานอ่านได้อย่างเดียว แก้ไม่ได้เลย */}
-              <div className="text-xs font-medium text-muted mb-1.5">รายละเอียดจากผู้รับงาน</div>
-              {isAssignee && t.status !== 'waiting_for_test' && !done ? (
-                <textarea
-                  value={assigneeNotesDraft ?? t.assigneeNotes ?? ''}
-                  onChange={(e) => setAssigneeNotesDraft(e.target.value)}
-                  onBlur={() => { if (assigneeNotesDraft !== null && assigneeNotesDraft !== (t.assigneeNotes ?? '')) void patch({ assigneeNotes: assigneeNotesDraft || null }) }}
-                  placeholder="พิมพ์บันทึกของตัวเอง เช่น ทำไปถึงไหน ติดขัดอะไร…"
-                  className="w-full min-h-24 text-sm text-soft bg-hover rounded-lg p-3 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
-                />
-              ) : (
-                <p className="text-sm text-soft whitespace-pre-line">{t.assigneeNotes ?? '—'}</p>
               )}
             </div>
 
@@ -754,20 +981,56 @@ export function TaskDetailPage() {
             </div>
 
             <div>
-              <div className="text-xs font-medium text-muted mb-2">งานย่อย <span className="text-border">({t.subtasks.length})</span></div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="text-xs font-medium text-muted">งานย่อย <span className="text-border">({t.subtasks.length})</span></div>
+                {/* Pronista §Workspace/Task Jira-alignment (2026-09-08) — เลือกทั้งหมดทีเดียว แทนต้องไล่ติ๊กเองทีละอันเมื่อมีงานย่อยเยอะ */}
+                {t.subtasks.length > 0 && (
+                  <label className="flex items-center gap-1 text-[11px] text-dim cursor-pointer">
+                    <input type="checkbox" checked={t.subtasks.every((s) => selectedSubtasks.has(s.id))} onChange={toggleSelectAllSubtasks} />
+                    เลือกทั้งหมด
+                  </label>
+                )}
+                {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ไอคอนถังขยะโผล่เมื่อติ๊กเลือกอย่างน้อย 1 รายการเท่านั้น */}
+                {selectedSubtasks.size > 0 && (
+                  <button
+                    onClick={() => void deleteSelectedSubtasks()}
+                    disabled={deletingSubtasks}
+                    title={`ลบ ${selectedSubtasks.size} รายการที่เลือก`}
+                    className="ml-auto text-xs text-danger-600 hover:text-danger-700 flex items-center gap-1 disabled:opacity-40"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> ลบ ({selectedSubtasks.size})
+                  </button>
+                )}
+              </div>
               {t.subtasks.length === 0 && <div className="text-sm text-border mb-2">ยังไม่มีงานย่อย</div>}
               <div className="space-y-1 mb-2">
                 {t.subtasks.map((s) => (
-                  <button key={s.id} onClick={() => navigate(`/tasks/${s.id}`)} className="w-full flex items-center gap-2 text-left text-sm bg-hover hover:bg-divider rounded-lg px-2.5 py-1.5">
-                    <span className={`w-4 h-4 rounded border shrink-0 grid place-items-center ${s.status === 'done' ? 'border-brand-500 bg-brand-500 text-white' : 'border-border'}`}>
+                  <div key={s.id} className="w-full flex items-center gap-2 text-left text-sm bg-hover hover:bg-divider rounded-lg px-2.5 py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedSubtasks.has(s.id)}
+                      onChange={() => toggleSelectSubtask(s.id)}
+                      aria-label={`เลือก ${s.title}`}
+                      className="shrink-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void toggleSubtaskDone(s.id, s.status === 'done')}
+                      title={s.status === 'done' ? 'ยกเลิกเสร็จ' : 'ทำเครื่องหมายว่าเสร็จ'}
+                      className={`w-4 h-4 rounded border shrink-0 grid place-items-center ${s.status === 'done' ? 'border-brand-500 bg-brand-500 text-white' : 'border-border hover:border-brand-400'}`}
+                    >
                       {s.status === 'done' && <Check className="w-3 h-3" />}
-                    </span>
-                    {s.code && <span className="text-[11px] font-mono text-muted shrink-0">{s.code}</span>}
-                    <span className={`flex-1 truncate ${s.status === 'done' ? 'text-muted line-through' : 'text-body'}`}>{s.title}</span>
+                    </button>
+                    <button onClick={() => navigate(`/tasks/${s.id}`)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                      {s.code && <span className="text-[11px] font-mono text-muted shrink-0">{s.code}</span>}
+                      <span className={`flex-1 truncate ${s.status === 'done' ? 'text-muted line-through' : 'text-body'}`}>{s.title}</span>
+                    </button>
+                    {s.priority !== 'normal' && <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${PRIORITY_CLASS[s.priority]}`}>{PRIORITY_THAI[s.priority]}</span>}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[s.status]}`}>{TASK_STATUS_LABEL[s.status]}</span>
                     {s.originCode && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 shrink-0">{s.originCode}</span>}
                     {s.estimateMinutes != null && <span className="text-[11px] text-muted shrink-0">{minutesToHoursLabel(s.estimateMinutes)} ชม.</span>}
                     {s.assigneeName && <span className="text-[11px] text-muted shrink-0">{s.assigneeName}</span>}
-                  </button>
+                  </div>
                 ))}
               </div>
               {canEdit && !isAssignee && (
@@ -883,9 +1146,8 @@ export function TaskDetailPage() {
                       <span className="text-[11px] text-muted mb-1 block">Reference Code</span>
                       {canEdit ? (
                         <input
-                          value={refCodeDraft ?? t.originCode ?? ''}
-                          onChange={(e) => setRefCodeDraft(e.target.value)}
-                          onBlur={() => { if (refCodeDraft !== null && refCodeDraft !== (t.originCode ?? '')) void patch({ originCode: refCodeDraft || null }) }}
+                          value={draftVal('originCode') ?? ''}
+                          onChange={(e) => setDraftField('originCode', e.target.value || null)}
                           placeholder="เช่น MAK002-SOW-006-001"
                           className="w-full text-xs font-mono bg-hover rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
                         />
@@ -956,56 +1218,6 @@ export function TaskDetailPage() {
               )}
             </div>
 
-            <div>
-              <div className="text-xs font-medium text-muted mb-2">ความเคลื่อนไหว</div>
-              <div className="space-y-3">
-                {feed.length === 0 && <div className="text-sm text-border">ยังไม่มีความเคลื่อนไหว</div>}
-                {feed.map((f) =>
-                  f.kind === 'comment' ? (
-                    <div key={`c-${f.id}`} className="flex gap-2">
-                      <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
-                      <div className="min-w-0">
-                        <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
-                          <b className="text-body">{f.userName}</b> · {f.body}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
-                          {f.isBlocked && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger-700 bg-danger-100 px-1.5 py-0.5 rounded-full">
-                              <AlertTriangle className="w-3 h-3" /> ติดขัด
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div key={`a-${f.id}`} className="flex gap-2 text-xs">
-                      <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
-                      <div className="flex-1 leading-snug pt-0.5">
-                        <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
-                        {/* Pronista §System Requirements Update — ประวัติเปลี่ยนสถานะ: โชว์ "สถานะเดิม → สถานะใหม่" จาก audit meta.before/after */}
-                        {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
-                          <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
-                        )}
-                        {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
-                        {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
-                          <div className="text-[11px] font-mono text-muted mt-0.5">{f.meta.oldCode} → {f.meta.newCode}</div>
-                        )}
-                      </div>
-                    </div>
-                  ),
-                )}
-              </div>
-              <div className="flex gap-2 mt-3">
-                <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
-                {isAssignee && (
-                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
-                    <AlertTriangle className="w-4 h-4" /> ติดขัด
-                  </button>
-                )}
-                <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
-              </div>
-            </div>
           </div>
 
           <div className="p-5 space-y-5 bg-hover/40">
@@ -1013,48 +1225,89 @@ export function TaskDetailPage() {
               {/* Pronista §Meta panel redesign — จัดเป็นกริด label/ช่องกรอกคงที่แทน flex justify-between ที่แนวไม่ตรงกัน + เพิ่ม border ให้ทุกช่องกรอกได้ (เดิม bg-white ล้วนกลืนกับพื้นหลัง bg-hover/40 แยกไม่ออกว่ากรอกตรงไหนได้) */}
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
-                {t.kind === 'defect' && t.defectStatus && (
-                  <div className="text-[11px] text-muted mb-2">สถานะงาน = ขั้นตอนจ่าย/รับ/ส่ง/อนุมัติงาน (ผู้จ่ายงาน/ผู้รับงานอัปเดต) · ผลตรวจ Defect = สถานะแก้บั๊กฝั่ง QA (คนละเรื่องกัน อัปเดตแยกกันได้)</div>
-                )}
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
                   <span className="text-dim">สถานะงาน</span>
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
                   {canEditStatusFreely ? (
-                    <select value={t.status} onChange={(e) => void patch({ status: e.target.value as TaskStatus })} aria-label="สถานะงาน" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>
-                      {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                    <select value={draftVal('status')} onChange={(e) => setDraftField('status', e.target.value as TaskStatus)} aria-label="สถานะงาน" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[draftVal('status')]}`}>
+                      {FREE_EDIT_TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                     </select>
                   ) : (
                     <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
                   )}
 
-                  {t.kind === 'defect' && t.defectStatus && (
-                    <>
-                      <span className="text-dim">ผลตรวจ Defect</span>
-                      {canEditStatusFreely ? (
-                        <select value={t.defectStatus} onChange={(e) => void patch({ defectStatus: e.target.value })} aria-label="ผลตรวจ Defect (QA)" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>
-                          {DEFECT_STATUS_ORDER.map((s) => <option key={s} value={s}>{DEFECT_STATUS_LABEL[s]}</option>)}
-                        </select>
-                      ) : (
-                        <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
+                  <span className="text-dim">ผู้รับผิดชอบ</span>
+                  {canEdit && !isAssigneeOnly ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <select value={draftVal('assigneeId') ?? ''} onChange={(e) => setDraftField('assigneeId', e.target.value || null)} aria-label="ผู้รับผิดชอบ" className="flex-1 min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                        <option value="">— ไม่ระบุ —</option>
+                        {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      {/* Pronista §Workspace/Task Jira-alignment (3.1, 2026-09-04) — "Assign to me" แบบ Jira: โผล่เมื่อ draft ยังไม่มีผู้รับผิดชอบ */}
+                      {!draftVal('assigneeId') && user && (
+                        <button type="button" onClick={assignToMe} className="text-[11px] text-brand-700 hover:text-brand-800 underline decoration-dotted shrink-0">
+                          Assign to me
+                        </button>
                       )}
+                    </div>
+                  ) : (
+                    t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
+                  )}
+
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-07) — "Reporter" แบบ Jira: ต้องมีเสมอ ไม่ซ่อน — ใช้ผู้จ่ายงานจริง (assignedBy) ก่อน ถ้าไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ) fallback เป็นผู้สร้างงานแทน (createdBy) แสดงอย่างเดียว แก้ไม่ได้ตรงนี้ */}
+                  {(t.assignedByName ?? t.createdByName) && (
+                    <>
+                      <span className="text-dim">ผู้จ่ายงาน</span>
+                      <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
+                        <Avatar name={(t.assignedByName ?? t.createdByName)!} avatarUrl={t.assignedByName ? t.assignedByAvatarUrl : t.createdByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor((t.assignedByName ?? t.createdByName)!)} />
+                        {t.assignedByName ?? t.createdByName}
+                      </span>
                     </>
                   )}
 
-                  <span className="text-dim">ผู้รับผิดชอบ</span>
+                  {/* Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (ว่าง = editor/owner โปรเจกต์คนไหนก็อนุมัติได้เหมือนเดิม) — เลือกจาก list เดียวกับผู้รับผิดชอบ */}
+                  <span className="text-dim">ผู้ตรวจงาน</span>
                   {canEdit && !isAssigneeOnly ? (
-                    <select value={t.assigneeId ?? ''} onChange={(e) => changeAssignee(e.target.value || null)} aria-label="ผู้รับผิดชอบ" className="w-full border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
-                      <option value="">— ไม่ระบุ —</option>
+                    <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-fit min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                      <option value="">{t.assignedByName ? `— ไม่ระบุ (${t.assignedByName}) —` : '— ไม่ระบุ —'}</option>
                       {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                   ) : (
-                    t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
+                    t.reviewerName ? (
+                      <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
+                        <Avatar name={t.reviewerName} avatarUrl={t.reviewerAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(t.reviewerName)} />
+                        {t.reviewerName}
+                      </span>
+                    ) : (
+                      <span className="w-fit text-muted text-xs">— ไม่ระบุ —</span>
+                    )
+                  )}
+
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-09) — "Sprint" แบบ Jira: โชว์ชื่อ Sprint ที่งานนี้สังกัดอยู่ พร้อมลิงก์กลับไปที่บอร์ด (โปรเจกต์ หรือ Workspace แล้วแต่ Sprint นี้ผูกกับอันไหน) */}
+                  <span className="text-dim">Sprint</span>
+                  {t.sprint ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          t.sprint!.workspaceId
+                            ? `/workspace/${t.sprint!.workspaceId}/sprints/${t.sprint!.id}/board`
+                            : `/projects/${t.sprint!.projectId}/sprints/${t.sprint!.id}/board`,
+                        )
+                      }
+                      className="w-fit text-left text-brand-600 hover:underline"
+                    >
+                      {t.sprint.name ?? 'Sprint'}
+                    </button>
+                  ) : (
+                    <span className="text-muted">—</span>
                   )}
 
                   {!isAssigneeOnly && (
                     <>
                       <span className="text-dim">ความสำคัญ</span>
                       {canEdit ? (
-                        <select value={t.priority} onChange={(e) => void patch({ priority: e.target.value })} aria-label="ความสำคัญ" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${PRIORITY_CLASS[t.priority]}`}>
+                        <select value={draftVal('priority')} onChange={(e) => setDraftField('priority', e.target.value as 'low' | 'normal' | 'high')} aria-label="ความสำคัญ" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${PRIORITY_CLASS[draftVal('priority')]}`}>
                           {(['low', 'normal', 'high'] as const).map((p) => <option key={p} value={p}>{PRIORITY_THAI[p]}</option>)}
                         </select>
                       ) : (
@@ -1073,7 +1326,7 @@ export function TaskDetailPage() {
                     <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-start text-sm">
                       <span className="text-dim pt-1.5">Labels</span>
                       <div className="flex flex-col items-start gap-1.5">
-                        <LabelChips catalog={cfg?.labels} ids={t.labelIds} />
+                        <LabelChips catalog={cfg?.labels} ids={draftVal('labelIds')} />
                         {canEdit && (
                           <div className="relative">
                             <button type="button" onClick={() => setLabelPickerOpen((v) => !v)} className="text-xs text-brand-700 hover:text-brand-800 border border-brand-200 bg-brand-50 hover:bg-brand-100 rounded-lg px-2.5 py-1 flex items-center gap-1">
@@ -1084,14 +1337,14 @@ export function TaskDetailPage() {
                                 <div className="fixed inset-0 z-40" onClick={() => setLabelPickerOpen(false)} />
                                 <div className="absolute left-0 top-full mt-1 z-50 w-48 bg-white rounded-lg shadow-2xl border border-border-subtle p-2 space-y-1">
                                   {resolveLabels(cfg?.labels).map((l) => {
-                                    const active = (t.labelIds ?? []).includes(l.id)
+                                    const active = draftVal('labelIds').includes(l.id)
                                     return (
                                       <button
                                         key={l.id}
                                         type="button"
                                         onClick={() => {
-                                          const next = active ? (t.labelIds ?? []).filter((id) => id !== l.id) : [...(t.labelIds ?? []), l.id]
-                                          void patch({ labelIds: next })
+                                          const next = active ? draftVal('labelIds').filter((id) => id !== l.id) : [...draftVal('labelIds'), l.id]
+                                          setDraftField('labelIds', next)
                                         }}
                                         className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-hover text-left"
                                       >
@@ -1112,8 +1365,11 @@ export function TaskDetailPage() {
                       {canEdit ? (
                         <div className="flex flex-col gap-1.5">
                           <select
-                            value={t.taskType ?? ''}
-                            onChange={(e) => void patch({ taskType: e.target.value || null, subTaskType: null })}
+                            value={draftVal('taskType') ?? ''}
+                            onChange={(e) => {
+                              setDraftField('taskType', e.target.value || null)
+                              setDraftField('subTaskType', null)
+                            }}
                             aria-label="ประเภทงาน"
                             className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
                           >
@@ -1121,14 +1377,14 @@ export function TaskDetailPage() {
                             {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
                           </select>
                           <select
-                            value={t.subTaskType ?? ''}
-                            onChange={(e) => void patch({ subTaskType: e.target.value || null })}
-                            disabled={!t.taskType}
+                            value={draftVal('subTaskType') ?? ''}
+                            onChange={(e) => setDraftField('subTaskType', e.target.value || null)}
+                            disabled={!draftVal('taskType')}
                             aria-label="ตัวเลือกย่อย"
                             className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 disabled:opacity-40 focus:outline-hidden focus:border-brand-400"
                           >
                             <option value="">— ไม่ระบุ —</option>
-                            {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === t.taskType)?.subTypes ?? []).map((s) => (
+                            {(resolveTaskTypes(cfg?.taskTypes).find((tt) => tt.id === draftVal('taskType'))?.subTypes ?? []).map((s) => (
                               <option key={s.id} value={s.id}>{s.name}</option>
                             ))}
                           </select>
@@ -1148,36 +1404,51 @@ export function TaskDetailPage() {
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">กำหนดการ</div>
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
-                  <span className="text-dim">กำหนดส่ง</span>
-                  {canEdit && !isAssigneeOnly ? (
-                    <DateInputTH value={t.dueDate ?? ''} onChange={(v) => void patch({ dueDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
-                  ) : (
-                    <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
-                  )}
-
+                  {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — สลับ "วันที่เริ่ม" ขึ้นก่อน "วันที่คาดว่าน่าจะเสร็จ" (เดิม "กำหนดส่ง" ขึ้นก่อน) + ล็อกไม่ให้วันที่เริ่มเกินวันที่คาดว่าจะเสร็จ */}
                   {canEdit && !isAssigneeOnly && (
                     <>
-                      <span className="text-dim">เริ่ม</span>
-                      <DateInputTH value={t.startDate ?? ''} onChange={(v) => void patch({ startDate: v || null })} className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
+                      <span className="text-dim">วันที่เริ่ม</span>
+                      <DateInputTH
+                        value={draftVal('startDate') ?? ''}
+                        onChange={setStartDateDraft}
+                        className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
+                      />
                     </>
+                  )}
+
+                  <span className="text-dim">วันที่คาดว่าเสร็จ</span>
+                  {canEdit && !isAssigneeOnly ? (
+                    <DateInputTH
+                      value={draftVal('dueDate') ?? ''}
+                      onChange={setDueDateDraft}
+                      className="w-full text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
+                    />
+                  ) : (
+                    <span className="text-ink font-medium">{t.dueDate ?? '—'}</span>
                   )}
 
                   {!isAssigneeOnly && canEdit && (
                     <>
                       <span className="text-dim">ประเมิน (ชม.)</span>
-                      <input type="number" defaultValue={t.estimateMinutes != null ? t.estimateMinutes / 60 : ''} onBlur={(e) => void patch({ estimateMinutes: e.target.value ? Math.round(Number(e.target.value) * 60) : null })} className="w-20 text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400" />
+                      <input
+                        type="number"
+                        value={draftVal('estimateMinutes') != null ? draftVal('estimateMinutes')! / 60 : ''}
+                        onChange={(e) => setDraftField('estimateMinutes', e.target.value ? Math.round(Number(e.target.value) * 60) : null)}
+                        title="แนะนำอัตโนมัติจาก Manhour ของผู้รับผิดชอบตอนเปลี่ยนวันที่ — แก้เลขเองได้เสมอ"
+                        className="w-20 text-xs bg-white border border-border rounded-lg px-2 py-1.5 focus:outline-hidden focus:border-brand-400"
+                      />
                     </>
                   )}
                 </div>
               </div>
             </div>
 
-            {t.sprintActive ? (
+            {/* Pronista §Time tracking fix (2026-09-11) — เดิมซ่อนตัวจับเวลา/manual ทั้งชุดถ้า sprint ไม่ active ทั้งที่ backend ไม่เคยเช็คเงื่อนไขนี้เลย (เช็คแค่ต้องผูกโปรเจกต์) — TimeSection เองจัดการ "ยังไม่ผูกโปรเจกต์" ให้แล้วผ่าน hasProject จึงตัดเงื่อนไข sprintActive ทิ้งให้ตรงกับ backend จริง */}
+            {/* (2026-09-15 fix) — เดิมโชว์ตัวจับเวลาตั้งแต่สร้างงาน/ยังไม่ได้กด "รับงาน" เลยด้วยซ้ำ (status ยังเป็น non_start) ทั้งที่ยังไม่มีใครเริ่มทำจริง — ซ่อนจนกว่าจะผ่านขั้นรับงานแล้ว (status ขยับพ้น non_start) */}
+            {t.status !== 'non_start' && (
               <div className="border-t border-border-subtle pt-4">
                 <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
               </div>
-            ) : (
-              <div className="text-[11px] text-muted border-t border-border-subtle pt-4">ลงเวลาได้เมื่องานอยู่ใน Sprint ที่กด "เริ่ม Sprint" แล้วเท่านั้น</div>
             )}
 
             {!isAssigneeOnly && t.estimateMinutes != null && (
@@ -1192,6 +1463,20 @@ export function TaskDetailPage() {
               </div>
             )}
 
+            {/* Pronista §Workspace/Task Jira-alignment (2026-09-04) — ตัด Auto-save ทั้งหมด ปุ่มเดียวนี้คือทางเดียวที่บันทึกฟิลด์ทั่วไปจริง (แทนที่ "บันทึกฉบับร่าง" เดิม) */}
+            {canEdit && (
+              <div className="border-t border-border-subtle pt-4">
+                <button
+                  onClick={() => void saveUpdate()}
+                  disabled={!hasDraft || saving}
+                  title={hasDraft ? undefined : 'ยังไม่มีอะไรแก้ไข'}
+                  className="w-full flex items-center justify-center gap-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <FileText className="w-3.5 h-3.5" /> {saving ? 'กำลังบันทึก…' : 'บันทึกเพื่ออัปเดตข้อมูล'}
+                </button>
+              </div>
+            )}
+
             {canEdit && (
               <div className="border-t border-border-subtle pt-4 space-y-2">
                 {isAssignee ? (
@@ -1199,9 +1484,13 @@ export function TaskDetailPage() {
                   !t.dispatchedAt ? (
                     <>
                       <button onClick={() => void dispatch()} disabled={dispatching} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
-                        <CheckCircle2 className="w-4 h-4" /> จ่ายงาน (ให้ตัวเอง)
+                        <CheckCircle2 className="w-4 h-4" /> {assignedByOther ? 'ยืนยันรับงาน' : 'จ่ายงาน (ให้ตัวเอง)'}
                       </button>
-                      <div className="text-[11px] text-muted text-center">งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย</div>
+                      <div className="text-[11px] text-muted text-center">
+                        {assignedByOther
+                          ? `${t.assignedByName ?? 'ผู้จ่ายงาน'} มอบหมายงานนี้ให้คุณแล้ว แต่ยังไม่ได้กด "จ่ายงาน" อย่างเป็นทางการ — กดยืนยันเพื่อเริ่มทำได้เลย`
+                          : 'งานนี้ยังไม่ถูกจ่ายอย่างเป็นทางการ — กด "จ่ายงาน" เพื่อเริ่มทำได้เลย'}
+                      </div>
                     </>
                   ) : t.status === 'non_start' ? (
                     <>
@@ -1217,23 +1506,23 @@ export function TaskDetailPage() {
                     // Pronista §ดึงงานกลับ (2026-08-26) — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ไขต่อเองได้
                     <>
                       <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2 mb-1">ส่งงานแล้ว รอผู้จ่ายงานตรวจ</div>
-                      <button onClick={() => void patch({ status: 'on_processing' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
+                      <button onClick={() => void patchNow({ status: 'on_processing' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
                         <RotateCcw className="w-4 h-4" /> ดึงงานกลับ
                       </button>
-                      {isSelfKeyed && (
-                        <button onClick={() => void patch({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                      {isSelfDispatched && (
+                        <button onClick={() => void patchNow({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                           <Check className="w-4 h-4" /> ปิดงานเอง
                         </button>
                       )}
                     </>
                   ) : (
                     <>
-                      <button onClick={() => void patch({ status: 'waiting_for_test' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                      <button onClick={() => void patchNow({ status: 'waiting_for_test' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                         <CheckCircle2 className="w-4 h-4" /> ส่งงาน
                       </button>
-                      {isSelfKeyed && (
-                        // Pronista §Kanban drag constraints 3.2 — ผู้คีย์งานเองปิดงานได้ทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
-                        <button onClick={() => void patch({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-success-200 text-success-700 hover:bg-success-50 px-3 py-2 rounded-lg font-medium">
+                      {isSelfDispatched && (
+                        // Pronista §Kanban drag constraints 3.2 — ผู้จ่ายงานให้ตัวเองปิดงานได้ทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ
+                        <button onClick={() => void patchNow({ status: 'done' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-success-200 text-success-700 hover:bg-success-50 px-3 py-2 rounded-lg font-medium">
                           <Check className="w-4 h-4" /> ปิดงานเอง
                         </button>
                       )}
@@ -1253,22 +1542,36 @@ export function TaskDetailPage() {
                     <div className="text-xs text-muted text-center py-2">รอ{t.assigneeName ? ` ${t.assigneeName}` : ''}กดรับงาน</div>
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
+                ) : t.status === 'waiting_for_test' && !canReviewSubmission ? (
+                  // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ระบุ Reviewer ไว้แล้ว แต่ผู้ใช้ปัจจุบันไม่ใช่ reviewer คนนั้น/owner — ไม่เห็นปุ่มอนุมัติ/ตีกลับเลย เห็นแค่สถานะรอ
+                  <>
+                    <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2">งานนี้ส่งมารอตรวจอยู่ — รอ{(t.reviewerName ?? t.assignedByName) ? ` ${t.reviewerName ?? t.assignedByName}` : 'ผู้ตรวจ'}พิจารณา</div>
+                  </>
                 ) : (
                   <>
                     {t.status === 'waiting_for_test' && (
                       <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2 mb-1">งานนี้ส่งมารอตรวจอยู่ — เช็คแล้วกดอนุมัติได้เลย</div>
                     )}
-                    <button onClick={() => void patch({ status: 'done' })} disabled={done} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
+                    <button onClick={() => void patchNow({ status: 'done' })} disabled={done} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                       <CheckCircle2 className="w-4 h-4" /> อนุมัติ ปิดงาน
                     </button>
                     {t.status === 'waiting_for_test' && (
-                      <button onClick={() => void patch({ status: 'non_start' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">
+                      <button onClick={() => void patchNow({ status: 'non_start' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">
                         <RotateCcw className="w-4 h-4" /> ตีกลับ ให้แก้ไข
                       </button>
                     )}
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น (ไม่ใช่ assignee-only) ซ่อนถ้าปิด/ยกเลิกไปแล้ว */}
+            {canEdit && !isAssigneeOnly && t.status !== 'done' && t.status !== 'cancelled' && (
+              <div className="border-t border-border-subtle pt-4">
+                <button onClick={() => void cancelTask()} className="w-full flex items-center justify-center gap-1.5 text-sm border border-danger-200 text-danger-600 hover:bg-danger-50 px-3 py-2 rounded-lg">
+                  <XCircle className="w-4 h-4" /> ยกเลิกงาน
+                </button>
               </div>
             )}
           </div>

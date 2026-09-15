@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { notificationHref } from '../lib/notification-href'
 import { useNotifications, type NotificationRow } from '../lib/notifications-context'
+import { NotificationRowItem } from './NotificationRowItem'
 
 const MAX_ROWS = 20
 
@@ -102,23 +103,18 @@ export function NotificationCenter() {
             ) : rows.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted">ยังไม่มีการแจ้งเตือน</div>
             ) : (
-              rows.slice(0, MAX_ROWS).map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => openNotif(n)}
-                  className={`w-full text-left flex items-start gap-2.5 px-4 py-3 hover:bg-hover focus-visible:outline-hidden focus-visible:bg-hover ${n.isRead ? '' : 'bg-info-50/40'}`}
-                >
-                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.isRead ? 'bg-transparent' : 'bg-info-500'}`} />
-                  <span className="min-w-0 flex-1">
-                    {/* Pronista §Meeting Schedule Tab (2026-08-27) — แจ้งเตือนประชุมเป็นข้อความหลายบรรทัด (ชื่อ/เวลา/Agenda/ผู้เข้าร่วม) — pre-line ไม่กระทบข้อความอื่นที่เป็นบรรทัดเดียวอยู่แล้ว */}
-                    <span className="block text-sm text-body leading-snug whitespace-pre-line">{n.message}</span>
-                    <span className="block text-[11px] text-muted mt-0.5">{new Date(n.createdAt).toLocaleString('th-TH')}</span>
-                  </span>
-                </button>
-              ))
+              rows.slice(0, MAX_ROWS).map((n) => <NotificationRowItem key={n.id} n={n} onClick={() => openNotif(n)} />)
             )}
+          </div>
+          {/* Pronista §System Enhancements — เมนูหลัก "การแจ้งเตือน" แยกใหม่ ดูประวัติเต็ม+filter ได้ (dropdown นี้จำกัดแค่ล่าสุด) */}
+          <div className="border-t border-border-subtle shrink-0">
+            <button
+              type="button"
+              onClick={() => { setOpen(false); navigate('/notifications') }}
+              className="w-full text-center text-xs font-medium text-brand-600 hover:text-brand-700 px-4 py-2.5"
+            >
+              ดูทั้งหมด
+            </button>
           </div>
         </div>
       )}

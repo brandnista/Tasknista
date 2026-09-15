@@ -1,4 +1,6 @@
 import { env } from 'cloudflare:test'
+import { createDb, users } from '@seedoffice/db'
+import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
 import { loginAs, seedUsers } from './helpers'
@@ -18,6 +20,55 @@ describe('T07 — admin users/rates/config', () => {
     expect(res.status).toBe(200)
     const list = (await res.json()) as { email: string }[]
     expect(list.length).toBeGreaterThanOrEqual(4)
+  })
+
+  // Pronista §Secret Vault — GET /users และ /users/:id ต้องไม่หลุด vaultPinHash ออกไปใน response เด็ดขาด (เทียบเท่า password hash)
+  // แต่ฟิลด์อื่นที่หน้า employee/partner/customer detail ใช้แสดงผลจริง (เช่น idCardNumber) ต้องยังส่งมาปกติ
+  it('GET /users และ /users/:id ไม่มี vaultPinHash หลุดออกมา แต่ยังมีฟิลด์อื่นที่ UI ใช้ (เช่น idCardNumber)', async () => {
+    const db = createDb(env.DB)
+    await db.update(users).set({ vaultPinHash: 'v1.salt.100000.hash', idCardNumber: '1234567890123' }).where(eq(users.id, 'u_owner'))
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+
+    const list = (await (await app.request('/api/admin/users', { headers: { cookie: owner } }, env)).json()) as Record<string, unknown>[]
+    const ownerRow = list.find((u) => u.id === 'u_owner')
+    expect(ownerRow).not.toHaveProperty('vaultPinHash')
+    expect(ownerRow?.idCardNumber).toBe('1234567890123')
+
+    const detail = (await (await app.request('/api/admin/users/u_owner', { headers: { cookie: owner } }, env)).json()) as Record<string, unknown>
+    expect(detail).not.toHaveProperty('vaultPinHash')
+    expect(detail.idCardNumber).toBe('1234567890123')
+  })
+
+  // Pronista §Employee Delete (2026-09-07) — soft-delete เท่านั้น (กฎเหล็ก) หายจากรายการ, ลบตัวเองไม่ได้, non-owner ลบไม่ได้
+  it('DELETE /admin/users/:id — soft-delete หายจากรายการ · ลบตัวเองไม่ได้ · non-owner 403', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const created = await app.request(
+      '/api/admin/users',
+      {
+        method: 'POST',
+        headers: { cookie: owner, 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'todelete@example-co.test', name: 'จะลบคนนี้', role: 'member' }),
+      },
+      env,
+    )
+    expect(created.status).toBe(201)
+    const { id } = (await created.json()) as { id: string }
+
+    const member = await loginAs(app, 'pond@example-co.test')
+    expect((await app.request(`/api/admin/users/${id}`, { method: 'DELETE', headers: { cookie: member } }, env)).status).toBe(403)
+
+    const ownerId = (await (await app.request('/api/me', { headers: { cookie: owner } }, env)).json()) as { id: string }
+    expect((await app.request(`/api/admin/users/${ownerId.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(400)
+
+    const del = await app.request(`/api/admin/users/${id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(del.status).toBe(200)
+    expect((await del.json()) as { ok: boolean }).toMatchObject({ ok: true })
+
+    const list = (await (await app.request('/api/admin/users', { headers: { cookie: owner } }, env)).json()) as { id: string }[]
+    expect(list.some((u) => u.id === id)).toBe(false)
+    expect((await app.request(`/api/admin/users/${id}`, { headers: { cookie: owner } }, env)).status).toBe(404)
+    expect((await app.request(`/api/admin/users/${id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(404)
   })
 
   // Pronista เป็น PM app ล้วนๆ ไม่มี UI/API ตั้ง rate ต่อ user แล้ว (admin.ts) — rate ตั้งต้น = 0 อัตโนมัติ

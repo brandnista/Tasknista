@@ -4,10 +4,11 @@
  * แก้ไขได้ตลอดจนกว่าจะ Reviewed (submit ไม่ล็อกการแก้ไข แค่แจ้งเตือน+ให้หัวหน้าเห็น)
  * มี 2 โหมดภายในแท็บ: "วันนี้/แก้ไข" (แก้รายงานของตัวเอง — งานแนะนำ+คีย์เองรวมลิสต์เดียว) กับ "ประวัติ" (ดูย้อนหลัง ทั้งของฉัน/ที่ได้รับ)
  */
-import { AlertTriangle, Calendar, Check, History as HistoryIcon, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { AlertTriangle, Calendar, Check, ExternalLink, History as HistoryIcon, Plus, RefreshCw, RotateCcw, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Avatar } from './Avatar'
 import { DateInputTH } from './DateInputTH'
+import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { avatarColor } from '../pages/ProjectDetail'
@@ -40,7 +41,7 @@ const STATUS_BADGE: Record<'draft' | 'submitted' | 'reviewed', string> = {
   reviewed: 'bg-success-100 text-success-700',
 }
 
-interface MyTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null }
+interface MyTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null; dueDate: string | null }
 interface ReportItem {
   id: string
   taskId: string | null
@@ -130,6 +131,12 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [error, setError] = useState('')
   const [manualTitle, setManualTitle] = useState('')
   const [manualHours, setManualHours] = useState('')
+  const [manualBusy, setManualBusy] = useState(false)
+  const [submitBusy, setSubmitBusy] = useState(false)
+  const [retractBusy, setRetractBusy] = useState(false)
+  // Pronista §Daily Report task list filter (2026-09-14) — ลิสต์ "งานทั้งหมดของฉัน" ดึงมาไม่จำกัดวันเลย เรียงตาม dueDate ผู้ใช้ขอตัวกรองแยกดูเฉพาะวันนี้ได้
+  const [myTaskFilter, setMyTaskFilter] = useState<'all' | 'today'>('all')
+  const { alertDialog, confirmDialog } = useDialog()
 
   const { data: report, reload: reloadReport } = useLoad<ReportDetail | null>(async () => {
     if (openId) return api.get<ReportDetail>(`/api/daily-reports/${openId}`)
@@ -172,28 +179,47 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     setError('')
     const r = await ensureReport().catch(() => null)
     if (!r) return
-    await api.post(`/api/daily-reports/${r.id}/items`, { taskId })
-    await reloadReport()
+    try {
+      await api.post(`/api/daily-reports/${r.id}/items`, { taskId })
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มงานไม่สำเร็จ' })
+    }
   }
   const addManualItem = async () => {
-    if (!manualTitle.trim()) return
+    if (!manualTitle.trim() || manualBusy) return // กันกดรัว/ดับเบิลคลิกสร้างรายการเบิ้ล — ไม่มี de-dup ฝั่ง server แบบงานที่ผูก task
     setError('')
     const r = await ensureReport().catch(() => null)
     if (!r) return
-    const hours = Number(manualHours)
-    await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0 })
-    setManualTitle('')
-    setManualHours('')
-    await reloadReport()
+    setManualBusy(true)
+    try {
+      const hours = Number(manualHours)
+      await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0 })
+      setManualTitle('')
+      setManualHours('')
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มงานไม่สำเร็จ' })
+    } finally {
+      setManualBusy(false)
+    }
   }
   const updateItemNote = async (itemId: string, note: string) => {
     if (!report) return
-    await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, { note: note || null })
+    try {
+      await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, { note: note || null })
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+    }
   }
   const removeItem = async (itemId: string) => {
     if (!report) return
-    await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
-    await reloadReport()
+    try {
+      await api.delete(`/api/daily-reports/${report.id}/items/${itemId}`)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ลบไม่สำเร็จ' })
+    }
   }
   const removeItemByTaskId = async (taskId: string) => {
     const it = (report?.items ?? []).find((x) => x.taskId === taskId)
@@ -202,8 +228,12 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const saveMeta = async (patch: Partial<Pick<ReportDetail, 'notes' | 'blockerHasIssue' | 'blockerDetail' | 'blockerNeedHelpFrom'>>) => {
     const r = await ensureReport().catch(() => null)
     if (!r) return
-    await api.patch(`/api/daily-reports/${r.id}`, patch)
-    await reloadReport()
+    try {
+      await api.patch(`/api/daily-reports/${r.id}`, patch)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+    }
   }
   const openSubmitModal = () => {
     setSubmitRecipientIds(new Set())
@@ -218,22 +248,52 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     })
   }
   const doSubmit = async () => {
-    if (!report || submitRecipientIds.size === 0) return
-    const names = [...submitRecipientIds].map((id) => recipients?.recipients.find((r) => r.id === id)?.name).filter((n): n is string => !!n)
-    await api.post(`/api/daily-reports/${report.id}/submit`, { recipientIds: [...submitRecipientIds] })
-    setJustSubmitted(names)
-    await reloadReport()
+    if (!report || submitRecipientIds.size === 0 || submitBusy) return // กันดับเบิลคลิกยิงส่งซ้ำ (server ปฏิเสธครั้งที่ 2 ด้วย already_submitted)
+    setSubmitBusy(true)
+    try {
+      const names = [...submitRecipientIds].map((id) => recipients?.recipients.find((r) => r.id === id)?.name).filter((n): n is string => !!n)
+      await api.post(`/api/daily-reports/${report.id}/submit`, { recipientIds: [...submitRecipientIds] })
+      setJustSubmitted(names)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ส่งรายงานไม่สำเร็จ' })
+    } finally {
+      setSubmitBusy(false)
+    }
   }
   const requestEdit = async () => {
     if (!report) return
-    await api.post(`/api/daily-reports/${report.id}/request-edit`, {})
-    await reloadReport()
+    try {
+      await api.post(`/api/daily-reports/${report.id}/request-edit`, {})
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ขอแก้ไขรายงานไม่สำเร็จ' })
+    }
+  }
+  // Pronista §Daily Report retract (2026-09-14) — ส่งไปแล้วแต่ยังไม่มีใครเปิดอ่าน ดึงกลับเป็น draft ได้ (เดิมไม่มีปุ่มนี้เลย มีแต่ "ขอแก้ไขรายงาน" ที่ใช้ได้ตอน reviewed แล้วเท่านั้น)
+  const retract = async () => {
+    if (!report || retractBusy) return
+    const yes = await confirmDialog({ title: 'ดึงรายงานกลับ?', message: 'รายงานจะกลับไปเป็นฉบับร่าง ต้องเลือกผู้รับและกดส่งใหม่อีกครั้ง', confirmLabel: 'ดึงกลับ' })
+    if (!yes) return
+    setRetractBusy(true)
+    try {
+      await api.post(`/api/daily-reports/${report.id}/retract`, {})
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ดึงรายงานกลับไม่สำเร็จ' })
+    } finally {
+      setRetractBusy(false)
+    }
   }
   const postComment = async () => {
     if (!report || !commentBody.trim()) return
-    await api.post(`/api/daily-reports/${report.id}/comments`, { body: commentBody.trim() })
-    setCommentBody('')
-    await reloadReport()
+    try {
+      await api.post(`/api/daily-reports/${report.id}/comments`, { body: commentBody.trim() })
+      setCommentBody('')
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ส่งความเห็นไม่สำเร็จ' })
+    }
   }
 
   const openFromHistory = (id: string) => {
@@ -255,6 +315,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const manualItems = (report?.items ?? []).filter((it) => !it.taskId)
   const taskItems = (report?.items ?? []).filter((it) => it.taskId && it.task)
   const myTaskCount = myTasks?.length ?? 0
+  // Pronista §Daily Report task list filter (2026-09-14) — "วันนี้" = กำหนดส่งวันนี้ (ตรงกับที่ลิสต์นี้เรียงตาม dueDate อยู่แล้ว)
+  const filteredMyTasks = myTaskFilter === 'today' ? (myTasks ?? []).filter((t) => t.dueDate === date) : (myTasks ?? [])
 
   return (
     <div className="space-y-4">
@@ -409,39 +471,60 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                   <p className="text-[12.5px] text-muted ml-[32px] mb-3">เลือกจากงานทั้งหมดของคุณทางซ้าย แล้วเติมสั้นๆ ว่าทำอะไรไปวันนี้</p>
 
                   <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] gap-4 items-start">
-                    {/* ซ้าย — งานทั้งหมดของฉัน (ไม่จำกัดแค่วันนี้) */}
+                    {/* ซ้าย — งานทั้งหมดของฉัน (ไม่จำกัดแค่วันนี้ — กรองด้วยชิปด้านล่างได้) */}
                     <div className="border border-border-subtle rounded-xl overflow-hidden bg-white">
-                      <div className="px-3.5 py-2.5 border-b border-divider flex items-center justify-between">
-                        <span className="text-xs font-semibold text-strong">งานทั้งหมดของฉัน</span>
-                        <span className="text-[11px] text-muted tabular-nums">{myTaskCount}</span>
+                      <div className="px-3.5 py-2.5 border-b border-divider flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-strong shrink-0">งานทั้งหมดของฉัน</span>
+                        <div className="flex bg-divider rounded-md p-0.5 text-[11px] font-medium">
+                          <button type="button" onClick={() => setMyTaskFilter('all')} className={`px-2 py-1 rounded ${myTaskFilter === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ทั้งหมด</button>
+                          <button type="button" onClick={() => setMyTaskFilter('today')} className={`px-2 py-1 rounded ${myTaskFilter === 'today' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>วันนี้</button>
+                        </div>
+                        <span className="text-[11px] text-muted tabular-nums shrink-0">{filteredMyTasks.length}</span>
                       </div>
                       <div className="max-h-[420px] overflow-y-auto divide-y divide-divider">
-                        {myTaskCount === 0 && (
-                          <div className="text-center text-xs text-muted py-8 px-3">ยังไม่มีงานที่ได้รับมอบหมาย — เพิ่มงานเองทางขวาได้เลย</div>
+                        {filteredMyTasks.length === 0 && (
+                          <div className="text-center text-xs text-muted py-8 px-3">
+                            {myTaskCount === 0 ? 'ยังไม่มีงานที่ได้รับมอบหมาย — เพิ่มงานเองทางขวาได้เลย' : 'ไม่มีงานที่กำหนดส่งวันนี้'}
+                          </div>
                         )}
-                        {(myTasks ?? []).map((t) => {
+                        {filteredMyTasks.map((t) => {
                           const inReport = itemByTaskId.has(t.id)
                           return (
-                            <button
-                              key={t.id}
-                              type="button"
-                              aria-pressed={inReport}
-                              onClick={() => (inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}
-                              className="w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:-outline-offset-2"
-                            >
-                              <span className={`mt-0.5 w-[17px] h-[17px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors ${inReport ? 'bg-brand-600 border-brand-600' : 'border-border bg-white'}`}>
-                                {inReport && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3.5} />}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {t.code && <span className="font-mono text-[10px] text-brand-700 bg-brand-50 px-1 py-0.5 rounded font-semibold shrink-0">{t.code}</span>}
-                                  <span className="text-[12.5px] text-strong font-medium truncate">{t.title}</span>
+                            <div key={t.id} className="w-full flex items-start gap-2 px-3.5 py-2.5 hover:bg-hover">
+                              <button
+                                type="button"
+                                aria-pressed={inReport}
+                                aria-label={inReport ? 'เอาออกจากรายงาน' : 'เพิ่มเข้ารายงาน'}
+                                onClick={() => (inReport ? void removeItemByTaskId(t.id) : void addItem(t.id))}
+                                className="mt-0.5 flex items-start gap-2.5 flex-1 min-w-0 text-left focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:-outline-offset-2"
+                              >
+                                <span className={`mt-0.5 w-[17px] h-[17px] rounded-md border-[1.6px] shrink-0 grid place-items-center transition-colors ${inReport ? 'bg-brand-600 border-brand-600' : 'border-border bg-white'}`}>
+                                  {inReport && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3.5} />}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {t.code && <span className="font-mono text-[10px] text-brand-700 bg-brand-50 px-1 py-0.5 rounded font-semibold shrink-0">{t.code}</span>}
+                                    <span className="text-[12.5px] text-strong font-medium truncate">{t.title}</span>
+                                  </div>
+                                  <div className="text-[10.5px] text-muted mt-0.5 truncate">
+                                    {t.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
+                                  </div>
                                 </div>
-                                <div className="text-[10.5px] text-muted mt-0.5 truncate">
-                                  {t.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
-                                </div>
-                              </div>
-                            </button>
+                              </button>
+                              {/* Pronista §Daily Report task link (2026-09-14) — เปิดดูรายละเอียด task ได้โดยตรง ไม่ต้องติ๊กเข้ารายงานก่อน */}
+                              {t.projectId && (
+                                <a
+                                  href={`/projects/${t.projectId}?task=${t.id}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="เปิดดูรายละเอียดงาน"
+                                  className="mt-0.5 shrink-0 p-1 rounded text-muted hover:text-brand-700 hover:bg-brand-50"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
                           )
                         })}
                       </div>
@@ -514,7 +597,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                           placeholder="ชม."
                           className="w-20 border border-border-subtle rounded-lg px-3 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
                         />
-                        <button onClick={() => void addManualItem()} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
+                        <button onClick={() => void addManualItem()} disabled={manualBusy} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
                       </div>
                     </div>
                   </div>
@@ -596,6 +679,16 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                       className="flex items-center gap-1.5 text-sm font-bold bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl transition-colors"
                     >
                       <Send className="w-4 h-4" /> ส่งรายงาน
+                    </button>
+                  )}
+                  {/* Pronista §Daily Report retract (2026-09-14) — ส่งแล้วแต่ยังไม่มีใครเปิดอ่าน ดึงกลับมาแก้ไข/เลือกผู้รับใหม่ได้ */}
+                  {report && report.status === 'submitted' && (
+                    <button
+                      onClick={() => void retract()}
+                      disabled={retractBusy}
+                      className="flex items-center gap-1.5 text-sm font-bold border border-border-subtle text-dim hover:bg-hover disabled:opacity-50 px-5 py-2.5 rounded-xl transition-colors"
+                    >
+                      <RotateCcw className="w-4 h-4" /> ดึงรายงานกลับ
                     </button>
                   )}
                 </div>
@@ -765,8 +858,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
 
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setConfirmSubmit(false)} className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-body hover:bg-hover">กลับไปแก้</button>
-                  <button onClick={() => void doSubmit()} disabled={submitRecipientIds.size === 0} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
-                    <Send className="w-3.5 h-3.5" /> ส่งถึง{submitRecipientIds.size > 0 ? ` ${submitRecipientIds.size} คน` : ''}
+                  <button onClick={() => void doSubmit()} disabled={submitRecipientIds.size === 0 || submitBusy} className="text-sm font-bold px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:bg-border disabled:text-muted text-white flex items-center gap-1.5">
+                    <Send className="w-3.5 h-3.5" /> {submitBusy ? 'กำลังส่ง…' : `ส่งถึง${submitRecipientIds.size > 0 ? ` ${submitRecipientIds.size} คน` : ''}`}
                   </button>
                 </div>
               </>

@@ -42,6 +42,7 @@ import {
   epics,
   estimateExtraCosts,
   estimateGroupOverrides,
+  INACTIVE_TASK_STATUSES,
   milestones,
   payments,
   projectMembers,
@@ -53,7 +54,7 @@ import {
   type Db,
   type Project,
 } from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or } from 'drizzle-orm'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -214,7 +215,7 @@ export const projectRoutes = new Hono<AppEnv>()
       })
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(ne(tasks.status, 'done'))
+      .where(notInArray(tasks.status, [...INACTIVE_TASK_STATUSES]))
     const firstOpen = new Map<string, (typeof openTasks)[number]>()
     for (const t of openTasks) {
       if (!t.projectId) continue // task ใน Backlog ยังไม่ผูกโปรเจกต์ ไม่มี card ให้แนบสรุป

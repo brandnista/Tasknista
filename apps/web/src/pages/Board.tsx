@@ -5,7 +5,7 @@ import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, STATUS_SWATCH, statusChip } from '../lib/project-ui'
@@ -327,9 +327,14 @@ export function BoardPage() {
   const canEditSprint = user?.role !== 'vendor' && user?.role !== 'guest'
   const { alertDialog, confirmDialog } = useDialog()
 
+  // Pronista §Board fix (2026-09-11) — เดิมไม่ดัก error เลย ลากงานข้ามคอลัมน์แล้ว backend ปฏิเสธ (เช่น not_in_sprint ถ้างานเพิ่งถูกเอาออกจาก sprint โดยคนอื่น, invalid_sprint_status ถ้า preset เปลี่ยนคอลัมน์ไปแล้ว) การ์ดจะเงียบ ไม่มีคำอธิบายว่าทำไมลากแล้วไม่ขยับ
   const changeStatus = async (taskId: string, sprintStatus: string) => {
-    await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
-    await reload()
+    try {
+      await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสถานะไม่สำเร็จ' })
+    }
   }
   const removeFromSprint = async (taskId: string, code: string | null) => {
     if (!sprint) return

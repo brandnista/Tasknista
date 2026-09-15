@@ -1,4 +1,6 @@
 import {
+  Bell,
+  BrainCircuit,
   Briefcase,
   ChevronDown,
   ClipboardList,
@@ -10,8 +12,10 @@ import {
   Layers,
   LayoutDashboard,
   ListChecks,
+  Lock,
   MessageSquare,
   NotebookText,
+  Pin,
   Settings,
   UserCheck,
   Users,
@@ -46,12 +50,30 @@ type Role = Me['role']
 
 // Pronista §Team Chat/Meeting (2026-08-27) — เมนู "ทีม" นับเฉพาะแจ้งเตือนแชท/ประชุม ส่วนที่เหลือ (task/daily report/expiry ฯลฯ) ยังนับที่ "งานของฉัน" เหมือนเดิม กันนับซ้ำ
 const TEAM_NOTIFICATION_TYPES = ['chat_mention', 'chat_message', 'meeting_scheduled'] as const
-const MY_TASKS_EXCLUDED_TYPES = new Set<string>(TEAM_NOTIFICATION_TYPES)
+// Pronista §Secret Vault Permission (2026-09-08) — เมนู "Secret Vault" นับแจ้งเตือนเข้าใช้งานแยกของตัวเอง ไม่ปนกับ "งานของฉัน"
+const VAULT_NOTIFICATION_TYPES = ['vault_accessed'] as const
+const MY_TASKS_EXCLUDED_TYPES = new Set<string>([...TEAM_NOTIFICATION_TYPES, ...VAULT_NOTIFICATION_TYPES])
+// Pronista §Pin เมนู — ซ่อนปุ่ม pin/เลื่อนลำดับไว้ก่อน โผล่ตอน hover แถว (เมาส์) เท่านั้น
+// อุปกรณ์ที่ไม่มี hover จริง (มือถือ/แตะ) ให้โชว์ค้างเสมอ เพราะแตะแล้วไม่มีทาง "hover ก่อนกด" ได้
+const PIN_ROW_ACTION_VISIBILITY = 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
+// Pronista §Pin เมนู — เมนูย่อยที่ path ของตัวเองเป็น prefix ของ sibling อื่นในกลุ่มเดียวกัน (เช่น "/my-tasks" กับ "/my-tasks/dispatched") ต้อง end match เป๊ะ ไม่งั้นไฮไลต์เพี้ยน
+const CHILD_EXACT_MATCH = new Set(['/', '/admin', '/members', '/my-tasks', '/my-tasks/files', '/admin/domains'])
 
 // Pronista §System Requirements Update — menu ที่ไม่มี key = คุมด้วย role อย่างเดียว (owner-only, ไม่ผ่านเพดานเมนูของ ตั้งค่าสิทธิ์ผู้ใช้งาน)
 // Pronista §Menu Restructure (2026-08-28) — children.roles (ไม่บังคับ) = ซ่อน sub-menu ข้อนั้นเพิ่มเติมจาก role ที่ parent อนุญาตไว้แล้ว (ใช้กับ "ไฟล์ของฉัน"/"แชร์กับฉัน" ที่ไม่ให้ guest เห็น ทั้งที่ parent "งานของฉัน" guest เข้าได้)
 const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Role[]; menuKey?: MenuKey; children?: { to: string; label: string; roles?: Role[] }[] }[] = [
-  { to: '/', label: 'ภาพรวม', icon: LayoutDashboard, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'dashboard' },
+  {
+    to: '/',
+    label: 'ภาพรวม',
+    icon: LayoutDashboard,
+    roles: ['owner', 'member', 'vendor', 'guest'],
+    menuKey: 'dashboard',
+    // Pronista §Workload (Phase 2, 2026-09-04) — เมนูย่อย Workload owner-only (ภาพรวมภาระงานทีม) ใต้ "ภาพรวม" เดิม
+    children: [
+      { to: '/', label: 'ภาพรวม' },
+      { to: '/workload', label: 'Workload', roles: ['owner'] },
+    ],
+  },
   {
     to: '/my-tasks',
     label: 'งานของฉัน',
@@ -85,14 +107,24 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
   { to: '/team', label: 'ทีม', icon: MessageSquare, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'team' },
   { to: '/docs', label: 'เอกสาร', icon: NotebookText, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docs' },
   { to: '/docs/history', label: 'ประวัติเอกสาร', icon: History, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'docsHistory' },
+  // Pronista §System Enhancements — เมนูหลักแยกใหม่ "การแจ้งเตือน" (bell dropdown เดิมยังอยู่ที่ Topbar — หน้านี้ดูประวัติเต็ม+filter หมวดหมู่ได้)
+  { to: '/notifications', label: 'การแจ้งเตือน', icon: Bell, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'notifications' },
   // Pronista §Menu Restructure (2026-09-02) — เมนูหลักใหม่ "บริการ" ย้าย "จัดการโดเมน" มาจากใต้ "ตั้งค่า" (ยัง owner-only ไม่มี menuKey เหมือนเดิม — เป็นข้อมูลโครงสร้างพื้นฐานบริษัท ไม่ผ่านเพดานเมนู)
   {
     to: '/admin/domains',
     label: 'บริการ',
     icon: Briefcase,
     roles: ['owner'],
-    children: [{ to: '/admin/domains', label: 'จัดการโดเมน' }],
+    children: [
+      { to: '/admin/domains', label: 'จัดการโดเมน' },
+      // Pronista §System Enhancements — Sellnista: บริการ Subscription แยกระบบต่างหาก (ไม่ผูก productTypes ของ projects)
+      { to: '/admin/sellnista', label: 'Sellnista' },
+    ],
   },
+  // Pronista §Secret Vault (2026-09-03, เปิดเพดานได้ 2026-09-08) — owner เห็นเสมอ หมวดอื่นเปิด/ปิดได้จาก "เพดานสิทธิ์" (default ปิด, ข้อมูลอ่อนไหว)
+  { to: '/vault', label: 'Secret Vault', icon: Lock, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'vault' },
+  // Pronista §Second Brain (2026-09-08) — ลิงก์ที่ดักจาก LINE group เฉพาะ ไม่ใช่ข้อมูลอ่อนไหวเหมือน vault — default เปิดให้ staff เห็นได้เลย
+  { to: '/second-brain', label: 'Second Brain', icon: BrainCircuit, roles: ['owner', 'member', 'vendor', 'guest'], menuKey: 'secondBrain' },
   // Pronista §System Requirements Update — "ตั้งค่า" เป็นเมนูแม่ มี sub-menu ในไซด์บาร์เลย (ยกออกจาก tab bar เดิมบนหน้า /admin*)
   {
     to: '/admin',
@@ -165,6 +197,44 @@ export function Layout() {
   const { user } = useAuth()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
+  // Pronista §Layout (2026-09-08) — พับ/กาง sidebar บนจอ desktop ได้ (คนละสถานะกับ navOpen ที่คุมแค่ drawer มือถือ) จำค่าไว้ข้าม session
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('pronista_sidebar_collapsed') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((v) => {
+      const next = !v
+      try {
+        localStorage.setItem('pronista_sidebar_collapsed', next ? '1' : '0')
+      } catch {
+        // localStorage ปิด/เต็ม — ข้ามการจำค่าไปเงียบๆ ไม่กระทบการใช้งาน
+      }
+      return next
+    })
+  }
+  // Pronista §Pin เมนู (2026-09-11) — ปักหมุดเมนูโปรดให้ลอยบนสุด sidebar เสมอ แทนที่การลาก-วาง (พี่แบงค์ยืนยันว่าถ้า pin ได้ Drag and Drop ก็ไม่จำเป็น) จำค่าไว้ข้าม session แบบเดียวกับ sidebarCollapsed
+  const [pinnedTo, setPinnedTo] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('pronista_pinned_menus')
+      return raw ? (JSON.parse(raw) as string[]) : []
+    } catch {
+      return []
+    }
+  })
+  const persistPinned = (next: string[]) => {
+    try {
+      localStorage.setItem('pronista_pinned_menus', JSON.stringify(next))
+    } catch {
+      // localStorage ปิด/เต็ม — ข้ามการจำค่าไปเงียบๆ ไม่กระทบการใช้งาน
+    }
+    return next
+  }
+  const togglePin = (to: string) =>
+    setPinnedTo((s) => persistPinned(s.includes(to) ? s.filter((t) => t !== to) : [...s, to]))
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   // Pronista §System Requirements Update — sub-menu ของเมนูที่มี children (เช่น "ตั้งค่า") พับเก็บเป็นค่าเริ่มต้น กดที่เมนูแม่ถึงจะกาง
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -235,6 +305,36 @@ export function Layout() {
         : [],
     [user],
   )
+  // Pronista §Pin เมนูย่อย (2026-09-11) — เมนูย่อย (children) ก็ปักหมุดได้เหมือนเมนูหลัก ใช้ icon ของเมนูแม่แทน (เมนูย่อยไม่มี icon ของตัวเอง)
+  const childPinnables = useMemo(
+    () =>
+      items.flatMap((n) =>
+        (n.children ?? [])
+          .filter((c) => !c.roles || (user && c.roles.includes(user.role)))
+          .map((c) => ({ to: c.to, label: c.label, parentIcon: n.icon, parentLabel: n.label })),
+      ),
+    [items, user],
+  )
+  // Pronista §Pin เมนู — เมนูที่ถูกปักหมุด (กรองตามสิทธิ์จริงจาก items แล้ว) ลอยบนสุดตามลำดับที่ผู้ใช้จัด ส่วนที่เหลือแสดงต่อแบบเดิม ไม่ซ้ำกัน
+  // แต่ละรายการใน pinnedTo อาจเป็นเมนูหลักหรือเมนูย่อยก็ได้ — to ไม่ซ้ำกันทั้งแอป จึงหาเจอแค่ฝั่งเดียว
+  const pinnedEntries = useMemo(
+    () =>
+      pinnedTo
+        .map((to) => {
+          const topItem = items.find((n) => n.to === to)
+          if (topItem) return { kind: 'top' as const, item: topItem }
+          const child = childPinnables.find((c) => c.to === to)
+          if (child) return { kind: 'child' as const, child }
+          return null
+        })
+        .filter((e): e is NonNullable<typeof e> => !!e),
+    [pinnedTo, items, childPinnables],
+  )
+  const pinnedSet = useMemo(
+    () => new Set(pinnedEntries.map((e) => (e.kind === 'top' ? e.item.to : e.child.to))),
+    [pinnedEntries],
+  )
+  const unpinnedItems = useMemo(() => items.filter((n) => !pinnedSet.has(n.to)), [items, pinnedSet])
   // Pronista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
   const activeTo = useMemo(() => {
     const path = location.pathname
@@ -252,12 +352,123 @@ export function Layout() {
 
   if (!user) return null
 
+  const renderNavRow = (item: (typeof items)[number]) => {
+    const { to, label, icon: Icon, children } = item
+    const isOpen = !!children && openGroups.has(to)
+    const isPinned = pinnedSet.has(to)
+    return (
+      <div key={to}>
+        <div className="flex items-center gap-0.5 group">
+          <NavLink
+            to={to}
+            onClick={(e) => {
+              if (children) {
+                e.preventDefault()
+                toggleGroup(to)
+              } else {
+                setNavOpen(false)
+              }
+            }}
+            className={`flex-1 flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
+              to === activeTo
+                ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
+                : 'text-soft hover:bg-hover'
+            }`}
+          >
+            <Icon className="w-[18px] h-[18px] shrink-0" />
+            <span className="flex-1 min-w-0 truncate">{label}</span>
+            {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
+            {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
+            {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
+            {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
+          </NavLink>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
+            aria-label={isPinned ? `เลิกปักหมุด ${label}` : `ปักหมุด ${label}`}
+            className={`p-1 rounded hover:bg-divider ${isPinned ? 'text-brand-600' : 'text-muted'} ${PIN_ROW_ACTION_VISIBILITY}`}
+          >
+            <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-current' : ''}`} />
+          </button>
+        </div>
+        {children && isOpen && (
+          <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
+            {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => {
+              const isChildPinned = pinnedSet.has(c.to)
+              return (
+                <div key={c.to} className="flex items-center gap-0.5 group">
+                  <NavLink
+                    to={c.to}
+                    end={CHILD_EXACT_MATCH.has(c.to)}
+                    onClick={() => setNavOpen(false)}
+                    className={({ isActive }) =>
+                      `flex-1 flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                        isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
+                      }`
+                    }
+                  >
+                    <span className="flex-1 min-w-0 truncate">{c.label}</span>
+                    {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
+                    {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+                  </NavLink>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(c.to) }}
+                    aria-label={isChildPinned ? `เลิกปักหมุด ${c.label}` : `ปักหมุด ${c.label}`}
+                    className={`p-1 rounded hover:bg-divider ${isChildPinned ? 'text-brand-600' : 'text-muted'} ${PIN_ROW_ACTION_VISIBILITY}`}
+                  >
+                    <Pin className={`w-3.5 h-3.5 ${isChildPinned ? 'fill-current' : ''}`} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Pronista §Pin เมนูย่อย — แถวเมนูย่อยที่ปักหมุดในส่วน "รายการโปรด" ใช้ icon ของเมนูแม่แทน (เมนูย่อยไม่มี icon ของตัวเอง) + โชว์ชื่อเมนูแม่จางๆ กันชื่อกำกวม (เช่น "ตั้งค่า" อยู่ใต้ทั้ง "จัดการสมาชิก")
+  const renderPinnedChildRow = (child: (typeof childPinnables)[number]) => {
+    const { to, label, parentIcon: Icon, parentLabel } = child
+    return (
+      <div key={to} className="flex items-center gap-0.5 group">
+        <NavLink
+          to={to}
+          end={CHILD_EXACT_MATCH.has(to)}
+          onClick={() => setNavOpen(false)}
+          className={({ isActive }) =>
+            `flex-1 flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
+              isActive ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600' : 'text-soft hover:bg-hover'
+            }`
+          }
+        >
+          <Icon className="w-[18px] h-[18px] shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="block truncate">{label}</span>
+            <span className="block truncate text-[10px] text-muted font-normal leading-tight">{parentLabel}</span>
+          </span>
+          {to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+        </NavLink>
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
+          aria-label={`เลิกปักหมุด ${label}`}
+          className={`p-1 rounded hover:bg-divider text-brand-600 ${PIN_ROW_ACTION_VISIBILITY}`}
+        >
+          <Pin className="w-3.5 h-3.5 fill-current" />
+        </button>
+      </div>
+    )
+  }
+
   const sidebar = (
-    // Pronista §Mobile safe-area (2026-09-02) — drawer ชิดขอบขวา/บน/ล่างจริงบนมือถือ ต้องกัน notch/home-indicator (สเปก §3) — desktop (lg:static) env() คืน 0 อยู่แล้วไม่กระทบ
+    // Pronista §Mobile sidebar scroll fix (2026-09-14) — เปิดจากซ้าย (เดิมขวา) + ล็อกความสูงเท่า viewport ด้วย top-0/bottom-0 (กัน iOS Safari 100vh เพี้ยน)
+    // + overflow-hidden กันเนื้อหาล้นกรอบออกไปนอก fixed panel — เนื้อหาที่ scroll ได้จริงอยู่ที่ <nav> ด้านล่าง (min-h-0 คือหัวใจ ไม่ใส่แล้ว overflow-y-auto จะไม่ทำงานเพราะ flex item ขยายตาม content แทนที่จะโดน constrain)
     <aside
-      className={`fixed top-0 bottom-0 right-0 z-40 transition-transform duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] ${
-        navOpen ? 'translate-x-0' : 'translate-x-full'
-      }`}
+      className={`fixed top-0 bottom-0 left-0 z-40 transition-[transform,width,opacity] duration-200 lg:static lg:translate-x-0 lg:z-auto w-52 shrink-0 bg-white shadow-xs flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] ${
+        navOpen ? 'translate-x-0' : '-translate-x-full'
+      } ${sidebarCollapsed ? 'lg:w-0 lg:opacity-0 lg:pointer-events-none lg:overflow-hidden lg:border-0' : 'lg:w-52 lg:opacity-100'}`}
     >
       <div className="h-16 flex items-center gap-2.5 px-5 border-b border-border-subtle">
         <NavLink to="/" onClick={() => setNavOpen(false)} className="flex items-center gap-2.5 rounded-lg -m-1 p-1 hover:bg-hover" title="ไปหน้าภาพรวม">
@@ -279,56 +490,21 @@ export function Layout() {
       </div>
       {/* Pronista §Navbar enrichment (2026-08-27) — บัญชีผู้ใช้ย้ายไปอยู่ที่ TopbarProfile (มุมขวาบน) แทนแล้ว ไม่ซ้ำซ้อนกับตรงนี้อีก */}
       <DevSwitcher me={user} />
-      <nav className="flex-1 p-3 space-y-0.5 text-sm">
-        {items.map(({ to, label, icon: Icon, children }) => {
-          const isOpen = !!children && openGroups.has(to)
-          return (
-            <div key={to}>
-              <NavLink
-                to={to}
-                onClick={(e) => {
-                  if (children) {
-                    e.preventDefault()
-                    toggleGroup(to)
-                  } else {
-                    setNavOpen(false)
-                  }
-                }}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${
-                  to === activeTo
-                    ? 'bg-brand-50 text-brand-700 [&_svg]:text-brand-600'
-                    : 'text-soft hover:bg-hover'
-                }`}
-              >
-                <Icon className="w-[18px] h-[18px]" /> {label}
-                {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
-                {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
-                {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
-              </NavLink>
-              {children && isOpen && (
-                <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
-                  {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => (
-                    <NavLink
-                      key={c.to}
-                      to={c.to}
-                      end={c.to === '/admin' || c.to === '/members' || c.to === '/my-tasks' || c.to === '/my-tasks/files' || c.to === '/admin/domains'}
-                      onClick={() => setNavOpen(false)}
-                      className={({ isActive }) =>
-                        `flex items-center px-2.5 py-1.5 rounded-lg cursor-pointer ${
-                          isActive ? 'bg-brand-50 text-brand-700 font-medium' : 'text-soft hover:bg-hover'
-                        }`
-                      }
-                    >
-                      {c.label}
-                      {/* Pronista §My Note badge (2026-09-01) — แจ้งเตือนตรงหลังเมนู My Note เมื่อมีคนแชร์ Note มาใหม่ */}
-                      {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
+      {/* Pronista §Mobile sidebar scroll fix (2026-09-14) — root cause เดิม: <nav> เป็น flex-1 แต่ไม่มี min-h-0 + ไม่มี overflow-y-auto เลย
+          ทำให้เมนูยาวเกินจอ "ดัน" ความสูงของ <aside> (fixed, ล็อกสูงเท่า viewport) ล้นออกไปเงียบๆ แทนที่จะ scroll — เพิ่ม min-h-0 (บังคับให้ flex item เคารพ container แทนขยายตาม content)
+          + overflow-y-auto overflow-x-hidden (เปิด scroll แนวตั้งเฉพาะโซนนี้ กันแนวนอนหลุด) + overscroll-contain (กันลากทะลุไป scroll หน้าเว็บข้างหลัง) + -webkit-overflow-scrolling:touch (momentum scroll บน iOS Safari) */}
+      <nav
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-3 pb-6 space-y-0.5 text-sm"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {pinnedEntries.length > 0 && (
+          <>
+            <div className="px-3 pt-1 pb-1.5 text-[10px] font-semibold text-muted uppercase tracking-wide">รายการโปรด</div>
+            {pinnedEntries.map((e) => (e.kind === 'top' ? renderNavRow(e.item) : renderPinnedChildRow(e.child)))}
+            <div className="my-2 border-t border-border-subtle" />
+          </>
+        )}
+        {unpinnedItems.map((item) => renderNavRow(item))}
       </nav>
     </aside>
   )
@@ -346,7 +522,13 @@ export function Layout() {
         )}
         {sidebar}
         <div className="flex-1 flex flex-col min-w-0">
-          <Topbar title={topbarTitle} onOpenNav={() => setNavOpen(true)} actionSlotRef={setActionSlot} />
+          <Topbar
+            title={topbarTitle}
+            onOpenNav={() => setNavOpen(true)}
+            actionSlotRef={setActionSlot}
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={toggleSidebarCollapsed}
+          />
           <CapBanner />
           <main className="flex-1 overflow-y-auto">
             <Outlet />

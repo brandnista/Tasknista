@@ -1,4 +1,4 @@
-import { Calendar, Hash, MessagesSquare, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
+import { Calendar, MessagesSquare, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -85,8 +85,6 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
     }
   }, [data, channels, initialChannelId])
 
-  const projectChannels = channels.filter((c) => c.kind === 'project')
-  const otherChannels = channels.filter((c) => c.kind !== 'project')
   const selected = channels.find((c) => c.id === selectedId) ?? null
 
   // Pronista §Team Chat (2026-08-27) — ลบห้อง dm/group ได้ (ห้อง project ผูก 1:1 กับโปรเจกต์ ลบผ่านนี้ไม่ได้)
@@ -100,23 +98,18 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
 
   return (
     <div className="h-full flex">
-      <div className="w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white flex flex-col overflow-y-auto" style={{ display: selected ? undefined : 'flex' }}>
+      {/* Pronista §Team Chat mobile fix (2026-09-03) — เดิม style={{display: selected ? undefined : 'flex'}} ไม่เคยซ่อน panel นี้จริง (undefined = fallback ไปใช้ className flex เดิมอยู่ดี) ทำให้แผงห้องสนทนา + แผงข้อความโชว์ซ้อนกันพร้อมกันบนมือถือ ล้นจอ */}
+      <div className={`w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white flex-col overflow-y-auto ${selected ? 'hidden sm:flex' : 'flex'}`}>
         <div className="flex items-center justify-between px-3 py-3 border-b border-border-subtle">
           <span className="font-semibold text-ink text-sm">Chat</span>
           <button onClick={() => setNewDmOpen(true)} title="เริ่มข้อความใหม่" className="p-1.5 rounded-lg hover:bg-hover text-dim">
             <Plus className="w-4 h-4" />
           </button>
         </div>
-        <div className={`flex-1 overflow-y-auto ${selected ? 'hidden sm:block' : ''}`}>
-          {projectChannels.length > 0 && (
-            <div className="px-3 pt-3 pb-1 text-[11px] font-medium text-muted tracking-wide">ห้องสนทนาโปรเจกต์</div>
-          )}
-          {projectChannels.map((ch) => (
-            <ChannelRow key={ch.id} ch={ch} active={ch.id === selectedId} onClick={() => setSelectedId(ch.id)} />
-          ))}
-          {otherChannels.length > 0 && <div className="px-3 pt-3 pb-1 text-[11px] font-medium text-muted tracking-wide">ข้อความส่วนตัว/กลุ่ม</div>}
-          {otherChannels.map((ch) => (
-            <ChannelRow key={ch.id} ch={ch} active={ch.id === selectedId} onClick={() => setSelectedId(ch.id)} onDelete={() => void deleteChannel(ch)} />
+        <div className="flex-1 overflow-y-auto">
+          {/* Pronista §Team Chat unify list (2026-09-14) — เลิกแยกโซน "ห้องสนทนาโปรเจกต์" ด้วยไอคอน # ออกจากกัน รวมเป็นลิสต์เดียวหน้าตาเหมือน DM/กลุ่มทั้งหมด เรียงตามข้อความล่าสุดปนกันไปเลย (ห้องโปรเจกต์ยังสร้างอัตโนมัติ/สมาชิกตามโปรเจกต์เหมือนเดิมทุกอย่าง แค่เปลี่ยนหน้าตา) */}
+          {channels.map((ch) => (
+            <ChannelRow key={ch.id} ch={ch} active={ch.id === selectedId} onClick={() => setSelectedId(ch.id)} onDelete={ch.kind === 'project' ? undefined : () => void deleteChannel(ch)} />
           ))}
           {channels.length === 0 && <div className="text-center text-sm text-muted py-8 px-3">ยังไม่มีห้องสนทนา — โปรเจกต์ที่คุณอยู่จะมีห้องแชทให้อัตโนมัติ</div>}
         </div>
@@ -138,11 +131,7 @@ function ChannelRow({ ch, active, onClick, onDelete }: { ch: ChatChannel; active
   return (
     <div className={`group flex items-start hover:bg-hover ${active ? 'bg-hover' : ''}`}>
       <button onClick={onClick} className="flex-1 min-w-0 text-left px-3 py-2.5 flex items-start gap-2">
-        {ch.kind === 'project' ? (
-          <Hash className="w-4 h-4 text-muted mt-0.5 shrink-0" />
-        ) : (
-          <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px] mt-0.5" colorClass={avatarColor(label ?? '?')} />
-        )}
+        <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px] mt-0.5" colorClass={avatarColor(label ?? '?')} />
         <div className="min-w-0 flex-1">
           <div className="text-sm text-body truncate">{label}</div>
           {ch.lastMessagePreview && <div className="text-[11px] text-muted truncate">{ch.lastMessagePreview}</div>}
@@ -229,10 +218,52 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const [convertFor, setConvertFor] = useState<ChatMessage | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  // Pronista §Team Chat history fix (2026-09-11) — เดิมโหลดแค่ 50 ข้อความล่าสุดตายตัว ไม่มีทางเห็นข้อความเก่ากว่านั้นเลย ทั้งที่ backend รองรับ ?before= อยู่แล้ว (GET /chat/channels/:id/messages) แค่ frontend ไม่เคยเรียกใช้
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  // ตอน prepend ข้อความเก่าเข้าด้านบน ต้องไม่ auto-scroll ลงล่างเหมือนข้อความใหม่ปกติ — ใช้ ref กันแทน state เพราะไม่ต้อง re-render
+  const isPrependingRef = useRef(false)
+  // §Team Chat history fix — loadingMore (state) เปลี่ยนไม่ทันทีทันใด (batched) ถ้า onScroll ยิงรัวๆ ก่อน re-render จะหลุดผ่าน guard ได้หลายรอบพร้อมกัน ยิง fetch ซ้ำ/ข้อความเก่าโผล่ซ้ำ — ใช้ ref เช็คแบบ synchronous แทน
+  const loadingMoreRef = useRef(false)
 
-  useEffect(() => { setMessages(data ?? []) }, [data])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }) }, [messages.length])
+  useEffect(() => { setMessages(data ?? []); setHasMore((data?.length ?? 0) >= 50) }, [data])
+  useEffect(() => {
+    if (isPrependingRef.current) { isPrependingRef.current = false; return }
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [messages.length])
+
+  const loadOlder = async () => {
+    if (loadingMoreRef.current || !hasMore || messages.length === 0) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    const container = scrollRef.current
+    const prevScrollHeight = container?.scrollHeight ?? 0
+    try {
+      // createdAt ที่ frontend ได้จริงคือ ISO string จาก Date.toJSON() (ชนิดที่ประกาศไว้ว่า number ไม่ตรงกับ runtime จริง) — ต้องแปลงผ่าน Date ก่อนส่งเป็น epoch ms ให้ backend Number(before) parse ได้ถูก ไม่งั้นได้ NaN เงียบๆ
+      const oldestCreatedAt = new Date(messages[0]!.createdAt).getTime()
+      const older = await api.get<ChatMessage[]>(`/api/chat/channels/${channel.id}/messages?before=${oldestCreatedAt}`)
+      if (older.length > 0) {
+        isPrependingRef.current = true
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id))
+          return [...older.filter((m) => !existingIds.has(m.id)), ...prev]
+        })
+        // รักษาตำแหน่ง scroll เดิมไว้ (ไม่งั้นพอความสูงเปลี่ยนจากข้อความเก่าที่เพิ่มเข้ามาด้านบน จอจะกระโดด)
+        requestAnimationFrame(() => {
+          if (container) container.scrollTop = container.scrollHeight - prevScrollHeight
+        })
+      }
+      setHasMore(older.length >= 50)
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }
+  const onScroll = () => {
+    if (scrollRef.current && scrollRef.current.scrollTop < 80) void loadOlder()
+  }
   // Pronista §Notification overhaul (2026-08-27) — เปิดห้องนี้แล้ว mark แจ้งเตือนแชทของห้องนี้อ่านทันที กัน badge เมนู "ทีม" ค้าง
   // Pronista §Team Chat unread badge (2026-08-28) — mark อ่านเสร็จแล้ว reload รายการห้อง กัน badge จำนวนไม่อ่านที่แถวห้องนี้ค้าง
   useEffect(() => { void markChannelRead(channel.id).then(onSent) }, [channel.id, markChannelRead, onSent])
@@ -306,10 +337,11 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border-subtle bg-hover/60">
         <button onClick={onBack} className="sm:hidden text-sm text-muted">‹</button>
-        {channel.kind === 'project' ? <Hash className="w-4 h-4 text-muted" /> : <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px]" colorClass={avatarColor(label ?? '?')} />}
+        <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px]" colorClass={avatarColor(label ?? '?')} />
         <span className="font-semibold text-ink text-sm">{label}</span>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {loadingMore && <div className="text-center text-xs text-muted py-1">กำลังโหลดข้อความเก่า…</div>}
         {messages.map((m) => (
           <MessageRow key={m.id} m={m} mine={m.senderId === meId} onDeleted={() => setMessages((prev) => prev.filter((x) => x.id !== m.id))} onConvert={() => setConvertFor(m)} />
         ))}

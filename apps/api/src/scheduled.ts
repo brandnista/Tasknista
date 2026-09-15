@@ -1,5 +1,5 @@
 import { bkkDateOf, DEFAULT_MEETING_REMINDER_MINUTES, dueDomainReminder, isDomainExpired, isNearExpiry } from '@seedoffice/core'
-import { createDb, domains, meetingParticipants, meetings, notifications, projectMembers, projects, sprints, tasks, timerSessions, users } from '@seedoffice/db'
+import { createDb, domains, meetingParticipants, meetings, notifications, projectMembers, projects, sellnistaSubscriptions, sprints, tasks, timerSessions, users } from '@seedoffice/db'
 import { and, eq, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm'
 import { runBackup } from './lib/backup'
 import { syncAllCalendars } from './lib/gcal-sync'
@@ -51,6 +51,7 @@ export async function runScheduled(env: Env, cron: string): Promise<void> {
     await notifyExpiringMembers(db, today)
     await notifyOverdueTasks(db, today)
     await notifyDomainExpiry(db, today)
+    await notifySellnistaExpiry(db, today)
     await cleanupOldNotifications(db)
     await runBackup(env)
   }
@@ -147,6 +148,40 @@ export async function notifyDomainExpiry(db: ReturnType<typeof createDb>, today:
       })
     }
     await db.update(domains).set({ notifiedTiers: [...(d.notifiedTiers ?? []), ...due.allDueTiers] }).where(eq(domains.id, d.id))
+  }
+}
+
+/**
+ * Pronista §System Enhancements — เตือน Sellnista subscription ใกล้/หมดอายุ — mirror notifyDomainExpiry เป๊ะ (30/15/7/1 วัน + หมดอายุครั้งเดียวไม่ซ้ำ)
+ * ผู้รับ: owner ทุกคน (ต่างจาก domains ที่มี responsibleUserId เพิ่ม — Sellnista ไม่มีแนวคิดผู้รับผิดชอบรายรายการ)
+ */
+export async function notifySellnistaExpiry(db: ReturnType<typeof createDb>, today: string): Promise<void> {
+  const rows = await db.select().from(sellnistaSubscriptions).where(isNull(sellnistaSubscriptions.deletedAt))
+  const owners = await db.select({ id: users.id }).from(users).where(eq(users.role, 'owner'))
+  for (const s of rows) {
+    if (!s.notifyEnabled) continue
+
+    if (isDomainExpired(s.expiryDate, today)) {
+      if (!s.expiredNotifiedAt) {
+        for (const owner of owners) {
+          await notifyUser(db, { userId: owner.id, type: 'sellnista_expired', sellnistaSubscriptionId: s.id, message: `บริการ Sellnista "${s.name}" หมดอายุแล้ว (${s.expiryDate})` })
+        }
+        await db.update(sellnistaSubscriptions).set({ expiredNotifiedAt: new Date() }).where(eq(sellnistaSubscriptions.id, s.id))
+      }
+      continue
+    }
+
+    const due = dueDomainReminder(s.expiryDate, today, s.notifiedTiers ?? [])
+    if (!due) continue
+    for (const owner of owners) {
+      await notifyUser(db, {
+        userId: owner.id,
+        type: 'sellnista_expiry_reminder',
+        sellnistaSubscriptionId: s.id,
+        message: `บริการ Sellnista "${s.name}" ใกล้หมดอายุ — เหลืออีก ${due.tierToAnnounce} วัน (${s.expiryDate})`,
+      })
+    }
+    await db.update(sellnistaSubscriptions).set({ notifiedTiers: [...(s.notifiedTiers ?? []), ...due.allDueTiers] }).where(eq(sellnistaSubscriptions.id, s.id))
   }
 }
 

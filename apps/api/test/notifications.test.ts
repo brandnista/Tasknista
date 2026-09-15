@@ -169,3 +169,51 @@ describe('Pronista §My Note badge (2026-09-01) — POST /notifications/mark-typ
     expect((await app.request('/api/notifications/mark-type-read', { method: 'POST' }, env)).status).toBe(401)
   })
 })
+
+describe('Pronista §System Enhancements — GET /notifications รองรับ page/pageSize/category (หน้า "การแจ้งเตือน" เต็ม)', () => {
+  it('ไม่ส่ง page มา → พฤติกรรมเดิม (array ตรงๆ ไม่มี total)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request('/api/notifications', { headers: { cookie: owner } }, env)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Array.isArray(body)).toBe(true)
+  })
+
+  it('ส่ง page มา → คืน {rows,total} แบ่งหน้าได้จริง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    // สร้างแจ้งเตือนหลายรายการให้ปอนด์ (ยกเลิกประชุมซ้ำๆ ไม่ได้ ใช้ note_shared ผ่าน my-notes แทน ง่ายสุด)
+    for (let i = 0; i < 3; i++) {
+      const created = (await (await app.request('/api/my-notes', json(owner, { title: `note ${i}`, body: { mode: 'text', text: 'x' } }), env)).json()) as { id: string }
+      await app.request(`/api/my-notes/${created.id}/members`, json(owner, { userId: 'u_pond', role: 'viewer' }), env)
+    }
+    const page1 = (await (await app.request('/api/notifications?page=1&pageSize=2', { headers: { cookie: pond } }, env)).json()) as { rows: unknown[]; total: number }
+    expect(page1.rows.length).toBe(2)
+    expect(page1.total).toBeGreaterThanOrEqual(3)
+    const page2 = (await (await app.request('/api/notifications?page=2&pageSize=2', { headers: { cookie: pond } }, env)).json()) as { rows: unknown[]; total: number }
+    expect(page2.rows.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('กรองตาม category ได้ (เฉพาะประเภทในหมวดนั้น)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/my-notes', json(owner, { title: 'note-cat', body: { mode: 'text', text: 'x' } }), env)).json()) as { id: string }
+    await app.request(`/api/my-notes/${created.id}/members`, json(owner, { userId: 'u_pond', role: 'viewer' }), env)
+    const res = (await (await app.request('/api/notifications?page=1&pageSize=50&category=system', { headers: { cookie: pond } }, env)).json()) as { rows: { type: string }[] }
+    expect(res.rows.length).toBeGreaterThan(0)
+    // Pronista §Notification categories wording (2026-09-14) — expiry_reminder/member_expiry_reminder/domain_* ถูกแยกออกไปเป็นหมวดของตัวเองแล้ว เหลือแค่ 3 อย่างนี้ใน "ระบบ/อื่นๆ"
+    expect(res.rows.every((r) => r.type === 'note_shared' || r.type === 'project_member_added' || r.type === 'vault_accessed')).toBe(true)
+  })
+})
+
+// Pronista §Notification categories fix (2026-09-11) — vault_accessed เพิ่ม type ใหม่แล้วลืมใส่ NOTIFICATION_CATEGORIES ทำให้ filter ตามหมวด/หน้าตั้งค่าแจ้งเตือนมองไม่เห็นเลย
+// กันบั๊กคลาสเดียวกันเกิดซ้ำในอนาคต — บังคับให้ทุก type ใน NOTIFICATION_TYPES ต้องอยู่ในหมวดใดหมวดหนึ่งเสมอ
+describe('X3 — NOTIFICATION_CATEGORIES ต้องครอบคลุมทุก NOTIFICATION_TYPES', () => {
+  it('ไม่มี type ไหนตกหล่นจากทุกหมวด', async () => {
+    const { NOTIFICATION_CATEGORIES } = await import('@seedoffice/core')
+    const { NOTIFICATION_TYPES } = await import('@seedoffice/db')
+    const categorized = new Set(NOTIFICATION_CATEGORIES.flatMap((c) => c.types))
+    const missing = NOTIFICATION_TYPES.filter((t) => !categorized.has(t))
+    expect(missing).toEqual([])
+  })
+})

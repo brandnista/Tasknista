@@ -192,11 +192,27 @@ export function InboxSettings() {
     }
   }
 
+  // Pronista §Admin UX fix (2026-09-15) — ปิดกล่องเมลกลาง (ใช้ร่วมกันทั้งบริษัท) เดิมไม่ถามยืนยันเลย + ไม่มี try/catch เลย (error จะเงียบแบบ "กดแล้วไม่มีอะไรเกิดขึ้น")
   const toggleBox = async (m: InboxMailbox) => {
-    await api.post(
-      `/api/inbox/mailboxes/${m.id}/${m.status === 'disabled' ? 'enable' : 'disable'}`,
-    )
-    await reload()
+    const willDisable = m.status !== 'disabled'
+    if (willDisable) {
+      if (
+        !(await confirmDialog({
+          title: `ปิดกล่องเมล "${m.name}"?`,
+          message: 'ทีมจะไม่เห็นอีเมลใหม่จากกล่องนี้จนกว่าจะเปิดใช้งานกลับมา',
+          danger: true,
+          confirmLabel: 'ปิดกล่อง',
+        }))
+      )
+        return
+    }
+    try {
+      await api.post(`/api/inbox/mailboxes/${m.id}/${willDisable ? 'disable' : 'enable'}`)
+      setActionError('')
+      await reload()
+    } catch {
+      setActionError(`${willDisable ? 'ปิด' : 'เปิด'}กล่อง "${m.name}" ไม่สำเร็จ — ลองอีกครั้ง`)
+    }
   }
 
   const [syncingId, setSyncingId] = useState<string | null>(null)

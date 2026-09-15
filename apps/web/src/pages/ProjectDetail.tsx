@@ -21,11 +21,13 @@ import { ProjectEstimateSection } from '../components/ProjectEstimateSection'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
+import { useToastAction } from '../components/Toast'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
-import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { isInactiveStatus, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { taskCreatedMessage } from '../lib/task-url'
 import { useLoad } from '../lib/useLoad'
 
 export interface BoardTask {
@@ -100,10 +102,51 @@ const BACKLOG_DOC_TABS = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR'] as const
 // Pronista §Back to Basic — Tab บนสุดของหน้าโปรเจกต์เหลือแค่ Sprint/เอกสาร/ประวัติเอกสาร ย้าย Epic/Story/Task/Defect/CR มาเป็น sub-tab คงที่ของ Backlog แทน (ต่างจาก tab เอกสารด้านบนที่โชว์เฉพาะเมื่อมีข้อมูล — 5 อันนี้โชว์เสมอ)
 // Pronista §Back to Basic (ต่อยอด) — เพิ่ม "summary" ดูภาพรวมโครงสร้าง Epic>Story>Task>Subtask ทั้งโปรเจกต์
 const FIXED_BACKLOG_TABS = ['epic', 'story', 'task', 'defect', 'cr', 'summary'] as const
-type BacklogTab = 'regular' | (typeof BACKLOG_DOC_TABS)[number] | (typeof FIXED_BACKLOG_TABS)[number]
+type BacklogTab = 'all' | 'regular' | (typeof BACKLOG_DOC_TABS)[number] | (typeof FIXED_BACKLOG_TABS)[number]
 /** แท็บของงานหนึ่งชิ้น — originDocType (flow ใหม่) มาก่อน, ไม่มีก็ fallback ไป SRS ถ้ามี srsDocId (flow เดิม), ไม่งั้นเป็นงานทั่วไป */
 function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
   return t.originDocType ?? (t.srsDocId ? 'SRS' : 'regular')
+}
+
+// Pronista §Bulk actions (2026-09-03) — ลบ/ย้ายหลายงานพร้อมกัน ใช้ endpoint เดี่ยวเดิม (/tasks/:id DELETE, /tasks/:id/convert) ยิงขนานผ่าน Promise.allSettled
+// เหมือน pattern deleteSelected เดิมของแท็บ Backlog ทั่วไป — ไม่ต้องเพิ่ม batch endpoint ใหม่ฝั่ง API
+async function bulkDeleteTasks(ids: string[]): Promise<{ ok: number; failed: number }> {
+  const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+  const failed = results.filter((r) => r.status === 'rejected').length
+  return { ok: ids.length - failed, failed }
+}
+async function bulkConvertTasks(ids: string[], to: 'task' | 'defect' | 'cr'): Promise<{ ok: number; failed: number }> {
+  const results = await Promise.allSettled(ids.map((id) => api.post(`/api/tasks/${id}/convert`, { to })))
+  const failed = results.filter((r) => r.status === 'rejected').length
+  return { ok: ids.length - failed, failed }
+}
+
+/** แถบปุ่มจัดการกลุ่ม: ลบทั้งหมด/ลบที่เลือก/ย้ายทั้งหมด/ย้ายที่เลือก — ใช้ร่วมกันทั้ง 3 แท็บ (Backlog ทั่วไป/Defect/Task-Story-CR) */
+function BulkKindActions({ totalCount, selectedCount, excludeKind, busy, onDeleteAll, onDeleteSelected, onMoveAll, onMoveSelected }: {
+  totalCount: number
+  selectedCount: number
+  excludeKind: 'task' | 'defect' | 'cr' | 'backlog'
+  busy: boolean
+  onDeleteAll: () => void
+  onDeleteSelected: () => void
+  onMoveAll: (to: 'task' | 'defect' | 'cr') => void
+  onMoveSelected: (to: 'task' | 'defect' | 'cr') => void
+}) {
+  const moveOptions = (['task', 'defect', 'cr'] as const).filter((k) => k !== excludeKind)
+  const [moveTo, setMoveTo] = useState<'task' | 'defect' | 'cr'>(moveOptions[0]!)
+  if (totalCount === 0) return null
+  const btn = 'text-[11px] rounded-lg px-2 py-1 disabled:opacity-40 whitespace-nowrap'
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+      <select value={moveTo} onChange={(e) => setMoveTo(e.target.value as typeof moveTo)} className="text-[11px] bg-white border border-border rounded-lg px-1.5 py-1">
+        {moveOptions.map((k) => <option key={k} value={k}>{CONVERT_LABEL[k]}</option>)}
+      </select>
+      <button onClick={() => onMoveAll(moveTo)} disabled={busy} className={`${btn} text-brand-700 border border-brand-200 bg-brand-50 hover:bg-brand-100`}>ย้ายทั้งหมด ({totalCount})</button>
+      <button onClick={() => onMoveSelected(moveTo)} disabled={busy || selectedCount === 0} className={`${btn} text-brand-700 border border-brand-200 bg-brand-50 hover:bg-brand-100`}>ย้ายที่เลือก ({selectedCount})</button>
+      <button onClick={onDeleteAll} disabled={busy} className={`${btn} text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100`}>ลบทั้งหมด ({totalCount})</button>
+      <button onClick={onDeleteSelected} disabled={busy || selectedCount === 0} className={`${btn} text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100`}>ลบที่เลือก ({selectedCount})</button>
+    </div>
+  )
 }
 
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
@@ -126,7 +169,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
   // Pronista §System Requirements Update — ซ่อนรหัสงานเป็นค่าเริ่มต้น กดปุ่ม "แสดงรหัสงาน" ที่ header ของ Backlog panel ถึงจะโชว์
   showCode?: boolean
 }) {
-  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]
+  const urgencyCls = URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), soonDays)]
   const originBadge = t.originRefCode && t.originDocId ? (
     <a
       href={`/docs/${t.originDocId}`}
@@ -176,8 +219,13 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
 }
 
 const BACKLOG_TAB_LABEL: Record<BacklogTab, string> = {
-  regular: 'ทั่วไป', MOM: 'MOM', BRD: 'BRD', SOW: 'SOW', SRS: 'SRS', PEP: 'PEP', UIR: 'UIR',
+  all: 'ทั้งหมด', regular: 'ยังไม่ระบุ', MOM: 'MOM', BRD: 'BRD', SOW: 'SOW', SRS: 'SRS', PEP: 'PEP', UIR: 'UIR',
   epic: 'EPIC', story: 'Story', task: 'Task', defect: 'Defect', cr: 'CR', summary: '🌳 ภาพรวมโครงสร้าง',
+}
+// Pronista §System Enhancements — badge ระบุประเภทงานในแท็บ "ทั้งหมด" (รวมทุก kind ปนกัน ต้องบอกให้รู้ว่าแถวไหนเป็นประเภทไหน)
+const KIND_BADGE_LABEL: Record<'task' | 'defect' | 'cr' | 'backlog', string> = { task: 'Task', defect: 'Defect', cr: 'CR', backlog: 'ยังไม่ระบุ' }
+const KIND_BADGE_CLASS: Record<'task' | 'defect' | 'cr' | 'backlog', string> = {
+  task: 'bg-info-50 text-info-700', defect: 'bg-danger-50 text-danger-600', cr: 'bg-warning-50 text-warning-700', backlog: 'bg-divider text-dim',
 }
 
 /** Pronista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
@@ -209,6 +257,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   // Pronista §Workspace — shadow canEdit เดิมด้วยค่าที่ถูก readOnly บังคับปิดด้วย ทำให้ทุกจุดที่เช็ค canEdit อยู่แล้วในฟังก์ชันนี้ (รวมถึงที่ส่งต่อลง sub-tab) กลายเป็น read-only อัตโนมัติโดยไม่ต้องไล่แก้ทีละจุด
   const canEdit = canEditProp && !readOnly
   const { alertDialog, confirmDialog } = useDialog()
+  const toastAction = useToastAction()
   const { data, reload } = useLoad<BacklogResponse>(() => api.get(`/api/projects/${projectId}/backlog`), [projectId, refreshKey])
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้ render chip บนแถว Backlog · §System Requirements Update — แคตตาล็อก Task Type ใช้ filter
   const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
@@ -222,6 +271,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   // Pronista §Mobile Responsive Refactor (2026-09-02) — Filter บนมือถือย้ายเข้า Bottom Sheet แทน select แถวเดิม (สเปก §7)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const [dragTaskId, setDragTaskId] = useState<string | null>(null)
   // Pronista §Backlog cross-project convert — เมนู "จัดการ": ย้ายเป็น Epic/Story/Task/Subtask/Defect/CR (เลือกโปรเจกต์ปลายทางได้ทุกประเภทผ่าน ConvertBacklogModal เดียวกัน)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
@@ -284,21 +334,34 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     .filter((t) => assigneeFilter === 'all' || t.assigneeName === assigneeFilter)
 
   const add = async () => {
-    if (!title.trim()) return
-    // Pronista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Task เบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      // Pronista §Back to Basic (ต่อยอด) — งานที่คีย์จากแท็บ "ทั่วไป" ตรงๆ ต้องเป็น kind='backlog' แยกขาดจาก Story/Task/Defect/CR (กันปนกันในแท็บนี้)
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'backlog' })
+      toastAction(taskCreatedMessage('backlog', title.trim()), created.id)
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   // Pronista §Back to Basic (ต่อยอด) — สร้าง Task เพิ่มเองตรงในแท็บเอกสาร (เช่น SOW) นอกเหนือจากที่แตกมาจากการอัปโหลดเอกสารเท่านั้น
   const [docTabTitle, setDocTabTitle] = useState('')
-  // Pronista §Workspace — early-return ต้องมาหลัง hook ตัวสุดท้าย (docTabTitle) เสมอ กัน "Rendered more hooks" ตอน canEdit สลับ false/true ข้าม render (เช่น list ว่างตอนกำลังโหลด data แล้วไม่ว่างหลังโหลดเสร็จ)
+  const [docTabAddBusy, setDocTabAddBusy] = useState(false)
+  // Pronista §Workspace — early-return ต้องมาหลัง hook ตัวสุดท้าย (docTabAddBusy) เสมอ กัน "Rendered more hooks" ตอน canEdit สลับ false/true ข้าม render (เช่น list ว่างตอนกำลังโหลด data แล้วไม่ว่างหลังโหลดเสร็จ)
   if (list.length === 0 && !canEdit) return null
   const addDocTabTask = async (docTab: (typeof BACKLOG_DOC_TABS)[number]) => {
-    if (!docTabTitle.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
-    setDocTabTitle('')
-    void reload()
+    if (!docTabTitle.trim() || docTabAddBusy) return
+    setDocTabAddBusy(true)
+    try {
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: docTabTitle.trim(), originDocType: docTab })
+      toastAction(taskCreatedMessage('task', docTabTitle.trim()), created.id)
+      setDocTabTitle('')
+      void reload()
+    } finally {
+      setDocTabAddBusy(false)
+    }
   }
   const switchTab = (v: BacklogTab) => { setTab(v); setSelected(new Set()) }
   const toggleSelect = (id: string) => {
@@ -316,19 +379,32 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       return allSelected ? new Set() : new Set(allIds)
     })
   }
-  const deleteSelected = async () => {
-    if (selected.size === 0) return
-    if (!(await confirmDialog({ title: `ลบ ${selected.size} รายการที่เลือก?`, message: 'กู้คืนไม่ได้', danger: true }))) return
+  const bulkDeleteConfirm = async (ids: string[]) => {
+    if (ids.length === 0) return
+    if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     setDeleting(true)
     try {
-      const ids = [...selected]
-      const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
-      const failed = results.filter((r) => r.status === 'rejected').length
+      const res = await bulkDeleteTasks(ids)
       setSelected(new Set())
       void reload()
-      if (failed > 0) await alertDialog({ title: `ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ (อาจถูกล็อกอยู่)` })
+      if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
     } finally {
       setDeleting(false)
+    }
+  }
+  // Pronista §Bulk actions (2026-09-03) — ย้าย Backlog ดิบเป็น Task/Defect/CR แบบกลุ่ม (เดิมมีแต่ "จัดการ" ทีละรายการ)
+  const [moving, setMoving] = useState(false)
+  const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    if (ids.length === 0) return
+    if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
+    setMoving(true)
+    try {
+      const res = await bulkConvertTasks(ids, to)
+      setSelected(new Set())
+      void reload()
+      if (res.failed > 0) await alertDialog({ title: `ย้ายสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ` })
+    } finally {
+      setMoving(false)
     }
   }
   // Pronista §System Requirements Update — เลือกงานด้วย checkbox โยนเข้า Sprint ทีเดียว (ใช้ selection เดิมของปุ่ม "ลบที่เลือก" ร่วมกัน)
@@ -354,6 +430,9 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <div className="flex bg-white/60 rounded-lg p-0.5 text-xs font-medium w-fit flex-wrap">
+          <button onClick={() => switchTab('all')} className={`px-2.5 py-1 rounded-md ${tab === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+            {BACKLOG_TAB_LABEL.all}
+          </button>
           {(['regular', ...docTabsPresent] as BacklogTab[]).map((v) => (
             <button key={v} onClick={() => switchTab(v)} className={`px-2.5 py-1 rounded-md ${tab === v ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
               {BACKLOG_TAB_LABEL[v]} ({(v === 'regular' ? regularList : (byTab.get(v) ?? [])).length})
@@ -391,7 +470,9 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         </button>
       </div>
 
-      {(FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
+      {tab === 'all' ? (
+        <ProjectAllTasksTab projectId={projectId} onOpenTask={onOpenTask} canEdit={canEdit} showCode={showCode} />
+      ) : (FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
         <>
           {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} showCode={showCode} />}
           {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} showCode={showCode} />}
@@ -417,8 +498,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       <>
       {tab === 'regular' && canEdit && (
         <div className="flex gap-2 mb-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
-          <button onClick={() => void add()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
+          <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
         </div>
       )}
 
@@ -478,20 +559,21 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       })()}
 
       {canEdit && activeList.length > 0 && (
-        <div className="flex items-center gap-3 mb-2 text-xs">
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
             <input type="checkbox" checked={activeList.every((t) => selected.has(t.id))} onChange={toggleSelectAll} />
             เลือกทั้งหมด
           </label>
-          {selected.size > 0 && (
-            <button
-              onClick={() => void deleteSelected()}
-              disabled={deleting}
-              className="ml-auto text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100 rounded-lg px-2.5 py-1 disabled:opacity-40"
-            >
-              {deleting ? 'กำลังลบ…' : `ลบที่เลือก (${selected.size})`}
-            </button>
-          )}
+          <BulkKindActions
+            totalCount={activeList.length}
+            selectedCount={selected.size}
+            excludeKind="backlog"
+            busy={deleting || moving}
+            onDeleteAll={() => void bulkDeleteConfirm(activeList.map((t) => t.id))}
+            onDeleteSelected={() => void bulkDeleteConfirm([...selected])}
+            onMoveAll={(to) => void bulkMoveConfirm(activeList.map((t) => t.id), to)}
+            onMoveSelected={(to) => void bulkMoveConfirm([...selected], to)}
+          />
         </div>
       )}
 
@@ -511,10 +593,11 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
             value={docTabTitle}
             onChange={(e) => setDocTabTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void addDocTabTask('SOW') }}
+            disabled={docTabAddBusy}
             placeholder="พิมพ์ชื่อ Task แล้วกด Enter เพื่อเพิ่มในแท็บ SOW"
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
           />
-          <button onClick={() => void addDocTabTask('SOW')} disabled={!docTabTitle.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ Task</button>
+          <button onClick={() => void addDocTabTask('SOW')} disabled={!docTabTitle.trim() || docTabAddBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ Task</button>
         </div>
       )}
 
@@ -662,6 +745,91 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       </div>
       </>
       )}
+      {convertModal && (
+        <ConvertBacklogModal
+          taskId={convertModal.taskId}
+          to={convertModal.to}
+          title={CONVERT_LABEL[convertModal.to]}
+          currentProjectId={projectId}
+          onClose={() => setConvertModal(null)}
+          onConverted={() => { setConvertModal(null); void reload() }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Pronista §System Enhancements — แท็บ "ทั้งหมด": รวมทุกงานทุกประเภท (ยังไม่ระบุ/Task/Defect/CR) ของโปรเจกต์มาแสดงในลิสต์เดียว
+ * ใช้ endpoint /tasks/all เดิม (ไม่กรอง kind อยู่แล้ว) — ไม่มี bulk move/checkbox เพราะ source kind ปนกัน มีแค่ per-row convert (จัดการ) เหมือนแท็บอื่น */
+function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
+  projectId: string
+  onOpenTask: (id: string) => void
+  canEdit: boolean
+  showCode?: boolean
+}) {
+  const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
+  const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
+  const all = data ?? []
+  const [search, setSearch] = useState('')
+  const filtered = search.trim() ? all.filter((t) => t.title.toLowerCase().includes(search.trim().toLowerCase()) || (t.code ?? '').toLowerCase().includes(search.trim().toLowerCase())) : all
+  const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
+  // Pronista §Task-row expand (2026-09-15) — งานย่อยมากับ `filtered` อยู่แล้ว flat (มี parentId) โชว์แค่แถวบนสุด ซ่อนแถวลูกไว้ใต้ปุ่มคลี่แทน
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const filteredIds = new Set(filtered.map((t) => t.id))
+  const topLevel = filtered.filter((t) => !t.parentId || !filteredIds.has(t.parentId))
+  const childrenOf = (id: string) => filtered.filter((t) => t.parentId === id)
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
+    const children = childrenOf(t.id)
+    const hasChildren = children.length > 0
+    const isOpen = expandedIds.has(t.id)
+    return (
+      <div key={t.id}>
+        <div className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+          {hasChildren ? (
+            <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
+              <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
+          {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+          {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          {canEdit && (
+            <BacklogConvertMenu
+              onConvertDirect={(to) => setConvertModal({ taskId: t.id, to })}
+              onConvertPick={(to) => setConvertModal({ taskId: t.id, to })}
+            />
+          )}
+        </div>
+        {hasChildren && isOpen && children.map((child) => renderRow(child, depth + 1))}
+      </div>
+    )
+  }
+
+  if (all.length === 0) return <div className="text-center text-xs text-muted py-6">ยังไม่มีงานในโปรเจกต์นี้</div>
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่องาน/รหัสงาน…" className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 w-56" />
+        <span className="text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
+      </div>
+      <div className="divide-y divide-divider">
+        {topLevel.map((t) => renderRow(t))}
+      </div>
       {convertModal && (
         <ConvertBacklogModal
           taskId={convertModal.taskId}
@@ -1196,9 +1364,6 @@ interface ProjectAllTask {
   checklistDone: number | null
   checklistTotal: number | null
 }
-const DEFECT_STATUS_LABEL = { reported: 'รอเริ่ม', fixing: 'กำลังแก้', waiting_verify: 'รอ Verify', closed: 'ปิด' } as const
-const DEFECT_STATUS_CLASS = { reported: 'bg-divider text-dim', fixing: 'bg-warning-50 text-warning-700', waiting_verify: 'bg-info-50 text-info-700', closed: 'bg-success-50 text-success-700' } as const
-
 /** Pronista §System Requirements Update (ต่อยอด) — hook ใช้ร่วมกันของแท็บ Task/CR (ProjectHierarchyTab) + Defect (ProjectDefectSection)
  * ทำ filter Task Type/Sub-task Type + checkbox เลือกหลายงาน + ยอดรวมชั่วโมง real-time + โยนเข้า Sprint ทีเดียว — ตรรกะเดียวกับแท็บ "ทั่วไป" ใน ProjectBacklogSection เป๊ะ กันเพี้ยนกันระหว่างแท็บ */
 function useBacklogSprintSelect<
@@ -1242,6 +1407,30 @@ function useBacklogSprintSelect<
     reload()
     onSprintChanged?.()
   }
+  // Pronista §Bulk actions (2026-09-03) — ลบ/ย้ายทั้งหมด (ตามตัวกรองที่เห็นอยู่) หรือเฉพาะที่เลือก
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const bulkDelete = async (ids: string[]) => {
+    setBulkBusy(true)
+    try {
+      const res = await bulkDeleteTasks(ids)
+      setSelected(new Set())
+      reload()
+      return res
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+  const bulkMove = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    setBulkBusy(true)
+    try {
+      const res = await bulkConvertTasks(ids, to)
+      setSelected(new Set())
+      reload()
+      return res
+    } finally {
+      setBulkBusy(false)
+    }
+  }
   return {
     taskTypeCatalog: resolveTaskTypes(cfg?.taskTypes),
     dueSoonDays: cfg?.dueSoonDays,
@@ -1263,6 +1452,9 @@ function useBacklogSprintSelect<
     selectedTotalMinutes,
     sprintPickerOptions,
     bulkAddToSprint,
+    bulkBusy,
+    bulkDelete,
+    bulkMove,
   }
 }
 
@@ -1279,6 +1471,18 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const defects = (data ?? []).filter((t) => t.kind === 'defect')
   const sel = useBacklogSprintSelect(projectId, defects, () => void reload(), onSprintChanged)
+  const { confirmDialog, alertDialog } = useDialog()
+  const toastAction = useToastAction()
+  const bulkDeleteConfirm = async (ids: string[]) => {
+    if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
+    const res = await sel.bulkDelete(ids)
+    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+  }
+  const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
+    const res = await sel.bulkMove(ids, to)
+    if (res.failed > 0) await alertDialog({ title: `ย้ายสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ` })
+  }
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const linkCandidates: PickableTask[] = useMemo(
     () => (data ?? []).filter((t) => t.id !== linkingId).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
@@ -1291,15 +1495,90 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   }
   // Pronista §Back to Basic (ต่อยอด) — คีย์ log Defect ตรงในแท็บนี้ได้เลย (เดิมมีแค่ปุ่มผูกงานที่มีอยู่แล้ว)
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const createDefect = async () => {
-    if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Defect เบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'defect' })
+      toastAction(taskCreatedMessage('defect', title.trim()), created.id)
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'task' | 'cr' } | null>(null)
+  // Pronista §Task-row expand (2026-09-15) — งานย่อยของ Defect มากับ sel.filtered อยู่แล้ว flat โชว์แค่แถวบนสุด ซ่อนแถวลูกไว้ใต้ปุ่มคลี่แทน
+  // (fix) — งานย่อยอาจมี kind ต่างจากพ่อ (เช่น kind='task' ใต้ Defect พ่อ) ทำให้หลุด `defects` (กรอง kind==='defect' ไปแล้ว) ก่อนถึง sel.filtered เลย ต้องหาลูกจาก `data` (list เต็มไม่กรอง kind) แทน ไม่งั้นงานย่อยหายไปทั้งแถวเงียบๆ ไม่ใช่แค่ไม่ซ้อน
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const selFilteredIds = new Set(sel.filtered.map((t) => t.id))
+  const topLevel = sel.filtered.filter((t) => !t.parentId || !selFilteredIds.has(t.parentId))
+  const childrenOf = (id: string) => (data ?? []).filter((t) => t.parentId === id)
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
+    const children = childrenOf(t.id)
+    const hasChildren = children.length > 0
+    const isOpen = expandedIds.has(t.id)
+    return (
+      <div key={t.id}>
+        <div className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+          {hasChildren ? (
+            <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
+              <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          {canEdit && (
+            <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
+          )}
+          {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+          {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+          <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          {canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkingId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมโยงกับงานอื่น
+                    </button>
+                    {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                      {CONVERT_LABEL.task}
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      {CONVERT_LABEL.cr}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isOpen && children.map((child) => renderRow(child, depth + 1))}
+      </div>
+    )
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-3">
@@ -1312,10 +1591,11 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void createDefect() }}
+            disabled={addBusy}
             placeholder="ชื่อ Defect ใหม่…"
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
           />
-          <button onClick={() => void createDefect()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
+          <button onClick={() => void createDefect()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
             + สร้าง Defect
           </button>
         </div>
@@ -1349,57 +1629,28 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
         </div>
       )}
       {canEdit && sel.filtered.length > 0 && (
-        <div className="flex items-center gap-3 mb-2 text-xs">
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
             <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
             เลือกทั้งหมด
           </label>
+          <BulkKindActions
+            totalCount={sel.filtered.length}
+            selectedCount={sel.selected.size}
+            excludeKind="defect"
+            busy={sel.bulkBusy}
+            onDeleteAll={() => void bulkDeleteConfirm(sel.filtered.map((t) => t.id))}
+            onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
+            onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
+            onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
+          />
         </div>
       )}
       {sel.filtered.length === 0 ? (
         <div className="text-center text-xs text-muted py-6">{defects.length === 0 ? 'ยังไม่มี Defect ในโปรเจกต์นี้' : 'ไม่มี Defect ตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider">
-          {sel.filtered.map((t) => (
-            <div key={t.id} className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.defectStatus === 'closed', sel.dueSoonDays)]}`}>
-              {canEdit && (
-                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
-              )}
-              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-              <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-              {t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
-              {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
-              <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
-              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-              {t.defectStatus && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${DEFECT_STATUS_CLASS[t.defectStatus]}`}>{DEFECT_STATUS_LABEL[t.defectStatus]}</span>
-              )}
-              {canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkingId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมโยงกับงานอื่น
-                        </button>
-                        {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                          {CONVERT_LABEL.task}
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          {CONVERT_LABEL.cr}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          {topLevel.map((t) => renderRow(t))}
         </div>
       )}
       {canEdit && (
@@ -1550,6 +1801,8 @@ interface ProjectEpic { id: string; title: string; code: string | null; doneCoun
 function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; canEdit: boolean; showCode?: boolean }) {
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
+  const toastAction = useToastAction()
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkingEpic, setLinkingEpic] = useState<ProjectEpic | null>(null)
   const { data: allTasks } = useLoad<ProjectAllTask[]>(
@@ -1562,10 +1815,16 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
   )
   const epicsList = data ?? []
   const add = async () => {
-    if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/epics`, { title: title.trim() })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Epic เบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/epics`, { title: title.trim() })
+      toastAction(taskCreatedMessage('epic', title.trim()), created.id)
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   const createStoryUnder = async (storyTitle: string) => {
     if (!linkingEpic) return
@@ -1588,8 +1847,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
       </div>
       {canEdit && (
         <div className="flex gap-2 mb-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} placeholder="ชื่อ Epic ใหม่…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400" />
-          <button onClick={() => void add()} disabled={!title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ สร้าง Epic</button>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="ชื่อ Epic ใหม่…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
+          <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ สร้าง Epic</button>
         </div>
       )}
       {epicsList.length === 0 ? (
@@ -1678,11 +1937,24 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
         : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
+  const { confirmDialog, alertDialog } = useDialog()
+  const toastAction = useToastAction()
+  const bulkDeleteConfirm = async (ids: string[]) => {
+    if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
+    const res = await sel.bulkDelete(ids)
+    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+  }
+  const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
+    if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
+    const res = await sel.bulkMove(ids, to)
+    if (res.failed > 0) await alertDialog({ title: `ย้ายสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ` })
+  }
   const storyOptions: PickableTask[] = useMemo(
     () => all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
     [all],
   )
   const [title, setTitle] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
   const meta = HIERARCHY_TAB_META[level]
 
   // Pronista §Back to Basic — เมนู "..." เฉพาะแท็บ Story: "เชื่อมกับ Epic" / "เชื่อมกับ Task" (สร้างใหม่ หรือเลือกที่มีอยู่)
@@ -1713,18 +1985,30 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   }
 
   const createDirect = async () => {
-    if (!title.trim()) return
-    const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
-    if (level === 'cr') await api.post(`/api/tasks/${created.id}/convert`, { to: 'cr' })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กันเบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim() })
+      if (level === 'cr') await api.post(`/api/tasks/${created.id}/convert`, { to: 'cr' })
+      toastAction(taskCreatedMessage(level, title.trim()), created.id)
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   // Pronista §Back to Basic (ต่อยอด, v3) — แท็บ Task: คีย์ลอยตรงๆ เสมอ (isStandaloneTask) ขึ้นแท็บ Task ทันที — เชื่อมกับ Epic/Story ทีหลังผ่านเมนู "จัดการ" เท่านั้น (ตัด dropdown เลือก Story ตอนสร้างออก กันสับสนว่าต้องเลือกก่อนสร้าง)
   const createUnderStory = async () => {
-    if (!title.trim()) return
-    await api.post(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
-    setTitle('')
-    void reload()
+    if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กันเบิ้ลจากกด Enter รัวๆ
+    setAddBusy(true)
+    try {
+      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: title.trim(), kind: 'task', standalone: true })
+      toastAction(taskCreatedMessage('task', title.trim()), created.id)
+      setTitle('')
+      void reload()
+    } finally {
+      setAddBusy(false)
+    }
   }
   const linkStoryToEpic = async (epicId: string) => {
     if (!linkMode) return
@@ -1769,6 +2053,127 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   }
   // Pronista §Backlog cross-type convert (2026-09-03) — โยกงานระหว่าง Task/Defect/CR ได้ตรงจากแท็บ (เดิมโยกได้แค่จาก Backlog ดิบเข้าประเภทเท่านั้น)
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'task' | 'defect' | 'cr' } | null>(null)
+  // Pronista §Task-row expand (2026-09-15) — เฉพาะแท็บ Task ที่มี nesting จริง (Story/CR ทุกแถว parentId ว่างอยู่แล้วโดยธรรมชาติของ filter ด้านบน เลยไม่มีลูกให้คลี่เอง ไม่ต้องแยก case)
+  // (fix) — งานย่อยอาจมี kind ต่างจากพ่อ (เช่น kind='defect' ใต้ Task พ่อ) ทำให้หลุด `items` (กรอง kind/level ไปแล้ว) ก่อนถึง sel.filtered เลย ต้องหาลูกจาก `all` (list เต็มของโปรเจกต์ ไม่กรอง) แทน ไม่งั้นงานย่อยหายไปทั้งแถวเงียบๆ ไม่ใช่แค่ไม่ซ้อน
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const selFilteredIds = new Set(sel.filtered.map((t) => t.id))
+  const topLevel = sel.filtered.filter((t) => !t.parentId || !selFilteredIds.has(t.parentId))
+  const childrenOf = (id: string) => all.filter((t) => t.parentId === id)
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
+    const children = childrenOf(t.id)
+    const hasChildren = children.length > 0
+    const isOpen = expandedIds.has(t.id)
+    return (
+      <div key={t.id}>
+        <div
+          // Pronista §Sprint drag-and-drop fix — แท็บ Task (ProjectHierarchyTab) เดิมลากเข้า Sprint ไม่ได้เลย เพราะแถวไม่มี draggable/onDragStart แบบที่ BacklogTaskRow มี
+          // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
+          draggable={level === 'task' && canEdit}
+          onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
+          className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+        >
+          {hasChildren ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(t.id) }} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
+              <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          {selectable && canEdit && (
+            <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
+          )}
+          {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
+          {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
+          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          {t.parentTitle && level === 'task' && depth === 0 && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
+          {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
+          <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
+          {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
+          {level === 'story' && canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Epic
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Task
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {level === 'cr' && canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkingRefId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมโยงกับงานอื่น
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                      {CONVERT_LABEL.task}
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      {CONVERT_LABEL.defect}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {level === 'task' && canEdit && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+              {menuFor === t.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
+                    <button onClick={() => { setMenuFor(null); setLinkTaskId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Story
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      🔗 เชื่อมกับ Epic
+                    </button>
+                    {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
+                      {CONVERT_LABEL.defect}
+                    </button>
+                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
+                      {CONVERT_LABEL.cr}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isOpen && children.map((child) => renderRow(child, depth + 1))}
+      </div>
+    )
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
@@ -1782,12 +2187,13 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void (level === 'task' ? createUnderStory() : createDirect()) }}
+              disabled={addBusy}
               placeholder={meta.placeholder}
-              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
             />
             <button
               onClick={() => void (level === 'task' ? createUnderStory() : createDirect())}
-              disabled={!title.trim()}
+              disabled={!title.trim() || addBusy}
               className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium"
             >
               {meta.createLabel}
@@ -1825,109 +2231,31 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         </div>
       )}
       {selectable && canEdit && sel.filtered.length > 0 && (
-        <div className="flex items-center gap-3 mb-2 text-xs">
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
           <label className="flex items-center gap-1.5 text-dim cursor-pointer">
             <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
             เลือกทั้งหมด
           </label>
+          {/* Pronista §Bulk actions (2026-09-03) — เฉพาะแท็บ Task/CR (level='story' ไม่มี เพราะเป็นโครงสร้าง hierarchy คนละแนวคิดจาก kind แบน Task/Defect/CR) */}
+          {level !== 'story' && (
+            <BulkKindActions
+              totalCount={sel.filtered.length}
+              selectedCount={sel.selected.size}
+              excludeKind={level}
+              busy={sel.bulkBusy}
+              onDeleteAll={() => void bulkDeleteConfirm(sel.filtered.map((t) => t.id))}
+              onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
+              onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
+              onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
+            />
+          )}
         </div>
       )}
       {sel.filtered.length === 0 ? (
         <div className="text-center text-xs text-muted py-6">{items.length === 0 ? meta.empty : 'ไม่มีงานตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider">
-          {sel.filtered.map((t) => (
-            <div
-              key={t.id}
-              // Pronista §Sprint drag-and-drop fix — แท็บ Task (ProjectHierarchyTab) เดิมลากเข้า Sprint ไม่ได้เลย เพราะแถวไม่มี draggable/onDragStart แบบที่ BacklogTaskRow มี
-              // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
-              draggable={level === 'task' && canEdit}
-              onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
-              className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''}`}
-            >
-              {selectable && canEdit && (
-                <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
-              )}
-              {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
-              {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-              <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
-              {t.parentTitle && level === 'task' && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
-              {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
-              <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
-              {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
-              <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
-              {level === 'story' && canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Epic
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Task
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-              {level === 'cr' && canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkingRefId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมโยงกับงานอื่น
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                          {CONVERT_LABEL.task}
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          {CONVERT_LABEL.defect}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-              {level === 'task' && canEdit && (
-                <div className="relative shrink-0">
-                  <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
-                    <MoreVertical className="w-3.5 h-3.5" />
-                  </button>
-                  {menuFor === t.id && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                        <button onClick={() => { setMenuFor(null); setLinkTaskId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Story
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          🔗 เชื่อมกับ Epic
-                        </button>
-                        {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                          {CONVERT_LABEL.defect}
-                        </button>
-                        <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                          {CONVERT_LABEL.cr}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          {topLevel.map((t) => renderRow(t))}
         </div>
       )}
       {selectable && canEdit && (
@@ -2301,6 +2629,8 @@ export function ProjectDetailPage() {
           canCreate={project.myPermissions?.actions.changeLog.create ?? false}
           canEdit={project.myPermissions?.actions.changeLog.edit ?? false}
           canDelete={project.myPermissions?.actions.changeLog.delete ?? false}
+          // Pronista §Import Changelog จากไฟล์ .md — ปุ่ม "สร้าง Task/Defect" ต่อบรรทัด เช็คสิทธิ์ task.create แยกจาก changeLog.create เอง (มิเรอร์ปุ่ม +เพิ่มงาน backlog บรรทัด 485)
+          canCreateTask={project.myPermissions?.actions.task.create ?? false}
         />
       )}
 

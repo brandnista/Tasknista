@@ -1,7 +1,7 @@
 import { minutesToHoursLabel } from '@seedoffice/core'
 import { AlertTriangle, CalendarClock, CheckCircle2, ListChecks, Loader2 } from 'lucide-react'
 import { useMemo } from 'react'
-import type { TaskStatus } from '../lib/task-status'
+import { isInactiveStatus, type TaskStatus } from '../lib/task-status'
 
 export interface MyWorkTask {
   id: string
@@ -46,7 +46,7 @@ export function TaskMetaBadges({ t }: { t: MyWorkTask }) {
 export function MyWorkSummary({ tasks, onOpenTask, hideStats }: { tasks: MyWorkTask[]; onOpenTask: (task: MyWorkTask) => void; hideStats?: boolean }) {
   const stats = useMemo(() => {
     const today = bkkToday()
-    const notDone = tasks.filter((t) => t.status !== 'done')
+    const notDone = tasks.filter((t) => !isInactiveStatus(t.status))
     const overdue = notDone.filter((t) => t.dueDate && t.dueDate < today)
     return { total: tasks.length, notDone: notDone.length, done: tasks.length - notDone.length, overdue: overdue.length }
   }, [tasks])
@@ -54,7 +54,7 @@ export function MyWorkSummary({ tasks, onOpenTask, hideStats }: { tasks: MyWorkT
   const urgent = useMemo(() => {
     const today = bkkToday()
     return tasks
-      .filter((t) => t.status !== 'done')
+      .filter((t) => !isInactiveStatus(t.status))
       .map((t) => ({ ...t, overdueDays: t.dueDate && t.dueDate < today ? Math.round((Date.parse(`${today}T00:00:00+07:00`) - Date.parse(`${t.dueDate}T00:00:00+07:00`)) / 86_400_000) : 0 }))
       .sort((a, b) => (b.overdueDays - a.overdueDays) || (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'))
       .slice(0, 5)
@@ -63,7 +63,7 @@ export function MyWorkSummary({ tasks, onOpenTask, hideStats }: { tasks: MyWorkT
   // Pronista §Back to Basic (ต่อยอด) — "งานวันนี้" (ควรเริ่มทำวันนี้ตาม startDate) แยกจาก "ต้องรีบทำ" (ตาม dueDate)
   const todayTasks = useMemo(() => {
     const today = bkkToday()
-    return tasks.filter((t) => t.status !== 'done' && t.startDate && t.startDate <= today && (!t.dueDate || t.dueDate >= today))
+    return tasks.filter((t) => !isInactiveStatus(t.status) && t.startDate && t.startDate <= today && (!t.dueDate || t.dueDate >= today))
   }, [tasks])
 
   const cards = [

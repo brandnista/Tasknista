@@ -7,10 +7,12 @@ import { Check, ChevronDown, ChevronUp, Package, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const randomId = () => `prd_${Math.random().toString(36).slice(2, 8)}`
 
 export function ProductTypeSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ productTypes: ProductType[] }>(() => api.get('/api/admin/product-types'))
   const [list, setList] = useState<ProductType[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -52,6 +54,7 @@ export function ProductTypeSettings() {
       const productTypes = list.map((p, i) => ({ ...p, name: p.name.trim(), sortOrder: i }))
       await api.put('/api/admin/product-types', { productTypes })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

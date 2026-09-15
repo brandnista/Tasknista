@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { STATUS_SWATCH, statusChip } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 interface Status {
   id: string
@@ -22,6 +23,7 @@ interface Status {
 type Category = 'product' | 'project'
 
 export function ProjectStatusSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ projectStatuses: Status[]; productStatuses: Status[] }>(() => api.get('/api/config'))
   const [category, setCategory] = useState<Category>('project')
   const [lists, setLists] = useState<Record<Category, Status[]> | null>(null)
@@ -72,6 +74,7 @@ export function ProjectStatusSettings() {
       const statuses = list.map((s, i) => ({ ...s, name: s.name.trim(), sortOrder: i }))
       await api.put('/api/admin/project-statuses', { category, statuses })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

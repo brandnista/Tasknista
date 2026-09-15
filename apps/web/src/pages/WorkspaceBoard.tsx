@@ -9,7 +9,7 @@ import type { Label } from '@seedoffice/core'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip } from '../lib/project-ui'
@@ -53,7 +53,7 @@ export function WorkspaceBoardPage() {
   const { workspaceId, sprintId } = useParams<{ workspaceId: string; sprintId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { confirmDialog } = useDialog()
+  const { alertDialog, confirmDialog } = useDialog()
   const { data: room } = useLoad<RoomDetail>(() => api.get(`/api/workspaces/${workspaceId}`), [workspaceId])
   const { data, reload } = useLoad<BoardData>(() => api.get(`/api/sprints/${sprintId}/board`), [sprintId])
   const { data: cfg } = useLoad<{ labels: Label[]; dueSoonDays: number }>(() => api.get('/api/config'))
@@ -132,9 +132,14 @@ export function WorkspaceBoardPage() {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'cursor', x, y }))
   }
 
+  // Pronista §Workspace Board fix (2026-09-11) — เดิมไม่ดัก error เลย ลากงานข้ามคอลัมน์แล้ว backend ปฏิเสธ (เช่น not_in_sprint, invalid_sprint_status) การ์ดจะเงียบ ไม่มีคำอธิบายว่าทำไมลากแล้วไม่ขยับ
   const changeStatus = async (taskId: string, sprintStatus: string) => {
-    await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
-    await reload()
+    try {
+      await api.patch(`/api/tasks/${taskId}`, { sprintStatus })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสถานะไม่สำเร็จ' })
+    }
   }
   const removeFromSprint = async (taskId: string, code: string | null) => {
     if (!sprint) return

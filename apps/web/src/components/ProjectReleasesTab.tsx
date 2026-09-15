@@ -6,6 +6,7 @@ import { fmtThaiDate } from '../lib/project-ui'
 import { useLoad } from '../lib/useLoad'
 import { useDialog } from './Dialog'
 import { type PickableTask, TaskPickerModal } from './TaskPickerModal'
+import { useToast } from './Toast'
 
 interface LinkedTask {
   id: string
@@ -70,6 +71,7 @@ function ReleaseForm({
   onClose: () => void
   onSaved: () => void
 }) {
+  const toast = useToast()
   const isEdit = !!release
   const [version, setVersion] = useState(release?.version ?? '')
   const [items, setItems] = useState<DraftItem[]>(
@@ -134,6 +136,7 @@ function ReleaseForm({
     try {
       if (isEdit) await api.patch(`/api/releases/${release.id}`, payload)
       else await api.post(`/api/projects/${projectId}/releases`, payload)
+      toast('บันทึกสำเร็จ')
       onSaved()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

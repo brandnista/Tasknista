@@ -7,10 +7,12 @@ import { Check, ChevronDown, ChevronUp, Tag, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
+import { useToast } from './Toast'
 
 const randomId = () => `svc_${Math.random().toString(36).slice(2, 8)}`
 
 export function ServiceTypeSettings() {
+  const toast = useToast()
   const { data, reload } = useLoad<{ serviceTypes: ServiceType[] }>(() => api.get('/api/admin/service-types'))
   const [list, setList] = useState<ServiceType[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -52,6 +54,7 @@ export function ServiceTypeSettings() {
       const serviceTypes = list.map((s, i) => ({ ...s, name: s.name.trim(), sortOrder: i }))
       await api.put('/api/admin/service-types', { serviceTypes })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

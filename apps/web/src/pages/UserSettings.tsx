@@ -4,11 +4,12 @@
  * ลูกค้า = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า UserSettingsCustomerDetail (/customers/:id)
  * พนักงาน = List → กดเข้าไปดู/แก้รายละเอียดที่หน้า EmployeeDetail (/employees/:id)
  */
-import { Plus, SquarePen, UserPlus, Users } from 'lucide-react'
+import { Plus, SquarePen, Trash2, UserPlus, Users } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { DateInputTH } from '../components/DateInputTH'
+import { useDialog } from '../components/Dialog'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
@@ -398,6 +399,7 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
 export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const navigate = useNavigate()
   const { user: me } = useAuth()
+  const { confirmDialog, alertDialog } = useDialog()
   const isOwner = me?.role === 'owner'
   const { data: usersList, loading, reload } = useLoad<AdminUser[]>(() => api.get('/api/admin/users'))
   const { data: teamsList, reload: reloadTeams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
@@ -407,14 +409,57 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const [addingTeam, setAddingTeam] = useState(false)
   const [emailErrors, setEmailErrors] = useState<Record<string, string>>({})
 
+  // Pronista §Admin UX fix (2026-09-15) — ระงับบัญชี (active→disabled) เป็นการล็อคไม่ให้เข้าระบบได้เลย ควรถามยืนยันก่อน + ต้องมี error handling (เดิมไม่มีทั้งคู่)
   const toggleStatus = async (u: AdminUser) => {
-    await api.patch(`/api/admin/users/${u.id}`, { status: u.status === 'active' ? 'disabled' : 'active' })
-    await reload()
+    const next = u.status === 'active' ? 'disabled' : 'active'
+    if (next === 'disabled') {
+      const yes = await confirmDialog({
+        title: `ระงับบัญชี "${u.name}"?`,
+        message: 'จะเข้าสู่ระบบไม่ได้ทันที เปิดใช้งานกลับมาได้ทีหลัง',
+        confirmLabel: 'ระงับบัญชี',
+        danger: true,
+      })
+      if (!yes) return
+    }
+    try {
+      await api.patch(`/api/admin/users/${u.id}`, { status: next })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
+  const deleteUser = async (u: AdminUser) => {
+    const yes = await confirmDialog({
+      title: `ลบสมาชิก "${u.name}"?`,
+      message: 'จะหายจากรายการนี้และเลือกเป็นผู้รับผิดชอบงานใหม่ไม่ได้อีก แต่ประวัติงาน/ประวัติการเปลี่ยนแปลงเดิมยังอยู่ครบ กู้คืนเองไม่ได้ผ่านหน้านี้',
+      confirmLabel: 'ลบสมาชิก',
+      danger: true,
+    })
+    if (!yes) return
+    // Pronista §Admin UX fix (2026-09-15) — มี confirm แล้วแต่ไม่มี try/catch เลย (การลบตามข้อความ confirm เองบอกว่ากู้คืนเองไม่ได้ — error ต้องไม่เงียบ)
+    try {
+      await api.delete(`/api/admin/users/${u.id}`)
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ลบสมาชิกไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
+  }
+  // Pronista §Admin UX fix (2026-09-15) — เดิมเปลี่ยน role ทันทีตอนเลือก dropdown เลย ไม่มีอะไรถามยืนยัน/แจ้งเตือนเลยทั้งที่เป็นการให้สิทธิ์ระดับสูงสุด (Admin) และไม่มี try/catch เลยด้วย (error จะเงียบแบบ "เลือกแล้วไม่มีอะไรเกิดขึ้น")
   const saveUserRole = async (u: AdminUser, role: AdminUser['role']) => {
     if (role === u.role) return
-    await api.patch(`/api/admin/users/${u.id}`, { role })
-    await reload()
+    const yes = await confirmDialog({
+      title: `เปลี่ยนสิทธิ์ "${u.name}" เป็น ${ROLE_LABEL[role]}?`,
+      message: role === 'owner' ? 'Admin มีสิทธิ์เข้าถึง/จัดการได้ทุกส่วนของระบบ ไม่มีเพดานจำกัด' : undefined,
+      confirmLabel: 'เปลี่ยนสิทธิ์',
+      danger: role === 'owner',
+    })
+    if (!yes) return
+    try {
+      await api.patch(`/api/admin/users/${u.id}`, { role })
+      await reload()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสิทธิ์ไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   const saveManager = async (u: AdminUser, managerId: string) => {
     const next = managerId || null
@@ -607,6 +652,14 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
                             {isOwner && (
                               <button onClick={() => void toggleStatus(u)} className="text-[11px] text-muted hover:text-soft underline">
                                 {u.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
+                              </button>
+                            )}
+                            {isOwner && u.id !== me?.id && (
+                              <button
+                                onClick={() => void deleteUser(u)}
+                                className="inline-flex items-center gap-1 text-[11px] text-danger-600 hover:underline"
+                              >
+                                <Trash2 className="w-3 h-3" /> ลบสมาชิก
                               </button>
                             )}
                           </div>

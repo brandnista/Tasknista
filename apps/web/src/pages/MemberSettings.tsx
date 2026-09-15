@@ -5,6 +5,7 @@
 import { Check, ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
 import { CLASSIFICATION_TYPE_LABEL, type ClassificationType } from './UserSettings'
@@ -14,6 +15,7 @@ interface Tier { id: string; name: string; feeSatang: number; sortOrder: number 
 interface Settings { membershipFees: Fee[]; memberOrgSizeTiers: Tier[] }
 
 export function MemberSettingsPage() {
+  const toast = useToast()
   const { data, reload } = useLoad<Settings>(() => api.get('/api/members/settings'))
   const [fees, setFees] = useState<Fee[] | null>(null)
   const [tiers, setTiers] = useState<Tier[] | null>(null)
@@ -66,6 +68,7 @@ export function MemberSettingsPage() {
         memberOrgSizeTiers: tiers.map((t, i) => ({ ...t, sortOrder: i })),
       })
       setSaved(true)
+      toast('บันทึกสำเร็จ')
       await reload()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ')

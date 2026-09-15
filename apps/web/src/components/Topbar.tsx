@@ -1,4 +1,4 @@
-import { Menu } from 'lucide-react'
+import { Menu, PanelLeft, PanelLeftClose } from 'lucide-react'
 import { BangkokClock } from './BangkokClock'
 import { GlobalSearch } from './GlobalSearch'
 import { NotificationCenter } from './NotificationCenter'
@@ -19,10 +19,15 @@ export function Topbar({
   title,
   onOpenNav,
   actionSlotRef,
+  sidebarCollapsed,
+  onToggleSidebar,
 }: {
   title: string
   onOpenNav: () => void
   actionSlotRef: (el: HTMLDivElement | null) => void
+  // Pronista §Layout (2026-09-08) — พับ/กาง sidebar บนจอ desktop (คนละปุ่ม/สถานะกับ onOpenNav ที่เปิด drawer มือถือ)
+  sidebarCollapsed: boolean
+  onToggleSidebar: () => void
 }) {
   return (
     <header className="shrink-0 bg-white border-b border-border-subtle">
@@ -33,6 +38,14 @@ export function Topbar({
           className="lg:hidden -ml-1 w-9 h-9 shrink-0 grid place-items-center rounded-xl text-dim hover:bg-hover hover:text-body transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
         >
           <Menu className="w-5 h-5" />
+        </button>
+        <button
+          onClick={onToggleSidebar}
+          aria-label={sidebarCollapsed ? 'เปิดเมนู' : 'ปิดเมนู'}
+          title={sidebarCollapsed ? 'เปิดเมนู' : 'ปิดเมนู'}
+          className="hidden lg:grid -ml-1 w-9 h-9 shrink-0 place-items-center rounded-xl text-dim hover:bg-hover hover:text-body transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
+        >
+          {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
         </button>
         <h1 className="text-lg sm:text-xl font-bold text-ink truncate min-w-0">{title}</h1>
         <div className="ml-auto flex items-center gap-1 sm:gap-2 shrink-0">

@@ -462,6 +462,21 @@ dailyReportRoutes
     return c.json(await loadReportDetail(db, report.id))
   })
 
+  // "ดึงรายงานกลับ" — submitted → draft (เฉพาะช่วงที่ยังไม่มีใครเปิดอ่าน — ถ้าเปิดอ่านแล้ว/reviewed ใช้ "ขอแก้ไขรายงาน" แทน)
+  // ล้างรายชื่อผู้รับทิ้งด้วย กันแถวซ้ำตอนเลือกผู้รับ+ส่งใหม่ทีหลัง (submit ใหม่จะ insert ผู้รับชุดใหม่ทับ)
+  .post('/daily-reports/:id/retract', teamOnly, async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
+    if (!report) return c.json({ error: 'not_found' }, 404)
+    if (!canEditReport(report, me)) return c.json({ error: 'forbidden' }, 403)
+    if (report.status !== 'submitted') return c.json({ error: 'not_submitted' }, 400)
+    await db.delete(dailyReportRecipients).where(eq(dailyReportRecipients.reportId, report.id))
+    await db.update(dailyReports).set({ status: 'draft', submittedAt: null, recipientId: null }).where(eq(dailyReports.id, report.id))
+    await writeAudit(c.env, { actorId: me.id, action: 'daily_report.retract', entity: 'daily_report', entityId: report.id, meta: {} })
+    return c.json(await loadReportDetail(db, report.id))
+  })
+
   // "ขอแก้ไขรายงาน" — reviewed → submitted (ปลดล็อกกลับมาแก้ไขได้ ไม่ต้องส่งใหม่ ไม่กระทบว่าส่งไปแล้ว)
   .post('/daily-reports/:id/request-edit', teamOnly, async (c) => {
     const db = createDb(c.env.DB)

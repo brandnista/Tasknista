@@ -1,5 +1,7 @@
+import { permissionCategoryOfRole, resolveManhourMinutesPerDay, type ManhourUserType } from '@seedoffice/core'
 import {
   auditLogs,
+  companyConfig,
   createDb,
   docLinks,
   docs,
@@ -17,14 +19,19 @@ import {
   users,
 } from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyUser } from '../lib/notify'
-import { canEditTask, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
+import { canEditTask, getProjectRole, isAssigneeOnlyEditor, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
+
+// Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — owner ไม่มีหมวด (bypass เพดานเสมอ) แต่สำหรับ Manhour capacity ต้องมีหมวด — ถือเป็น staff เหมือน admin.ts's categoryOfUserRole()
+const manhourCategoryOfRole = (role: 'owner' | 'member' | 'vendor' | 'guest'): ManhourUserType =>
+  permissionCategoryOfRole(role) ?? 'staff'
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024 // 15MB ต่อไฟล์
 
@@ -34,18 +41,43 @@ export const taskDetailRoutes = new Hono<AppEnv>()
   .get('/tasks/:id/detail', async (c) => {
     const db = createDb(c.env.DB)
     const taskId = c.req.param('id')
+    // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ผู้จ่ายงาน (Reporter สไตล์ Jira) ต้อง join users อีกรอบแยกจาก assignee
+    const dispatcher = alias(users, 'dispatcher')
+    // Pronista §Workspace/Task Jira-alignment (2026-09-07) — Reporter แบบ Jira ต้องมีเสมอ (Jira ใช้ผู้สร้างเป็น Reporter ตายตัว) ต่างจาก "ผู้จ่ายงาน" (assignedBy) ที่ว่างได้ถ้ายังไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ ไม่ผ่าน dispatch) — join ผู้สร้างไว้ fallback
+    const creator = alias(users, 'creator')
+    // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน (reviewerId) ไม่บังคับมี ต้อง join แยกเหมือน dispatcher/creator
+    const reviewer = alias(users, 'reviewer')
     const row = (
       await db
-        .select({ task: tasks, groupName: taskGroups.name, projectName: projects.name, assigneeName: users.name })
+        .select({
+          task: tasks,
+          groupName: taskGroups.name,
+          projectName: projects.name,
+          assigneeName: users.name,
+          assigneeAvatarUrl: users.avatarUrl,
+          assigneeRole: users.role,
+          assignedByName: dispatcher.name,
+          assignedByAvatarUrl: dispatcher.avatarUrl,
+          createdByName: creator.name,
+          createdByAvatarUrl: creator.avatarUrl,
+          reviewerName: reviewer.name,
+          reviewerAvatarUrl: reviewer.avatarUrl,
+        })
         .from(tasks)
         // Pronista §5 (2026-07-03) — leftJoin: task ใน "Backlog ของโปรเจกต์" (groupId ยังว่าง) ต้องเปิด detail ได้ด้วย
         .leftJoin(taskGroups, eq(tasks.groupId, taskGroups.id))
         .leftJoin(projects, eq(tasks.projectId, projects.id))
         .leftJoin(users, eq(tasks.assigneeId, users.id))
+        .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
+        .leftJoin(creator, eq(tasks.createdBy, creator.id))
+        .leftJoin(reviewer, eq(tasks.reviewerId, reviewer.id))
         .where(eq(tasks.id, taskId))
         .limit(1)
     )[0]
     if (!row) return c.json({ error: 'not_found' }, 404)
+    // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์อะไรเลยนอกจาก login (ยืนยันแล้วว่า guest/vendor ที่ไม่มีสิทธิ์ในโปรเจกต์ดึง detail งานได้เต็มๆ) — ใช้ helper เดียวกับที่ GET /projects/:id ใช้อยู่แล้ว
+    const me = c.get('user')
+    if (row.task.projectId && !(await isProjectVisibleToUser(db, row.task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
 
     const comments = await db
       .select({ comment: taskComments, userName: users.name, userAvatarUrl: users.avatarUrl })
@@ -105,31 +137,63 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .orderBy(asc(docLinks.createdAt))
 
     // Pronista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์ของ task นี้ ให้ FE คุม UI โดยไม่ต้อง fetch แยก
-    const me = c.get('user')
     // Pronista §permission — งาน workspace-native (projectId=null) แก้ไขได้ทุกคนอยู่แล้วตาม canEditTask ฝั่ง backend เลยให้ FE เห็นเป็น editor ตรงๆ
     const myRole = row.task.projectId ? await getProjectRole(db, row.task.projectId, me.id, me.role) : 'editor'
 
     // Pronista §time-tracking — จับเวลาได้เฉพาะ task ที่อยู่ใน sprint ที่ "เริ่ม" แล้วจริงๆ (status active) — Backlog/sprint ที่ยังไม่เริ่มยังไม่ถูก assign งานจริง
-    const sprintActive = row.task.sprintId
-      ? (await db.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, row.task.sprintId)).limit(1))[0]?.status === 'active'
-      : false
+    // Pronista §Workspace/Task Jira-alignment (2026-09-09) — ดึงข้อมูล Sprint เต็มๆ ไปด้วยเลย (ไม่ใช่แค่ status) ให้ FE โชว์ชื่อ + ลิงก์กลับไปที่บอร์ดได้ (แบบ Jira)
+    const sprintRow = row.task.sprintId
+      ? (
+          await db
+            .select({ id: sprints.id, name: sprints.name, status: sprints.status, projectId: sprints.projectId, workspaceId: sprints.workspaceId })
+            .from(sprints)
+            .where(eq(sprints.id, row.task.sprintId))
+            .limit(1)
+        )[0]
+      : undefined
+    const sprintActive = sprintRow?.status === 'active'
 
     // Pronista §Assign/Accept audit (2026-09-03) — สมาชิกโปรเจกต์นี้ ให้ FE กรอง assignee picker (เดิมโชว์ active user ทั้งบริษัทไม่กรองตามโปรเจกต์เลย)
-    const projectMemberOpts = row.task.projectId
-      ? await db
-          .select({ id: users.id, name: users.name })
-          .from(projectMembers)
-          .innerJoin(users, eq(projectMembers.userId, users.id))
-          .where(eq(projectMembers.projectId, row.task.projectId))
-      : null
+    // Pronista §fix (2026-09-04) — owner ตั้งใจไม่ให้อยู่ใน project_members (มีสิทธิ์เต็มทุกโปรเจกต์อยู่แล้ว ดู ProjectEdit.tsx) แต่ยังต้อง assign งานให้ owner ได้
+    // งานเดิมลืมรวม owner เข้ามาด้วย ทำให้ owner ที่ไม่เคยถูก assign/ไม่ได้เป็นคนสร้างโปรเจกต์หายจากตัวเลือกผู้รับผิดชอบ
+    const [projectMemberRows, ownerRows] = row.task.projectId
+      ? await Promise.all([
+          db.select({ id: users.id, name: users.name }).from(projectMembers).innerJoin(users, eq(projectMembers.userId, users.id)).where(eq(projectMembers.projectId, row.task.projectId)),
+          db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.role, 'owner'), eq(users.status, 'active'))),
+        ])
+      : [null, null]
+    const projectMemberOpts = row.task.projectId ? [...new Map([...ownerRows!, ...projectMemberRows!].map((u) => [u.id, u])).values()] : null
+
+    // Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — Manhour/วันของหมวด assignee ปัจจุบัน (ไม่มี assignee → fallback 'staff') ให้ FE คำนวณ "ประเมิน ชม." แนะนำเองตอนเปลี่ยนวันที่ ไม่ต้องยิง API ซ้ำทุกครั้ง
+    const cfg = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay, workHourCapMinutes: companyConfig.workHourCapMinutes }).from(companyConfig).limit(1))[0]
+    const manhourCategory = row.assigneeRole ? manhourCategoryOfRole(row.assigneeRole) : 'staff'
+    const weeklyMinutes = resolveManhourMinutesPerDay(cfg?.manhourMinutesPerDay, cfg?.workHourCapMinutes ?? 480)[manhourCategory]
+
+    const taskFields: Record<string, unknown> = { ...row.task }
+    // §Security Recheck (2026-09-10) — vendor/guest ห้ามเห็นตัวเลขการเงินของงาน (mirror serialize() ใน projects.ts) — เดิม endpoint นี้ส่งฟิลด์เหล่านี้ออกไปตรงๆ ไม่กรองเลย
+    if (me.role === 'vendor' || me.role === 'guest') {
+      delete taskFields.quotationSatang
+      delete taskFields.costWorkMinutesPerDay
+      delete taskFields.costBufferPercent
+      delete taskFields.costRoleId
+    }
 
     return c.json({
+      weeklyMinutes,
       projectMembers: projectMemberOpts,
       sprintActive,
-      ...row.task,
+      sprint: sprintRow ?? null,
+      ...taskFields,
       groupName: row.groupName,
       projectName: row.projectName,
       assigneeName: row.assigneeName,
+      assigneeAvatarUrl: row.assigneeAvatarUrl,
+      assignedByName: row.assignedByName,
+      assignedByAvatarUrl: row.assignedByAvatarUrl,
+      createdByName: row.createdByName,
+      createdByAvatarUrl: row.createdByAvatarUrl,
+      reviewerName: row.reviewerName,
+      reviewerAvatarUrl: row.reviewerAvatarUrl,
       myRole,
       parent,
       epic,
@@ -167,6 +231,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .values({
         projectId: parent.projectId,
         groupId: parent.groupId,
+        // Pronista §Task-row expand fix (2026-09-15) — เดิมไม่เคยสืบ workspaceId จาก parent เลย ทำให้งานย่อยของ Task ที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์) หายไปจาก backlog-items query ทั้งหมด (query กรองด้วย workspaceId ตรงๆ)
+        workspaceId: parent.workspaceId,
         parentId: parent.id,
         sortOrder: 0,
         createdBy: me.id,
@@ -281,6 +347,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!task) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
+    // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์เลย (ยืนยันแล้วว่า guest ที่ไม่มีสิทธิ์ในโปรเจกต์คอมเมนต์เข้างานคนอื่นได้)
+    if (task.projectId && !(await isProjectVisibleToUser(db, task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
     // Pronista §Notification overhaul (2026-08-27) — หาคนที่เคยคอมเมนต์ก่อน insert แถวใหม่ (ไม่งั้นคอมเมนต์ตัวเองจะติดมาด้วย)
     const priorCommenters = await db.select({ userId: taskComments.userId }).from(taskComments).where(eq(taskComments.taskId, task.id))
     const inserted = await db
@@ -375,6 +443,10 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       await db.select().from(taskAttachments).where(eq(taskAttachments.id, c.req.param('id'))).limit(1)
     )[0]
     if (!att || !att.r2Key) return c.json({ error: 'not_found' }, 404)
+    // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์เลย (ต่างจาก PATCH/DELETE ข้างล่างที่เช็ค canEditTask) ใครก็ตามที่ login แล้วดาวน์โหลดไฟล์แนบของงานคนอื่นได้หมด
+    const me = c.get('user')
+    const ownerTask = (await db.select({ projectId: tasks.projectId }).from(tasks).where(eq(tasks.id, att.taskId)).limit(1))[0]
+    if (ownerTask?.projectId && !(await isProjectVisibleToUser(db, ownerTask.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
     const obj = await c.env.FILES.get(att.r2Key)
     if (!obj) return c.json({ error: 'object_missing' }, 404)
     const inlineSafe = /^image\/(png|jpeg|gif|webp|avif)$/.test(att.mime ?? '')

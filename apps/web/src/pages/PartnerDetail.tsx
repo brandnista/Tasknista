@@ -55,8 +55,15 @@ export function PartnerDetailPage() {
     await api.patch(`/api/admin/users/${p.id}`, { status: p.status === 'active' ? 'disabled' : 'active' })
     await reload()
   }
+  // Pronista §Employee/Partner detail fix (2026-09-11) — เดิม dialog เขียนว่า "ปิดการใช้งาน" ตายตัวเสมอ ทั้งที่ปุ่มนี้สลับสถานะสองทาง — ถ้าปิดอยู่แล้วกดปุ่มนี้จะ "เปิดใช้งาน" จริง แต่ dialog หลอกว่ากำลังปิด (บั๊กเดียวกับที่เจอใน UserSettingsCustomerDetail.tsx)
   const disable = async () => {
-    const ok = await confirmDialog({ title: `ปิดการใช้งานพาร์ทเนอร์ "${p.businessName || p.name}"?`, message: 'พาร์ทเนอร์จะ login ไม่ได้ทันที (ข้อมูลไม่ถูกลบ)', confirmLabel: 'ปิดการใช้งาน', danger: true })
+    const disabling = p.status === 'active'
+    const ok = await confirmDialog({
+      title: `${disabling ? 'ปิด' : 'เปิด'}การใช้งานพาร์ทเนอร์ "${p.businessName || p.name}"?`,
+      message: disabling ? 'พาร์ทเนอร์จะ login ไม่ได้ทันที (ข้อมูลไม่ถูกลบ)' : 'พาร์ทเนอร์จะ login ได้อีกครั้ง',
+      confirmLabel: `${disabling ? 'ปิด' : 'เปิด'}การใช้งาน`,
+      danger: disabling,
+    })
     if (!ok) return
     await toggleStatus()
   }
@@ -88,7 +95,7 @@ export function PartnerDetailPage() {
         action={
           isOwner && (
             <button onClick={() => void disable()} className="inline-flex items-center gap-1.5 text-sm text-danger-600 hover:text-danger-700 border border-border-subtle rounded-lg px-3 py-1.5">
-              <Trash2 className="w-3.5 h-3.5" /> {p.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งานแล้ว'}
+              <Trash2 className="w-3.5 h-3.5" /> {p.status === 'active' ? 'ปิดการใช้งาน' : 'เปิดใช้งาน'}
             </button>
           )
         }

@@ -10,6 +10,7 @@ import { Link } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { URGENCY_BORDER_CLASS, dueUrgency } from '../lib/due-urgency'
 import { useLoad } from '../lib/useLoad'
@@ -41,6 +42,7 @@ export const fmtDate = (iso: string) => new Date(`${iso}T00:00:00+07:00`).toLoca
 const PAGE_SIZE = 10
 
 export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | null; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
   const { alertDialog } = useDialog()
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
@@ -66,6 +68,7 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
       }
       if (domain) await api.patch(`/api/admin/domains/${domain.id}`, payload)
       else await api.post('/api/admin/domains', payload)
+      toast('บันทึกสำเร็จ')
       onDone()
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
@@ -131,6 +134,7 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
 
 /** สั่งต่ออายุ — ไม่ได้ยิงไปซื้อ/ต่อจริงที่ registrar (ตกลงกับเจ้าของว่าโครงหน้านี้บันทึกข้อมูลเราเองเท่านั้น) แค่ปรับวันหมดอายุใหม่หลังต่อจริงแล้ว */
 export function RenewDomainModal({ domain, onClose, onDone }: { domain: DomainRow; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
   const { alertDialog } = useDialog()
   const [expiryDate, setExpiryDate] = useState(domain.expiryDate)
   const [busy, setBusy] = useState(false)
@@ -140,6 +144,7 @@ export function RenewDomainModal({ domain, onClose, onDone }: { domain: DomainRo
     setBusy(true)
     try {
       await api.patch(`/api/admin/domains/${domain.id}`, { expiryDate })
+      toast('บันทึกสำเร็จ')
       onDone()
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })

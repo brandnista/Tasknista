@@ -25,6 +25,113 @@ async function makeTask(cookie: string, asEditorUserId?: string) {
   return t
 }
 
+describe('§Workspace/Task Jira-alignment (2026-09-04) — GET /tasks/:id/detail ส่ง assignedByName (Reporter สไตล์ Jira)', () => {
+  it('มอบหมายงานให้คนอื่น → detail เห็นชื่อ+avatar ผู้จ่ายงานจริง (assignedBy)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner, 'u_pond')
+    const patched = await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ assigneeId: 'u_pond' }) }, env)
+    expect(patched.status).toBe(200)
+
+    const detail = (await (
+      await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    ).json()) as { assignedByName: string | null; assigneeName: string | null }
+    expect(detail.assignedByName).toBe('เมธ')
+    expect(detail.assigneeName).toBe('ปอนด์')
+  })
+
+  it('ยังไม่เคยมอบหมายเลย → assignedByName เป็น null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const detail = (await (
+      await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    ).json()) as { assignedByName: string | null; createdByName: string | null }
+    expect(detail.assignedByName).toBeNull()
+    // Pronista §Workspace/Task Jira-alignment (2026-09-07) — Reporter สไตล์ Jira ต้องมีเสมอ: ไม่เคยจ่ายงานเป็นทางการก็ยัง fallback เห็นผู้สร้างงานได้
+    expect(detail.createdByName).toBe('เมธ')
+  })
+})
+
+describe('§Workspace/Task Jira-alignment (2026-09-09) — GET /tasks/:id/detail ส่งข้อมูล Sprint (แบบ Jira)', () => {
+  it('งานที่ยังไม่เข้า Sprint ไหนเลย → sprint เป็น null', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const detail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as { sprint: unknown }
+    expect(detail.sprint).toBeNull()
+  })
+
+  it('งานที่ถูกลากเข้า Sprint ของโปรเจกต์ → sprint ส่งชื่อ/สถานะ/projectId มาครบ (workspaceId เป็น null)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P Sprint', type: 'project' }), env)).json()) as { id: string }
+    const sprint = (await (await app.request(`/api/projects/${p.id}/sprints`, json(owner, {}), env)).json()) as { id: string; name: string | null }
+    // Pronista §Sprint eligibility — ลากเข้า Sprint ได้เฉพาะงาน "ใน backlog" จริงๆ (groupId ต้องเป็น null) ไม่ใช่งานที่อยู่ใน group แล้ว (ดู addTaskToSprint ใน routes/sprints.ts)
+    const t = (await (await app.request(`/api/projects/${p.id}/backlog`, json(owner, { title: 'งานเข้า Sprint', kind: 'backlog' }), env)).json()) as { id: string }
+    const addToSprint = await app.request(`/api/sprints/${sprint.id}/tasks`, json(owner, { taskId: t.id }), env)
+    expect(addToSprint.status).toBe(200)
+
+    const detail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as {
+      sprint: { id: string; name: string | null; status: string; projectId: string | null; workspaceId: string | null } | null
+    }
+    expect(detail.sprint).toMatchObject({ id: sprint.id, name: sprint.name, status: 'planned', projectId: p.id, workspaceId: null })
+  })
+})
+
+describe('§Security Recheck (2026-09-10) — guest ที่ไม่มีสิทธิ์ในโปรเจกต์ต้องเข้าไม่ได้ (เดิมไม่มีการเช็คเลย)', () => {
+  // guest ต้องผูกกับโปรเจกต์อย่างน้อย 1 อัน (validation ของ POST /api/admin/users) — สร้างโปรเจกต์คนละอันกับที่ task อยู่ กันเห็นข้าม
+  async function makeUnrelatedGuest(): Promise<string> {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const other = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์อื่นของ guest', type: 'project' }), env)).json()) as { id: string }
+    await app.request(
+      '/api/admin/users',
+      json(owner, { email: 'guest-outsider@example.com', name: 'ลูกค้าคนนอก', role: 'guest', projectIds: [other.id] }),
+      env,
+    )
+    return loginAs(app, 'guest-outsider@example.com')
+  }
+
+  it('GET /tasks/:id/detail — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const guest = await makeUnrelatedGuest()
+    const res = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: guest } }, env)
+    expect(res.status).toBe(404)
+  })
+
+  it('POST /tasks/:id/comments — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้ (เดิมคอมเมนต์ผ่านได้เฉยๆ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const guest = await makeUnrelatedGuest()
+    const res = await app.request(`/api/tasks/${t.id}/comments`, json(guest, { body: 'ไม่ควรเข้ามาคอมเมนต์ได้' }), env)
+    expect(res.status).toBe(404)
+  })
+
+  it('GET /attachments/:id — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้ (เดิมดาวน์โหลดได้เฉยๆ)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const fd = new FormData()
+    fd.append('file', new File(['เนื้อหาไฟล์ลับ'], 'secret.txt', { type: 'text/plain' }))
+    const up = await app.request(`/api/tasks/${t.id}/attachments`, { method: 'POST', headers: { cookie: owner }, body: fd }, env)
+    const att = (await up.json()) as { id: string }
+    const guest = await makeUnrelatedGuest()
+    const res = await app.request(`/api/attachments/${att.id}`, { headers: { cookie: guest } }, env)
+    expect(res.status).toBe(404)
+  })
+
+  it('vendor/guest ไม่เห็นฟิลด์การเงินของ task ใน detail (เดิมส่งออกไปตรงๆ ไม่กรอง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P การเงิน', type: 'project' }), env)).json()) as { id: string }
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'G' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานมีราคา' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ quotationSatang: 500000 }) }, env)
+
+    const ownerDetail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)).json()) as { quotationSatang: number | null }
+    expect(ownerDetail.quotationSatang).toBe(500000)
+
+    const vendor = await loginAs(app, 'somchai@example.com')
+    const vendorDetail = (await (await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: vendor } }, env)).json()) as Record<string, unknown>
+    expect(vendorDetail.quotationSatang).toBeUndefined()
+  })
+})
+
 describe('T10 — task detail: comments + attachments + activity', () => {
   it('comment ได้ทุก role รวม vendor · เรียงเวลา · ขึ้นใน activity', async () => {
     const m = await loginAs(app, 'pond@example-co.test')
