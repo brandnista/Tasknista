@@ -1267,7 +1267,7 @@ export function TaskDetailPage() {
                   <span className="text-dim">ผู้ตรวจงาน</span>
                   {canEdit && !isAssigneeOnly ? (
                     <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-fit min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
-                      <option value="">— ไม่ระบุ (ผู้จ่ายงานอนุมัติแทน) —</option>
+                      <option value="">{t.assignedByName ? `— ไม่ระบุ (${t.assignedByName}) —` : '— ไม่ระบุ —'}</option>
                       {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                   ) : (
