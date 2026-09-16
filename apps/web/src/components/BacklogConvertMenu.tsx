@@ -1,5 +1,6 @@
 import { MoreVertical } from 'lucide-react'
 import { useState } from 'react'
+import { ActionMenu, type ActionMenuItem } from './ActionMenu'
 
 export type ConvertTo = 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr'
 
@@ -15,6 +16,9 @@ export const CONVERT_LABEL: Record<ConvertTo, string> = {
 /**
  * Pronista §Backlog cross-project convert — เมนู "จัดการ" ใช้ร่วมกันทั้งหน้า Backlog ของโปรเจกต์ (ProjectDetail)
  * และ Company Backlog (Projects.tsx) กันดีไซน์เพี้ยนกันสองที่เหมือนที่เคยเกิดมาก่อน
+ * (2026-09-16) เดิม dropdown เป็น absolute ผูกกับ container ตัวเอง — พอแถวอยู่ใน overflow-x-auto (แถวยาวๆ ที่ตัดกลับมา
+ * scroll แนวนอนแทนการตกบรรทัด) เมนูโดนตัด/บังจากกล่อง scroll หรือ grid ข้างๆ เปลี่ยนไปใช้ ActionMenu (position:fixed
+ * คำนวณจาก getBoundingClientRect) แทน ลอยได้อิสระไม่ติด overflow/stacking ของ container ไหนเลย
  */
 export function BacklogConvertMenu({ onConvertDirect, onConvertPick, extraItems }: {
   // Epic/Story/CR/Defect ทำทันที (ไม่ต้องเลือก parent) · Task/Subtask ต้องเลือก parent ก่อน (เปิด picker ใน ConvertBacklogModal)
@@ -22,47 +26,23 @@ export function BacklogConvertMenu({ onConvertDirect, onConvertPick, extraItems 
   onConvertPick?: (to: 'task' | 'subtask') => void
   extraItems?: { label: string; onClick: () => void }[]
 }) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
   if (!onConvertDirect && !onConvertPick && !extraItems?.length) return null
+  const items: ActionMenuItem[] = [
+    ...(onConvertDirect ? (['epic', 'story', 'cr', 'defect'] as const).map((to) => ({ label: CONVERT_LABEL[to], onClick: () => onConvertDirect(to) })) : []),
+    ...(onConvertPick ? (['task', 'subtask'] as const).map((to) => ({ label: CONVERT_LABEL[to], onClick: () => onConvertPick(to) })) : []),
+    ...(extraItems?.map((it) => ({ label: it.label, onClick: it.onClick, dividerBefore: true })) ?? []),
+  ]
   return (
     <div className="relative shrink-0">
-      <button onClick={() => setMenuOpen((v) => !v)} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+      <button
+        onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAnchor({ x: r.right, y: r.bottom + 4 }) }}
+        title="จัดการ"
+        className="text-muted hover:text-body p-0.5 rounded hover:bg-hover"
+      >
         <MoreVertical className="w-3.5 h-3.5" />
       </button>
-      {menuOpen && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-            {(['epic', 'story', 'cr', 'defect'] as const).map((to) => (
-              <button
-                key={to}
-                onClick={() => { setMenuOpen(false); onConvertDirect?.(to) }}
-                className="w-full text-left px-3 py-1.5 text-body hover:bg-hover"
-              >
-                {CONVERT_LABEL[to]}
-              </button>
-            ))}
-            {(['task', 'subtask'] as const).map((to) => (
-              <button
-                key={to}
-                onClick={() => { setMenuOpen(false); onConvertPick?.(to) }}
-                className="w-full text-left px-3 py-1.5 text-body hover:bg-hover"
-              >
-                {CONVERT_LABEL[to]}
-              </button>
-            ))}
-            {extraItems?.map((it) => (
-              <button
-                key={it.label}
-                onClick={() => { setMenuOpen(false); it.onClick() }}
-                className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle"
-              >
-                {it.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {anchor && <ActionMenu x={anchor.x} y={anchor.y} align="right" onClose={() => setAnchor(null)} items={items} />}
     </div>
   )
 }

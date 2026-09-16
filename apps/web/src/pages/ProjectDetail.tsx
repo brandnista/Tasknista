@@ -793,7 +793,8 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
     const isOpen = expandedIds.has(t.id)
     return (
       <div key={t.id}>
-        <div className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+        {/* Pronista §Backlog row layout (2026-09-16) — เดิม flex-wrap ตกบรรทัดตอนชื่องานยาว ทำให้คอลัมน์ (badge/ผู้รับผิดชอบ/เมนู) เพี้ยนตาม — เปลี่ยนเป็น flex-nowrap + ชื่องานตัดด้วย truncate ล้อ BacklogTaskRow ที่แก้ไปแล้วก่อนหน้า */}
+        <div className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
           {hasChildren ? (
             <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
               <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
@@ -803,7 +804,7 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
           )}
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
           {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
@@ -827,7 +828,7 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่องาน/รหัสงาน…" className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 w-56" />
         <span className="text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
       </div>
-      <div className="divide-y divide-divider">
+      <div className="divide-y divide-divider overflow-x-auto">
         {topLevel.map((t) => renderRow(t))}
       </div>
       {convertModal && (
@@ -1958,7 +1959,13 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   const meta = HIERARCHY_TAB_META[level]
 
   // Pronista §Back to Basic — เมนู "..." เฉพาะแท็บ Story: "เชื่อมกับ Epic" / "เชื่อมกับ Task" (สร้างใหม่ หรือเลือกที่มีอยู่)
-  const [menuFor, setMenuFor] = useState<string | null>(null)
+  // (2026-09-16) เดิม dropdown absolute ผูกกับแถว โดนตัด/บังตอนแถวอยู่ใน overflow-x-auto (จากการแก้ Bug ชื่องานยาวด้านบน) หรือโดนกริดข้างๆ บัง — เปลี่ยนไปใช้ ActionMenu (position:fixed) เก็บพิกัดปุ่มไว้แทน id เฉยๆ
+  const [menuAnchor, setMenuAnchor] = useState<{ id: string; x: number; y: number } | null>(null)
+  const openRowMenu = (e: React.MouseEvent<HTMLButtonElement>, id: string) => {
+    if (menuAnchor?.id === id) { setMenuAnchor(null); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    setMenuAnchor({ id, x: r.right, y: r.bottom + 4 })
+  }
   const [linkMode, setLinkMode] = useState<{ storyId: string; kind: 'epic' | 'task' } | null>(null)
   const { data: epicsForLink } = useLoad<ProjectEpic[]>(
     () => (linkMode?.kind === 'epic' ? api.get(`/api/projects/${projectId}/epics`) : Promise.resolve([])),
@@ -2079,7 +2086,8 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           // (dropzone ของ Sprint อ่านจาก e.dataTransfer ตรงๆ ไม่ผูกกับ component ไหน — แค่เติม draggable ตรงนี้ก็ทำงานร่วมกับ dropzone เดิมได้ทันที)
           draggable={level === 'task' && canEdit}
           onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
-          className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+          // Pronista §Backlog row layout (2026-09-16) — เดิม flex-wrap ตกบรรทัดตอนชื่องานยาว ทำให้คอลัมน์เพี้ยนตาม — เปลี่ยนเป็น flex-nowrap + ชื่องานตัดด้วย truncate ล้อ BacklogTaskRow
+          className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
         >
           {hasChildren ? (
             <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(t.id) }} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
@@ -2093,7 +2101,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           )}
           {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
           {t.parentTitle && level === 'task' && depth === 0 && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
@@ -2101,71 +2109,62 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
           {level === 'story' && canEdit && (
             <div className="relative shrink-0">
-              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+              <button onClick={(e) => openRowMenu(e, t.id)} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
                 <MoreVertical className="w-3.5 h-3.5" />
               </button>
-              {menuFor === t.id && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      🔗 เชื่อมกับ Epic
-                    </button>
-                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      🔗 เชื่อมกับ Task
-                    </button>
-                  </div>
-                </>
+              {menuAnchor?.id === t.id && (
+                <ActionMenu
+                  x={menuAnchor.x}
+                  y={menuAnchor.y}
+                  align="right"
+                  onClose={() => setMenuAnchor(null)}
+                  items={[
+                    { label: '🔗 เชื่อมกับ Epic', onClick: () => setLinkMode({ storyId: t.id, kind: 'epic' }) },
+                    { label: '🔗 เชื่อมกับ Task', onClick: () => setLinkMode({ storyId: t.id, kind: 'task' }) },
+                  ]}
+                />
               )}
             </div>
           )}
           {level === 'cr' && canEdit && (
             <div className="relative shrink-0">
-              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+              <button onClick={(e) => openRowMenu(e, t.id)} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
                 <MoreVertical className="w-3.5 h-3.5" />
               </button>
-              {menuFor === t.id && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                    <button onClick={() => { setMenuFor(null); setLinkingRefId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      🔗 เชื่อมโยงกับงานอื่น
-                    </button>
-                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'task' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                      {CONVERT_LABEL.task}
-                    </button>
-                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      {CONVERT_LABEL.defect}
-                    </button>
-                  </div>
-                </>
+              {menuAnchor?.id === t.id && (
+                <ActionMenu
+                  x={menuAnchor.x}
+                  y={menuAnchor.y}
+                  align="right"
+                  onClose={() => setMenuAnchor(null)}
+                  items={[
+                    { label: '🔗 เชื่อมโยงกับงานอื่น', onClick: () => setLinkingRefId(t.id) },
+                    { label: CONVERT_LABEL.task, onClick: () => setConvertModal({ taskId: t.id, to: 'task' }), dividerBefore: true },
+                    { label: CONVERT_LABEL.defect, onClick: () => setConvertModal({ taskId: t.id, to: 'defect' }) },
+                  ]}
+                />
               )}
             </div>
           )}
           {level === 'task' && canEdit && (
             <div className="relative shrink-0">
-              <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
+              <button onClick={(e) => openRowMenu(e, t.id)} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
                 <MoreVertical className="w-3.5 h-3.5" />
               </button>
-              {menuFor === t.id && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
-                  <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-border-subtle py-1 z-20 text-xs">
-                    <button onClick={() => { setMenuFor(null); setLinkTaskId(t.id) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      🔗 เชื่อมกับ Story
-                    </button>
-                    <button onClick={() => { setMenuFor(null); setLinkMode({ storyId: t.id, kind: 'epic' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      🔗 เชื่อมกับ Epic
-                    </button>
-                    {/* Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ */}
-                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'defect' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover border-t border-border-subtle">
-                      {CONVERT_LABEL.defect}
-                    </button>
-                    <button onClick={() => { setMenuFor(null); setConvertModal({ taskId: t.id, to: 'cr' }) }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">
-                      {CONVERT_LABEL.cr}
-                    </button>
-                  </div>
-                </>
+              {menuAnchor?.id === t.id && (
+                <ActionMenu
+                  x={menuAnchor.x}
+                  y={menuAnchor.y}
+                  align="right"
+                  onClose={() => setMenuAnchor(null)}
+                  items={[
+                    { label: '🔗 เชื่อมกับ Story', onClick: () => setLinkTaskId(t.id) },
+                    { label: '🔗 เชื่อมกับ Epic', onClick: () => setLinkMode({ storyId: t.id, kind: 'epic' }) },
+                    // Pronista §Backlog cross-type convert (2026-09-03) — เดิมโยกได้แค่จาก Backlog ดิบเข้า Task/Defect/CR อย่างเดียว ตอนนี้สลับไปมาระหว่าง Task/Defect/CR ได้ตรงจากแท็บ
+                    { label: CONVERT_LABEL.defect, onClick: () => setConvertModal({ taskId: t.id, to: 'defect' }), dividerBefore: true },
+                    { label: CONVERT_LABEL.cr, onClick: () => setConvertModal({ taskId: t.id, to: 'cr' }) },
+                  ]}
+                />
               )}
             </div>
           )}
@@ -2254,7 +2253,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
       {sel.filtered.length === 0 ? (
         <div className="text-center text-xs text-muted py-6">{items.length === 0 ? meta.empty : 'ไม่มีงานตรงตัวกรองที่เลือก'}</div>
       ) : (
-        <div className="divide-y divide-divider">
+        <div className="divide-y divide-divider overflow-x-auto">
           {topLevel.map((t) => renderRow(t))}
         </div>
       )}

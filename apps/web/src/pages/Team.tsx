@@ -611,6 +611,8 @@ function MessageRow({
 }) {
   const { confirmDialog } = useDialog()
   const [menuOpen, setMenuOpen] = useState(false)
+  // Pronista §Chat inline media (2026-09-16) — รูป/คลิปที่แนบมา โชว์ตรงในแชทเลยแบบ LINE/Messenger ไม่ต้องกดออกไปดูอีกที
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const remove = async () => {
     setMenuOpen(false)
     if (!(await confirmDialog({ title: 'ลบข้อความนี้?', danger: true }))) return
@@ -628,11 +630,32 @@ function MessageRow({
         <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
           {renderMessageBody(m.body, m.mentionedUserIds, members)}
         </div>
-        {m.attachments.map((a) => (
-          <a key={a.id} href={a.r2Key ? `/api/chat/attachments/${a.id}` : (a.externalUrl ?? undefined)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-mono bg-info-50 text-info-700 px-1.5 py-0.5 rounded mt-1 hover:bg-info-100">
-            <Paperclip className="w-3 h-3" /> {a.filename}
-          </a>
-        ))}
+        {m.attachments.map((a) => {
+          const src = a.r2Key ? `/api/chat/attachments/${a.id}` : a.externalUrl
+          if (src && a.mime?.startsWith('image/')) {
+            return (
+              <button key={a.id} type="button" onClick={() => setLightboxUrl(src)} className="block mt-1 max-w-[240px]">
+                <img src={src} alt={a.filename} className="max-w-full max-h-60 rounded-lg object-cover cursor-zoom-in" />
+              </button>
+            )
+          }
+          if (src && a.mime?.startsWith('video/')) {
+            return <video key={a.id} src={src} controls className="mt-1 max-w-[280px] max-h-60 rounded-lg" />
+          }
+          return (
+            <a key={a.id} href={src ?? undefined} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-mono bg-info-50 text-info-700 px-1.5 py-0.5 rounded mt-1 hover:bg-info-100">
+              <Paperclip className="w-3 h-3" /> {a.filename}
+            </a>
+          )
+        })}
+        {lightboxUrl && (
+          <div className="fixed inset-0 z-50 bg-ink/80 grid place-items-center p-4" onClick={() => setLightboxUrl(null)}>
+            <img src={lightboxUrl} alt="" className="max-w-full max-h-full rounded-lg" onClick={(e) => e.stopPropagation()} />
+            <button onClick={() => setLightboxUrl(null)} aria-label="ปิด" className="absolute top-4 right-4 text-white bg-black/40 hover:bg-black/60 rounded-full p-2">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
         {/* Pronista §Chat read receipt (2026-09-16) — ไอคอนผู้อ่านเล็กๆ ใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง (แบบ LINE/Messenger) */}
         {readBy.length > 0 && (
           <div className="flex items-center -space-x-1 mt-0.5">
