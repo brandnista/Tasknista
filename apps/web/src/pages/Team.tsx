@@ -121,11 +121,11 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
     <div className="h-full flex flex-col">
       {/* Pronista §Team Directory (2026-09-16) — สลับ "แชท" (ของเดิม) / "รายชื่อ" (ใหม่) — บาร์นี้อยู่คงที่ไม่ว่าจะสลับไปฝั่งไหน */}
       <div className="flex bg-divider p-0.5 gap-0.5 m-2 rounded-lg text-xs font-medium w-fit shrink-0">
-        <button onClick={() => setSubTab('messages')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${subTab === 'messages' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
-          <MessagesSquare className="w-3.5 h-3.5" /> แชท
-        </button>
         <button onClick={() => setSubTab('directory')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${subTab === 'directory' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
           <Users className="w-3.5 h-3.5" /> รายชื่อ
+        </button>
+        <button onClick={() => setSubTab('messages')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${subTab === 'messages' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <MessagesSquare className="w-3.5 h-3.5" /> แชท
         </button>
       </div>
 
