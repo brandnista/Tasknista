@@ -359,7 +359,7 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้องนี้ ใช้ทำ @mention picker (เฉพาะห้อง >2 คน) + คำนวณ read receipt (avatar ใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง แบบ LINE/Messenger)
-  const { data: membersData } = useLoad<ChannelMember[]>(() => api.get(`/api/chat/channels/${channel.id}/members`), [channel.id])
+  const { data: membersData, reload: reloadMembers } = useLoad<ChannelMember[]>(() => api.get(`/api/chat/channels/${channel.id}/members`), [channel.id])
   const [members, setMembers] = useState<ChannelMember[]>([])
   useEffect(() => setMembers(membersData ?? []), [membersData])
   const canMention = members.length > 2
@@ -541,14 +541,31 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   }
 
   const label = channel.kind === 'project' ? channel.projectName : channel.displayName ?? 'ไม่มีชื่อ'
+  // Pronista §Group chat member management (2026-09-16) — เดิมตั้งสมาชิกได้แค่ตอนสร้างกลุ่ม แก้ทีหลังไม่ได้เลย (แอดผิดคนแล้วลบไม่ได้) — เฉพาะห้อง group เท่านั้น (dm ตายตัว 2 คน, project ผูกกับสมาชิกโปรเจกต์)
+  const [manageMembersOpen, setManageMembersOpen] = useState(false)
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border-subtle bg-hover/60">
         <button onClick={onBack} className="sm:hidden text-sm text-muted">‹</button>
         <Avatar name={label ?? '?'} className="w-6 h-6 text-[10px]" colorClass={avatarColor(label ?? '?')} />
-        <span className="font-semibold text-ink text-sm">{label}</span>
+        <span className="font-semibold text-ink text-sm flex-1 min-w-0 truncate">{label}</span>
+        {channel.kind === 'group' && (
+          <button onClick={() => setManageMembersOpen(true)} title="จัดการสมาชิกกลุ่ม" className="shrink-0 p-1.5 rounded-lg text-dim hover:text-brand-700 hover:bg-hover">
+            <Users className="w-4 h-4" />
+          </button>
+        )}
       </div>
+      {manageMembersOpen && (
+        <GroupMembersModal
+          channelId={channel.id}
+          meId={meId}
+          members={members}
+          onClose={() => setManageMembersOpen(false)}
+          onChanged={async () => { await reloadMembers() }}
+          onLeft={() => { onSent(); onBack() }}
+        />
+      )}
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {loadingMore && <div className="text-center text-xs text-muted py-1">กำลังโหลดข้อความเก่า…</div>}
         {messages.map((m) => (
@@ -595,6 +612,97 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
         <button onClick={() => void send()} disabled={!text.trim() || sending} className="p-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40 shrink-0"><Send className="w-4 h-4" /></button>
       </div>
       {convertFor && <ConvertToTaskModal message={convertFor} onClose={() => setConvertFor(null)} />}
+    </div>
+  )
+}
+
+/** Pronista §Group chat member management (2026-09-16) — เพิ่ม/ลบสมาชิกกลุ่มหลังสร้างแล้วได้ (เดิมตั้งได้แค่ตอนสร้างกลุ่มครั้งแรกเท่านั้น แอดผิดคนแล้วแก้ไม่ได้เลย)
+ * ลิสต์เลือกเพิ่มสมาชิก mirror pattern เดียวกับ NewDmModal (checkbox list ค้นหาชื่อได้) */
+function GroupMembersModal({
+  channelId, meId, members, onClose, onChanged, onLeft,
+}: {
+  channelId: string
+  meId: string
+  members: ChannelMember[]
+  onClose: () => void
+  onChanged: () => Promise<void>
+  onLeft: () => void
+}) {
+  const { confirmDialog, alertDialog } = useDialog()
+  const { data: allUsers } = useLoad<UserOpt[]>(() => api.get('/api/users'))
+  const [search, setSearch] = useState('')
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const memberIds = new Set(members.map((m) => m.id))
+  const candidates = (allUsers ?? []).filter((u) => !memberIds.has(u.id) && u.name.toLowerCase().includes(search.trim().toLowerCase()))
+
+  const addMember = async (userId: string) => {
+    setBusyId(userId)
+    try {
+      await api.post(`/api/chat/channels/${channelId}/members`, { userId })
+      await onChanged()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มสมาชิกไม่สำเร็จ' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+  const removeMember = async (userId: string, name: string) => {
+    const yes = await confirmDialog({ title: userId === meId ? 'ออกจากกลุ่มนี้?' : `เอา ${name} ออกจากกลุ่ม?`, danger: true, confirmLabel: userId === meId ? 'ออกจากกลุ่ม' : 'เอาออก' })
+    if (!yes) return
+    setBusyId(userId)
+    try {
+      await api.delete(`/api/chat/channels/${channelId}/members/${userId}`)
+      if (userId === meId) { onClose(); onLeft(); return }
+      await onChanged()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'เอาสมาชิกออกไม่สำเร็จ' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[75vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+          <span className="font-semibold text-ink text-sm">จัดการสมาชิกกลุ่ม</span>
+          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim shrink-0"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-muted uppercase tracking-wide">สมาชิก · {members.length}</div>
+        <div className="max-h-40 overflow-y-auto px-1">
+          {members.map((m) => (
+            <div key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-hover rounded-lg">
+              <Avatar name={m.name} avatarUrl={m.avatarUrl} className="w-7 h-7 text-xs shrink-0" colorClass={avatarColor(m.name)} />
+              <span className="text-sm text-body flex-1 min-w-0 truncate">{m.name}{m.id === meId ? ' (ฉัน)' : ''}</span>
+              <button
+                onClick={() => void removeMember(m.id, m.name)}
+                disabled={busyId === m.id}
+                title={m.id === meId ? 'ออกจากกลุ่ม' : `เอา ${m.name} ออก`}
+                className="shrink-0 p-1 rounded text-dim hover:text-danger-600 hover:bg-danger-50 disabled:opacity-40"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-muted uppercase tracking-wide border-t border-border-subtle mt-2">เพิ่มสมาชิก</div>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="mx-4 mt-1 mb-2 text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
+        <div className="flex-1 overflow-y-auto pb-2 min-h-20">
+          {candidates.map((u) => (
+            <button
+              key={u.id}
+              onClick={() => void addMember(u.id)}
+              disabled={busyId === u.id}
+              className="w-full text-left px-4 py-2 flex items-center gap-2 hover:bg-hover disabled:opacity-40"
+            >
+              <Avatar name={u.name} className="w-7 h-7 text-xs shrink-0" colorClass={avatarColor(u.name)} />
+              <span className="text-sm text-body flex-1 min-w-0 truncate">{u.name}</span>
+              <Plus className="w-3.5 h-3.5 text-dim shrink-0" />
+            </button>
+          ))}
+          {candidates.length === 0 && <div className="text-center text-xs text-muted py-4">{search.trim() ? 'ไม่พบคนที่ค้นหา' : 'ทุกคนอยู่ในกลุ่มนี้แล้ว'}</div>}
+        </div>
+      </div>
     </div>
   )
 }

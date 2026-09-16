@@ -129,6 +129,36 @@ chatRoutes
     return c.json(created, 201)
   })
 
+  // Pronista §Group chat member management (2026-09-16) — เดิมตั้งสมาชิกได้แค่ตอนสร้างกลุ่มครั้งแรก แก้ทีหลังไม่ได้เลย (แอดผิดคนแล้วลบไม่ได้) — เพิ่ม/ลบสมาชิกกลุ่มได้หลังสร้างแล้ว
+  // เฉพาะห้อง group เท่านั้น — dm ตายตัว 2 คนอยู่แล้ว (สร้างใหม่แทน), ห้อง project สมาชิกผูกกับ project_members ไม่ใช่ตรงนี้ (จัดการที่หน้าโปรเจกต์แทน)
+  .post('/chat/channels/:id/members', teamOrMenu('team'), async (c) => {
+    const body = z.object({ userId: z.string() }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
+    if (!channel) return c.json({ error: 'not_found' }, 404)
+    if (channel.kind !== 'group') return c.json({ error: 'not_a_group' }, 400)
+    if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    const target = (await db.select({ id: users.id }).from(users).where(eq(users.id, body.data.userId)).limit(1))[0]
+    if (!target) return c.json({ error: 'user_not_found' }, 404)
+    await db.insert(chatChannelMembers).values({ channelId: channel.id, userId: body.data.userId }).onConflictDoNothing()
+    await notifyUser(db, { userId: body.data.userId, type: 'chat_message', chatChannelId: channel.id, message: `${me.name} เพิ่มคุณเข้ากลุ่ม "${channel.name}"` })
+    return c.json({ ok: true })
+  })
+
+  // ลบสมาชิกออกจากกลุ่ม (ลบตัวเอง = ออกจากกลุ่ม) — สมาชิกกลุ่มคนไหนก็จัดการได้ ล้อ pattern เดียวกับ DELETE /chat/channels/:id (สมาชิกคนไหนก็ลบทั้งห้องได้)
+  .delete('/chat/channels/:id/members/:userId', teamOrMenu('team'), async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
+    if (!channel) return c.json({ error: 'not_found' }, 404)
+    if (channel.kind !== 'group') return c.json({ error: 'not_a_group' }, 400)
+    if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    await db.delete(chatChannelMembers).where(and(eq(chatChannelMembers.channelId, channel.id), eq(chatChannelMembers.userId, c.req.param('userId'))))
+    return c.json({ ok: true })
+  })
+
   // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้องนี้ (id/name/avatarUrl/lastReadAt) ให้ frontend ใช้ทำ @mention picker + คำนวณว่าใครอ่านถึงข้อความไหนแล้ว
   // ห้อง project ไม่มีแถว chat_channel_members มาก่อน (อ่านครั้งแรกถึงจะมี) — derive จาก project_members แทน แล้ว left-join lastReadAt เข้าไป
   .get('/chat/channels/:id/members', teamOrMenu('team'), async (c) => {

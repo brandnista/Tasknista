@@ -169,6 +169,65 @@ describe('Pronista §Chat @mention + read receipt (2026-09-16)', () => {
   })
 })
 
+describe('Pronista §Group chat member management (2026-09-16)', () => {
+  async function makeGroup(ownerCookie: string, memberIds: string[]) {
+    return (await (await app.request('/api/chat/channels', json(ownerCookie, { kind: 'group', name: 'กลุ่มทดสอบ', memberIds }), env)).json()) as { id: string }
+  }
+
+  it('เพิ่มสมาชิกเข้ากลุ่มที่มีอยู่แล้วได้ — โผล่ใน GET /members ทันที', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const group = await makeGroup(owner, ['u_pond'])
+    const res = await app.request(`/api/chat/channels/${group.id}/members`, json(owner, { userId: 'u_somchai' }), env)
+    expect(res.status).toBe(200)
+    const members = (await (await app.request(`/api/chat/channels/${group.id}/members`, { headers: { cookie: owner } }, env)).json()) as { id: string }[]
+    expect(members.map((m) => m.id).sort()).toEqual(['u_owner', 'u_pond', 'u_somchai'].sort())
+  })
+
+  it('ลบสมาชิกออกจากกลุ่มได้ — คนที่ถูกลบเข้าห้องไม่ได้อีกต่อไป (แก้บั๊กแอดผิดคนแล้วเอาออกไม่ได้)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const group = await makeGroup(owner, ['u_pond'])
+    const res = await app.request(`/api/chat/channels/${group.id}/members/u_pond`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(res.status).toBe(200)
+    const members = (await (await app.request(`/api/chat/channels/${group.id}/members`, { headers: { cookie: owner } }, env)).json()) as { id: string }[]
+    expect(members.map((m) => m.id)).toEqual(['u_owner'])
+    expect((await app.request(`/api/chat/channels/${group.id}/messages`, { headers: { cookie: pond } }, env)).status).toBe(403)
+  })
+
+  it('ออกจากกลุ่มเองได้ (ลบตัวเอง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const group = await makeGroup(owner, ['u_pond'])
+    expect((await app.request(`/api/chat/channels/${group.id}/members/u_pond`, { method: 'DELETE', headers: { cookie: pond } }, env)).status).toBe(200)
+    expect((await app.request(`/api/chat/channels/${group.id}/messages`, { headers: { cookie: pond } }, env)).status).toBe(403)
+  })
+
+  it('คนที่ไม่ได้อยู่ในกลุ่มเพิ่ม/ลบสมาชิกไม่ได้ (403)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const somchai = await loginAs(app, 'somchai@example.com') // ไม่ได้อยู่ในกลุ่มนี้เลย
+    const group = await makeGroup(owner, ['u_pond'])
+    expect((await app.request(`/api/chat/channels/${group.id}/members`, json(somchai, { userId: 'u_somchai' }), env)).status).toBe(403)
+    expect((await app.request(`/api/chat/channels/${group.id}/members/u_pond`, { method: 'DELETE', headers: { cookie: somchai } }, env)).status).toBe(403)
+  })
+
+  it('ห้อง dm/project จัดการสมาชิกผ่าน endpoint นี้ไม่ได้ (400 not_a_group — dm ตายตัว 2 คน, project ผูกกับ project_members)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const dm = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+    expect((await app.request(`/api/chat/channels/${dm.id}/members`, json(owner, { userId: 'u_somchai' }), env)).status).toBe(400)
+
+    const p = await makeProject(owner)
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const projectChannelId = channels.find((c) => c.projectId === p.id)!.id
+    expect((await app.request(`/api/chat/channels/${projectChannelId}/members`, json(owner, { userId: 'u_somchai' }), env)).status).toBe(400)
+  })
+
+  it('เพิ่มคนที่ไม่มีอยู่จริงในระบบ → 404', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const group = await makeGroup(owner, ['u_pond'])
+    expect((await app.request(`/api/chat/channels/${group.id}/members`, json(owner, { userId: 'u_ghost' }), env)).status).toBe(404)
+  })
+})
+
 describe('Pronista §Team Chat — unread count badge', () => {
   async function channelUnread(cookie: string, channelId: string) {
     const list = (await (await app.request('/api/chat/channels', { headers: { cookie } }, env)).json()) as { id: string; unreadCount: number }[]
