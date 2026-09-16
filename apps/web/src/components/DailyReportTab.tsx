@@ -151,8 +151,6 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [editManualBusy, setEditManualBusy] = useState(false)
   const [submitBusy, setSubmitBusy] = useState(false)
   const [retractBusy, setRetractBusy] = useState(false)
-  // Pronista §Daily Report task list filter (2026-09-14) — ลิสต์ "งานทั้งหมดของฉัน" ดึงมาไม่จำกัดวันเลย เรียงตาม dueDate ผู้ใช้ขอตัวกรองแยกดูเฉพาะวันนี้ได้
-  const [myTaskFilter, setMyTaskFilter] = useState<'all' | 'today'>('all')
   const { alertDialog, confirmDialog } = useDialog()
 
   const { data: report, reload: reloadReport } = useLoad<ReportDetail | null>(async () => {
@@ -367,8 +365,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const receivedFromOthers = (myTasks ?? []).filter((t) => !dispatchedByMeIds.has(t.id) && t.status !== 'non_start')
   const combinedMyTasks = [...(dispatchedByMe ?? []), ...receivedFromOthers]
   const myTaskCount = combinedMyTasks.length
-  // Pronista §Daily Report task list filter (2026-09-14) — "วันนี้" = กำหนดส่งวันนี้ (ตรงกับที่ลิสต์นี้เรียงตาม dueDate อยู่แล้ว)
-  const filteredMyTasks = myTaskFilter === 'today' ? combinedMyTasks.filter((t) => t.dueDate === date) : combinedMyTasks
+  // Pronista §Daily Report (2026-09-16) — ตัดตัวกรอง "ทั้งหมด/วันนี้" ออก ให้ลิสต์นี้ดึงตามวันที่เลือกไว้บนสุดเสมอ (กำหนดส่งตรงกับวันที่รายงาน) ไม่มีโหมด "ทั้งหมด" แยกอีกต่อไป
+  const filteredMyTasks = combinedMyTasks.filter((t) => t.dueDate === date)
 
   return (
     <div className="space-y-4">
@@ -523,20 +521,16 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                   <p className="text-[12.5px] text-muted ml-[32px] mb-3">เลือกจากงานทั้งหมดของคุณทางซ้าย แล้วเติมสั้นๆ ว่าทำอะไรไปวันนี้</p>
 
                   <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] gap-4 items-start">
-                    {/* ซ้าย — งานทั้งหมดของฉัน (ไม่จำกัดแค่วันนี้ — กรองด้วยชิปด้านล่างได้) */}
+                    {/* ซ้าย — งานที่กำหนดส่งตรงกับวันที่เลือกไว้บนสุด (2026-09-16 — ตัดตัวกรอง "ทั้งหมด/วันนี้" ออก ดึงตามวันที่เลือกเสมอ) */}
                     <div className="border border-border-subtle rounded-xl overflow-hidden bg-white">
                       <div className="px-3.5 py-2.5 border-b border-divider flex items-center justify-between gap-2">
                         <span className="text-xs font-semibold text-strong shrink-0">งานทั้งหมดของฉัน</span>
-                        <div className="flex bg-divider rounded-md p-0.5 text-[11px] font-medium">
-                          <button type="button" onClick={() => setMyTaskFilter('all')} className={`px-2 py-1 rounded ${myTaskFilter === 'all' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>ทั้งหมด</button>
-                          <button type="button" onClick={() => setMyTaskFilter('today')} className={`px-2 py-1 rounded ${myTaskFilter === 'today' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>วันนี้</button>
-                        </div>
                         <span className="text-[11px] text-muted tabular-nums shrink-0">{filteredMyTasks.length}</span>
                       </div>
                       <div className="max-h-[420px] overflow-y-auto divide-y divide-divider">
                         {filteredMyTasks.length === 0 && (
                           <div className="text-center text-xs text-muted py-8 px-3">
-                            {myTaskCount === 0 ? 'ยังไม่มีงานที่ได้รับมอบหมาย — เพิ่มงานเองทางขวาได้เลย' : 'ไม่มีงานที่กำหนดส่งวันนี้'}
+                            {myTaskCount === 0 ? 'ยังไม่มีงานที่ได้รับมอบหมาย — เพิ่มงานเองทางขวาได้เลย' : 'ไม่มีงานที่กำหนดส่งตรงกับวันที่เลือก'}
                           </div>
                         )}
                         {filteredMyTasks.map((t) => {

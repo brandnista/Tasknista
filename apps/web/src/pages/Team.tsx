@@ -1,4 +1,4 @@
-import { Calendar, MessageCircle, MessagesSquare, Paperclip, Phone, Plus, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { Calendar, MessageCircle, MessagesSquare, Paperclip, Plus, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
@@ -181,15 +181,9 @@ function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void
     const r = e.currentTarget.getBoundingClientRect()
     setMenu({ x: r.left, y: r.bottom + 4, u })
   }
+  // Pronista §Team Directory (2026-09-16) — เอาปุ่ม "โทร" ออกก่อน: tel: link แค่เปิดแอปโทรศัพท์ของเครื่อง ไม่ใช่การโทรผ่านระบบจริง (ไม่มี VoIP/รับสายในระบบ) ตามคำขอ
   const menuItems = (u: DirectoryUser): ActionMenuItem[] => [
     { label: 'แชท', icon: <MessageCircle className="w-4 h-4" />, onClick: () => onStartChat(u.id) },
-    {
-      label: 'โทร',
-      icon: <Phone className="w-4 h-4" />,
-      onClick: () => { window.location.href = `tel:${u.phone}` },
-      disabled: !u.phone,
-      disabledReason: 'ยังไม่มีเบอร์โทรในระบบ',
-    },
   ]
 
   const Row = ({ u }: { u: DirectoryUser }) => (
