@@ -90,9 +90,8 @@
       },
       "vars": {
         "APP_URL": "https://staging.pronista.com",
-        // (2026-09-16) เปิดตามคำขออาร์ม — DEV_AUTH=1 ให้สลับ login เป็น user ที่ seed ไว้ได้จาก dropdown โดยไม่ต้องผ่าน Google จริง
-        // เฉพาะ env นี้เท่านั้น (base config ด้านบน — ที่ deploy ขึ้น production จริง — ต้องคง "0" เสมอตาม security review เดิม) — staging.pronista.com เป็นโดเมนจริงที่เข้าถึงได้จากอินเทอร์เน็ต ใครรู้ลิงก์นี้จะ login เป็นใครก็ได้รวมถึง owner โดยไม่ต้องมี credential เลย
-        "DEV_AUTH": "1",
+        // Staging เปิดผ่านอินเทอร์เน็ต จึงต้องใช้การยืนยันตัวตนจริงเหมือน Production
+        "DEV_AUTH": "0",
         "IMPORT_DATA_ENABLED": "1"
       },
       "durable_objects": {
