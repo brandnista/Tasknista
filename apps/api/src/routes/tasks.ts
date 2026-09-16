@@ -449,10 +449,13 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/tasks/mine', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
+    // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
+    // แม้จะจ่ายมาแล้ว/กดรับงานแล้วจริง (status ขยับเป็น on_processing) ก็ไม่โผล่ใน "งานของฉัน" — ล้อ fix เดียวกับ /tasks/dispatched-by-me ด้านล่าง: leftJoin ทั้งคู่ (projects/workspaces) + fallback ชื่อที่โชว์
     const rows = await db
-      .select({ task: tasks, projectName: projects.name })
+      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name })
       .from(tasks)
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
       .where(and(eq(tasks.assigneeId, me.id), isNotNull(tasks.dispatchedAt)))
       .orderBy(asc(tasks.dueDate))
@@ -463,9 +466,11 @@ export const taskRoutes = new Hono<AppEnv>()
       .where(eq(projectMembers.userId, me.id))
     const cfgPositions = (await db.select({ positions: companyConfig.positions }).from(companyConfig).limit(1))[0]
     const positionsList = resolvePositions(cfgPositions?.positions)
-    const roleOf = (projectId: string): 'owner' | 'editor' | 'viewer' => {
+    const roleOf = (projectId: string | null): 'owner' | 'editor' | 'viewer' => {
       if (me.role === 'owner') return 'owner'
       if (me.role === 'vendor' || me.role === 'guest') return 'viewer'
+      // งานไม่ผูกโปรเจกต์ (คีย์ตรงใน Workspace) — ล้อ task-detail.ts ที่ fake เป็น 'editor' เสมอสำหรับงานแบบนี้ (ไม่มี project role ให้ derive)
+      if (!projectId) return 'editor'
       const positionId = myMemberships.find((m) => m.projectId === projectId)?.positionId
       const perm = positionById(positionsList, positionId)?.permissions ?? VIEW_ONLY_PERMISSIONS
       return hasAnyEditRight(perm) ? 'editor' : 'viewer'
@@ -478,7 +483,7 @@ export const taskRoutes = new Hono<AppEnv>()
       return { checklistDone: c?.done ?? 0, checklistTotal: c?.total ?? 0 }
     }
     return c.json(
-      rows.map((r) => ({ ...r.task, projectName: r.projectName, myRole: roleOf(r.task.projectId!), ...checklistOf(r.task.id) })),
+      rows.map((r) => ({ ...r.task, projectName: r.projectName ?? r.workspaceName, myRole: roleOf(r.task.projectId), ...checklistOf(r.task.id) })),
     )
   })
 

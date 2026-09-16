@@ -8,8 +8,8 @@ export interface MyWorkTask {
   title: string
   status: TaskStatus
   dueDate: string | null
-  projectId: string
-  projectName: string
+  projectId: string | null
+  projectName: string | null
   // Pronista §Back to Basic (ต่อยอด) — เพิ่มให้การ์ดโชว์รหัส/ประเภทงาน + ชั่วโมงประเมิน + ความคืบหน้าเกณฑ์ว่าเสร็จ + แยก "งานวันนี้"
   code?: string | null
   kind?: 'task' | 'defect' | 'cr' | 'backlog'
