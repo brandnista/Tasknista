@@ -85,6 +85,10 @@ function ToastCard({ item, onClose }: { item: ToastItem; onClose: () => void }) 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
   const nextId = useRef(0)
+  // Pronista §UI Repositioning (2026-09-16) — แยกเรนเดอร์ toastAction (มีปุ่ม View/Link) ออกจาก toast ข้อความล้วน
+  // toast ธรรมดายังอยู่กลางจอเหมือนเดิม (auto-dismiss เร็ว 2.2s ไม่บังจอนาน) ส่วน toastAction ย้ายไปมุมล่างขวา ไม่บังพื้นที่ทำงานหลักตอนโผล่ค้างอยู่นาน (8s)
+  const plainItems = items.filter((it) => !it.taskId)
+  const actionItems = items.filter((it) => it.taskId)
 
   const remove = useCallback((id: number) => {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, closing: true } : it)))
@@ -113,9 +117,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={toast}>
       <ActionCtx.Provider value={toastAction}>
         {children}
-        {items.length > 0 && (
+        {plainItems.length > 0 && (
           <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-2 pointer-events-none px-4">
-            {items.map((it) => (
+            {plainItems.map((it) => (
+              <ToastCard key={it.id} item={it} onClose={() => remove(it.id)} />
+            ))}
+          </div>
+        )}
+        {actionItems.length > 0 && (
+          <div className="fixed bottom-4 right-4 z-[80] flex flex-col items-end gap-2 pointer-events-none px-4 sm:px-0 max-w-full">
+            {actionItems.map((it) => (
               <ToastCard key={it.id} item={it} onClose={() => remove(it.id)} />
             ))}
           </div>

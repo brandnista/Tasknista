@@ -12,10 +12,14 @@ export interface ActionMenuItem {
   danger?: boolean
   /** ขีดเส้นคั่นเหนือรายการนี้ (แยกกลุ่ม เช่น กันปุ่มลบออกจากปุ่มอื่น) */
   dividerBefore?: boolean
+  // Pronista §Team Directory (2026-09-16) — ปิดใช้งานรายการนี้ได้ (เช่น "โทร" ตอนยังไม่มีเบอร์) พร้อมเหตุผลโชว์เป็น title
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export function ActionMenu({ x, y, onClose, items, align = 'left' }: { x: number; y: number; onClose: () => void; items: ActionMenuItem[]; align?: 'left' | 'right' }) {
-  const itemCls = (danger?: boolean) => `w-full text-left text-sm px-3 py-2.5 rounded-lg hover:bg-hover flex items-center gap-2 min-h-11 ${danger ? 'text-danger-600' : 'text-body'}`
+  const itemCls = (danger?: boolean, disabled?: boolean) =>
+    `w-full text-left text-sm px-3 py-2.5 rounded-lg flex items-center gap-2 min-h-11 ${disabled ? 'text-muted opacity-50 cursor-not-allowed' : `hover:bg-hover ${danger ? 'text-danger-600' : 'text-body'}`}`
   return (
     <div className="fixed inset-0 z-50" onClick={onClose}>
       <div
@@ -26,7 +30,12 @@ export function ActionMenu({ x, y, onClose, items, align = 'left' }: { x: number
         {items.map((it, i) => (
           <div key={i}>
             {it.dividerBefore && <div className="my-1 border-t border-divider" />}
-            <button className={itemCls(it.danger)} onClick={() => { it.onClick(); onClose() }}>
+            <button
+              className={itemCls(it.danger, it.disabled)}
+              disabled={it.disabled}
+              title={it.disabled ? it.disabledReason : undefined}
+              onClick={() => { if (it.disabled) return; it.onClick(); onClose() }}
+            >
               {it.icon}
               {it.label}
             </button>

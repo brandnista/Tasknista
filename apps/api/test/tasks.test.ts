@@ -815,3 +815,74 @@ describe('§My Tasks dispatcher view fix — GET /tasks/dispatched-by-me ต้�
     expect(row?.projectName).toBe(ws.name) // fallback เป็นชื่อ Workspace room เพราะไม่มีโปรเจกต์
   })
 })
+
+// (2026-09-16) §Assign to me fix — เจอบั๊กจริง: ปุ่ม "Assign to me" ไม่โผล่ให้พนักงานทั่วไป (ไม่ใช่ owner/editor โปรเจกต์) เลย
+// ทั้งที่ตั้งใจให้เป็นแบบ Jira (ใครก็หยิบงานว่างในโปรเจกต์ตัวเองไปทำได้) — เปิดช่องทางแคบๆ ให้ self-claim งานว่าง + self-dispatch ได้ โดยไม่กระทบสิทธิ์แก้ไข field อื่น/จ่ายงานให้คนอื่น
+describe('§Assign to me fix — self-claim งานว่าง + self-dispatch สำหรับพนักงานที่ไม่ใช่ editor โปรเจกต์', () => {
+  // ตั้ง u_pond เป็นสมาชิกโปรเจกต์ด้วยตำแหน่ง "ดูอย่างเดียว" (ไม่มีสิทธิ์แก้ไข) — จำลองพนักงานทั่วไปที่ไม่ใช่ editor
+  async function setupViewerProject(owner: string) {
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P-assign-to-me', type: 'project' }), env)).json()) as { id: string }
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_view_only' }), env)
+    const g1 = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'General' }), env)).json()) as { id: string }
+    return { p, g1 }
+  }
+
+  it('พนักงานตำแหน่ง "ดูอย่างเดียว" รับงานว่างเองได้ (self-claim)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupViewerProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานว่าง' }), env)).json()) as { id: string; assigneeId: string | null }
+    expect(t.assigneeId).toBeNull()
+
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { assigneeId: 'u_pond' }), env)
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { assigneeId: string | null; assignedBy: string | null }
+    expect(updated.assigneeId).toBe('u_pond')
+    expect(updated.assignedBy).toBe('u_pond') // self-claim = self-dispatched signal (assignedBy===assigneeId)
+  })
+
+  it('self-claim ต้องส่งแค่ assigneeId อย่างเดียว — แถม field อื่นมาด้วย → 403 (กันยืมช่องทางนี้ไปแก้ field อื่น)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupViewerProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานว่าง' }), env)).json()) as { id: string }
+
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { assigneeId: 'u_pond', title: 'พยายามแก้ชื่อ' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('งานมีคนอื่นเป็นเจ้าของอยู่แล้ว (ไม่ใช่งานว่าง) — พนักงาน "ดูอย่างเดียว" แย่งรับเองไม่ได้ (403)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await createDb(env.DB).insert(users).values({ id: 'u_nam', email: 'nam@example-co.test', name: 'น้ำ', role: 'member' }).onConflictDoNothing()
+    const { p, g1 } = await setupViewerProject(owner)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_nam', positionId: 'pos_view_only' }), env)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานมีเจ้าของแล้ว', assigneeId: 'u_nam' }), env)).json()) as { id: string }
+
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { assigneeId: 'u_pond' }), env)
+    expect(res.status).toBe(403)
+  })
+
+  it('self-claim แล้วกด "จ่ายงาน" ให้ตัวเองต่อได้เลย ไม่ต้องมีสิทธิ์ editor โปรเจกต์', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupViewerProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานว่าง' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { assigneeId: 'u_pond' }), env)
+
+    const res = await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    expect(res.status).toBe(200)
+  })
+
+  it('จ่ายงานให้ "คนอื่น" (ไม่ใช่ตัวเอง) ยังต้องมีสิทธิ์ editor โปรเจกต์เหมือนเดิม — self-dispatch bypass ไม่หลุดไปกระทบเคสนี้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await createDb(env.DB).insert(users).values({ id: 'u_nam', email: 'nam@example-co.test', name: 'น้ำ', role: 'member' }).onConflictDoNothing()
+    const { p, g1 } = await setupViewerProject(owner)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_nam', positionId: 'pos_view_only' }), env)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานจ่ายให้คนอื่น', assigneeId: 'u_nam' }), env)).json()) as { id: string }
+
+    const res = await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    expect(res.status).toBe(403)
+  })
+})

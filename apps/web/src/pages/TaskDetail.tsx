@@ -403,6 +403,7 @@ export function TaskDetailPage() {
   const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
   const [comment, setComment] = useState('')
   const [dispatching, setDispatching] = useState(false)
+  const [claiming, setClaiming] = useState(false)
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ตัด Auto-save ทั้งหมด: ทุกฟิลด์ทั่วไปแก้เป็น draft ในเครื่องก่อน ไม่ยิง PATCH จนกว่าจะกด "บันทึกเพื่ออัปเดตข้อมูล"
   // key มีอยู่ใน draft = ผู้ใช้แตะฟิลด์นั้นแล้ว (แม้ค่าจะเป็น null/ว่างก็ตาม) — ไม่มี key = ยังไม่แตะ ใช้ค่าจาก server (t) ตรงๆ ผ่าน draftVal()
   const [draft, setDraft] = useState<Partial<TaskDraftFields>>({})
@@ -549,6 +550,21 @@ export function TaskDetailPage() {
       : assigneeOptsBase
   // Pronista §Workspace/Task Jira-alignment (3.1, 2026-09-04) — "Assign to me" เหมือน Jira: ตั้ง draft ผู้รับผิดชอบ = ตัวเอง (ยังไม่ยิง PATCH จนกด "บันทึก" ตาม flow draft ใหม่)
   const assignToMe = () => { if (user) setDraftField('assigneeId', user.id) }
+  // (2026-09-16 bug fix) — เดิมปุ่ม "Assign to me" อยู่ใน canEdit && !isAssigneeOnly เท่านั้น ทำให้พนักงานทั่วไป (ไม่ใช่ owner/editor โปรเจกต์) ไม่มีทางรับงานว่างเองได้เลย
+  // ขัดกับ Jira-style self-serve ที่ตั้งใจไว้ (ใครก็หยิบงานว่างไปทำได้) — เพิ่มปุ่มแยกสำหรับคนกลุ่มนี้โดยเฉพาะ ยิง PATCH ทันที (ไม่ผ่าน draft เพราะพวกเขาไม่มีปุ่ม "บันทึก" ให้กดอยู่แล้ว) backend เปิดช่องทางแคบๆ ให้เฉพาะ self-claim งานว่างเท่านั้น (ดู isSelfClaim ใน PATCH /tasks/:id)
+  const claimTask = async () => {
+    if (!user || claiming) return
+    setClaiming(true)
+    try {
+      await api.patch(`/api/tasks/${t.id}`, { assigneeId: user.id })
+      await reload()
+      toast('รับงานนี้เป็นของตัวเองแล้ว — กด "จ่ายงาน" ต่อเพื่อเริ่มทำได้เลย')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'รับงานไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    } finally {
+      setClaiming(false)
+    }
+  }
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: กดแล้วงานถึงจะโผล่ในหน้า "งานของฉัน" ของ assignee
   // (2026-08-25) กัน busy ระหว่างรอ reload — ดับเบิลคลิกปุ่มก่อนหน้านี้ยิง dispatch ซ้ำ ทำให้แจ้งเตือนเบิ้ล
   const dispatch = async () => {
@@ -975,11 +991,12 @@ export function TaskDetailPage() {
                       {item.done && <Check className="w-3 h-3" />}
                     </button>
                     <span className={`flex-1 ${item.done ? 'text-muted line-through' : 'text-body'}`}>{item.text}</span>
-                    {canEdit && !isAssignee && <button onClick={() => void removeChecklistItem(item.id)} className="opacity-0 group-hover:opacity-100 text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
+                    {/* (2026-09-16 fix) — เดิมใช้ !isAssignee เฉยๆ (ไม่ใช่ !isAssigneeOnly) ทำให้ปุ่มนี้หายไปทันทีหลัง self-assign แล้วบันทึก (isAssignee เปลี่ยนเป็น true แต่ owner/editor ยังแก้ไขได้อยู่) mirror fix เดียวกับ canEditDispatcherNotes บรรทัด 758 */}
+                    {canEdit && !isAssigneeOnly && <button onClick={() => void removeChecklistItem(item.id)} className="opacity-0 group-hover:opacity-100 text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
                   </div>
                 ))}
               </div>
-              {canEdit && !isAssignee && (
+              {canEdit && !isAssigneeOnly && (
                 <div className="flex gap-2">
                   <input value={newChecklistText} onChange={(e) => setNewChecklistText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addChecklistItem() }} placeholder="+ เพิ่มเกณฑ์…" className={`${input} flex-1`} />
                   <button onClick={() => void addChecklistItem()} disabled={!newChecklistText.trim()} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
@@ -1040,7 +1057,8 @@ export function TaskDetailPage() {
                   </div>
                 ))}
               </div>
-              {canEdit && !isAssignee && (
+              {/* (2026-09-16 bug fix) — เจอบั๊กจริง: กด "Assign to me" ตัวเองแล้วบันทึก ปุ่มเพิ่มงานย่อยหายไปทันที ทั้งที่ยังเป็น owner/editor โปรเจกต์อยู่ — เดิมเช็ค !isAssignee เฉยๆ (เป็น true ทันทีที่ self-assign) ต้องเช็ค !isAssigneeOnly แทน (isAssigneeOnly = false เมื่อยังมีสิทธิ์ editor/owner โปรเจกต์อยู่ด้วย ต่อให้เป็น assignee เอง) */}
+              {canEdit && !isAssigneeOnly && (
                 <div className="flex flex-wrap gap-2">
                   <input value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="+ เพิ่มงานย่อย…" className={`${input} flex-1`} />
                   <input value={newSubtaskCode} onChange={(e) => setNewSubtaskCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="รหัส (ไม่บังคับ)" title="ตั้งรหัสงานย่อยเอง — เว้นว่างให้ระบบออกเลขอัตโนมัติ" className={`${input} w-full sm:w-32 font-mono`} />
@@ -1107,7 +1125,7 @@ export function TaskDetailPage() {
                         <div className="px-3 pt-1.5 pb-1 text-[10px] font-semibold text-muted uppercase tracking-wide">ไฟล์แนบทั่วไป</div>
                         <button onClick={() => { setAttachMenuOpen(false); fileRef.current?.click() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">📎 อัปโหลดไฟล์แนบ</button>
                         <button onClick={() => { setAttachMenuOpen(false); void addLink() }} className="w-full text-left px-3 py-1.5 text-body hover:bg-hover">🔗 แนบลิงก์ (Google Docs/Figma/Canva)</button>
-                        {!isAssignee && (
+                        {!isAssigneeOnly && (
                           <>
                             <div className="border-t border-border-subtle my-1" />
                             {/* Pronista §Task attachments (2026-09-01) — แยกกลุ่มให้ชัดจากไฟล์แนบทั่วไปด้านบน: 3 ปุ่มนี้สร้าง/ผูก "เอกสาร" จริงในระบบเอกสารบริษัท (มีเลขที่/เวอร์ชัน/ประวัติ ค้นหาเจอในเมนูเอกสาร) ไม่ใช่แค่ไฟล์แนบลอยๆ ของ task นี้ */}
@@ -1132,14 +1150,14 @@ export function TaskDetailPage() {
                       <a href={d.kind === 'link' && d.externalUrl ? d.externalUrl : `/docs/${d.id}`} target="_blank" rel="noreferrer" className="flex-1 min-w-0 truncate text-body hover:underline flex items-center gap-1">
                         {d.title} <ExternalLink className="w-3 h-3 text-muted shrink-0" />
                       </a>
-                      {canEdit && !isAssignee && <button onClick={() => void unlinkDocument(d.linkId)} title="เลิกผูก" className="text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
+                      {canEdit && !isAssigneeOnly && <button onClick={() => void unlinkDocument(d.linkId)} title="เลิกผูก" className="text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {!isAssignee && (t.originDocType || t.parent || (trace && (trace.upstream.length > 0 || trace.downstream.length > 0))) && (
+            {!isAssigneeOnly && (t.originDocType || t.parent || (trace && (trace.upstream.length > 0 || trace.downstream.length > 0))) && (
               <div>
                 <div className="text-xs font-medium text-muted mb-2 flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5" /> การอ้างอิงเอกสาร</div>
                 <div className="space-y-2">
@@ -1196,7 +1214,7 @@ export function TaskDetailPage() {
             <div>
               <div className="text-xs font-medium text-muted mb-2 flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5" /> รายการที่เชื่อมโยง
-                {canEdit && !isAssignee && (
+                {canEdit && !isAssigneeOnly && (
                   <button onClick={() => setLinkPickerOpen(true)} className="ml-auto flex items-center gap-1 text-[11px] text-brand-600 hover:underline">
                     <Plus className="w-3 h-3" /> เชื่อมโยงรายการ
                   </button>
@@ -1214,7 +1232,7 @@ export function TaskDetailPage() {
                       </button>
                       {r.kind === 'defect' && <span className="text-[9px] text-danger-600">🐛</span>}
                       {r.kind === 'cr' && <span className="text-[9px] text-info-700">CR</span>}
-                      {canEdit && !isAssignee && r.direction === 'outgoing' && (
+                      {canEdit && !isAssigneeOnly && r.direction === 'outgoing' && (
                         <button onClick={() => void removeReference(r.refId)} title="เลิกเชื่อมโยง" className="text-border hover:text-danger-600">
                           <X className="w-3 h-3" />
                         </button>
@@ -1257,8 +1275,15 @@ export function TaskDetailPage() {
                         </button>
                       )}
                     </div>
+                  ) : t.assigneeName ? (
+                    <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
                   ) : (
-                    t.assigneeName && <span className="w-fit bg-white text-soft px-2 py-1.5 rounded-lg text-xs">{t.assigneeName}</span>
+                    // (2026-09-16 bug fix) — งานว่าง + คนดูไม่ใช่ owner/editor โปรเจกต์ (เลยไม่เห็น dropdown เลือกผู้รับผิดชอบด้านบน) แต่ยังเป็นพนักงาน/เจ้าของบริษัทอยู่ → ให้รับงานเองได้เลยแบบ Jira
+                    user && user.role !== 'vendor' && user.role !== 'guest' && (
+                      <button type="button" onClick={() => void claimTask()} disabled={claiming} className="w-fit text-[11px] text-brand-700 hover:text-brand-800 underline decoration-dotted disabled:opacity-40">
+                        Assign to me
+                      </button>
+                    )
                   )}
 
                   {/* Pronista §Workspace/Task Jira-alignment (2026-09-07) — "Reporter" แบบ Jira: ต้องมีเสมอ ไม่ซ่อน — ใช้ผู้จ่ายงานจริง (assignedBy) ก่อน ถ้าไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ) fallback เป็นผู้สร้างงานแทน (createdBy) แสดงอย่างเดียว แก้ไม่ได้ตรงนี้ */}
@@ -1573,8 +1598,10 @@ export function TaskDetailPage() {
               </div>
             )}
 
-            {/* Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น (ไม่ใช่ assignee-only) ซ่อนถ้าปิด/ยกเลิกไปแล้ว */}
-            {canEdit && !isAssigneeOnly && t.status !== 'done' && t.status !== 'cancelled' && (
+            {/* Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น (ไม่ใช่ assignee-only) ซ่อนถ้าปิด/ยกเลิกไปแล้ว
+                (2026-09-16 fix) — งานที่ไม่ผูกโปรเจกต์ (t.projectId ว่าง) backend /tasks/:id/cancel บังคับต้องเป็น owner บริษัทจริงเท่านั้น (เข้มกว่า canEditTask ทั่วไปที่ยอม assignee/editor)
+                แต่ t.myRole ฝั่งนี้ถูกตั้งเป็น 'editor' เหมารวมทุกคนตอนไม่มีโปรเจกต์ (task-detail.ts) ทำให้ canEdit เป็น true ผิดๆ สำหรับพนักงานทั่วไป กดแล้วโดน 403 — เพิ่มเช็ค role จริงจาก user ตรงๆ กันไว้อีกชั้นเฉพาะกรณีนี้ */}
+            {canEdit && !isAssigneeOnly && t.status !== 'done' && t.status !== 'cancelled' && (t.projectId || user?.role === 'owner') && (
               <div className="border-t border-border-subtle pt-4">
                 <button onClick={() => void cancelTask()} className="w-full flex items-center justify-center gap-1.5 text-sm border border-danger-200 text-danger-600 hover:bg-danger-50 px-3 py-2 rounded-lg">
                   <XCircle className="w-4 h-4" /> ยกเลิกงาน

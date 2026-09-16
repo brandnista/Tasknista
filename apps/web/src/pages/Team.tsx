@@ -1,6 +1,7 @@
-import { Calendar, MessagesSquare, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
+import { Calendar, MessageCircle, MessagesSquare, Paperclip, Phone, Plus, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
 import { MeetingsTab } from '../components/MeetingsTab'
@@ -42,6 +43,17 @@ interface UserOpt {
   id: string
   name: string
 }
+// Pronista §Team Directory (2026-09-16) — รายชื่อพนักงาน/พาร์ทเนอร์ ดึงจาก /api/users ตัวเดียวกับ NewDmModal แค่ใช้ฟิลด์เพิ่ม (role/phone/ตำแหน่ง) มาจัดกลุ่ม+แสดงผล
+interface DirectoryUser {
+  id: string
+  name: string
+  role: 'owner' | 'member' | 'vendor' | 'guest'
+  avatarUrl: string | null
+  phone: string | null
+  jobTitle: string | null
+  businessName: string | null
+  specialty: string | null
+}
 
 const fmtTime = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
@@ -74,6 +86,15 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
   const channels = useMemo(() => (data ?? []).sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0)), [data])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [newDmOpen, setNewDmOpen] = useState(false)
+  // Pronista §Team Directory (2026-09-16) — สลับระหว่างลิสต์ห้องสนทนาเดิม กับรายชื่อพนักงาน/พาร์ทเนอร์ใหม่ (แท็บ "แชท" เดิมไม่แตะเลย)
+  const [subTab, setSubTab] = useState<'messages' | 'directory'>('messages')
+  // เปิดแชทจากรายชื่อ — เรียก POST /chat/channels แบบเดิมทุกอย่าง (idempotent อยู่แล้ว มีห้องเดิมก็คืนห้องเดิม) แล้วสลับกลับมาแท็บ "แชท" พร้อมเลือกห้องนั้นให้เลย
+  const startDmFromDirectory = async (userId: string) => {
+    const ch = await api.post<{ id: string }>('/api/chat/channels', { kind: 'dm', userId })
+    setSubTab('messages')
+    await reload()
+    setSelectedId(ch.id)
+  }
   // Pronista §Team Chat mobile — auto-เลือกห้องแรกแค่ตอนโหลดครั้งแรกเท่านั้น (เช็ค data !== null กันไม่ให้ทับค่า null ที่ผู้ใช้กด "‹" ย้อนกลับมาเองบนมือถือ)
   // Pronista §Team Chat (2026-08-27) — มาจากแจ้งเตือน chat_mention/chat_message (ดู Team.tsx ?channel=) เลือกห้องนั้นแทนห้องแรกถ้ามี
   const autoSelectedRef = useRef(false)
@@ -97,7 +118,23 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
   }
 
   return (
-    <div className="h-full flex">
+    <div className="h-full flex flex-col">
+      {/* Pronista §Team Directory (2026-09-16) — สลับ "แชท" (ของเดิม) / "รายชื่อ" (ใหม่) — บาร์นี้อยู่คงที่ไม่ว่าจะสลับไปฝั่งไหน */}
+      <div className="flex bg-divider p-0.5 gap-0.5 m-2 rounded-lg text-xs font-medium w-fit shrink-0">
+        <button onClick={() => setSubTab('messages')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${subTab === 'messages' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <MessagesSquare className="w-3.5 h-3.5" /> แชท
+        </button>
+        <button onClick={() => setSubTab('directory')} className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 ${subTab === 'directory' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>
+          <Users className="w-3.5 h-3.5" /> รายชื่อ
+        </button>
+      </div>
+
+      {subTab === 'directory' ? (
+        <div className="flex-1 min-h-0">
+          <DirectoryPanel onStartChat={(userId) => void startDmFromDirectory(userId)} />
+        </div>
+      ) : (
+      <div className="flex-1 min-h-0 flex">
       {/* Pronista §Team Chat mobile fix (2026-09-03) — เดิม style={{display: selected ? undefined : 'flex'}} ไม่เคยซ่อน panel นี้จริง (undefined = fallback ไปใช้ className flex เดิมอยู่ดี) ทำให้แผงห้องสนทนา + แผงข้อความโชว์ซ้อนกันพร้อมกันบนมือถือ ล้นจอ */}
       <div className={`w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white flex-col overflow-y-auto ${selected ? 'hidden sm:flex' : 'flex'}`}>
         <div className="flex items-center justify-between px-3 py-3 border-b border-border-subtle">
@@ -122,6 +159,69 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
         )}
       </div>
       {newDmOpen && <NewDmModal onClose={() => setNewDmOpen(false)} onCreated={(id) => { setNewDmOpen(false); void reload(); setSelectedId(id) }} />}
+      </div>
+      )}
+    </div>
+  )
+}
+
+/** Pronista §Team Directory (2026-09-16) — รายชื่อพนักงาน+พาร์ทเนอร์เรียงเป็นแถว จัดกลุ่มตามประเภท คลิกแถวเปิดเมนูแชท/โทร (ไม่ใช้ hover — ไม่มี hover จริงบนมือถือ ใช้ ActionMenu แบบเดียวกับที่อื่นในระบบแทน)
+ * ไม่แตะฟีเจอร์เดิม (ลิสต์ห้องสนทนา/สร้างกลุ่ม) เลย — เป็นแค่ทางเข้าเพิ่มสำหรับเริ่มแชท 1:1 เร็วขึ้น ใช้ endpoint เดิมทุกอย่าง (POST /chat/channels kind:'dm' — idempotent มีห้องเดิมอยู่แล้วก็เปิดห้องเดิม) */
+function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void }) {
+  const { data } = useLoad<DirectoryUser[]>(() => api.get('/api/users'))
+  const [search, setSearch] = useState('')
+  const [menu, setMenu] = useState<{ x: number; y: number; u: DirectoryUser } | null>(null)
+
+  const q = search.trim().toLowerCase()
+  const matches = (u: DirectoryUser) => !q || u.name.toLowerCase().includes(q)
+  const staff = (data ?? []).filter((u) => u.role === 'member' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
+  const partners = (data ?? []).filter((u) => u.role === 'vendor' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
+
+  const openMenu = (e: React.MouseEvent, u: DirectoryUser) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    setMenu({ x: r.left, y: r.bottom + 4, u })
+  }
+  const menuItems = (u: DirectoryUser): ActionMenuItem[] => [
+    { label: 'แชท', icon: <MessageCircle className="w-4 h-4" />, onClick: () => onStartChat(u.id) },
+    {
+      label: 'โทร',
+      icon: <Phone className="w-4 h-4" />,
+      onClick: () => { window.location.href = `tel:${u.phone}` },
+      disabled: !u.phone,
+      disabledReason: 'ยังไม่มีเบอร์โทรในระบบ',
+    },
+  ]
+
+  const Row = ({ u }: { u: DirectoryUser }) => (
+    <button onClick={(e) => openMenu(e, u)} className="w-full flex items-center gap-3 px-3 py-2 hover:bg-hover rounded-lg text-left">
+      <Avatar name={u.name} avatarUrl={u.avatarUrl} className="w-8 h-8 text-xs shrink-0" colorClass={avatarColor(u.name)} />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-body truncate">{u.name}</div>
+        <div className="text-[11px] text-muted truncate">{u.jobTitle ?? u.specialty ?? u.businessName ?? (u.role === 'vendor' ? 'พาร์ทเนอร์' : 'พนักงาน')}</div>
+      </div>
+    </button>
+  )
+
+  return (
+    <div className="h-full overflow-y-auto p-3 max-w-xl mx-auto">
+      <div className="relative mb-3">
+        <Search className="w-3.5 h-3.5 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="w-full text-sm bg-hover rounded-lg pl-8 pr-3 py-2 focus:outline-hidden" />
+      </div>
+
+      <div className="text-[11px] font-medium text-muted uppercase tracking-wide px-1 mb-1">พนักงาน · {staff.length}</div>
+      <div className="space-y-0.5 mb-4">
+        {staff.map((u) => <Row key={u.id} u={u} />)}
+        {staff.length === 0 && <div className="text-center text-xs text-muted py-4">ไม่พบพนักงาน</div>}
+      </div>
+
+      <div className="text-[11px] font-medium text-muted uppercase tracking-wide px-1 mb-1">พาร์ทเนอร์ · {partners.length}</div>
+      <div className="space-y-0.5">
+        {partners.map((u) => <Row key={u.id} u={u} />)}
+        {partners.length === 0 && <div className="text-center text-xs text-muted py-4">ไม่พบพาร์ทเนอร์</div>}
+      </div>
+
+      {menu && <ActionMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={menuItems(menu.u)} />}
     </div>
   )
 }

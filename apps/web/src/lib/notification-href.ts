@@ -23,5 +23,8 @@ export function notificationHref(n: NotificationLike): string | undefined {
   // Pronista §Notification href fix (2026-09-11) — vault_accessed ไม่มี taskId/projectId/... เลย ตกไปที่ generic fallback ล่างสุดแล้วได้ undefined คลิกแล้วไม่ไปไหนเลย
   if (n.type === 'vault_accessed') return '/vault'
   if (n.projectId) return n.taskId ? `/projects/${n.projectId}?task=${n.taskId}` : `/projects/${n.projectId}`
+  // (2026-09-16 bug fix) — งานที่ไม่ผูกโปรเจกต์ (คีย์ตรงใน Workspace) มี taskId แต่ไม่มี projectId เลย เดิมตกไปถึงตรงนี้แล้วได้ undefined
+  // คลิกแจ้งเตือนแล้วไม่ไปไหนเลย ทั้งที่ /tasks/:id เข้าได้ตรงๆ อยู่แล้วไม่ต้องพึ่ง projectId (route แยกต่างหาก ไม่ได้ซ้อนอยู่ใต้ /projects)
+  if (n.taskId) return `/tasks/${n.taskId}`
   return undefined
 }

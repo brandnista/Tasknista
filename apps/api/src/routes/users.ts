@@ -9,6 +9,7 @@ export const userRoutes = new Hono<AppEnv>()
 
   // รายชื่อ user active — ใช้กับ assignee picker (ไม่มีข้อมูลเงิน)
   // Pronista §Meeting Attendee Filter (2026-09-02) — เพิ่ม email/jobTitle/businessName/specialty ให้พอ disambiguate ชื่อซ้ำได้ตอนเลือกผู้เข้าร่วมประชุม (แสดง "[ชื่อ] - [ตำแหน่ง/สังกัด] ([อีเมล])")
+  // Pronista §Team Directory (2026-09-16) — เพิ่ม phone ให้แท็บ "รายชื่อ" ใช้ทำปุ่ม "โทร" (tel: link) — ฟิลด์เดิมมีอยู่แล้วในตาราง แค่ไม่เคย select ออกมาจุดนี้
   .get('/users', async (c) => {
     const db = createDb(c.env.DB)
     const list = await db
@@ -18,6 +19,7 @@ export const userRoutes = new Hono<AppEnv>()
         role: users.role,
         avatarUrl: users.avatarUrl,
         email: users.email,
+        phone: users.phone,
         jobTitle: users.jobTitle,
         businessName: users.businessName,
         specialty: users.specialty,

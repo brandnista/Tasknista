@@ -523,7 +523,13 @@ export const taskRoutes = new Hono<AppEnv>()
     // ใช้ร่วมกัน กัน query ซ้ำ (เดิมแต่ละฟังก์ชันไปคำนวณเองแยกกัน กรณี member ที่แก้งานคนอื่น = คำนวณซ้ำ 2 รอบต่อ 1 คำขอ)
     const permissions =
       before.projectId && me.role === 'member' ? await getProjectPermissions(db, before.projectId, me.id, me.role) : undefined
-    if (!(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Assign to me fix (2026-09-16) — เดิม canEditTask ไม่มีทางผ่านให้พนักงานที่ไม่ใช่ editor/owner โปรเจกต์เลย
+    // แม้แต่ตอนจะ "รับงานที่ยังไม่มีใครรับ" (self-claim งานว่าง) ทั้งที่ควรทำได้แบบ Jira (ใครก็หยิบงานว่างในโปรเจกต์ตัวเองไปทำได้)
+    // เปิดช่องทางแคบๆ ตรงนี้: ยอมผ่านเฉพาะกรณี PATCH มีแค่ assigneeId อย่างเดียว, งานยังไม่มีคนรับ (before.assigneeId ว่าง), และตั้งเป็นตัวเอง (กันไม่ให้ยืมช่องนี้ไปแก้ field อื่น/มอบหมายให้คนอื่นแทนได้)
+    // เช็คสิทธิ์ว่าเป็นสมาชิกโปรเจกต์จริงยังอยู่ต่อด้านล่างเหมือนเดิม (บรรทัด assignee_not_eligible) ไม่ได้ยกเว้นตรงนั้น
+    const patchKeys = Object.keys(body.data).filter((k) => k !== 'notifyOnUpdate' && k !== 'expectedVersion')
+    const isSelfClaim = !before.assigneeId && patchKeys.length === 1 && patchKeys[0] === 'assigneeId' && body.data.assigneeId === me.id
+    if (!isSelfClaim && !(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
     // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ห้ามตั้ง status เป็น 'rejected'/'cancelled' ตรงๆ ผ่าน PATCH ทั่วไปเด็ดขาด ต้องผ่าน /tasks/:id/reject (ระบบตั้งเองตอน assignee ปฏิเสธ) หรือ /tasks/:id/cancel (บังคับเหตุผล) เท่านั้น
     // กันย้อนกลับไปเป็นช่องโหว่แบบเดียวกับที่เพิ่งแก้ createdBy — ถ้าปล่อยให้ dropdown อิสระตั้งตรงได้ จะข้ามการบังคับเหตุผลไปเลย
     if (body.data.status === 'rejected' || body.data.status === 'cancelled')
@@ -537,7 +543,8 @@ export const taskRoutes = new Hono<AppEnv>()
     }
     const isAssigneeOnly = await isAssigneeOnlyEditor(db, before, me, permissions)
     // Pronista §Position-based permission — ตัวอย่าง granular action: คนที่แก้ได้เพราะเป็น editor ของโปรเจกต์ (ไม่ใช่แก้งานตัวเองแบบ assignee-only) ต้องเช็ค actions.task.edit ของตำแหน่งด้วย
-    if (before.projectId && !isAssigneeOnly && me.role === 'member') {
+    // (2026-09-16 fix) — ยกเว้น self-claim ด้วยเหตุผลเดียวกับ canEditTask ด้านบน (isAssigneeOnlyEditor เช็ค before.assigneeId===me.id ซึ่งยังเป็น false ตอน self-claim เพราะยังไม่มีใครเป็น assignee เลย ไม่งั้นเช็คนี้จะ 403 ซ้ำหลังจากที่เพิ่งยกเว้นไปแล้วข้างบน)
+    if (before.projectId && !isAssigneeOnly && !isSelfClaim && me.role === 'member') {
       if (!permissions!.actions.task.edit) return c.json({ error: 'forbidden' }, 403)
     }
     // Pronista §Back to Basic (ต่อยอด) — หลังจ่ายงานแล้ว assignee ที่ผ่าน canEditTask มาได้เพราะเป็นเจ้าของงานเท่านั้น (ไม่ใช่ editor ของโปรเจกต์)
@@ -817,11 +824,15 @@ export const taskRoutes = new Hono<AppEnv>()
     if (!before.assigneeId) return c.json({ error: 'assignee_required', message: 'ต้องเลือกผู้รับผิดชอบก่อนถึงจะจ่ายงานได้' }, 400)
     // (2026-08-25) กันจ่ายงานซ้ำ — เดิมไม่เช็คจุดนี้ กดปุ่ม "จ่ายงาน" ซ้ำ/ดับเบิลคลิก (ก่อน UI reload ทัน) ยิง insert notification ซ้ำทุกครั้งไม่มีเพดาน
     if (before.dispatchedAt) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 400)
-    if (before.projectId) {
-      const role = await getProjectRole(db, before.projectId, me.id, me.role)
-      if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
-    } else if (me.role !== 'owner') {
-      return c.json({ error: 'forbidden' }, 403)
+    // (2026-09-16 fix) — เดิมงานที่ self-claim ผ่านปุ่ม "Assign to me" ใหม่ (เปิดให้พนักงานทั่วไปที่ไม่ใช่ editor โปรเจกต์รับงานว่างเองได้แล้ว — ดู PATCH /tasks/:id ด้านบน)
+    // มาถึงจุดนี้แล้วกดจ่ายงาน(ให้ตัวเอง)ต่อไม่ได้เลย เพราะเช็คนี้ยังบังคับ canEditProject อยู่ ทั้งที่จ่ายให้ตัวเอง (ไม่ใช่จ่ายให้คนอื่น) ความเสี่ยงต่างกันมาก — เพิ่มทางลัดให้ assignee จ่ายงานให้ตัวเองได้เสมอ
+    if (before.assigneeId !== me.id) {
+      if (before.projectId) {
+        const role = await getProjectRole(db, before.projectId, me.id, me.role)
+        if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+      } else if (me.role !== 'owner') {
+        return c.json({ error: 'forbidden' }, 403)
+      }
     }
     // Pronista §Task lifecycle accept step — dispatch ตั้งแค่ dispatchedAt เท่านั้น ไม่แตะ status (ต้องรอ assignee กด "รับงาน" เองก่อนถึงจะเป็น on_processing)
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB (ไม่ใช่แค่ check-then-act ข้างบน) กัน race จากการกดซ้ำ/พร้อมกันจริงๆ
