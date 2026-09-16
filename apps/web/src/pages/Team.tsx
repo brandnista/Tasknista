@@ -224,6 +224,8 @@ function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void
 
   const q = search.trim().toLowerCase()
   const matches = (u: DirectoryUser) => !q || u.name.toLowerCase().includes(q)
+  // (2026-09-16 fix) — เดิมรายชื่อกรองเหลือแค่ member/vendor ไม่มี Admin เลย ทั้งที่หน้าสร้างกลุ่มแชท (NewDmModal) ดึง /api/users ตรงๆ ไม่กรอง role เห็น Admin อยู่แล้ว — ทำให้สองที่ไม่ตรงกัน เพิ่มกลุ่ม Admin ให้ตรงกัน
+  const admins = (data ?? []).filter((u) => u.role === 'owner' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
   const staff = (data ?? []).filter((u) => u.role === 'member' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
   const partners = (data ?? []).filter((u) => u.role === 'vendor' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
 
@@ -232,7 +234,7 @@ function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void
       <Avatar name={u.name} avatarUrl={u.avatarUrl} className="w-8 h-8 text-xs shrink-0" colorClass={avatarColor(u.name)} />
       <div className="min-w-0 flex-1">
         <div className="text-sm text-body truncate">{u.name}</div>
-        <div className="text-[11px] text-muted truncate">{u.jobTitle ?? u.specialty ?? u.businessName ?? (u.role === 'vendor' ? 'พาร์ทเนอร์' : 'พนักงาน')}</div>
+        <div className="text-[11px] text-muted truncate">{u.jobTitle ?? u.specialty ?? u.businessName ?? (u.role === 'vendor' ? 'พาร์ทเนอร์' : u.role === 'owner' ? 'Admin' : 'พนักงาน')}</div>
       </div>
       <button onClick={() => onStartChat(u.id)} title={`แชทกับ ${u.name}`} className="shrink-0 p-1.5 rounded-lg text-dim hover:text-brand-700 hover:bg-brand-50 opacity-70 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         <MessageCircle className="w-4 h-4" />
@@ -246,6 +248,12 @@ function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void
       <div className="relative mb-3">
         <Search className="w-3.5 h-3.5 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="w-full text-sm bg-hover rounded-lg pl-8 pr-3 py-2 focus:outline-hidden" />
+      </div>
+
+      <div className="text-[11px] font-medium text-muted uppercase tracking-wide px-1 mb-1">Admin · {admins.length}</div>
+      <div className="space-y-0.5 mb-4">
+        {admins.map((u) => <Row key={u.id} u={u} />)}
+        {admins.length === 0 && <div className="text-center text-xs text-muted py-4">ไม่พบ Admin</div>}
       </div>
 
       <div className="text-[11px] font-medium text-muted uppercase tracking-wide px-1 mb-1">พนักงาน · {staff.length}</div>
