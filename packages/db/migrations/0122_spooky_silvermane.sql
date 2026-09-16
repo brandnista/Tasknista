@@ -1,0 +1,1 @@
+ALTER TABLE `chat_messages` ADD `mentioned_user_ids` text;

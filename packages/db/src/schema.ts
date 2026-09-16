@@ -2026,6 +2026,9 @@ export const chatMessages = sqliteTable(
       .references(() => users.id),
     body: text('body').notNull(),
     parentMessageId: text('parent_message_id').references((): AnySQLiteColumn => chatMessages.id),
+    // Pronista §Chat @mention (2026-09-16) — เก็บ userId ที่ถูก mention จริงไว้แยกจาก body (ข้อความยังเป็น "@ชื่อ" plain text ตามที่พิมพ์)
+    // กันชื่อชนกัน/เปลี่ยนชื่อทีหลังแล้ว highlight ผิดคน — ใช้คู่กับ regex ไฮไลต์ตอน render (ดู chat.ts)
+    mentionedUserIds: text('mentioned_user_ids', { mode: 'json' }).$type<string[]>(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

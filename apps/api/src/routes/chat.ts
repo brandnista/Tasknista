@@ -129,6 +129,31 @@ chatRoutes
     return c.json(created, 201)
   })
 
+  // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้องนี้ (id/name/avatarUrl/lastReadAt) ให้ frontend ใช้ทำ @mention picker + คำนวณว่าใครอ่านถึงข้อความไหนแล้ว
+  // ห้อง project ไม่มีแถว chat_channel_members มาก่อน (อ่านครั้งแรกถึงจะมี) — derive จาก project_members แทน แล้ว left-join lastReadAt เข้าไป
+  .get('/chat/channels/:id/members', teamOrMenu('team'), async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
+    if (!channel) return c.json({ error: 'not_found' }, 404)
+    if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    const readRows = await db.select().from(chatChannelMembers).where(eq(chatChannelMembers.channelId, channel.id))
+    const lastReadByUser = new Map(readRows.map((r) => [r.userId, r.lastReadAt]))
+    let memberIds: string[]
+    if (channel.kind === 'project') {
+      if (!channel.projectId) return c.json([])
+      // owner (company role) เข้าถึง/มองเห็นทุกโปรเจกต์เสมอแม้ไม่ได้ถูกเพิ่มเป็น project_members แถวจริง (bypass เดียวกับ canAccessChannel/myProjectIds) — ต้องรวมเข้ามาด้วยไม่งั้นหายจากลิสต์สมาชิก
+      const explicitMembers = (await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, channel.projectId))).map((r) => r.userId)
+      const owners = (await db.select({ id: users.id }).from(users).where(eq(users.role, 'owner'))).map((r) => r.id)
+      memberIds = [...new Set([...explicitMembers, ...owners])]
+    } else {
+      memberIds = readRows.map((r) => r.userId)
+    }
+    if (!memberIds.length) return c.json([])
+    const rows = await db.select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl }).from(users).where(inArray(users.id, memberIds))
+    return c.json(rows.map((u) => ({ ...u, lastReadAt: lastReadByUser.get(u.id) ?? null })))
+  })
+
   .get('/chat/channels/:id/messages', teamOrMenu('team'), async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -160,16 +185,21 @@ chatRoutes
     const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
     if (!channel) return c.json({ error: 'not_found' }, 404)
     if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
-    const created = (await db.insert(chatMessages).values({ channelId: channel.id, senderId: me.id, body: body.data.body }).returning())[0]!
-
-    // Pronista §Team Chat mention — ไม่เชื่อ client parse ตรงๆ ต้องเป็นสมาชิกห้องนี้จริงถึง insert แจ้งเตือนให้
-    const mentioned = [...new Set(body.data.mentionedUserIds ?? [])].filter((id) => id !== me.id)
-    for (const userId of mentioned) {
+    // Pronista §Team Chat mention — ไม่เชื่อ client parse ตรงๆ ต้องเป็นสมาชิกห้องนี้จริงถึงนับเป็น mention (กันแอบ mention คนนอกห้อง)
+    // (2026-09-16 bug fix) — เดิมเช็ค `me.role === 'owner'` (สิทธิ์ของ "คนส่ง") ไม่ใช่ของ "คนที่ถูก mention" ทำให้ owner mention ใครก็ได้แม้ไม่ได้อยู่ในห้อง/โปรเจกต์นั้นจริง — ต้องเช็คสิทธิ์ของ userId เป้าหมายเท่านั้น
+    const requested = [...new Set(body.data.mentionedUserIds ?? [])].filter((id) => id !== me.id)
+    const mentioned: string[] = []
+    for (const userId of requested) {
       const isMember =
         channel.kind === 'project'
-          ? me.role === 'owner' || !!(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, channel.projectId!), eq(projectMembers.userId, userId))).limit(1))[0]
+          ? (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0]?.role === 'owner' ||
+            !!(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, channel.projectId!), eq(projectMembers.userId, userId))).limit(1))[0]
           : !!(await db.select().from(chatChannelMembers).where(and(eq(chatChannelMembers.channelId, channel.id), eq(chatChannelMembers.userId, userId))).limit(1))[0]
-      if (!isMember) continue
+      if (isMember) mentioned.push(userId)
+    }
+    // Pronista §Chat @mention (2026-09-16) — เก็บ mentionedUserIds ที่ผ่านการเช็คสมาชิกแล้วลง DB ด้วย (ก่อนหน้านี้ใช้แค่ตอนยิงแจ้งเตือน ไม่เคย persist — frontend เลย highlight/re-render ไม่ได้หลัง reload)
+    const created = (await db.insert(chatMessages).values({ channelId: channel.id, senderId: me.id, body: body.data.body, mentionedUserIds: mentioned.length ? mentioned : null }).returning())[0]!
+    for (const userId of mentioned) {
       await notifyUser(db, { userId, type: 'chat_mention', chatChannelId: channel.id, message: `${me.name} กล่าวถึงคุณในแชท: "${body.data.body.slice(0, 80)}"` })
     }
 
@@ -260,11 +290,14 @@ chatRoutes
     const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, channelId)).limit(1))[0]
     if (!channel) return c.json({ error: 'not_found' }, 404)
     if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    const readAt = new Date()
     await db
       .insert(chatChannelMembers)
-      .values({ channelId, userId: me.id, lastReadAt: new Date() })
-      .onConflictDoUpdate({ target: [chatChannelMembers.channelId, chatChannelMembers.userId], set: { lastReadAt: new Date() } })
+      .values({ channelId, userId: me.id, lastReadAt: readAt })
+      .onConflictDoUpdate({ target: [chatChannelMembers.channelId, chatChannelMembers.userId], set: { lastReadAt: readAt } })
     await db.update(notifications).set({ isRead: true }).where(and(eq(notifications.userId, me.id), eq(notifications.chatChannelId, channelId)))
+    // Pronista §Chat read receipt (2026-09-16) — บอกคนอื่นที่เปิดห้องนี้อยู่สดๆ ว่าฉันอ่านถึงตรงนี้แล้ว (แสดงไอคอนผู้อ่านใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง)
+    await notifyChatChannel(c.env, channelId, { type: 'chat_read', userId: me.id, lastReadAt: readAt.getTime() })
     return c.json({ ok: true })
   })
 

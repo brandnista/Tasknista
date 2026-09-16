@@ -118,6 +118,57 @@ describe('Pronista §Team Chat — channels & messages', () => {
   })
 })
 
+describe('Pronista §Chat @mention + read receipt (2026-09-16)', () => {
+  it('mentionedUserIds ที่ผ่านการเช็คสมาชิกแล้ว persist ลง DB จริง (ไม่ใช่แค่ใช้ยิงแจ้งเตือนตอนส่งแล้วทิ้ง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = await makeProject(owner, 'u_pond')
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const channelId = channels.find((c) => c.projectId === p.id)!.id
+
+    // u_pond เป็นสมาชิกโปรเจกต์จริง, u_korn ไม่ใช่ — ต้อง persist แค่ u_pond
+    const sent = (await (
+      await app.request(`/api/chat/channels/${channelId}/messages`, json(owner, { body: 'แจ้ง @ปอนด์ @กร', mentionedUserIds: ['u_pond', 'u_korn'] }), env)
+    ).json()) as { mentionedUserIds: string[] | null }
+    expect(sent.mentionedUserIds).toEqual(['u_pond'])
+
+    const list = (await (await app.request(`/api/chat/channels/${channelId}/messages`, { headers: { cookie: owner } }, env)).json()) as { mentionedUserIds: string[] | null }[]
+    expect(list.find((m) => m.mentionedUserIds?.length)?.mentionedUserIds).toEqual(['u_pond'])
+  })
+
+  it('GET /members — ห้อง dm/group คืนสมาชิกจริงพร้อม lastReadAt (null ก่อนอ่าน, มีค่าหลัง POST /read)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const dm = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+
+    const before = (await (await app.request(`/api/chat/channels/${dm.id}/members`, { headers: { cookie: owner } }, env)).json()) as { id: string; lastReadAt: number | string | null }[]
+    expect(before.map((m) => m.id).sort()).toEqual(['u_owner', 'u_pond'].sort())
+    expect(before.find((m) => m.id === 'u_pond')?.lastReadAt).toBeNull()
+
+    await app.request(`/api/chat/channels/${dm.id}/read`, { method: 'POST', headers: { cookie: pond } }, env)
+    const after = (await (await app.request(`/api/chat/channels/${dm.id}/members`, { headers: { cookie: owner } }, env)).json()) as { id: string; lastReadAt: number | string | null }[]
+    expect(after.find((m) => m.id === 'u_pond')?.lastReadAt).not.toBeNull()
+  })
+
+  it('GET /members — ห้อง project (ไม่มีแถว chat_channel_members มาก่อน) derive สมาชิกจาก project_members แทน', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = await makeProject(owner, 'u_pond')
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const channelId = channels.find((c) => c.projectId === p.id)!.id
+
+    const members = (await (await app.request(`/api/chat/channels/${channelId}/members`, { headers: { cookie: owner } }, env)).json()) as { id: string }[]
+    expect(members.map((m) => m.id).sort()).toEqual(['u_owner', 'u_pond'].sort())
+  })
+
+  it('GET /members — คนที่ไม่มีสิทธิ์เข้าห้อง (ไม่ใช่สมาชิกโปรเจกต์) → 403', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test') // ไม่ได้ถูกเพิ่มเป็นสมาชิกโปรเจกต์นี้
+    const p = await makeProject(owner)
+    const channels = (await (await app.request('/api/chat/channels', { headers: { cookie: owner } }, env)).json()) as { id: string; projectId: string | null }[]
+    const channelId = channels.find((c) => c.projectId === p.id)!.id
+    expect((await app.request(`/api/chat/channels/${channelId}/members`, { headers: { cookie: pond } }, env)).status).toBe(403)
+  })
+})
+
 describe('Pronista §Team Chat — unread count badge', () => {
   async function channelUnread(cookie: string, channelId: string) {
     const list = (await (await app.request('/api/chat/channels', { headers: { cookie } }, env)).json()) as { id: string; unreadCount: number }[]

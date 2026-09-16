@@ -1,7 +1,6 @@
 import { Calendar, MessageCircle, MessagesSquare, Paperclip, Plus, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ActionMenu, type ActionMenuItem } from '../components/ActionMenu'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
 import { MeetingsTab } from '../components/MeetingsTab'
@@ -38,6 +37,49 @@ interface ChatMessage {
   createdAt: number
   editedAt: number | null
   attachments: ChatAttachment[]
+  mentionedUserIds?: string[] | null
+}
+// Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้อง ใช้ทั้งทำ @mention picker และคำนวณ read receipt (lastReadAt ต่อคน)
+interface ChannelMember {
+  id: string
+  name: string
+  avatarUrl: string | null
+  lastReadAt: number | string | null
+}
+// ตัดคำที่ไม่ใช่ตัวอักษร/ตัวเลข กันจับคำผิด (เช่น "@แพร" ไปแมตช์ในคำว่า "@แพรว")
+const MENTION_BOUNDARY = /[\p{L}\p{N}_]/u
+/** สแกน body หาว่ามีคน mention ใครบ้างจริงๆ (จับ "@ชื่อ" เทียบกับสมาชิกห้อง) — ใช้ตอนส่งข้อความ ไม่พึ่ง state สะสมที่อาจเพี้ยนถ้าผู้ใช้แก้ข้อความหลังเลือกจาก dropdown แล้ว */
+function detectMentions(text: string, members: { id: string; name: string }[]): string[] {
+  const found = new Set<string>()
+  for (const m of [...members].sort((a, b) => b.name.length - a.name.length)) {
+    const token = `@${m.name}`
+    let idx = text.indexOf(token)
+    while (idx !== -1) {
+      const nextChar = text[idx + token.length]
+      if (!nextChar || !MENTION_BOUNDARY.test(nextChar)) { found.add(m.id); break }
+      idx = text.indexOf(token, idx + 1)
+    }
+  }
+  return [...found]
+}
+/** เรนเดอร์ body พร้อมไฮไลต์ "@ชื่อ" ของคนที่ถูก mention จริง (เทียบชื่อปัจจุบันจาก members — ถ้าเปลี่ยนชื่อทีหลัง ไฮไลต์อาจไม่ตรงเป๊ะ ยอมรับได้สำหรับ v1) */
+function renderMessageBody(body: string, mentionedUserIds: string[] | null | undefined, members: { id: string; name: string }[]) {
+  if (!mentionedUserIds?.length) return body
+  const names = members.filter((m) => mentionedUserIds.includes(m.id)).map((m) => m.name).sort((a, b) => b.length - a.length)
+  if (!names.length) return body
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = new RegExp(`@(?:${escaped.join('|')})(?![\\p{L}\\p{N}_])`, 'gu')
+  const parts: (string | { key: number; text: string })[] = []
+  let lastIndex = 0
+  let key = 0
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(body))) {
+    if (match.index > lastIndex) parts.push(body.slice(lastIndex, match.index))
+    parts.push({ key: key++, text: match[0] })
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < body.length) parts.push(body.slice(lastIndex))
+  return parts.map((p) => (typeof p === 'string' ? p : <span key={p.key} className="font-semibold text-brand-700 bg-brand-50/70 rounded px-0.5">{p.text}</span>))
 }
 interface UserOpt {
   id: string
@@ -56,6 +98,14 @@ interface DirectoryUser {
 }
 
 const fmtTime = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+// Pronista §Team Chat composer (2026-09-16) — กล่องพิมพ์เดิม rows={1} ตายตัว พอพิมพ์หลายบรรทัดแล้วมองไม่เห็นข้อความตัวเองครบ (ต้อง scroll ในกล่องเล็กๆ) ปรับให้สูงขึ้นตามเนื้อหาที่พิมพ์จริง (เหมือน WhatsApp/Slack) จนถึงเพดานหนึ่งแล้วค่อย scroll
+const COMPOSER_MAX_HEIGHT = 160
+function autoResizeComposer(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
+}
 
 /** Pronista §Team Chat (2026-08-26) — เมนู "ทีม" คุยงานข้ามโปรเจกต์/DM + นัดประชุมในระบบ ไม่ต้องออกไปแอปอื่น
  * โครงหน้าเลียนแบบ MyTasks.tsx (แท็บ), WebSocket ต่อห้องเลียนแบบ Inbox.tsx (reconnect 5s, ping/pong) */
@@ -130,7 +180,7 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
       </div>
 
       {subTab === 'directory' ? (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 flex">
           <DirectoryPanel onStartChat={(userId) => void startDmFromDirectory(userId)} />
         </div>
       ) : (
@@ -165,39 +215,34 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
   )
 }
 
-/** Pronista §Team Directory (2026-09-16) — รายชื่อพนักงาน+พาร์ทเนอร์เรียงเป็นแถว จัดกลุ่มตามประเภท คลิกแถวเปิดเมนูแชท/โทร (ไม่ใช้ hover — ไม่มี hover จริงบนมือถือ ใช้ ActionMenu แบบเดียวกับที่อื่นในระบบแทน)
+/** Pronista §Team Directory (2026-09-16) — รายชื่อพนักงาน+พาร์ทเนอร์เรียงเป็นแถว จัดกลุ่มตามประเภท กดไอคอนแชทท้ายแถวเริ่มแชทได้ทันที ไม่ต้องกดเข้าแถวก่อน
+ * (เดิมกดทั้งแถวเปิดเมนู ActionMenu ให้เลือก "แชท"/"โทร" — พอตัด "โทร" ออกเหลือแค่ "แชท" ทางเดียว เมนูคั่นกลางเลยเกินจำเป็น เปลี่ยนเป็นไอคอนกดตรงแทน)
  * ไม่แตะฟีเจอร์เดิม (ลิสต์ห้องสนทนา/สร้างกลุ่ม) เลย — เป็นแค่ทางเข้าเพิ่มสำหรับเริ่มแชท 1:1 เร็วขึ้น ใช้ endpoint เดิมทุกอย่าง (POST /chat/channels kind:'dm' — idempotent มีห้องเดิมอยู่แล้วก็เปิดห้องเดิม) */
 function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void }) {
   const { data } = useLoad<DirectoryUser[]>(() => api.get('/api/users'))
   const [search, setSearch] = useState('')
-  const [menu, setMenu] = useState<{ x: number; y: number; u: DirectoryUser } | null>(null)
 
   const q = search.trim().toLowerCase()
   const matches = (u: DirectoryUser) => !q || u.name.toLowerCase().includes(q)
   const staff = (data ?? []).filter((u) => u.role === 'member' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
   const partners = (data ?? []).filter((u) => u.role === 'vendor' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
 
-  const openMenu = (e: React.MouseEvent, u: DirectoryUser) => {
-    const r = e.currentTarget.getBoundingClientRect()
-    setMenu({ x: r.left, y: r.bottom + 4, u })
-  }
-  // Pronista §Team Directory (2026-09-16) — เอาปุ่ม "โทร" ออกก่อน: tel: link แค่เปิดแอปโทรศัพท์ของเครื่อง ไม่ใช่การโทรผ่านระบบจริง (ไม่มี VoIP/รับสายในระบบ) ตามคำขอ
-  const menuItems = (u: DirectoryUser): ActionMenuItem[] => [
-    { label: 'แชท', icon: <MessageCircle className="w-4 h-4" />, onClick: () => onStartChat(u.id) },
-  ]
-
   const Row = ({ u }: { u: DirectoryUser }) => (
-    <button onClick={(e) => openMenu(e, u)} className="w-full flex items-center gap-3 px-3 py-2 hover:bg-hover rounded-lg text-left">
+    <div className="group w-full flex items-center gap-3 px-3 py-2 hover:bg-hover rounded-lg">
       <Avatar name={u.name} avatarUrl={u.avatarUrl} className="w-8 h-8 text-xs shrink-0" colorClass={avatarColor(u.name)} />
       <div className="min-w-0 flex-1">
         <div className="text-sm text-body truncate">{u.name}</div>
         <div className="text-[11px] text-muted truncate">{u.jobTitle ?? u.specialty ?? u.businessName ?? (u.role === 'vendor' ? 'พาร์ทเนอร์' : 'พนักงาน')}</div>
       </div>
-    </button>
+      <button onClick={() => onStartChat(u.id)} title={`แชทกับ ${u.name}`} className="shrink-0 p-1.5 rounded-lg text-dim hover:text-brand-700 hover:bg-brand-50 opacity-70 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+        <MessageCircle className="w-4 h-4" />
+      </button>
+    </div>
   )
 
   return (
-    <div className="h-full overflow-y-auto p-3 max-w-xl mx-auto">
+    // Pronista §Team Directory (2026-09-16) — เดิม max-w-xl mx-auto ทำให้ลอยกลางจอ มีช่องว่างซ้าย-ขวาเยอะ ไม่เข้าพวกกับเลย์เอาต์แท็บ "แชท" ที่ชิดขอบซ้ายเป็นคอลัมน์คงที่ — ปรับให้เป็นคอลัมน์ชิดซ้ายแบบเดียวกัน
+    <div className="h-full w-full sm:w-64 shrink-0 border-r border-border-subtle bg-white overflow-y-auto p-3">
       <div className="relative mb-3">
         <Search className="w-3.5 h-3.5 text-muted absolute left-3 top-1/2 -translate-y-1/2" />
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="w-full text-sm bg-hover rounded-lg pl-8 pr-3 py-2 focus:outline-hidden" />
@@ -214,8 +259,6 @@ function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void
         {partners.map((u) => <Row key={u.id} u={u} />)}
         {partners.length === 0 && <div className="text-center text-xs text-muted py-4">ไม่พบพาร์ทเนอร์</div>}
       </div>
-
-      {menu && <ActionMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={menuItems(menu.u)} />}
     </div>
   )
 }
@@ -313,7 +356,16 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้องนี้ ใช้ทำ @mention picker (เฉพาะห้อง >2 คน) + คำนวณ read receipt (avatar ใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง แบบ LINE/Messenger)
+  const { data: membersData } = useLoad<ChannelMember[]>(() => api.get(`/api/chat/channels/${channel.id}/members`), [channel.id])
+  const [members, setMembers] = useState<ChannelMember[]>([])
+  useEffect(() => setMembers(membersData ?? []), [membersData])
+  const canMention = members.length > 2
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionIndex, setMentionIndex] = useState(0)
   // Pronista §Team Chat history fix (2026-09-11) — เดิมโหลดแค่ 50 ข้อความล่าสุดตายตัว ไม่มีทางเห็นข้อความเก่ากว่านั้นเลย ทั้งที่ backend รองรับ ?before= อยู่แล้ว (GET /chat/channels/:id/messages) แค่ frontend ไม่เคยเรียกใช้
   const [hasMore, setHasMore] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -373,7 +425,7 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
       ws.onmessage = (e) => {
         if (e.data === 'pong') return
         try {
-          const msg = JSON.parse(String(e.data)) as { type?: string; message?: ChatMessage; messageId?: string }
+          const msg = JSON.parse(String(e.data)) as { type?: string; message?: ChatMessage; messageId?: string; userId?: string; lastReadAt?: number }
           if (msg.type === 'chat_message' && msg.message) {
             setMessages((prev) => (prev.some((m) => m.id === msg.message!.id) ? prev : [...prev, msg.message!]))
             if (msg.message.senderId !== meId) onSent()
@@ -381,6 +433,9 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
             setMessages((prev) => prev.map((m) => (m.id === msg.message!.id ? msg.message! : m)))
           } else if (msg.type === 'chat_message_deleted' && msg.messageId) {
             setMessages((prev) => prev.filter((m) => m.id !== msg.messageId))
+          } else if (msg.type === 'chat_read' && msg.userId && typeof msg.lastReadAt === 'number') {
+            // Pronista §Chat read receipt (2026-09-16) — คนอื่นในห้องเปิดอ่านสดๆ อัปเดต lastReadAt ของเขาไว้ให้ avatar ผู้อ่านขยับตาม
+            setMembers((prev) => prev.map((mb) => (mb.id === msg.userId ? { ...mb, lastReadAt: msg.lastReadAt! } : mb)))
           }
         } catch {
           // ข้อความนอกรูปแบบ — เมิน
@@ -407,13 +462,73 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     if (!body || sending) return
     setSending(true)
     setText('')
+    setMentionOpen(false)
     try {
-      await api.post(`/api/chat/channels/${channel.id}/messages`, { body })
+      const mentionedUserIds = canMention ? detectMentions(body, members) : []
+      await api.post(`/api/chat/channels/${channel.id}/messages`, { body, mentionedUserIds })
       onSent()
     } finally {
       setSending(false)
     }
   }
+
+  // Pronista §Chat @mention (2026-09-16) — เฉพาะห้อง >2 คน: พิมพ์ "@" แล้วเลือกคนจากสมาชิกห้องได้ ไม่ไล่ตำแหน่ง caret เป๊ะๆ (โผล่เหนือช่องพิมพ์เสมอ ง่ายกว่า+พอสำหรับเคสใช้งานจริง)
+  const mentionMatches = canMention
+    ? members.filter((mb) => mb.id !== meId && mb.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+    : []
+  useEffect(() => autoResizeComposer(textareaRef.current), [text])
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setText(value)
+    if (!canMention) return
+    const cursor = e.target.selectionStart ?? value.length
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, cursor))
+    if (match) {
+      setMentionQuery(match[1] ?? '')
+      setMentionOpen(true)
+      setMentionIndex(0)
+    } else {
+      setMentionOpen(false)
+    }
+  }
+  const pickMention = (member: ChannelMember) => {
+    const el = textareaRef.current
+    const cursor = el?.selectionStart ?? text.length
+    const before = text.slice(0, cursor).replace(/@([^\s@]*)$/, `@${member.name} `)
+    const after = text.slice(cursor)
+    const newText = before + after
+    setText(newText)
+    setMentionOpen(false)
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(before.length, before.length)
+    })
+  }
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen && mentionMatches.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex((i) => (i + 1) % mentionMatches.length); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mentionMatches[mentionIndex]!); return }
+      if (e.key === 'Escape') { setMentionOpen(false); return }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
+  }
+
+  // Pronista §Chat read receipt (2026-09-16) — หาข้อความล่าสุด (ใครส่งก็ได้) ที่แต่ละคน "อ่านถึงตรงนั้นแล้ว" แสดง avatar ใต้ข้อความนั้นข้อความเดียว (ไม่ใช่ทุกข้อความ — ตัดชิ้นตาม LINE/Messenger)
+  const readAvatarsByMessageId = useMemo(() => {
+    const map = new Map<string, ChannelMember[]>()
+    for (const member of members) {
+      if (member.id === meId || !member.lastReadAt) continue
+      const readAt = new Date(member.lastReadAt).getTime()
+      let latest: ChatMessage | null = null
+      for (const m of messages) {
+        const t = new Date(m.createdAt).getTime()
+        if (t <= readAt && (!latest || t > new Date(latest.createdAt).getTime())) latest = m
+      }
+      if (latest && latest.senderId !== member.id) map.set(latest.id, [...(map.get(latest.id) ?? []), member])
+    }
+    return map
+  }, [messages, members, meId])
 
   const upload = async (file: File) => {
     // ต้องมีข้อความก่อนถึงจะแนบไฟล์ได้ (ไฟล์แนบผูกกับ message) — ส่งชื่อไฟล์เป็นข้อความให้อัตโนมัติถ้ายังไม่มี
@@ -437,20 +552,45 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {loadingMore && <div className="text-center text-xs text-muted py-1">กำลังโหลดข้อความเก่า…</div>}
         {messages.map((m) => (
-          <MessageRow key={m.id} m={m} mine={m.senderId === meId} onDeleted={() => setMessages((prev) => prev.filter((x) => x.id !== m.id))} onConvert={() => setConvertFor(m)} />
+          <MessageRow
+            key={m.id}
+            m={m}
+            mine={m.senderId === meId}
+            members={members}
+            readBy={readAvatarsByMessageId.get(m.id) ?? []}
+            onDeleted={() => setMessages((prev) => prev.filter((x) => x.id !== m.id))}
+            onConvert={() => setConvertFor(m)}
+          />
         ))}
         <div ref={bottomRef} />
       </div>
-      <div className="border-t border-border-subtle p-3 flex items-end gap-2">
+      <div className="relative border-t border-border-subtle p-3 flex items-end gap-2">
+        {mentionOpen && mentionMatches.length > 0 && (
+          <div className="absolute bottom-full left-3 mb-1 w-56 max-h-48 overflow-y-auto bg-white rounded-lg shadow-2xl border border-border-subtle p-1 z-10">
+            {mentionMatches.map((mb, i) => (
+              <button
+                key={mb.id}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); pickMention(mb) }}
+                className={`w-full flex items-center gap-2 text-left text-xs px-2 py-1.5 rounded ${i === mentionIndex ? 'bg-brand-50 text-brand-700' : 'hover:bg-hover text-body'}`}
+              >
+                <Avatar name={mb.name} avatarUrl={mb.avatarUrl} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(mb.name)} />
+                {mb.name}
+              </button>
+            ))}
+          </div>
+        )}
         <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
         <button onClick={() => fileRef.current?.click()} className="p-2 rounded-lg hover:bg-hover text-dim shrink-0" title="แนบไฟล์"><Paperclip className="w-4 h-4" /></button>
         <textarea
+          ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-          placeholder="พิมพ์ข้อความ..."
+          onChange={handleTextChange}
+          onKeyDown={handleComposerKeyDown}
+          placeholder={canMention ? 'พิมพ์ข้อความ... (พิมพ์ @ เพื่อกล่าวถึงใครในกลุ่ม)' : 'พิมพ์ข้อความ...'}
           rows={1}
-          className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 resize-none focus:outline-hidden"
+          style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
+          className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 resize-none overflow-y-auto focus:outline-hidden"
         />
         <button onClick={() => void send()} disabled={!text.trim() || sending} className="p-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40 shrink-0"><Send className="w-4 h-4" /></button>
       </div>
@@ -459,7 +599,16 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   )
 }
 
-function MessageRow({ m, mine, onDeleted, onConvert }: { m: ChatMessage; mine: boolean; onDeleted: () => void; onConvert: () => void }) {
+function MessageRow({
+  m, mine, members, readBy, onDeleted, onConvert,
+}: {
+  m: ChatMessage
+  mine: boolean
+  members: { id: string; name: string; avatarUrl: string | null }[]
+  readBy: { id: string; name: string; avatarUrl: string | null }[]
+  onDeleted: () => void
+  onConvert: () => void
+}) {
   const { confirmDialog } = useDialog()
   const [menuOpen, setMenuOpen] = useState(false)
   const remove = async () => {
@@ -476,12 +625,24 @@ function MessageRow({ m, mine, onDeleted, onConvert }: { m: ChatMessage; mine: b
           {!mine && <span className="text-sm font-medium text-ink">{m.senderName}</span>}
           <span className="text-[11px] text-muted">{fmtTime(m.createdAt)}{m.editedAt ? ' (แก้ไขแล้ว)' : ''}</span>
         </div>
-        <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>{m.body}</div>
+        <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
+          {renderMessageBody(m.body, m.mentionedUserIds, members)}
+        </div>
         {m.attachments.map((a) => (
           <a key={a.id} href={a.r2Key ? `/api/chat/attachments/${a.id}` : (a.externalUrl ?? undefined)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-mono bg-info-50 text-info-700 px-1.5 py-0.5 rounded mt-1 hover:bg-info-100">
             <Paperclip className="w-3 h-3" /> {a.filename}
           </a>
         ))}
+        {/* Pronista §Chat read receipt (2026-09-16) — ไอคอนผู้อ่านเล็กๆ ใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง (แบบ LINE/Messenger) */}
+        {readBy.length > 0 && (
+          <div className="flex items-center -space-x-1 mt-0.5">
+            {readBy.map((r) => (
+              <span key={r.id} title={`${r.name} อ่านแล้ว`}>
+                <Avatar name={r.name} avatarUrl={r.avatarUrl} className="w-3.5 h-3.5 text-[7px] ring-1 ring-white" colorClass={avatarColor(r.name)} />
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div className="relative shrink-0 opacity-0 group-hover:opacity-100 self-center">
         <button onClick={() => setMenuOpen((v) => !v)} className="text-xs text-dim px-1.5 py-0.5 rounded hover:bg-hover">⋮</button>
