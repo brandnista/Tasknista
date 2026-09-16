@@ -22,8 +22,9 @@ import { isInactiveStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
-  projectId: string
-  projectName: string
+  // (2026-09-16 fix) — งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์) มี projectId เป็น null ได้จริง — GET /tasks/mine เปลี่ยนจาก innerJoin เป็น leftJoin แล้ว (เดิมหายไปจากลิสต์นี้ทั้งหมด)
+  projectId: string | null
+  projectName: string | null
   myRole: 'owner' | 'editor' | 'viewer'
   // Pronista §SOW Task/Subtask — ใช้กรอง "งานย่อยที่รอทำ" ใน widget My Work ใหม่
   parentId: string | null
@@ -228,13 +229,15 @@ export function MyTasksPage() {
   const isOverdue = (t: MyTask) => !!t.dueDate && t.dueDate < today && !isInactiveStatus(t.status)
 
   // Pronista §My Work/Notification — 2 stat เพิ่มเติมตามสเปก (คำนวณฝั่ง client จากข้อมูลที่โหลดอยู่แล้ว ไม่ต้องเพิ่ม endpoint)
-  const assignedProjectsCount = new Set(tasks.map((t) => t.projectId)).size
+  // (2026-09-16 fix) — projectId อาจเป็น null (งานไม่ผูกโปรเจกต์) ไม่นับรวมเป็น "โปรเจกต์" ปลอมๆ ในสถิติ
+  const assignedProjectsCount = new Set(tasks.map((t) => t.projectId).filter((id): id is string => id !== null)).size
   // Pronista §Task lifecycle notifications — งานที่ถูกตีกลับล่าสุด (แจ้งเตือนยังไม่อ่าน) โชว์ป้าย "ตีกลับ" ในบอร์ด
   const bouncedTaskIds = new Set(notifications.filter((n) => n.type === 'task_bounced' && !n.isRead && n.taskId).map((n) => n.taskId!))
 
   const projectOptions = useMemo(() => {
     const seen = new Map<string, string>()
-    tasks.forEach((t) => seen.set(t.projectId, t.projectName))
+    // งานไม่ผูกโปรเจกต์ (projectId ว่าง) ข้ามไป — ตัวกรอง "โปรเจกต์" ไม่มีความหมายกับงานพวกนี้ (ยังเห็นในลิสต์ตอนไม่ได้กรองอยู่แล้ว)
+    tasks.forEach((t) => { if (t.projectId) seen.set(t.projectId, t.projectName ?? '') })
     return Array.from(seen.entries())
   }, [tasks])
 

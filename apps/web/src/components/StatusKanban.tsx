@@ -17,7 +17,7 @@ export interface KanbanTask {
   assigneeId?: string | null
   assigneeName: string | null
   assigneeAvatarUrl?: string | null
-  projectName?: string
+  projectName?: string | null
   // Pronista §SRS import — chip อ้างอิงเอกสาร SRS ต้นทาง (ไม่มีถ้าไม่ได้มาจาก SRS)
   srsRefCode?: string | null
   srsDocId?: string | null

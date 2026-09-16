@@ -816,6 +816,35 @@ describe('§My Tasks dispatcher view fix — GET /tasks/dispatched-by-me ต้�
   })
 })
 
+// (2026-09-16) §My Tasks assignee view fix — เจอบั๊กจริง: จ่ายงานคีย์ตรงใน Workspace ให้คนอื่น คนรับกดรับงานแล้ว (status ขยับเป็น on_processing จริง)
+// แต่งานไม่โผล่ในเมนู "งานของฉัน" เลย — root cause เดียวกับ dispatched-by-me ด้านบน: GET /tasks/mine ใช้ innerJoin(projects) แทน leftJoin
+describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็นงานคีย์ตรงใน Workspace ที่จ่ายมาให้จริงด้วย', () => {
+  it('จ่ายงาน Backlog ที่คีย์ตรงในห้อง (ไม่ผูกโปรเจกต์) ให้คนอื่น กดรับงานแล้ว → โผล่ใน "งานของฉัน" ของคนรับ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const ws = (await (
+      await app.request('/api/workspaces', json(owner, { name: 'ห้องทดสอบ mine', type: 'business' }), env)
+    ).json()) as { id: string; name: string }
+    const t = (await (
+      await app.request(`/api/workspaces/${ws.id}/backlog`, json(owner, { title: 'งานคีย์ตรงในห้อง — รับแล้ว' }), env)
+    ).json()) as { id: string }
+
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { assigneeId: 'u_pond' }), env)
+    expect((await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)).status).toBe(200)
+    expect((await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)).status).toBe(200)
+
+    const list = (await (
+      await app.request('/api/tasks/mine', { headers: { cookie: pond } }, env)
+    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string }[]
+    const row = list.find((r) => r.id === t.id)
+    expect(row).toBeTruthy()
+    expect(row?.status).toBe('on_processing')
+    expect(row?.projectId).toBeNull()
+    expect(row?.projectName).toBe(ws.name) // fallback เป็นชื่อ Workspace room เพราะไม่มีโปรเจกต์
+    expect(row?.myRole).toBe('editor') // ไม่มี project role ให้ derive — ล้อ task-detail.ts
+  })
+})
+
 // (2026-09-16) §Assign to me fix — เจอบั๊กจริง: ปุ่ม "Assign to me" ไม่โผล่ให้พนักงานทั่วไป (ไม่ใช่ owner/editor โปรเจกต์) เลย
 // ทั้งที่ตั้งใจให้เป็นแบบ Jira (ใครก็หยิบงานว่างในโปรเจกต์ตัวเองไปทำได้) — เปิดช่องทางแคบๆ ให้ self-claim งานว่าง + self-dispatch ได้ โดยไม่กระทบสิทธิ์แก้ไข field อื่น/จ่ายงานให้คนอื่น
 describe('§Assign to me fix — self-claim งานว่าง + self-dispatch สำหรับพนักงานที่ไม่ใช่ editor โปรเจกต์', () => {
