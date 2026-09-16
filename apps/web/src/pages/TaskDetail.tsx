@@ -384,6 +384,8 @@ export function TaskDetailPage() {
   const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
+  // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin (ทุกคนที่ไม่ใช่ vendor/guest) ที่มองเห็นงานนี้อยู่แล้ว แก้ "เกณฑ์ว่าเสร็จ/งานย่อย/รายการที่เชื่อมโยง" ได้เต็มที่ ไม่ต้องเป็น editor โปรเจกต์/assignee เหมือน canEdit — ล้อ backend canEditTaskCollab (มองเห็นงาน = แก้ 3 ส่วนนี้ได้ เพราะเดิมพนักงานทั่วไปต้องรอ Admin แก้ให้ตลอด)
+  const canEditCollab = user?.role === 'owner' || user?.role === 'member'
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้แสดง+เลือกในแถบข้าง
   // Pronista §System Requirements Update — แคตตาล็อกประเภทงาน/ตัวเลือกย่อย ใช้ dependent dropdown ในแถบข้าง
@@ -985,18 +987,18 @@ export function TaskDetailPage() {
                 {t.checklist.map((item) => (
                   <div key={item.id} className="group flex items-center gap-2 text-sm bg-hover rounded-lg px-2.5 py-1.5">
                     <button
-                      onClick={() => canEdit && void toggleChecklistItem(item.id, !item.done)}
+                      onClick={() => canEditCollab && void toggleChecklistItem(item.id, !item.done)}
                       className={`w-4.5 h-4.5 rounded border shrink-0 grid place-items-center ${item.done ? 'border-success-500 bg-success-500 text-white' : 'border-border'}`}
                     >
                       {item.done && <Check className="w-3 h-3" />}
                     </button>
                     <span className={`flex-1 ${item.done ? 'text-muted line-through' : 'text-body'}`}>{item.text}</span>
-                    {/* (2026-09-16 fix) — เดิมใช้ !isAssignee เฉยๆ (ไม่ใช่ !isAssigneeOnly) ทำให้ปุ่มนี้หายไปทันทีหลัง self-assign แล้วบันทึก (isAssignee เปลี่ยนเป็น true แต่ owner/editor ยังแก้ไขได้อยู่) mirror fix เดียวกับ canEditDispatcherNotes บรรทัด 758 */}
-                    {canEdit && !isAssigneeOnly && <button onClick={() => void removeChecklistItem(item.id)} className="opacity-0 group-hover:opacity-100 text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
+                    {/* (2026-09-16 CR PRO-CR-16092026-0003) — เดิมจำกัดแค่ editor โปรเจกต์/assignee ตอนนี้เปิดให้ non-admin ที่มองเห็นงานนี้ทุกคนแก้ได้ */}
+                    {canEditCollab && <button onClick={() => void removeChecklistItem(item.id)} className="opacity-0 group-hover:opacity-100 text-border hover:text-danger-600 shrink-0"><X className="w-3.5 h-3.5" /></button>}
                   </div>
                 ))}
               </div>
-              {canEdit && !isAssigneeOnly && (
+              {canEditCollab && (
                 <div className="flex gap-2">
                   <input value={newChecklistText} onChange={(e) => setNewChecklistText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addChecklistItem() }} placeholder="+ เพิ่มเกณฑ์…" className={`${input} flex-1`} />
                   <button onClick={() => void addChecklistItem()} disabled={!newChecklistText.trim()} className="text-sm bg-brand-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-40">เพิ่ม</button>
@@ -1057,8 +1059,8 @@ export function TaskDetailPage() {
                   </div>
                 ))}
               </div>
-              {/* (2026-09-16 bug fix) — เจอบั๊กจริง: กด "Assign to me" ตัวเองแล้วบันทึก ปุ่มเพิ่มงานย่อยหายไปทันที ทั้งที่ยังเป็น owner/editor โปรเจกต์อยู่ — เดิมเช็ค !isAssignee เฉยๆ (เป็น true ทันทีที่ self-assign) ต้องเช็ค !isAssigneeOnly แทน (isAssigneeOnly = false เมื่อยังมีสิทธิ์ editor/owner โปรเจกต์อยู่ด้วย ต่อให้เป็น assignee เอง) */}
-              {canEdit && !isAssigneeOnly && (
+              {/* (2026-09-16 CR PRO-CR-16092026-0003) — non-admin ที่มองเห็นงานนี้เพิ่มงานย่อยได้แล้ว ไม่ต้องเป็น editor โปรเจกต์/assignee เหมือนเดิม */}
+              {canEditCollab && (
                 <div className="flex flex-wrap gap-2">
                   <input value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="+ เพิ่มงานย่อย…" className={`${input} flex-1`} />
                   <input value={newSubtaskCode} onChange={(e) => setNewSubtaskCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addSubtask() }} placeholder="รหัส (ไม่บังคับ)" title="ตั้งรหัสงานย่อยเอง — เว้นว่างให้ระบบออกเลขอัตโนมัติ" className={`${input} w-full sm:w-32 font-mono`} />
@@ -1214,7 +1216,8 @@ export function TaskDetailPage() {
             <div>
               <div className="text-xs font-medium text-muted mb-2 flex items-center gap-1.5">
                 <Link2 className="w-3.5 h-3.5" /> รายการที่เชื่อมโยง
-                {canEdit && !isAssigneeOnly && (
+                {/* (2026-09-16 CR PRO-CR-16092026-0003) — non-admin ที่มองเห็นงานนี้เชื่อมโยงรายการได้แล้ว */}
+                {canEditCollab && (
                   <button onClick={() => setLinkPickerOpen(true)} className="ml-auto flex items-center gap-1 text-[11px] text-brand-600 hover:underline">
                     <Plus className="w-3 h-3" /> เชื่อมโยงรายการ
                   </button>
@@ -1232,7 +1235,7 @@ export function TaskDetailPage() {
                       </button>
                       {r.kind === 'defect' && <span className="text-[9px] text-danger-600">🐛</span>}
                       {r.kind === 'cr' && <span className="text-[9px] text-info-700">CR</span>}
-                      {canEdit && !isAssigneeOnly && r.direction === 'outgoing' && (
+                      {canEditCollab && r.direction === 'outgoing' && (
                         <button onClick={() => void removeReference(r.refId)} title="เลิกเชื่อมโยง" className="text-border hover:text-danger-600">
                           <X className="w-3 h-3" />
                         </button>

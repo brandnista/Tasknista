@@ -113,6 +113,18 @@ export async function canEditTask(
   return canEditProject(await getProjectRole(db, task.projectId, me.id, me.role, precomputedPermissions))
 }
 
+/** Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้อยู่แล้ว (ไม่จำเป็นต้องเป็น editor โปรเจกต์หรือ assignee) แก้ "เกณฑ์ว่าเสร็จ/งานย่อย/รายการที่เชื่อมโยง" ได้เต็มที่ (เพิ่ม/แก้/ลบ)
+ * ตั้งใจแยกจาก canEditTask โดยเฉพาะ — endpoint อื่นทั้งหมด (title/description/assignee/status/dates ฯลฯ) ยังใช้ canEditTask เดิมไม่เปลี่ยน ตาม scope ที่ CR ระบุไว้เฉพาะ 3 ส่วนนี้เท่านั้น
+ * vendor/guest ยังโดนกันที่ teamOnly middleware อยู่แล้วเหมือนเดิม (ไม่ใช่ขอบเขตของ CR นี้ — เป็นกำแพงคนละชั้นตั้งแต่ระดับ route) */
+export async function canEditTaskCollab(
+  db: ReturnType<typeof createDb>,
+  task: { projectId: string | null },
+  me: { id: string; role: 'owner' | 'member' | 'vendor' | 'guest' },
+): Promise<boolean> {
+  if (!task.projectId) return true // งานไม่ผูกโปรเจกต์ — ทุกคนแก้ได้เหมือน canEditTask เดิม
+  return isProjectVisibleToUser(db, task.projectId, me.id, me.role)
+}
+
 /** Pronista §System Requirements Update — เวอร์ชัน batch ของ canEditTask ใช้กับ GET /sprints/:id/board (Board.tsx/WorkspaceBoard.tsx)
  * ให้ frontend เช็คสิทธิ์ต่อการ์ดตรงกับ backend จริง (เดิม frontend เช็คแค่ role กว้างๆ ทำให้เห็นว่าลากได้แต่ลากจริงโดน 403)
  * vendor/guest = false เสมอ (ถูกกัน teamOnly ที่ endpoint แก้ไขจริงอยู่แล้ว) · owner/member คำนวณ permissions ต่อโปรเจกต์ครั้งเดียวแล้ว reuse กับทุก task ของโปรเจกต์นั้น กัน query ซ้ำ */

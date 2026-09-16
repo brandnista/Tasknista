@@ -24,7 +24,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyUser } from '../lib/notify'
-import { canEditTask, getProjectRole, isAssigneeOnlyEditor, isProjectVisibleToUser } from '../lib/project-role'
+import { canEditTask, canEditTaskCollab, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
@@ -224,7 +224,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const parent = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!parent) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    if (!(await canEditTask(db, parent, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้เพิ่มงานย่อยได้แล้ว ไม่ต้องเป็น editor โปรเจกต์/assignee เหมือนเดิม
+    if (!(await canEditTaskCollab(db, parent, me))) return c.json({ error: 'forbidden' }, 403)
     const code = body.data.code || (await nextSubTaskCode(db, parent.id, parent.code ?? 'TASK'))
     const created = await db
       .insert(tasks)
@@ -296,9 +297,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!task) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    if (!(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
-    // Pronista §Back to Basic (ต่อยอด) — assignee ติ๊กเกณฑ์ว่าเสร็จได้ (PATCH) แต่เพิ่มเกณฑ์ใหม่เองไม่ได้ (เป็นของผู้จ่ายงาน)
-    if (await isAssigneeOnlyEditor(db, task, me)) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้เพิ่มเกณฑ์ว่าเสร็จได้แล้ว (เดิมต้องเป็น editor โปรเจกต์/assignee เท่านั้น จึงเพิ่มเองไม่ได้)
+    if (!(await canEditTaskCollab(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     const siblings = await db.select().from(taskChecklistItems).where(eq(taskChecklistItems.taskId, task.id))
     const inserted = await db
       .insert(taskChecklistItems)
@@ -315,9 +315,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!item) return c.json({ error: 'not_found' }, 404)
     const task = (await db.select().from(tasks).where(eq(tasks.id, item.taskId)).limit(1))[0]
     const me = c.get('user')
-    if (task && !(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
-    // Pronista §Back to Basic (ต่อยอด) — assignee ติ๊ก done ได้อย่างเดียว แก้ข้อความเกณฑ์เองไม่ได้ (เป็นของผู้จ่ายงาน)
-    if (task && 'text' in body.data && (await isAssigneeOnlyEditor(db, task, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้แก้ข้อความเกณฑ์ว่าเสร็จได้แล้วด้วย (เดิมแก้ข้อความได้แค่ editor โปรเจกต์ — assignee เฉยๆ ติ๊ก done ได้อย่างเดียว)
+    if (task && !(await canEditTaskCollab(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     const updated = await db.update(taskChecklistItems).set(body.data).where(eq(taskChecklistItems.id, item.id)).returning()
     // Pronista §Daily Report — บันทึกไว้ให้ดึงเป็นสัญญาณ "มีการทำ Checklist วันนี้" ได้ (เดิมไม่มี audit จุดนี้)
     if (task && 'done' in body.data && body.data.done !== item.done) {
@@ -332,8 +331,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!item) return c.json({ error: 'not_found' }, 404)
     const task = (await db.select().from(tasks).where(eq(tasks.id, item.taskId)).limit(1))[0]
     const me = c.get('user')
-    if (task && !(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
-    if (task && (await isAssigneeOnlyEditor(db, task, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้ลบเกณฑ์ว่าเสร็จได้แล้ว
+    if (task && !(await canEditTaskCollab(db, task, me))) return c.json({ error: 'forbidden' }, 403)
     await db.delete(taskChecklistItems).where(eq(taskChecklistItems.id, item.id))
     return c.json({ ok: true })
   })
@@ -584,7 +583,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const target = (await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.id, body.data.referencesTaskId)).limit(1))[0]
     if (!target) return c.json({ error: 'target_not_found' }, 404)
     const me = c.get('user')
-    if (!(await canEditTask(db, before, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้เชื่อมโยงรายการได้แล้ว
+    if (!(await canEditTaskCollab(db, before, me))) return c.json({ error: 'forbidden' }, 403)
     const inserted = await db
       .insert(taskReferences)
       .values({ taskId, referencesTaskId: body.data.referencesTaskId })
@@ -599,7 +599,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!row) return c.json({ error: 'not_found' }, 404)
     const owningTask = (await db.select().from(tasks).where(eq(tasks.id, row.taskId)).limit(1))[0]
     const me = c.get('user')
-    if (owningTask && !(await canEditTask(db, owningTask, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้เลิกเชื่อมโยงรายการได้แล้ว
+    if (owningTask && !(await canEditTaskCollab(db, owningTask, me))) return c.json({ error: 'forbidden' }, 403)
     await db.delete(taskReferences).where(eq(taskReferences.id, row.id))
     return c.json({ ok: true })
   })

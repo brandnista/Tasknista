@@ -210,6 +210,57 @@ describe('T10 — task detail: comments + attachments + activity', () => {
   })
 })
 
+describe('Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้แก้ "เกณฑ์ว่าเสร็จ/งานย่อย/รายการที่เชื่อมโยง" ได้ ไม่ต้องเป็น editor โปรเจกต์/assignee', () => {
+  it('member ธรรมดา (ไม่ใช่ editor โปรเจกต์ ไม่ใช่ assignee) เพิ่ม/แก้/ลบเกณฑ์ว่าเสร็จได้แล้ว', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    // ตั้งใจไม่ส่ง asEditorUserId — ปอนด์เป็นแค่ member เฉยๆ ไม่ได้เป็นสมาชิกโปรเจกต์เลย
+    const t = await makeTask(owner)
+    const pond = await loginAs(app, 'pond@example-co.test')
+
+    const created = await app.request(`/api/tasks/${t.id}/checklist`, json(pond, { text: 'เช็คก่อนปิดงาน' }), env)
+    expect(created.status).toBe(201)
+    const item = (await created.json()) as { id: string }
+
+    const patched = await app.request(`/api/checklist/${item.id}`, { method: 'PATCH', headers: { cookie: pond, 'content-type': 'application/json' }, body: JSON.stringify({ done: true }) }, env)
+    expect(patched.status).toBe(200)
+
+    const deleted = await app.request(`/api/checklist/${item.id}`, { method: 'DELETE', headers: { cookie: pond } }, env)
+    expect(deleted.status).toBe(200)
+  })
+
+  it('member ธรรมดา (ไม่ใช่ editor โปรเจกต์ ไม่ใช่ assignee) เพิ่มงานย่อยได้แล้ว', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const pond = await loginAs(app, 'pond@example-co.test')
+
+    const res = await app.request(`/api/tasks/${t.id}/subtasks`, json(pond, { title: 'งานย่อยจากปอนด์' }), env)
+    expect(res.status).toBe(201)
+  })
+
+  it('member ธรรมดา (ไม่ใช่ editor โปรเจกต์ ไม่ใช่ assignee) เชื่อมโยง/เลิกเชื่อมโยงรายการได้แล้ว', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const other = await makeTask(owner)
+    const pond = await loginAs(app, 'pond@example-co.test')
+
+    const created = await app.request(`/api/tasks/${t.id}/references`, json(pond, { referencesTaskId: other.id }), env)
+    expect(created.status).toBe(201)
+    const ref = (await created.json()) as { id: string }
+
+    const deleted = await app.request(`/api/task-references/${ref.id}`, { method: 'DELETE', headers: { cookie: pond } }, env)
+    expect(deleted.status).toBe(200)
+  })
+
+  it('vendor/guest ยังโดนกันไว้เหมือนเดิม (teamOnly middleware — ไม่ใช่ขอบเขตของ CR นี้)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const vendor = await loginAs(app, 'somchai@example.com')
+
+    expect((await app.request(`/api/tasks/${t.id}/checklist`, json(vendor, { text: 'ไม่ควรเพิ่มได้' }), env)).status).toBe(403)
+    expect((await app.request(`/api/tasks/${t.id}/subtasks`, json(vendor, { title: 'ไม่ควรเพิ่มได้' }), env)).status).toBe(403)
+  })
+})
+
 describe('Pronista §Notification overhaul (2026-08-27) — คอมเมนต์ในงานแจ้งเตือนผู้รับงาน+ผู้จ่ายงาน+คนที่เคยคอมเมนต์', () => {
   it('แจ้งผู้รับงาน+ผู้จ่ายงาน+คนที่เคยคอมเมนต์มาก่อน ไม่แจ้งคนคอมเมนต์เอง · ติดขัด (isBlocked) ขึ้นต้นด้วย 🚩', async () => {
     const owner = await loginAs(app, 'owner@example-co.test') // ผู้จ่ายงาน (createdBy)
