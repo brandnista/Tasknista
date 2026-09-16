@@ -4,7 +4,7 @@
  * แก้ไขได้ตลอดจนกว่าจะ Reviewed (submit ไม่ล็อกการแก้ไข แค่แจ้งเตือน+ให้หัวหน้าเห็น)
  * มี 2 โหมดภายในแท็บ: "วันนี้/แก้ไข" (แก้รายงานของตัวเอง — งานแนะนำ+คีย์เองรวมลิสต์เดียว) กับ "ประวัติ" (ดูย้อนหลัง ทั้งของฉัน/ที่ได้รับ)
  */
-import { AlertTriangle, Calendar, Check, ExternalLink, History as HistoryIcon, Plus, RefreshCw, RotateCcw, Send, Trash2 } from 'lucide-react'
+import { AlertTriangle, Calendar, Check, ExternalLink, History as HistoryIcon, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { Avatar } from './Avatar'
 import { DateInputTH } from './DateInputTH'
@@ -41,7 +41,19 @@ const STATUS_BADGE: Record<'draft' | 'submitted' | 'reviewed', string> = {
   reviewed: 'bg-success-100 text-success-700',
 }
 
-interface MyTask { id: string; code: string | null; title: string; status: string; projectId: string | null; projectName: string | null; dueDate: string | null }
+// Pronista §Daily Report task list — assigneeId/assignedBy/assigneeName ใช้แยก "งานที่จ่ายให้คนอื่น" (assignedBy=ฉัน) กับ "งานที่ถูกจ่ายมา" (assigneeId=ฉัน)
+interface MyTask {
+  id: string
+  code: string | null
+  title: string
+  status: string
+  projectId: string | null
+  projectName: string | null
+  dueDate: string | null
+  assigneeId: string | null
+  assignedBy: string | null
+  assigneeName?: string | null
+}
 interface ReportItem {
   id: string
   taskId: string | null
@@ -132,6 +144,11 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [manualTitle, setManualTitle] = useState('')
   const [manualHours, setManualHours] = useState('')
   const [manualBusy, setManualBusy] = useState(false)
+  // Pronista §Daily Report manual item edit (2026-09-16) — แก้งานคีย์เอง (ชื่อ/ชม.) ได้หลังบันทึกแล้ว ไม่ต้องลบแล้วเพิ่มใหม่
+  const [editingManualId, setEditingManualId] = useState<string | null>(null)
+  const [editManualTitle, setEditManualTitle] = useState('')
+  const [editManualHours, setEditManualHours] = useState('')
+  const [editManualBusy, setEditManualBusy] = useState(false)
   const [submitBusy, setSubmitBusy] = useState(false)
   const [retractBusy, setRetractBusy] = useState(false)
   // Pronista §Daily Report task list filter (2026-09-14) — ลิสต์ "งานทั้งหมดของฉัน" ดึงมาไม่จำกัดวันเลย เรียงตาม dueDate ผู้ใช้ขอตัวกรองแยกดูเฉพาะวันนี้ได้
@@ -150,10 +167,16 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const isLocked = !!report && report.status === 'reviewed'
 
   // Pronista §Daily Report (ต่อยอด) — ฝั่งซ้ายดึง "งานทั้งหมด" ของตัวเองมาให้เลือก ไม่จำกัดแค่ activity วันนี้เหมือนเดิม
-  const { data: myTasks, reload: reloadMyTasks } = useLoad<MyTask[]>(
+  const { data: myTasks, reload: reloadMyTasksMine } = useLoad<MyTask[]>(
     () => (canEditNow ? api.get('/api/tasks/mine') : Promise.resolve([])),
     [canEditNow],
   )
+  // Pronista §Daily Report — งานที่ฉันจ่ายให้คนอื่น (assignedBy=ฉัน) เดิมลิสต์นี้ไม่เคยดึงมาเลย เห็นแค่งานที่ถูกจ่ายมา
+  const { data: dispatchedByMe, reload: reloadDispatchedByMe } = useLoad<MyTask[]>(
+    () => (canEditNow ? api.get('/api/tasks/dispatched-by-me') : Promise.resolve([])),
+    [canEditNow],
+  )
+  const reloadMyTasks = async () => { await Promise.all([reloadMyTasksMine(), reloadDispatchedByMe()]) }
   // Pronista §Daily Report Gmail-style inbox — ตัวกรองช่วงวันที่ (สัปดาห์/เดือน/กำหนดเอง) คำนวณ from/to ฝั่ง frontend แล้วส่งให้ /history
   const rangeFrom = rangePreset === 'week' ? startOfWeekTH() : rangePreset === 'month' ? startOfMonthTH() : customFrom
   const rangeTo = rangePreset === 'custom' ? customTo : bkkToday()
@@ -202,6 +225,29 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
       await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มงานไม่สำเร็จ' })
     } finally {
       setManualBusy(false)
+    }
+  }
+  const startEditManual = (it: ReportItem) => {
+    setEditingManualId(it.id)
+    setEditManualTitle(it.manualTitle ?? '')
+    setEditManualHours(it.manualMinutes ? String(it.manualMinutes / 60) : '')
+  }
+  const cancelEditManual = () => setEditingManualId(null)
+  const saveEditManual = async (itemId: string) => {
+    if (!report || !editManualTitle.trim() || editManualBusy) return
+    setEditManualBusy(true)
+    try {
+      const hours = Number(editManualHours)
+      await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, {
+        manualTitle: editManualTitle.trim(),
+        manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0,
+      })
+      setEditingManualId(null)
+      await reloadReport()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+    } finally {
+      setEditManualBusy(false)
     }
   }
   const updateItemNote = async (itemId: string, note: string) => {
@@ -314,9 +360,15 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   for (const it of report?.items ?? []) if (it.taskId) itemByTaskId.set(it.taskId, it)
   const manualItems = (report?.items ?? []).filter((it) => !it.taskId)
   const taskItems = (report?.items ?? []).filter((it) => it.taskId && it.task)
-  const myTaskCount = myTasks?.length ?? 0
+  // Pronista §Daily Report (2026-09-16) — ฝั่งซ้ายต้องเห็นทั้ง 2 ทาง: (1) งานที่ฉันจ่ายให้คนอื่น (assignedBy=ฉัน รวมกรณีจ่ายให้ตัวเอง) โชว์ทุก Status
+  // (2) งานที่ถูกคนอื่นจ่ายมา (assigneeId=ฉัน แต่ assignedBy≠ฉัน) โชว์ทุก Status ยกเว้น non_start (ยังไม่กดรับงาน = ยังไม่ได้ "ทำ" อะไรกับมันจริงๆ)
+  // เดิมดึงมาแค่ทาง (2) ทางเดียว (ผ่าน /tasks/mine) — งานที่จ่ายให้คนอื่นไม่เคยโผล่ในลิสต์นี้เลย
+  const dispatchedByMeIds = new Set((dispatchedByMe ?? []).map((t) => t.id))
+  const receivedFromOthers = (myTasks ?? []).filter((t) => !dispatchedByMeIds.has(t.id) && t.status !== 'non_start')
+  const combinedMyTasks = [...(dispatchedByMe ?? []), ...receivedFromOthers]
+  const myTaskCount = combinedMyTasks.length
   // Pronista §Daily Report task list filter (2026-09-14) — "วันนี้" = กำหนดส่งวันนี้ (ตรงกับที่ลิสต์นี้เรียงตาม dueDate อยู่แล้ว)
-  const filteredMyTasks = myTaskFilter === 'today' ? (myTasks ?? []).filter((t) => t.dueDate === date) : (myTasks ?? [])
+  const filteredMyTasks = myTaskFilter === 'today' ? combinedMyTasks.filter((t) => t.dueDate === date) : combinedMyTasks
 
   return (
     <div className="space-y-4">
@@ -508,6 +560,10 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                                   </div>
                                   <div className="text-[10.5px] text-muted mt-0.5 truncate">
                                     {t.projectName ?? '—'} · <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${TASK_STATUS_BADGE[t.status as keyof typeof TASK_STATUS_BADGE] ?? ''}`}>{TASK_STATUS_LABEL[t.status as keyof typeof TASK_STATUS_LABEL] ?? t.status}</span>
+                                    {/* Pronista §Daily Report (2026-09-16) — งานที่จ่ายให้คนอื่น (ไม่ใช่ตัวเอง) โชว์ชื่อคนรับให้ชัดเจน แยกจากงานที่ถูกจ่ายมา */}
+                                    {t.assignedBy === user?.id && t.assigneeId !== user?.id && t.assigneeName && (
+                                      <> · <span className="text-brand-700">จ่ายให้ {t.assigneeName}</span></>
+                                    )}
                                   </div>
                                 </div>
                               </button>
@@ -568,19 +624,44 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                           </div>
                         </div>
                       ))}
-                      {manualItems.map((it) => (
-                        <div key={it.id} className="flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
-                          <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
-                            <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[13.5px] text-strong font-medium">{it.manualTitle}</div>
-                            <div className="text-[11.5px] text-muted mt-0.5">คีย์เอง</div>
+                      {manualItems.map((it) =>
+                        editingManualId === it.id ? (
+                          <div key={it.id} className="flex items-center gap-2 px-3.5 py-2.5 bg-white">
+                            <input
+                              autoFocus
+                              value={editManualTitle}
+                              onChange={(e) => setEditManualTitle(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') void saveEditManual(it.id); if (e.key === 'Escape') cancelEditManual() }}
+                              className="flex-1 min-w-[140px] border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                            />
+                            <input
+                              value={editManualHours}
+                              onChange={(e) => setEditManualHours(e.target.value)}
+                              type="number"
+                              min="0"
+                              step="0.5"
+                              placeholder="ชม."
+                              className="w-20 border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                            />
+                            <button onClick={() => void saveEditManual(it.id)} disabled={editManualBusy || !editManualTitle.trim()} aria-label="บันทึก" className="text-brand-600 hover:text-brand-700 disabled:opacity-40 shrink-0"><Check className="w-4 h-4" /></button>
+                            <button onClick={cancelEditManual} aria-label="ยกเลิก" className="text-border hover:text-dim shrink-0"><X className="w-4 h-4" /></button>
                           </div>
-                          <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
-                          <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      ))}
+                        ) : (
+                          <div key={it.id} className="group flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
+                            <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
+                              <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                            </span>
+                            <button type="button" onClick={() => startEditManual(it)} className="min-w-0 flex-1 text-left" title="แก้ไข">
+                              <div className="text-[13.5px] text-strong font-medium">{it.manualTitle}</div>
+                              <div className="text-[11.5px] text-muted mt-0.5">คีย์เอง</div>
+                            </button>
+                            <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
+                            {/* Pronista §มือถือไม่มี hover จริง — โชว์ปุ่มแก้ไขค้างไว้เสมอบนอุปกรณ์สัมผัส (mirror PIN_ROW_ACTION_VISIBILITY ใน Layout.tsx) */}
+                            <button onClick={() => startEditManual(it)} className="text-border hover:text-brand-600 shrink-0 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" aria-label="แก้ไข"><Pencil className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        ),
+                      )}
                       <div className="flex gap-2 p-3 bg-white">
                         <input
                           value={manualTitle}

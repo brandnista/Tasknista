@@ -408,8 +408,15 @@ dailyReportRoutes
     return c.json(inserted, 201)
   })
 
+  // Pronista §Daily Report manual item edit (2026-09-16) — เดิมแก้ได้แค่ note เท่านั้น งานคีย์เอง (manualTitle/manualMinutes) แก้ไม่ได้เลย ต้องลบแล้วเพิ่มใหม่
   .patch('/daily-reports/:id/items/:itemId', teamOnly, async (c) => {
-    const body = z.object({ note: z.string().max(2000).nullable() }).safeParse(await c.req.json())
+    const body = z
+      .object({
+        note: z.string().max(2000).nullable().optional(),
+        manualTitle: z.string().min(1).max(200).optional(),
+        manualMinutes: z.number().int().nonnegative().max(1440).optional(),
+      })
+      .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -417,7 +424,16 @@ dailyReportRoutes
     if (!report) return c.json({ error: 'not_found' }, 404)
     if (!canEditReport(report, me)) return c.json({ error: 'forbidden' }, 403)
     if (isLocked(report)) return c.json({ error: 'locked' }, 400)
-    const updated = (await db.update(dailyReportItems).set({ note: body.data.note }).where(and(eq(dailyReportItems.id, c.req.param('itemId')), eq(dailyReportItems.reportId, report.id))).returning())[0]
+    const item = (await db.select().from(dailyReportItems).where(and(eq(dailyReportItems.id, c.req.param('itemId')), eq(dailyReportItems.reportId, report.id))).limit(1))[0]
+    if (!item) return c.json({ error: 'not_found' }, 404)
+    // manualTitle/manualMinutes แก้ได้เฉพาะรายการคีย์เอง (taskId ว่าง) — รายการที่ผูก task จริงแก้ได้แค่ note เหมือนเดิม
+    if ((body.data.manualTitle !== undefined || body.data.manualMinutes !== undefined) && item.taskId)
+      return c.json({ error: 'task_item_not_manual', message: 'รายการนี้ผูกกับ Task จริง แก้ชื่อ/เวลาไม่ได้ — แก้ได้แค่บันทึกเพิ่มเติม' }, 400)
+    const patch: Record<string, unknown> = {}
+    if (body.data.note !== undefined) patch.note = body.data.note
+    if (body.data.manualTitle !== undefined) patch.manualTitle = body.data.manualTitle
+    if (body.data.manualMinutes !== undefined) patch.manualMinutes = body.data.manualMinutes
+    const updated = (await db.update(dailyReportItems).set(patch).where(eq(dailyReportItems.id, item.id)).returning())[0]
     if (!updated) return c.json({ error: 'not_found' }, 404)
     return c.json(updated)
   })

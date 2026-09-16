@@ -163,3 +163,52 @@ describe('§Daily Report retract', () => {
     expect(res.status).toBe(400)
   })
 })
+
+// Pronista §Daily Report manual item edit (2026-09-16) — เดิม PATCH /items/:itemId รับแค่ note รายการคีย์เอง (manualTitle/manualMinutes) แก้ไม่ได้เลย ต้องลบแล้วเพิ่มใหม่
+describe('§Daily Report manual item edit — PATCH /daily-reports/:id/items/:itemId', () => {
+  it('แก้ manualTitle/manualMinutes ของรายการคีย์เองได้', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const report = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-29' }), env)).json()) as { id: string }
+    const item = (await (
+      await app.request(`/api/daily-reports/${report.id}/items`, json(pond, { manualTitle: 'ประชุมลูกค้า', manualMinutes: 60 }), env)
+    ).json()) as { id: string }
+
+    const res = await app.request(`/api/daily-reports/${report.id}/items/${item.id}`, json(pond, { manualTitle: 'ประชุมลูกค้า (แก้ไข)', manualMinutes: 90 }, 'PATCH'), env)
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { manualTitle: string; manualMinutes: number }
+    expect(updated.manualTitle).toBe('ประชุมลูกค้า (แก้ไข)')
+    expect(updated.manualMinutes).toBe(90)
+  })
+
+  it('รายการที่ผูก Task จริง แก้ manualTitle ไม่ได้ (400) — แก้ได้แค่ note', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const task = (await (await app.request('/api/tasks/backlog', json(pond, { title: 'งานทดสอบ' }), env)).json()) as { id: string }
+    const report = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-30' }), env)).json()) as { id: string }
+    const item = (await (await app.request(`/api/daily-reports/${report.id}/items`, json(pond, { taskId: task.id }), env)).json()) as { id: string }
+
+    const res = await app.request(`/api/daily-reports/${report.id}/items/${item.id}`, json(pond, { manualTitle: 'พยายามแก้ชื่อ' }, 'PATCH'), env)
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe('task_item_not_manual')
+
+    // note ยังแก้ได้ปกติ
+    const noteRes = await app.request(`/api/daily-reports/${report.id}/items/${item.id}`, json(pond, { note: 'ทำเสร็จแล้ว' }, 'PATCH'), env)
+    expect(noteRes.status).toBe(200)
+  })
+
+  it('รายงาน reviewed แล้ว แก้ manual item ไม่ได้ (400 locked)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const report = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-31' }), env)).json()) as { id: string }
+    const item = (await (
+      await app.request(`/api/daily-reports/${report.id}/items`, json(pond, { manualTitle: 'งานเดิม', manualMinutes: 30 }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/daily-reports/${report.id}/submit`, json(pond, { recipientIds: ['u_owner'] }), env)
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await app.request(`/api/daily-reports/${report.id}`, { headers: { cookie: owner } }, env) // owner เปิดอ่าน → flip เป็น reviewed
+
+    const res = await app.request(`/api/daily-reports/${report.id}/items/${item.id}`, json(pond, { manualTitle: 'พยายามแก้' }, 'PATCH'), env)
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe('locked')
+  })
+})
