@@ -10,6 +10,41 @@ const json = (cookie: string, body: unknown, method = 'POST') => ({
   body: JSON.stringify(body),
 })
 
+const bangkokToday = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+
+async function suggestedTaskIds(cookie: string): Promise<string[]> {
+  const body = (await (
+    await app.request(`/api/daily-reports/suggested?date=${bangkokToday()}`, { headers: { cookie } }, env)
+  ).json()) as { tasks: { id: string }[] }
+  return body.tasks.map((task) => task.id)
+}
+
+async function setupRoleMappedTask(options: { assigneeId: string; reviewerId?: string }) {
+  const owner = await loginAs(app, 'owner@example-co.test')
+  const project = (await (
+    await app.request('/api/projects', json(owner, { name: `Daily role ${crypto.randomUUID()}`, type: 'project' }), env)
+  ).json()) as { id: string }
+  for (const userId of [...new Set([options.assigneeId, options.reviewerId].filter((id): id is string => !!id && id !== 'u_owner'))]) {
+    await app.request(`/api/projects/${project.id}/members`, json(owner, { userId, positionId: 'pos_full_access' }), env)
+  }
+  const group = (await (
+    await app.request(`/api/projects/${project.id}/groups`, json(owner, { name: 'Daily Report' }), env)
+  ).json()) as { id: string }
+  const task = (await (
+    await app.request(
+      `/api/groups/${group.id}/tasks`,
+      json(owner, { title: `งาน Daily ${crypto.randomUUID()}`, assigneeId: options.assigneeId }),
+      env,
+    )
+  ).json()) as { id: string }
+  if (options.reviewerId) {
+    const reviewerRes = await app.request(`/api/tasks/${task.id}`, json(owner, { reviewerId: options.reviewerId }, 'PATCH'), env)
+    if (reviewerRes.status !== 200) throw new Error(`ตั้ง Reviewer ไม่สำเร็จ (${reviewerRes.status})`)
+  }
+  return { owner, task }
+}
+
 beforeEach(async () => {
   await seedUsers()
   // Pronista §Daily Report multi-recipient — เทสต์นี้ต้องมีผู้รับที่เข้าเงื่อนไข (owner/member) มากกว่า 2 คน seedUsers เดิมมีแค่ owner+pond
@@ -17,6 +52,49 @@ beforeEach(async () => {
     .insert(users)
     .values({ id: 'u_nam', email: 'nam@example-co.test', name: 'น้ำ', role: 'member' })
     .onConflictDoNothing()
+})
+
+describe('§Daily Report — Role/Action mapping', () => {
+  it('Assignee กดรับงาน → งานปรากฏใน Daily Report ของผู้กด', async () => {
+    const { owner, task } = await setupRoleMappedTask({ assigneeId: 'u_pond' })
+    await app.request(`/api/tasks/${task.id}/dispatch`, json(owner, {}), env)
+
+    const pond = await loginAs(app, 'pond@example-co.test')
+    expect((await app.request(`/api/tasks/${task.id}/accept`, json(pond, {}), env)).status).toBe(200)
+    expect(await suggestedTaskIds(pond)).toContain(task.id)
+  })
+
+  it('ผู้ใช้หลาย Role ทำหลาย Action ในงานเดียว → แสดงเพียง 1 รายการ', async () => {
+    const { owner, task } = await setupRoleMappedTask({ assigneeId: 'u_owner', reviewerId: 'u_owner' })
+
+    expect((await app.request(`/api/tasks/${task.id}`, json(owner, { title: 'แก้รายละเอียดแล้ว', notifyOnUpdate: true }, 'PATCH'), env)).status).toBe(200)
+    await app.request(`/api/tasks/${task.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${task.id}/accept`, json(owner, {}), env)
+    expect((await app.request(`/api/tasks/${task.id}`, json(owner, { status: 'waiting_for_test', workflowAction: 'submit' }, 'PATCH'), env)).status).toBe(200)
+
+    expect((await suggestedTaskIds(owner)).filter((id) => id === task.id)).toHaveLength(1)
+  })
+
+  it('Reviewer กดอนุมัติปิดงาน → งานปรากฏใน Daily Report ของ Reviewer', async () => {
+    const { owner, task } = await setupRoleMappedTask({ assigneeId: 'u_pond', reviewerId: 'u_nam' })
+    await app.request(`/api/tasks/${task.id}/dispatch`, json(owner, {}), env)
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await app.request(`/api/tasks/${task.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${task.id}`, json(pond, { status: 'waiting_for_test', workflowAction: 'submit' }, 'PATCH'), env)
+
+    const nam = await loginAs(app, 'nam@example-co.test')
+    expect((await app.request(`/api/tasks/${task.id}`, json(nam, { status: 'done', workflowAction: 'approve' }, 'PATCH'), env)).status).toBe(200)
+    expect(await suggestedTaskIds(nam)).toContain(task.id)
+  })
+
+  it('Assignee บังคับเปลี่ยนสถานะโดยไม่กด Action ที่กำหนด → งานไม่ถูกนำไปแสดง', async () => {
+    const { task } = await setupRoleMappedTask({ assigneeId: 'u_pond' })
+    const pond = await loginAs(app, 'pond@example-co.test')
+
+    // งานยังไม่ dispatch จึง PATCH สถานะได้ แต่ไม่มี workflowAction จากปุ่มที่กำหนด
+    expect((await app.request(`/api/tasks/${task.id}`, json(pond, { status: 'on_processing' }, 'PATCH'), env)).status).toBe(200)
+    expect(await suggestedTaskIds(pond)).not.toContain(task.id)
+  })
 })
 
 describe('§Daily Report multi-recipient (2026-09-02)', () => {

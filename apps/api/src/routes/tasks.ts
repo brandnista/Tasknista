@@ -76,6 +76,9 @@ const taskPatchSchema = z.object({
   subTaskType: z.string().nullable().optional(),
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — สัญญาณจากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" เท่านั้น (ไม่ใช่คอลัมน์ DB จริง ตัดออกก่อนอัปเดต) กันการ patch เส้นทางอื่น (เช่น toggle subtask/kanban drag) ยิงแจ้งเตือนซ้ำ/ผิดจุดโดยไม่ตั้งใจ
   notifyOnUpdate: z.boolean().optional(),
+  // Pronista §Daily Report role/action mapping — ระบุเฉพาะปุ่ม workflow ในหน้า Task Detail
+  // เพื่อแยกจากการลาก Kanban/ยิง PATCH สถานะตรง ซึ่งต้องไม่ถูกนับเป็นผลงานประจำวัน
+  workflowAction: z.enum(['submit', 'recall', 'approve', 'bounce']).optional(),
   // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency แบบ optional: ไม่ส่งมา = ข้ามการเช็ค (กัน caller เก่า/action ทีละคลิกพัง) ส่งมา = ต้องตรงกับ version ปัจจุบันถึงจะเขียนได้
   expectedVersion: z.number().int().optional(),
 })
@@ -532,7 +535,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // แม้แต่ตอนจะ "รับงานที่ยังไม่มีใครรับ" (self-claim งานว่าง) ทั้งที่ควรทำได้แบบ Jira (ใครก็หยิบงานว่างในโปรเจกต์ตัวเองไปทำได้)
     // เปิดช่องทางแคบๆ ตรงนี้: ยอมผ่านเฉพาะกรณี PATCH มีแค่ assigneeId อย่างเดียว, งานยังไม่มีคนรับ (before.assigneeId ว่าง), และตั้งเป็นตัวเอง (กันไม่ให้ยืมช่องนี้ไปแก้ field อื่น/มอบหมายให้คนอื่นแทนได้)
     // เช็คสิทธิ์ว่าเป็นสมาชิกโปรเจกต์จริงยังอยู่ต่อด้านล่างเหมือนเดิม (บรรทัด assignee_not_eligible) ไม่ได้ยกเว้นตรงนั้น
-    const patchKeys = Object.keys(body.data).filter((k) => k !== 'notifyOnUpdate' && k !== 'expectedVersion')
+    const patchKeys = Object.keys(body.data).filter((k) => k !== 'notifyOnUpdate' && k !== 'workflowAction' && k !== 'expectedVersion')
     const isSelfClaim = !before.assigneeId && patchKeys.length === 1 && patchKeys[0] === 'assigneeId' && body.data.assigneeId === me.id
     if (!isSelfClaim && !(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
     // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ห้ามตั้ง status เป็น 'rejected'/'cancelled' ตรงๆ ผ่าน PATCH ทั่วไปเด็ดขาด ต้องผ่าน /tasks/:id/reject (ระบบตั้งเองตอน assignee ปฏิเสธ) หรือ /tasks/:id/cancel (บังคับเหตุผล) เท่านั้น
@@ -560,7 +563,7 @@ export const taskRoutes = new Hono<AppEnv>()
       const allowedKeys = new Set(before.assignedBy === me.id ? ['assigneeNotes', 'status', 'description'] : ['assigneeNotes', 'status'])
       // Pronista §Workspace/Task Jira-alignment (2026-09-07 fix) — notifyOnUpdate เป็นแค่ signal ไม่ใช่ฟิลด์จริง (ลบออกจาก patch ทีหลังบรรทัด 580) ต้องไม่นับตรงนี้ด้วย
       // ไม่งั้นปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ใหม่ (ส่ง notifyOnUpdate:true มาด้วยเสมอ) จะโดน 403 ทุกครั้งสำหรับ assignee-only แม้แก้แค่ assigneeNotes ที่อนุญาตอยู่แล้ว
-      if (Object.keys(body.data).some((k) => k !== 'notifyOnUpdate' && !allowedKeys.has(k)))
+      if (Object.keys(body.data).some((k) => k !== 'notifyOnUpdate' && k !== 'workflowAction' && k !== 'expectedVersion' && !allowedKeys.has(k)))
         return c.json({ error: 'forbidden', message: 'แก้ไขได้แค่บันทึกของตัวเองกับกด "ส่งงาน" เท่านั้น ให้ผู้จ่ายงานเป็นคนแก้ไขฟิลด์อื่น' }, 403)
     }
     // Pronista §Kanban drag constraints (2026-08-26) — งด "ลาก/สั่งข้ามขั้น" สถานะเอง สำหรับใครก็ตามที่เป็น assignee ของงานนี้
@@ -638,6 +641,7 @@ export const taskRoutes = new Hono<AppEnv>()
 
     const patch: Record<string, unknown> = { ...body.data }
     delete patch.notifyOnUpdate
+    delete patch.workflowAction
     // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — expectedVersion ใช้แค่ตัดสินใจ WHERE guard ด้านล่าง ไม่ใช่คอลัมน์จริง (ตัดออกก่อนเขียน DB เหมือน notifyOnUpdate)
     delete patch.expectedVersion
     patch.version = sql`${tasks.version} + 1`
@@ -722,6 +726,48 @@ export const taskRoutes = new Hono<AppEnv>()
         : 'assigneeId' in body.data && body.data.assigneeId !== before.assigneeId
           ? 'task.assign'
           : 'task.update'
+    // Pronista §Daily Report role/action mapping — บันทึก eligibility ณ เวลากดจริงไว้ใน audit
+    // ไม่คำนวณย้อนหลังจาก task ปัจจุบัน เพราะ assignee/reviewer อาจถูกเปลี่ยนภายหลังได้
+    const after = updated[0]!
+    const hasAnyDailyRole = after.assignedBy === me.id || after.assigneeId === me.id || after.reviewerId === me.id
+    const isAssigneeAtAction = before.assigneeId === me.id
+    const isAssignerOrReviewerAtAction = before.assignedBy === me.id || before.reviewerId === me.id
+    let dailyReportAction: 'save' | 'submit' | 'recall' | 'approve' | 'bounce' | undefined
+    if (body.data.notifyOnUpdate && hasAnyDailyRole) {
+      dailyReportAction = 'save'
+    } else if (
+      body.data.workflowAction === 'submit' &&
+      isAssigneeAtAction &&
+      before.status === 'on_processing' &&
+      body.data.status === 'waiting_for_test'
+    ) {
+      dailyReportAction = 'submit'
+    } else if (
+      body.data.workflowAction === 'recall' &&
+      isAssigneeAtAction &&
+      before.status === 'waiting_for_test' &&
+      body.data.status === 'on_processing'
+    ) {
+      dailyReportAction = 'recall'
+    } else if (
+      body.data.workflowAction === 'approve' &&
+      isAssignerOrReviewerAtAction &&
+      before.status === 'waiting_for_test' &&
+      body.data.status === 'done'
+    ) {
+      dailyReportAction = 'approve'
+    } else if (
+      body.data.workflowAction === 'bounce' &&
+      isAssignerOrReviewerAtAction &&
+      before.status === 'waiting_for_test' &&
+      body.data.status === 'non_start'
+    ) {
+      dailyReportAction = 'bounce'
+    }
+    const auditAfter: Record<string, unknown> = { ...body.data }
+    delete auditAfter.notifyOnUpdate
+    delete auditAfter.workflowAction
+    delete auditAfter.expectedVersion
     await writeAudit(c.env, {
       actorId: me.id,
       action,
@@ -730,7 +776,8 @@ export const taskRoutes = new Hono<AppEnv>()
       meta: {
         title: before.title,
         before: { status: before.status, assigneeId: before.assigneeId },
-        after: body.data,
+        after: auditAfter,
+        ...(dailyReportAction ? { dailyReportAction } : {}),
       },
     })
 
@@ -875,7 +922,13 @@ export const taskRoutes = new Hono<AppEnv>()
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start')))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
-    await writeAudit(c.env, { actorId: me.id, action: 'task.accept', entity: 'task', entityId: before.id, meta: { title: before.title } })
+    await writeAudit(c.env, {
+      actorId: me.id,
+      action: 'task.accept',
+      entity: 'task',
+      entityId: before.id,
+      meta: { title: before.title, dailyReportAction: 'accept' },
+    })
     // Pronista §Assign/Accept audit (2026-09-03) — เดิมคนจ่ายงานไม่เคยรู้เลยว่า assignee รับงานแล้ว (deferred gap จาก Flow Audit รอบก่อน)
     if (before.assignedBy && before.assignedBy !== me.id) {
       await notifyUser(db, {

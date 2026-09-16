@@ -6,7 +6,6 @@ import {
   dailyReportRecipients,
   dailyReports,
   projects,
-  taskStars,
   tasks,
   timeEntries,
   users,
@@ -42,16 +41,7 @@ function nextDateStr(date: string): string {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`
 }
 
-const TASK_ACTIVITY_ACTIONS = [
-  'task.status',
-  'task.assign',
-  'task.update',
-  'task.comment',
-  'task.attach',
-  'task.dispatch',
-  'task.accept',
-  'task.checklist',
-]
+const DAILY_REPORT_TASK_ACTIONS = new Set(['save', 'accept', 'submit', 'recall', 'approve', 'bounce'])
 
 // Pronista §Daily Report multi-recipient — เข้าถึงได้ = เจ้าของ, "หนึ่งในผู้รับ" (ผ่านตาราง daily_report_recipients), หรือ owner บริษัท
 async function canAccessReport(db: ReturnType<typeof createDb>, report: { id: string; userId: string }, me: { id: string; role: string }) {
@@ -140,7 +130,8 @@ const itemInput = z
 
 dailyReportRoutes
 
-  // งานที่ระบบแนะนำให้เพิ่มใน Daily Report ของวันที่ระบุ — union: audit_logs (activity) / time_entries (timer) / task_stars (ติดดาว)
+  // งานที่ระบบแนะนำให้เพิ่มใน Daily Report ของวันที่ระบุ — นับเฉพาะปุ่มที่ผ่าน Role/Action mapping ตอนเกิดเหตุการณ์
+  // time_entries ยังใช้คำนวณนาที แต่การลงเวลา/ติดดาว/คอมเมนต์/แนบไฟล์เพียงอย่างเดียวไม่ทำให้งานเข้ารายงาน
   .get('/daily-reports/suggested', teamOnly, async (c) => {
     const date = c.req.query('date')
     if (!date || !isoDate.safeParse(date).success) return c.json({ error: 'invalid_date' }, 400)
@@ -148,22 +139,26 @@ dailyReportRoutes
     const me = c.get('user')
     const { startMs, endMs } = bangkokDayRangeMs(date)
 
-    const [activityRows, timeRows, starRows, existingReport] = await Promise.all([
+    const [activityRows, timeRows, existingReport] = await Promise.all([
       db
-        .selectDistinct({ taskId: auditLogs.entityId })
+        .select({ taskId: auditLogs.entityId, action: auditLogs.action, meta: auditLogs.meta })
         .from(auditLogs)
-        .where(and(eq(auditLogs.actorId, me.id), eq(auditLogs.entity, 'task'), inArray(auditLogs.action, TASK_ACTIVITY_ACTIONS), gte(auditLogs.at, new Date(startMs)), lt(auditLogs.at, new Date(endMs)))),
+        .where(and(eq(auditLogs.actorId, me.id), eq(auditLogs.entity, 'task'), gte(auditLogs.at, new Date(startMs)), lt(auditLogs.at, new Date(endMs)))),
       db
         .select({ taskId: timeEntries.taskId, minutes: sql<number>`sum(${timeEntries.minutes})` })
         .from(timeEntries)
         .where(and(eq(timeEntries.userId, me.id), eq(timeEntries.workDate, date)))
         .groupBy(timeEntries.taskId),
-      db.selectDistinct({ taskId: taskStars.taskId }).from(taskStars).where(and(eq(taskStars.userId, me.id), eq(taskStars.forDate, date))),
       db.select({ id: dailyReports.id }).from(dailyReports).where(and(eq(dailyReports.userId, me.id), eq(dailyReports.reportDate, date))).limit(1),
     ])
 
     const minutesByTask = new Map(timeRows.map((r) => [r.taskId, r.minutes]))
-    const taskIds = new Set<string>([...activityRows.map((r) => r.taskId), ...timeRows.map((r) => r.taskId), ...starRows.map((r) => r.taskId)])
+    const taskIds = new Set<string>()
+    for (const row of activityRows) {
+      const mappedAction = typeof row.meta?.dailyReportAction === 'string' ? row.meta.dailyReportAction : null
+      // task.accept รุ่นก่อนการเพิ่ม metadata ก็ปลอดภัยที่จะนับย้อนหลัง เพราะ endpoint บังคับว่า actor ต้องเป็น assignee อยู่แล้ว
+      if ((mappedAction && DAILY_REPORT_TASK_ACTIONS.has(mappedAction)) || row.action === 'task.accept') taskIds.add(row.taskId)
+    }
     if (taskIds.size === 0) return c.json({ date, tasks: [] })
 
     const report = existingReport[0]

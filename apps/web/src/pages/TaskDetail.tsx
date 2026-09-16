@@ -471,11 +471,11 @@ export function TaskDetailPage() {
 
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — เฉพาะปุ่ม action หลักทีละคลิก (เริ่มทำ/ปิดงานเอง ฯลฯ) ที่ยังคง instant-patch เดิม ไม่ผ่าน draft (ทีละ action ชัดเจนอยู่แล้ว ไม่ใช่การแก้ฟอร์ม)
   // เคลียร์ key ที่ patch ตรงนี้ออกจาก draft ด้วย (ถ้ามีค้าง) กันสถานะเก่าที่ยังไม่บันทึกจาก dropdown มาทับค่าจริงที่เพิ่ง patch ไป
-  const patchNow = async (data: Record<string, unknown>) => {
+  const patchNow = async (data: Record<string, unknown>, workflowAction?: 'submit' | 'recall' | 'approve' | 'bounce') => {
     // Pronista §Business Rules Workflow (2026-09-15) — เดิมไม่มี try/catch เลย ปุ่ม action ทั้งหมด (ส่งงาน/อนุมัติ/ตีกลับ/ปิดงานเอง) ที่เรียกผ่านฟังก์ชันนี้
     // ถ้า backend ปฏิเสธ (403 ไม่ใช่ reviewer ที่ระบุ, 400 subtasks_incomplete ฯลฯ) จะโดนเงียบแบบ "กดแล้วไม่มีอะไรเกิดขึ้น" (unhandled promise rejection)
     try {
-      await api.patch(`/api/tasks/${t.id}`, data)
+      await api.patch(`/api/tasks/${t.id}`, workflowAction ? { ...data, workflowAction } : data)
       setDraft((d) => {
         const next = { ...d }
         for (const key of Object.keys(data)) delete next[key as keyof TaskDraftFields]
@@ -1541,7 +1541,7 @@ export function TaskDetailPage() {
                     // Pronista §ดึงงานกลับ (2026-08-26) — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ไขต่อเองได้
                     <>
                       <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2 mb-1">ส่งงานแล้ว รอผู้จ่ายงานตรวจ</div>
-                      <button onClick={() => void patchNow({ status: 'on_processing' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
+                      <button onClick={() => void patchNow({ status: 'on_processing' }, 'recall')} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
                         <RotateCcw className="w-4 h-4" /> ดึงงานกลับ
                       </button>
                       {isSelfDispatched && (
@@ -1552,7 +1552,7 @@ export function TaskDetailPage() {
                     </>
                   ) : (
                     <>
-                      <button onClick={() => void patchNow({ status: 'waiting_for_test' })} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
+                      <button onClick={() => void patchNow({ status: 'waiting_for_test' }, 'submit')} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium">
                         <CheckCircle2 className="w-4 h-4" /> ส่งงาน
                       </button>
                       {isSelfDispatched && (
@@ -1587,11 +1587,11 @@ export function TaskDetailPage() {
                     {t.status === 'waiting_for_test' && (
                       <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2 mb-1">งานนี้ส่งมารอตรวจอยู่ — เช็คแล้วกดอนุมัติได้เลย</div>
                     )}
-                    <button onClick={() => void patchNow({ status: 'done' })} disabled={done} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
+                    <button onClick={() => void patchNow({ status: 'done' }, 'approve')} disabled={done} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                       <CheckCircle2 className="w-4 h-4" /> อนุมัติ ปิดงาน
                     </button>
                     {t.status === 'waiting_for_test' && (
-                      <button onClick={() => void patchNow({ status: 'non_start' })} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">
+                      <button onClick={() => void patchNow({ status: 'non_start' }, 'bounce')} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">
                         <RotateCcw className="w-4 h-4" /> ตีกลับ ให้แก้ไข
                       </button>
                     )}
