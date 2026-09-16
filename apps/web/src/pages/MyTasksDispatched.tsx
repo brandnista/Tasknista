@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router'
 import type { KanbanTask } from '../components/StatusKanban'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { TASK_STATUS_BADGE, TASK_STATUS_DOT, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
@@ -30,6 +31,7 @@ function formatDate(value: string | number | null | undefined) {
 
 /** Pronista §My Tasks dispatcher view — งานที่ฉัน assign ให้คนอื่น ดูสถานะรวมว่าแต่ละงานไปถึงไหนแล้ว */
 export function MyTasksDispatchedPage() {
+  const { user } = useAuth()
   const navigate = useNavigate()
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const { data, loading, error } = useLoad<DispatchedRow[]>(() => api.get('/api/tasks/dispatched-by-me'))
@@ -39,7 +41,8 @@ export function MyTasksDispatchedPage() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL)
   const [assigneeFilter, setAssigneeFilter] = useState(ALL)
   const [projectFilter, setProjectFilter] = useState(ALL)
-  const tasks = data ?? []
+  // ชื่อเมนูระบุว่า "ให้คนอื่น" — งานที่ผู้ใช้จ่ายให้ตัวเองยังคงอยู่ใน endpoint กลางเพื่อให้ Daily Report ใช้ได้ แต่ไม่ควรแสดงในหน้านี้
+  const tasks = useMemo(() => (data ?? []).filter((task) => !!user?.id && task.assigneeId !== user.id), [data, user?.id])
 
   useEffect(() => localStorage.setItem('dispatched-tasks-view', viewMode), [viewMode])
 

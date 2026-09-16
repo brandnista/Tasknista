@@ -1,3 +1,4 @@
+/* Hallmark · pre-emit critique: P4 H5 E5 S5 R5 V4 */
 import {
   CheckCircle2,
   ClipboardList,
@@ -18,7 +19,7 @@ import { TaskListView } from '../components/TaskListView'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
-import { isInactiveStatus } from '../lib/task-status'
+import { isInactiveStatus, KANBAN_TASK_STATUS_ORDER, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
@@ -204,6 +205,7 @@ export function MyTasksPage() {
   // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
   const [search, setSearch] = useState('')
   const [projectFilter, setProjectFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all')
   const [spFilter, setSpFilter] = useState<'all' | 'sprint' | 'backlog' | 'high'>('all')
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'overdue'>('all')
   const [todayOnly, setTodayOnly] = useState(false)
@@ -255,6 +257,7 @@ export function MyTasksPage() {
     return tasks.filter((t) => {
       if (q && !(t.title.toLowerCase().includes(q) || (t.code ?? '').toLowerCase().includes(q))) return false
       if (projectFilter !== 'all' && t.projectId !== projectFilter) return false
+      if (statusFilter !== 'all' && t.status !== statusFilter) return false
       if (spFilter === 'sprint' && !t.sprintId) return false
       if (spFilter === 'backlog' && t.sprintId) return false
       if (spFilter === 'high' && t.priority !== 'high') return false
@@ -264,7 +267,7 @@ export function MyTasksPage() {
       if (todayOnly && !(isDoneToday(t) || isSubmittedToday(t))) return false
       return true
     })
-  }, [tasks, search, projectFilter, spFilter, dateFilter, todayOnly, today])
+  }, [tasks, search, projectFilter, statusFilter, spFilter, dateFilter, todayOnly, today])
 
   // Pronista §My Work UX — Daily Accomplishment: 3 กลุ่มสำหรับ "สรุปผลงานประจำวัน" (คำนวณจากงานทั้งหมด ไม่ผูกกับตัวกรองบนจอ)
   const completedTodayList = tasks.filter((t) => isDoneToday(t) || isSubmittedToday(t))
@@ -300,6 +303,19 @@ export function MyTasksPage() {
             <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto">
               <option value="all">โปรเจกต์: ทั้งหมด</option>
               {projectOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+            <select
+              aria-label="กรองงานตามสถานะ"
+              value={statusFilter}
+              onChange={(e) => {
+                const nextStatus = e.target.value as 'all' | TaskStatus
+                setStatusFilter(nextStatus)
+                if (nextStatus !== 'all' && !KANBAN_TASK_STATUS_ORDER.includes(nextStatus)) setView('list')
+              }}
+              className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto focus:outline-hidden focus:ring-2 focus:ring-brand-500/25"
+            >
+              <option value="all">สถานะ: ทั้งหมด</option>
+              {TASK_STATUS_ORDER.map((status) => <option key={status} value={status}>{TASK_STATUS_LABEL[status]}</option>)}
             </select>
             <select value={spFilter} onChange={(e) => setSpFilter(e.target.value as typeof spFilter)} className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto">
               <option value="all">Sprint/Priority: ทั้งหมด</option>
