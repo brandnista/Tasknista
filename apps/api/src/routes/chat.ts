@@ -178,7 +178,9 @@ chatRoutes
   })
 
   .post('/chat/channels/:id/messages', teamOrMenu('team'), async (c) => {
-    const body = z.object({ body: z.string().min(1).max(4000), mentionedUserIds: z.array(z.string()).optional() }).safeParse(await c.req.json())
+    // Pronista §Chat attachment caption (2026-09-16) — เดิม body ต้องไม่ว่าง (min 1) ทำให้ upload() ฝั่ง frontend ต้องยัดข้อความ "แนบไฟล์: ชื่อไฟล์" ให้เสมอ (attachment ผูกกับ message ต้องมี message ให้ผูกก่อน)
+    // ตอนนี้ frontend ส่ง body ว่างสำหรับข้อความที่มีแต่ไฟล์แนบล้วนๆ (ไม่มีแคปชัน) — คลายเป็น allow ว่างได้ (ยังกันข้อความว่างเปล่าไม่มีไฟล์แนบด้วยจริงๆ อยู่ฝั่ง client — ปุ่มส่งเช็ค text.trim() ก่อนอยู่แล้ว)
+    const body = z.object({ body: z.string().max(4000), mentionedUserIds: z.array(z.string()).optional() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -237,23 +239,30 @@ chatRoutes
   })
 
   // โหลดไฟล์แนบในแชท — เดิม frontend ยิงไป /api/attachments/:id ซึ่งเป็น endpoint ของ Task attachment เท่านั้น หา chat attachment ไม่เจอเลย (404 ตลอด) จึงแยก path ของตัวเอง
+  // (2026-09-16 perf) — เดิม query แยก 3 รอบ (attachment → message → channel) เรียงกันตามลำดับ ทำให้โหลดรูปแต่ละใบช้า (ยิ่งมีหลายรูปในห้องเดียวกันยิ่งสะสม) รวม attachment+message เป็น join เดียว เหลือ 2 round-trip
+  // + cache-control ยืดจาก 1 ชม. เป็น 1 ปี (immutable) — เนื้อหาไฟล์แนบไม่มีวันเปลี่ยนหลังอัปโหลดแล้ว (r2Key ใหม่ทุกครั้งที่อัปโหลด) ยัง private (แคชแค่ฝั่ง browser ผู้ใช้เอง ไม่ใช่ shared cache) กันปัญหาสิทธิ์เข้าถึงข้ามคนหลุดจาก cache กลาง
   .get('/chat/attachments/:id', teamOrMenu('team'), async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const att = (await db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, c.req.param('id'))).limit(1))[0]
-    if (!att || !att.r2Key) return c.json({ error: 'not_found' }, 404)
-    const msg = (await db.select().from(chatMessages).where(eq(chatMessages.id, att.messageId)).limit(1))[0]
-    if (!msg) return c.json({ error: 'not_found' }, 404)
-    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, msg.channelId)).limit(1))[0]
+    const row = (await db
+      .select({ att: chatMessageAttachments, channelId: chatMessages.channelId })
+      .from(chatMessageAttachments)
+      .innerJoin(chatMessages, eq(chatMessageAttachments.messageId, chatMessages.id))
+      .where(eq(chatMessageAttachments.id, c.req.param('id')))
+      .limit(1))[0]
+    if (!row) return c.json({ error: 'not_found' }, 404)
+    const att = row.att
+    if (!att.r2Key) return c.json({ error: 'not_found' }, 404)
+    const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, row.channelId)).limit(1))[0]
     if (!channel || !(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
     const obj = await c.env.FILES.get(att.r2Key)
     if (!obj) return c.json({ error: 'object_missing' }, 404)
-    const inlineSafe = /^image\/(png|jpeg|gif|webp|avif)$/.test(att.mime ?? '')
+    const inlineSafe = /^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|quicktime))$/.test(att.mime ?? '')
     return new Response(obj.body, {
       headers: {
         'content-type': inlineSafe && att.mime ? att.mime : 'application/octet-stream',
         'content-disposition': `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(att.filename)}"`,
-        'cache-control': 'private, max-age=3600',
+        'cache-control': 'private, max-age=31536000, immutable',
       },
     })
   })

@@ -531,8 +531,8 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   }, [messages, members, meId])
 
   const upload = async (file: File) => {
-    // ต้องมีข้อความก่อนถึงจะแนบไฟล์ได้ (ไฟล์แนบผูกกับ message) — ส่งชื่อไฟล์เป็นข้อความให้อัตโนมัติถ้ายังไม่มี
-    const created = await api.post<ChatMessage>(`/api/chat/channels/${channel.id}/messages`, { body: `แนบไฟล์: ${file.name}` })
+    // ต้องมีข้อความก่อนถึงจะแนบไฟล์ได้ (ไฟล์แนบผูกกับ message) — เดิมยัดแคปชัน "แนบไฟล์: ชื่อไฟล์" ให้เสมอ ตอนนี้ส่ง body ว่างแทน (ตัด API ฝั่ง server ให้รับ body ว่างได้แล้ว) โชว์แค่รูป/คลิป/ไฟล์เพียวๆ ไม่มีข้อความซ้ำซ้อน
+    const created = await api.post<ChatMessage>(`/api/chat/channels/${channel.id}/messages`, { body: '' })
     onSent()
     const fd = new FormData()
     fd.append('file', file)
@@ -627,9 +627,12 @@ function MessageRow({
           {!mine && <span className="text-sm font-medium text-ink">{m.senderName}</span>}
           <span className="text-[11px] text-muted">{fmtTime(m.createdAt)}{m.editedAt ? ' (แก้ไขแล้ว)' : ''}</span>
         </div>
-        <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
-          {renderMessageBody(m.body, m.mentionedUserIds, members)}
-        </div>
+        {/* Pronista §Chat attachment caption (2026-09-16) — ข้อความที่มีแต่ไฟล์แนบล้วนๆ (body ว่าง) ไม่ต้องมีบับเบิลข้อความเปล่าโผล่มาด้วย */}
+        {m.body.trim() && (
+          <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
+            {renderMessageBody(m.body, m.mentionedUserIds, members)}
+          </div>
+        )}
         {m.attachments.map((a) => {
           const src = a.r2Key ? `/api/chat/attachments/${a.id}` : a.externalUrl
           if (src && a.mime?.startsWith('image/')) {
