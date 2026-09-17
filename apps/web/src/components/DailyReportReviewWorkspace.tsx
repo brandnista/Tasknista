@@ -1,4 +1,4 @@
-/* Hallmark · genre: modern-minimal · macrostructure: Workbench · tone: friendly-readable · designed-as-app */
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V4 · genre: modern-minimal · macrostructure: Workbench · tone: friendly-readable · designed-as-app */
 import {
   AlertTriangle,
   ArrowLeft,
@@ -9,7 +9,6 @@ import {
   Inbox,
   MessageSquare,
   Send,
-  Users,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../lib/api'
@@ -157,19 +156,18 @@ export function DailyReportReviewWorkspace({ initialReportId }: { initialReportI
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-brand-700">
               <Inbox className="h-4 w-4" /> รายงานที่ส่งถึงคุณ
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-[28px]">Daily Report ที่ส่งถึงคุณ</h1>
+            <h1 className="min-w-0 text-2xl font-bold tracking-tight text-ink [overflow-wrap:anywhere] sm:text-[28px]">Daily Report ที่ส่งถึงคุณ</h1>
             <p className="mt-2 text-sm leading-6 text-dim">ไล่อ่านความคืบหน้า เห็นสิ่งที่ติดขัด และคุยต่อกับเจ้าของรายงานได้จากหน้าเดียว</p>
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 xl:min-w-[430px]">
+          <div className="grid grid-cols-3 divide-x divide-divider overflow-hidden rounded-xl bg-hover xl:min-w-[430px]">
             {[
-              { label: 'รอตรวจ', value: pendingCount, icon: Inbox, tone: 'bg-brand-50 text-brand-700' },
-              { label: 'ตรวจแล้ว', value: reviewedCount, icon: CheckCircle2, tone: 'bg-success-50 text-success-700' },
-              { label: 'ทั้งหมด', value: reports.length, icon: Users, tone: 'bg-hover text-dim' },
-            ].map(({ label, value, icon: Icon, tone }) => (
-              <div key={label} className="rounded-xl border border-border-subtle bg-white p-3.5">
-                <div className={`mb-3 grid h-8 w-8 place-items-center rounded-lg ${tone}`}><Icon className="h-4 w-4" /></div>
+              { label: 'รอตรวจ', value: pendingCount, tone: 'text-brand-700' },
+              { label: 'ตรวจแล้ว', value: reviewedCount, tone: 'text-success-700' },
+              { label: 'ทั้งหมด', value: reports.length, tone: 'text-ink' },
+            ].map(({ label, value, tone }) => (
+              <div key={label} className="px-3 py-4 text-center sm:px-5 sm:text-left">
                 <div className="text-2xl font-bold tabular-nums text-ink">{value}</div>
-                <div className="mt-0.5 text-xs text-muted">{label}</div>
+                <div className={`mt-1 text-xs font-medium ${tone}`}>{label}</div>
               </div>
             ))}
           </div>
