@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { ClientCombobox } from '../components/ClientCombobox'
 import { DateInputTH } from '../components/DateInputTH'
+import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { ProjectMembersPicker } from '../components/ProjectMembersPicker'
@@ -466,6 +467,13 @@ interface ProductTypeOpt { id: string; name: string }
 /** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
 const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
 
+// Pronista §Project Creation data-loss fix (2026-09-17) — ค่าเริ่มต้นแยกเป็น const กลาง ใช้เทียบ "มีข้อมูลที่ยังไม่ได้บันทึกไหม" ก่อนปิด modal
+const NEW_PROJECT_FORM_DEFAULTS = {
+  name: '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
+  startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: '',
+  serviceType: '', productType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
+}
+
 function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { data: users } = useLoad<TeamUser[]>(() => api.get('/api/users'))
   const { data: clientData } = useLoad<{ rows: ClientOpt[] }>(() => api.get('/api/clients'))
@@ -478,15 +486,20 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — owner เป็น Lead ได้ปกติ จึงใช้ลิสต์แยก ไม่ผูกกับสมาชิกโปรเจกต์
   const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor')
 
-  const [form, setForm] = useState({
-    name: '', category: 'project' as 'product' | 'project', description: '', clientId: '', clientName: '', leadId: '',
-    startDate: '', dueDate: '', sprint: '', priority: 'normal' as 'low' | 'normal' | 'high', code: '',
-    // Pronista §Subscription Notify — ประเภทโปรเจกต์ (project) / ประเภทสินค้า (product) + ช่วงเวลาให้บริการ (ไม่ติ๊ก = lifetime ไม่มีวันหมดอายุ)
-    serviceType: '', productType: '', hasServicePeriod: false, serviceStartDate: '', serviceEndDate: '', notifyValue: '30', notifyUnit: 'day' as 'day' | 'month',
-  })
+  const [form, setForm] = useState(NEW_PROJECT_FORM_DEFAULTS)
   const [codeTouched, setCodeTouched] = useState(false)
   const [members, setMembers] = useState<string[]>([])
   const [error, setError] = useState('')
+  const { confirmDialog } = useDialog()
+  // Pronista §Project Creation data-loss fix (2026-09-17) — CR: คลิกพื้นที่ว่างนอก modal ตอนกรอกฟอร์มสร้างโปรเจกต์แล้วปิดทันที ข้อมูลหายหมด
+  // แก้: ถ้ายังไม่ได้พิมพ์/เลือกอะไรเลย (ฟอร์มตรงกับค่าเริ่มต้นเป๊ะ + ยังไม่เลือกสมาชิก) ปิดได้ทันทีเหมือนเดิม (ไม่มีอะไรจะเสีย)
+  // ถ้ามีข้อมูลอยู่แล้ว ต้องถามยืนยันก่อนเสมอ ไม่ว่าจะปิดผ่านการคลิก backdrop หรือกดปุ่ม X ก็ตาม
+  const isDirty = members.length > 0 || JSON.stringify(form) !== JSON.stringify(NEW_PROJECT_FORM_DEFAULTS)
+  const requestClose = async () => {
+    if (isDirty && !(await confirmDialog({ title: 'ปิดหน้าต่างนี้?', message: 'ข้อมูลที่กรอกไว้จะหายไปทั้งหมด (ยังไม่ได้บันทึก)', confirmLabel: 'ปิดเลย', cancelLabel: 'กรอกต่อ', danger: true })))
+      return
+    onClose()
+  }
 
   const submit = async () => {
     try {
@@ -521,12 +534,12 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const label = 'text-xs font-medium text-muted mb-1 block'
   return (
     <div className="fixed inset-0 z-50">
-      <div onClick={onClose} className="absolute inset-0 bg-ink/30" />
+      <div onClick={() => void requestClose()} className="absolute inset-0 bg-ink/30" />
       <div className="absolute inset-x-0 top-12 mx-auto w-full max-w-lg px-4">
         <div className="bg-white rounded-lg shadow-2xl p-5 max-h-[88vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
             <div className="font-semibold text-ink">โปรเจกต์ใหม่</div>
-            <button onClick={onClose} className="text-muted hover:text-soft"><X className="w-5 h-5" /></button>
+            <button onClick={() => void requestClose()} className="text-muted hover:text-soft"><X className="w-5 h-5" /></button>
           </div>
           <div className="space-y-3.5">
             <div>
@@ -692,7 +705,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
           </div>
           {error && <div className="text-xs text-danger-600 mt-3">{error}</div>}
           <div className="flex justify-end gap-2 mt-5">
-            <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
+            <button onClick={() => void requestClose()} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
             <button onClick={() => void submit()} disabled={!form.name} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">สร้าง</button>
           </div>
         </div>
