@@ -435,7 +435,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     return c.json(inserted[0], 201)
   })
 
-  // โหลดไฟล์ (auth แล้วทุก role) — รูป inline, อื่นๆ (รวม SVG กัน XSS) บังคับดาวน์โหลด
+  // โหลดไฟล์ (auth แล้วทุก role) — รูป/วิดีโอ inline (เล่น/แสดงตรงในเบราว์เซอร์ได้ ปลอดภัย ไม่รัน script), อื่นๆ (รวม SVG กัน XSS) บังคับดาวน์โหลด
   .get('/attachments/:id', async (c) => {
     const db = createDb(c.env.DB)
     const att = (
@@ -448,7 +448,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (ownerTask?.projectId && !(await isProjectVisibleToUser(db, ownerTask.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
     const obj = await c.env.FILES.get(att.r2Key)
     if (!obj) return c.json({ error: 'object_missing' }, 404)
-    const inlineSafe = /^image\/(png|jpeg|gif|webp|avif)$/.test(att.mime ?? '')
+    // Pronista §Rich text media upload (2026-09-16) — เพิ่ม video/* ให้ inline ได้ด้วย (เดิมมีแค่รูป) เพื่อให้วิดีโอที่แทรกในฟิลด์ "รายละเอียดจากผู้จ่ายงาน" เล่นตรงในหน้าได้ ไม่ถูกบังคับดาวน์โหลด
+    const inlineSafe = /^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|quicktime))$/.test(att.mime ?? '')
     return new Response(obj.body, {
       headers: {
         'content-type': inlineSafe && att.mime ? att.mime : 'application/octet-stream',

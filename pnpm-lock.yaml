@@ -88,6 +88,9 @@ importers:
       '@seedoffice/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@tiptap/core':
+        specifier: ^3.26.0
+        version: 3.26.0(@tiptap/pm@3.26.0)
       '@tiptap/extension-image':
         specifier: ^3.26.0
         version: 3.26.0(@tiptap/core@3.26.0(@tiptap/pm@3.26.0))

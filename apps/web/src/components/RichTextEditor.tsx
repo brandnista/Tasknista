@@ -3,6 +3,7 @@
  * เพื่อให้ My Note (และจุดอื่นในอนาคต) ใช้ทูลบาร์จัดรูปแบบชุดเดียวกันได้ — เก็บ/โหลดเนื้อหาเป็น Markdown เสมอ
  * ปุ่มแทรกรูปโชว์เฉพาะตอนมี onPickImage (ตอนนี้มีแค่ DocViewer ที่ผูก endpoint อัปโหลดรูปไว้ — My Note ยังไม่มีที่เก็บรูปของตัวเอง)
  */
+import { mergeAttributes, Node, type CommandProps, type MarkdownParseHelpers, type MarkdownToken } from '@tiptap/core'
 import { Markdown } from '@tiptap/markdown'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import Image from '@tiptap/extension-image'
@@ -15,14 +16,67 @@ import {
   Image as ImageIcon, Italic, Link2, List, ListChecks, ListOrdered, Minus, Rows3,
   Strikethrough, Table, TextQuote,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useDialog } from './Dialog'
+
+/**
+ * Pronista §Rich text media upload (2026-09-16) — Tiptap ไม่มีโหนดวิดีโอมาให้ (มีแต่ Image)
+ * เก็บเป็น markdown ด้วย syntax เฉพาะของตัวเอง `[[video:url]]` (ไม่ยืม syntax รูปภาพ `![]()`)
+ * เหตุผลที่ต้องแยก syntax เด็ดขาด (ลองยืม token 'image' ร่วมกับ Image มาก่อนแล้วพังจริง):
+ * @tiptap/markdown dispatch ตัว render (renderNodeToMarkdown → getHandlerForToken) หยิบ handler ตัวแรกที่ลงทะเบียนไว้ใต้ tokenName
+ * เดียวกันมาใช้แบบไม่เช็คก่อนว่าเข้ากับ node จริงไหม — ถ้า Video ใช้ tokenName ร่วมกับ Image ('image') โหนดรูปภาพจริงๆ
+ * จะโดน renderMarkdown ของ Video ครอบไปด้วย (กลายเป็นวิดีโอทั้งคู่ตอน save) ต้องมี token type ของตัวเองเท่านั้นถึงจะปลอดภัย
+ * → ใช้ markdownTokenizer ผูก syntax ใหม่ที่ marked.js ไม่มีมาก่อน ให้ token.type = 'video' ตรงกับชื่อโหนดเป๊ะ ไม่ชนใคร
+ */
+const Video = Node.create({
+  name: 'video',
+  group: 'block',
+  draggable: true,
+  addAttributes() {
+    return { src: { default: null } }
+  },
+  parseHTML() {
+    return [{ tag: 'video[src]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['video', mergeAttributes(HTMLAttributes, { controls: 'true', style: 'max-width:100%;border-radius:0.5rem' })]
+  },
+  markdownTokenizer: {
+    name: 'video',
+    level: 'block',
+    start: (src: string) => src.indexOf('[[video:'),
+    tokenize: (src: string) => {
+      const m = /^\[\[video:(\S+?)\]\]/.exec(src)
+      if (!m) return undefined
+      return { type: 'video', raw: m[0], href: m[1] }
+    },
+  },
+  parseMarkdown: (token: MarkdownToken, helpers: MarkdownParseHelpers) => helpers.createNode('video', { src: token.href }),
+  renderMarkdown: (node: { attrs?: Record<string, unknown> }) => `[[video:${(node.attrs?.src as string | undefined) ?? ''}]]`,
+  addCommands() {
+    return {
+      setVideo:
+        (options: { src: string }) =>
+        ({ commands }: CommandProps) =>
+          commands.insertContent({ type: this.name, attrs: options }),
+    }
+  },
+})
+
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    video: {
+      setVideo: (options: { src: string }) => ReturnType
+    }
+  }
+}
 
 export function richTextExtensions(placeholder: string) {
   return [
     StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    Video,
     Image,
     TableKit.configure({ table: { resizable: false } }),
     Placeholder.configure({ placeholder }),
@@ -30,7 +84,22 @@ export function richTextExtensions(placeholder: string) {
   ]
 }
 
-export function RichTextToolbar({ editor, onPickImage, rightSlot }: { editor: Editor; onPickImage?: () => void; rightSlot?: ReactNode }) {
+/** ไฟล์ที่รองรับแทรกลงเนื้อหา (ปุ่ม Toolbar/วาง/ลาก) — รูปภาพทั่วไป + วิดีโอที่เล่นในเบราว์เซอร์ได้ตรงๆ ไม่ต้องแปลงไฟล์ */
+export const MEDIA_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/avif,video/mp4,video/webm,video/quicktime'
+const MEDIA_FILE_RE = /^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|quicktime))$/
+
+export function RichTextToolbar({
+  editor,
+  onPickImage,
+  pickMediaLabel = 'แทรกรูป (หรือวาง/ลากรูปลงในเนื้อหา)',
+  rightSlot,
+}: {
+  editor: Editor
+  onPickImage?: () => void
+  /** ข้อความ tooltip ของปุ่มแทรกสื่อ — ปรับได้เวลารองรับวิดีโอด้วย (ค่าเริ่มต้นคงเดิมสำหรับ Docs/My Note ที่รองรับแค่รูป) */
+  pickMediaLabel?: string
+  rightSlot?: ReactNode
+}) {
   const { promptDialog } = useDialog()
   const btn = (active: boolean) =>
     `w-8 h-8 grid place-items-center rounded-lg shrink-0 ${active ? 'bg-brand-50 text-brand-700' : 'text-dim hover:bg-divider'}`
@@ -68,7 +137,7 @@ export function RichTextToolbar({ editor, onPickImage, rightSlot }: { editor: Ed
       {divider}
       <button title="อ้างอิง" onClick={() => editor.chain().focus().toggleBlockquote().run()} className={btn(editor.isActive('blockquote'))}><TextQuote className="w-4 h-4" /></button>
       <button title="ลิงก์" onClick={() => void setLink()} className={btn(editor.isActive('link'))}><Link2 className="w-4 h-4" /></button>
-      {onPickImage && <button title="แทรกรูป (หรือวาง/ลากรูปลงในเนื้อหา)" onClick={onPickImage} className={btn(false)}><ImageIcon className="w-4 h-4" /></button>}
+      {onPickImage && <button title={pickMediaLabel} onClick={onPickImage} className={btn(false)}><ImageIcon className="w-4 h-4" /></button>}
       <button title="เส้นคั่น" onClick={() => editor.chain().focus().setHorizontalRule().run()} className={btn(false)}><Minus className="w-4 h-4" /></button>
       {divider}
       {editor.isActive('table') ? (
@@ -91,6 +160,8 @@ export function RichTextToolbar({ editor, onPickImage, rightSlot }: { editor: Ed
  * เอดิเตอร์ครบชุด (ทูลบาร์ + เนื้อหา) เก็บ/โหลดเป็น Markdown — uncontrolled ตาม pattern ของ Tiptap
  * `content` = เนื้อหาเริ่มต้นเท่านั้น (ไม่ re-render ตามทุกครั้งที่ prop เปลี่ยน) ยิง onChange(markdown) ทุกครั้งที่แก้ไข ให้ parent ตัดสินใจ save เอง
  * `bare` = ไม่ห่อกรอบ/พื้นหลังของตัวเอง เอาไว้ฝังในการ์ดอื่นที่มีสไตล์อยู่แล้ว (เช่นรายการโน้ตแบบอ่านอย่างเดียว)
+ * `onUploadMedia` = เปิดใช้ปุ่มแทรกรูป/วิดีโอ + วาง (paste) + ลาก-วาง (drop) — parent ส่ง handler อัปโหลดไฟล์เอง (คืน url หรือ null ถ้าปฏิเสธ)
+ * ไม่ส่ง prop นี้ = ไม่มีปุ่ม/วาง/ลากเลย เหมือนพฤติกรรมเดิม (Docs/My Note ที่ยังไม่ส่ง prop นี้ไม่กระทบ)
  */
 export function RichTextEditor({
   content,
@@ -100,6 +171,7 @@ export function RichTextEditor({
   minHeight = 'min-h-32',
   autoFocus,
   bare = false,
+  onUploadMedia,
 }: {
   content: string
   onChange?: (markdown: string) => void
@@ -108,7 +180,18 @@ export function RichTextEditor({
   minHeight?: string
   autoFocus?: boolean
   bare?: boolean
+  onUploadMedia?: (file: File) => Promise<string | null>
 }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const insertMediaFile = (file: File) => {
+    void onUploadMedia?.(file).then((url) => {
+      if (!url || !editor) return
+      editor.chain().focus().insertContent(file.type.startsWith('video/') ? { type: 'video', attrs: { src: url } } : { type: 'image', attrs: { src: url } }).run()
+      // (2026-09-16) insertContent ทิ้ง NodeSelection ไว้ที่โหนดสื่อที่เพิ่งแทรก — วาง/ลากไฟล์ถัดไปโดยไม่ได้คลิกที่อื่นก่อนจะ "แทนที่" โหนดนี้แทนที่จะแทรกต่อ
+      // ย้าย cursor ไปจุดท้ายโหนดให้เป็น text selection แทน กันแทรกสื่อหลายไฟล์ติดกันแล้วไฟล์ก่อนหน้าหาย
+      editor.chain().setTextSelection(editor.state.selection.to).run()
+    })
+  }
   const editor = useEditor(
     {
       extensions: richTextExtensions(placeholder),
@@ -116,7 +199,30 @@ export function RichTextEditor({
       contentType: 'markdown',
       editable,
       autofocus: autoFocus ? 'end' : false,
-      editorProps: { attributes: { class: `doc-editor focus:outline-hidden ${minHeight}` } },
+      editorProps: {
+        attributes: { class: `doc-editor focus:outline-hidden ${minHeight}` },
+        handlePaste: onUploadMedia
+          ? (_view, event) => {
+              const file = [...(event.clipboardData?.files ?? [])][0]
+              if (file && MEDIA_FILE_RE.test(file.type)) {
+                insertMediaFile(file)
+                return true
+              }
+              return false
+            }
+          : undefined,
+        handleDrop: onUploadMedia
+          ? (_view, event) => {
+              const file = [...(event.dataTransfer?.files ?? [])][0]
+              if (file && MEDIA_FILE_RE.test(file.type)) {
+                event.preventDefault()
+                insertMediaFile(file)
+                return true
+              }
+              return false
+            }
+          : undefined,
+      },
       onUpdate: ({ editor: ed }) => onChange?.(ed.getMarkdown()),
     },
     [editable],
@@ -125,7 +231,22 @@ export function RichTextEditor({
   if (!editor) return null
   const inner = (
     <>
-      {editable && <RichTextToolbar editor={editor} />}
+      {editable && (
+        <RichTextToolbar
+          editor={editor}
+          onPickImage={onUploadMedia ? () => fileRef.current?.click() : undefined}
+          pickMediaLabel="แทรกรูป/วิดีโอ (หรือวาง/ลากไฟล์ลงในเนื้อหา)"
+        />
+      )}
+      {editable && onUploadMedia && (
+        <input
+          ref={fileRef}
+          type="file"
+          accept={MEDIA_ACCEPT}
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) insertMediaFile(f); e.target.value = '' }}
+        />
+      )}
       <div className={bare ? '' : 'px-3 sm:px-4 py-3'}>
         <EditorContent editor={editor} />
       </div>

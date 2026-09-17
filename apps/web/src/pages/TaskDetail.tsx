@@ -639,6 +639,20 @@ export function TaskDetailPage() {
     fd.append('file', file)
     await fetch(`/api/tasks/${t.id}/attachments`, { method: 'POST', body: fd })
   }
+  // Pronista §Rich text media upload (2026-09-16) — แทรกรูป/วิดีโอในฟิลด์ "รายละเอียดจากผู้จ่ายงาน" — reuse endpoint ไฟล์แนบเดิม (R2)
+  // ไฟล์ที่แทรกจะโผล่ในลิสต์ "ไฟล์แนบ" ของงานนี้ด้วย (เป็นแถวเดียวกัน ไม่ได้เก็บแยก) — ตั้งใจ ไม่ใช่บั๊ก เพราะยังเป็นไฟล์จริงที่อัปขึ้นงานนี้เหมือนกัน
+  const uploadDescriptionMedia = async (file: File): Promise<string | null> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/tasks/${t.id}/attachments`, { method: 'POST', body: fd })
+    if (!res.ok) {
+      await alertDialog({ title: res.status === 413 ? 'ไฟล์ใหญ่เกิน 15MB' : 'แนบไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง' })
+      return null
+    }
+    const att = (await res.json()) as { id: string }
+    void reload()
+    return `/api/attachments/${att.id}`
+  }
   const uploadMany = async (files: FileList | File[]) => {
     for (const f of Array.from(files)) await upload(f)
     await reload()
@@ -972,6 +986,7 @@ export function TaskDetailPage() {
                   onChange={(md) => setDraftField('description', md || null)}
                   placeholder="เพิ่มรายละเอียดงาน..."
                   minHeight="min-h-24"
+                  onUploadMedia={uploadDescriptionMedia}
                 />
               ) : t.description ? (
                 <RichTextEditor content={t.description} editable={false} bare />
