@@ -539,18 +539,21 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
   }
 
-  // Pronista §Chat read receipt (2026-09-16) — หาข้อความล่าสุด (ใครส่งก็ได้) ที่แต่ละคน "อ่านถึงตรงนั้นแล้ว" แสดง avatar ใต้ข้อความนั้นข้อความเดียว (ไม่ใช่ทุกข้อความ — ตัดชิ้นตาม LINE/Messenger)
+  // Pronista §Chat read receipt — หาข้อความ "ของฉัน" ล่าสุดที่แต่ละคนอ่านถึงแล้ว แสดง avatar ใต้ข้อความนั้นข้อความเดียว (ไม่ใช่ทุกข้อความ — ตัดชิ้นตาม LINE/Messenger)
+  // (2026-09-17 fix) — เดิมหา "ข้อความล่าสุดในห้อง ไม่ว่าใครส่ง" ที่แต่ละคนอ่านถึง ทำให้ในห้องกลุ่มที่แต่ละคนอ่านคืบหน้าไม่พร้อมกัน ไอคอนผู้อ่านกระจายไปโผล่ใต้ข้อความของคนอื่นด้วย
+  // ดูเหมือนโผล่ "ทุกข้อความ" เพราะแต่ละข้อความเป็นของคนละคน — จำกัดเฉพาะข้อความที่ "ฉัน" (คนดูอยู่ตอนนี้) เป็นคนส่งเท่านั้น ตรงความหมายจริงของ read receipt (บอกฉันว่าข้อความของฉันถูกอ่านถึงไหนแล้ว)
   const readAvatarsByMessageId = useMemo(() => {
     const map = new Map<string, ChannelMember[]>()
+    const myMessages = messages.filter((m) => m.senderId === meId)
     for (const member of members) {
       if (member.id === meId || !member.lastReadAt) continue
       const readAt = new Date(member.lastReadAt).getTime()
       let latest: ChatMessage | null = null
-      for (const m of messages) {
+      for (const m of myMessages) {
         const t = new Date(m.createdAt).getTime()
         if (t <= readAt && (!latest || t > new Date(latest.createdAt).getTime())) latest = m
       }
-      if (latest && latest.senderId !== member.id) map.set(latest.id, [...(map.get(latest.id) ?? []), member])
+      if (latest) map.set(latest.id, [...(map.get(latest.id) ?? []), member])
     }
     return map
   }, [messages, members, meId])
