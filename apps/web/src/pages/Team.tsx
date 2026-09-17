@@ -38,6 +38,8 @@ interface ChatMessage {
   editedAt: number | null
   attachments: ChatAttachment[]
   mentionedUserIds?: string[] | null
+  // Pronista §Chat reply (2026-09-17) — ข้อความต้นทางที่ถูกอ้างถึง (null = ไม่ใช่ reply หรือข้อความต้นทางถูกลบไปแล้ว)
+  parentMessage?: { id: string; body: string; senderName: string } | null
 }
 // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้อง ใช้ทั้งทำ @mention picker และคำนวณ read receipt (lastReadAt ต่อคน)
 interface ChannelMember {
@@ -365,16 +367,19 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [convertFor, setConvertFor] = useState<ChatMessage | null>(null)
+  // Pronista §Chat reply (2026-09-17) — ข้อความที่กำลังจะตอบกลับ (โชว์แถบ preview เหนือช่องพิมพ์ ยกเลิกได้ก่อนส่ง)
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
-  // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้องนี้ ใช้ทำ @mention picker (เฉพาะห้อง >2 คน) + คำนวณ read receipt (avatar ใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง แบบ LINE/Messenger)
+  // Pronista §Chat @mention + read receipt (2026-09-16) — สมาชิกห้องนี้ ใช้ทำ @mention picker + คำนวณ read receipt (avatar ใต้ข้อความล่าสุดที่แต่ละคนอ่านถึง แบบ LINE/Messenger)
   const { data: membersData, reload: reloadMembers } = useLoad<ChannelMember[]>(() => api.get(`/api/chat/channels/${channel.id}/members`), [channel.id])
   const [members, setMembers] = useState<ChannelMember[]>([])
   useEffect(() => setMembers(membersData ?? []), [membersData])
-  const canMention = members.length > 2
+  // (2026-09-17 fix) — เดิมจำกัดแค่ห้อง >2 คนถึงจะ @ ได้ (มองว่า DM 2 คนไม่จำเป็น) ตามคำขออาร์มเปิดให้ @ ได้ทุกห้องไม่จำกัดจำนวนคน
+  const canMention = true
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -437,14 +442,20 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
       ws.onmessage = (e) => {
         if (e.data === 'pong') return
         try {
-          const msg = JSON.parse(String(e.data)) as { type?: string; message?: ChatMessage; messageId?: string; userId?: string; lastReadAt?: number }
+          const msg = JSON.parse(String(e.data)) as { type?: string; message?: ChatMessage; messageId?: string; userId?: string; lastReadAt?: number; attachment?: ChatAttachment }
           if (msg.type === 'chat_message' && msg.message) {
             setMessages((prev) => (prev.some((m) => m.id === msg.message!.id) ? prev : [...prev, msg.message!]))
             if (msg.message.senderId !== meId) onSent()
           } else if (msg.type === 'chat_message_edited' && msg.message) {
-            setMessages((prev) => prev.map((m) => (m.id === msg.message!.id ? msg.message! : m)))
+            // (2026-09-17 fix) — เดิม replace ทั้งก้อนด้วย payload ที่ broadcast มา ซึ่งไม่มี attachments/parentMessage ติดมาด้วย (เป็นแค่ raw row จาก DB update)
+            // ทำให้รูป/ไฟล์แนบและ quote ตอบกลับหายไปจากข้อความที่เพิ่งถูกแก้ไข (ทั้งฝั่งคนแก้เองและคนอื่นในห้อง) — merge แทน replace
+            setMessages((prev) => prev.map((m) => (m.id === msg.message!.id ? { ...m, ...msg.message! } : m)))
           } else if (msg.type === 'chat_message_deleted' && msg.messageId) {
             setMessages((prev) => prev.filter((m) => m.id !== msg.messageId))
+          } else if (msg.type === 'chat_attachment' && msg.messageId && msg.attachment) {
+            // (2026-09-17) — ไฟล์แนบ (รวมรูปที่วางจาก paste) ยิงคนละ event จากข้อความ ต้องฟังแยกไม่งั้นรูปไม่โผล่แบบสดจนกว่าจะรีเฟรชหน้า
+            const attachment = msg.attachment
+            setMessages((prev) => prev.map((m) => (m.id === msg.messageId ? { ...m, attachments: [...m.attachments, attachment] } : m)))
           } else if (msg.type === 'chat_read' && msg.userId && typeof msg.lastReadAt === 'number') {
             // Pronista §Chat read receipt (2026-09-16) — คนอื่นในห้องเปิดอ่านสดๆ อัปเดต lastReadAt ของเขาไว้ให้ avatar ผู้อ่านขยับตาม
             setMembers((prev) => prev.map((mb) => (mb.id === msg.userId ? { ...mb, lastReadAt: msg.lastReadAt! } : mb)))
@@ -475,16 +486,18 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     setSending(true)
     setText('')
     setMentionOpen(false)
+    const replyingTo = replyTo?.id
+    setReplyTo(null)
     try {
       const mentionedUserIds = canMention ? detectMentions(body, members) : []
-      await api.post(`/api/chat/channels/${channel.id}/messages`, { body, mentionedUserIds })
+      await api.post(`/api/chat/channels/${channel.id}/messages`, { body, mentionedUserIds, ...(replyingTo ? { parentMessageId: replyingTo } : {}) })
       onSent()
     } finally {
       setSending(false)
     }
   }
 
-  // Pronista §Chat @mention (2026-09-16) — เฉพาะห้อง >2 คน: พิมพ์ "@" แล้วเลือกคนจากสมาชิกห้องได้ ไม่ไล่ตำแหน่ง caret เป๊ะๆ (โผล่เหนือช่องพิมพ์เสมอ ง่ายกว่า+พอสำหรับเคสใช้งานจริง)
+  // Pronista §Chat @mention (2026-09-16) — พิมพ์ "@" แล้วเลือกคนจากสมาชิกห้องได้ ไม่ไล่ตำแหน่ง caret เป๊ะๆ (โผล่เหนือช่องพิมพ์เสมอ ง่ายกว่า+พอสำหรับเคสใช้งานจริง)
   const mentionMatches = canMention
     ? members.filter((mb) => mb.id !== meId && mb.name.toLowerCase().includes(mentionQuery.toLowerCase()))
     : []
@@ -551,6 +564,14 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     const res = await fetch(`/api/chat/messages/${created.id}/attachments`, { method: 'POST', body: fd })
     if (!res.ok) await alertDialog({ title: 'แนบไฟล์ไม่สำเร็จ — รับไฟล์ขนาดไม่เกิน 15MB' })
   }
+  // Pronista §Chat paste image (2026-09-17) — ก็อปรูปมาวาง (Ctrl+V) ในช่องพิมพ์แล้วแนบขึ้นแชทได้เลย เหมือนแอปแชททั่วไป — reuse upload() เดิมทุกอย่าง (สร้างข้อความเปล่าแล้วผูกไฟล์แนบเข้าไป)
+  const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
+    if (file) {
+      e.preventDefault()
+      void upload(file)
+    }
+  }
 
   const label = channel.kind === 'project' ? channel.projectName : channel.displayName ?? 'ไม่มีชื่อ'
   // Pronista §Group chat member management (2026-09-16) — เดิมตั้งสมาชิกได้แค่ตอนสร้างกลุ่ม แก้ทีหลังไม่ได้เลย (แอดผิดคนแล้วลบไม่ได้) — เฉพาะห้อง group เท่านั้น (dm ตายตัว 2 คน, project ผูกกับสมาชิกโปรเจกต์)
@@ -588,12 +609,25 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
             members={members}
             readBy={readAvatarsByMessageId.get(m.id) ?? []}
             onDeleted={() => setMessages((prev) => prev.filter((x) => x.id !== m.id))}
+            onEdited={(updated) => setMessages((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)))}
             onConvert={() => setConvertFor(m)}
+            onReply={() => { setReplyTo(m); textareaRef.current?.focus() }}
           />
         ))}
         <div ref={bottomRef} />
       </div>
-      <div className="relative border-t border-border-subtle p-3 flex items-end gap-2">
+      {/* Pronista §Chat reply (2026-09-17) — แถบ preview ข้อความที่กำลังจะตอบกลับ เหนือช่องพิมพ์ ยกเลิกได้ก่อนส่งจริง */}
+      {replyTo && (
+        <div className="flex items-center gap-2 px-3 pt-2 border-t border-border-subtle bg-hover/60">
+          <div className="w-0.5 self-stretch bg-brand-400 rounded-full shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium text-brand-700">ตอบกลับ {replyTo.senderName}</div>
+            <div className="text-xs text-muted truncate">{replyTo.body.trim() || 'ไฟล์แนบ'}</div>
+          </div>
+          <button onClick={() => setReplyTo(null)} className="p-1 rounded hover:bg-divider text-dim shrink-0" aria-label="ยกเลิกการตอบกลับ"><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+      <div className={`relative p-3 flex items-end gap-2 ${replyTo ? '' : 'border-t border-border-subtle'}`}>
         {mentionOpen && mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-3 mb-1 w-56 max-h-48 overflow-y-auto bg-white rounded-lg shadow-2xl border border-border-subtle p-1 z-10">
             {mentionMatches.map((mb, i) => (
@@ -616,7 +650,8 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleComposerKeyDown}
-          placeholder={canMention ? 'พิมพ์ข้อความ... (พิมพ์ @ เพื่อกล่าวถึงใครในกลุ่ม)' : 'พิมพ์ข้อความ...'}
+          onPaste={handleComposerPaste}
+          placeholder="พิมพ์ข้อความ... (พิมพ์ @ เพื่อกล่าวถึงใครในห้องนี้)"
           rows={1}
           style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
           className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 resize-none overflow-y-auto focus:outline-hidden"
@@ -720,24 +755,49 @@ function GroupMembersModal({
 }
 
 function MessageRow({
-  m, mine, members, readBy, onDeleted, onConvert,
+  m, mine, members, readBy, onDeleted, onEdited, onConvert, onReply,
 }: {
   m: ChatMessage
   mine: boolean
   members: { id: string; name: string; avatarUrl: string | null }[]
   readBy: { id: string; name: string; avatarUrl: string | null }[]
   onDeleted: () => void
+  onEdited: (updated: ChatMessage) => void
   onConvert: () => void
+  onReply: () => void
 }) {
-  const { confirmDialog } = useDialog()
+  const { confirmDialog, alertDialog } = useDialog()
   const [menuOpen, setMenuOpen] = useState(false)
   // Pronista §Chat inline media (2026-09-16) — รูป/คลิปที่แนบมา โชว์ตรงในแชทเลยแบบ LINE/Messenger ไม่ต้องกดออกไปดูอีกที
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  // Pronista §Chat edit (2026-09-17) — แก้ไขข้อความของตัวเองได้ (backend รองรับอยู่แล้ว แค่ไม่เคยมี UI) แก้ในบับเบิลเดิมเลย ไม่ใช่ popup แยก
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState(m.body)
+  const [savingEdit, setSavingEdit] = useState(false)
   const remove = async () => {
     setMenuOpen(false)
     if (!(await confirmDialog({ title: 'ลบข้อความนี้?', danger: true }))) return
     await api.delete(`/api/chat/messages/${m.id}`)
     onDeleted()
+  }
+  const startEdit = () => {
+    setMenuOpen(false)
+    setEditText(m.body)
+    setEditing(true)
+  }
+  const saveEdit = async () => {
+    const body = editText.trim()
+    if (!body || savingEdit) return
+    setSavingEdit(true)
+    try {
+      const updated = await api.patch<ChatMessage>(`/api/chat/messages/${m.id}`, { body })
+      onEdited({ ...m, ...updated })
+      setEditing(false)
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'แก้ไขข้อความไม่สำเร็จ' })
+    } finally {
+      setSavingEdit(false)
+    }
   }
   return (
     <div className={`flex items-start gap-2 group ${mine ? 'flex-row-reverse justify-start' : ''}`}>
@@ -747,11 +807,37 @@ function MessageRow({
           {!mine && <span className="text-sm font-medium text-ink">{m.senderName}</span>}
           <span className="text-[11px] text-muted">{fmtTime(m.createdAt)}{m.editedAt ? ' (แก้ไขแล้ว)' : ''}</span>
         </div>
-        {/* Pronista §Chat attachment caption (2026-09-16) — ข้อความที่มีแต่ไฟล์แนบล้วนๆ (body ว่าง) ไม่ต้องมีบับเบิลข้อความเปล่าโผล่มาด้วย */}
-        {m.body.trim() && (
-          <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
-            {renderMessageBody(m.body, m.mentionedUserIds, members)}
+        {/* Pronista §Chat reply (2026-09-17) — ข้อความต้นทางที่ถูกอ้างถึง โชว์เป็น quote เล็กๆ เหนือบับเบิลตัวเอง */}
+        {m.parentMessage && (
+          <div className={`max-w-full mb-0.5 pl-2 border-l-2 border-border text-[11px] text-muted truncate ${mine ? 'text-right border-r-2 border-l-0 pr-2 pl-0' : ''}`}>
+            <span className="font-medium">{m.parentMessage.senderName}</span>{': '}{m.parentMessage.body.trim() || 'ไฟล์แนบ'}
           </div>
+        )}
+        {editing ? (
+          <div className="w-full min-w-48 mt-0.5">
+            <textarea
+              autoFocus
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void saveEdit() }
+                if (e.key === 'Escape') setEditing(false)
+              }}
+              rows={2}
+              className="w-full text-sm bg-white border border-border rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:border-brand-400"
+            />
+            <div className="flex justify-end gap-1.5 mt-1">
+              <button onClick={() => setEditing(false)} className="text-[11px] text-dim hover:text-body px-2 py-1 rounded hover:bg-hover">ยกเลิก</button>
+              <button onClick={() => void saveEdit()} disabled={!editText.trim() || savingEdit} className="text-[11px] font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-40 px-2.5 py-1 rounded">บันทึก</button>
+            </div>
+          </div>
+        ) : (
+          // Pronista §Chat attachment caption (2026-09-16) — ข้อความที่มีแต่ไฟล์แนบล้วนๆ (body ว่าง) ไม่ต้องมีบับเบิลข้อความเปล่าโผล่มาด้วย
+          m.body.trim() && (
+            <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
+              {renderMessageBody(m.body, m.mentionedUserIds, members)}
+            </div>
+          )
         )}
         {m.attachments.map((a) => {
           const src = a.r2Key ? `/api/chat/attachments/${a.id}` : a.externalUrl
@@ -790,13 +876,16 @@ function MessageRow({
           </div>
         )}
       </div>
-      <div className="relative shrink-0 opacity-0 group-hover:opacity-100 self-center">
+      {/* (2026-09-17 fix) — เดิม opacity-0 group-hover:opacity-100 เฉยๆ ทำให้บนมือถือ/แท็บเล็ต (ไม่มี hover) กดปุ่มนี้ไม่ได้เลย ไม่เห็นตัวเลือกลบ/แก้ไข/ตอบกลับเลยสักอัน — เพิ่ม fallback โชว์เสมอบนอุปกรณ์ทัชสกรีน (มิเรอร์ pattern เดียวกับปุ่ม pin เมนู) */}
+      <div className="relative shrink-0 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 self-center">
         <button onClick={() => setMenuOpen((v) => !v)} className="text-xs text-dim px-1.5 py-0.5 rounded hover:bg-hover">⋮</button>
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
             <div className={`absolute top-full mt-1 z-50 w-40 bg-white rounded-lg shadow-2xl border border-border-subtle p-1 ${mine ? 'left-0' : 'right-0'}`}>
+              <button onClick={() => { setMenuOpen(false); onReply() }} className="w-full text-left text-xs px-2.5 py-1.5 rounded hover:bg-hover text-body">ตอบกลับ</button>
               <button onClick={() => { setMenuOpen(false); onConvert() }} className="w-full text-left text-xs px-2.5 py-1.5 rounded hover:bg-hover text-body">สร้าง Task</button>
+              {mine && <button onClick={startEdit} className="w-full text-left text-xs px-2.5 py-1.5 rounded hover:bg-hover text-body">แก้ไข</button>}
               {mine && <button onClick={() => void remove()} className="w-full text-left text-xs px-2.5 py-1.5 rounded hover:bg-hover text-danger-600">ลบข้อความ</button>}
             </div>
           </>

@@ -118,6 +118,40 @@ describe('Pronista §Team Chat — channels & messages', () => {
   })
 })
 
+describe('Pronista §Chat reply (2026-09-17)', () => {
+  it('ส่งข้อความพร้อม parentMessageId → ผูก reply สำเร็จ เห็น quote (body+ชื่อผู้ส่งต้นทาง) ทั้งตอนส่งและตอน GET messages', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const dm = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+    const original = (await (await app.request(`/api/chat/channels/${dm.id}/messages`, json(owner, { body: 'ข้อความต้นฉบับ' }), env)).json()) as { id: string }
+
+    const pondCookie = await loginAs(app, 'pond@example-co.test')
+    const reply = await app.request(`/api/chat/channels/${dm.id}/messages`, json(pondCookie, { body: 'ตอบกลับนะ', parentMessageId: original.id }), env)
+    expect(reply.status).toBe(201)
+    const replyBody = (await reply.json()) as { parentMessage: { id: string; body: string; senderName: string } | null }
+    expect(replyBody.parentMessage).toMatchObject({ id: original.id, body: 'ข้อความต้นฉบับ', senderName: 'เมธ' })
+
+    const list = (await (await app.request(`/api/chat/channels/${dm.id}/messages`, { headers: { cookie: owner } }, env)).json()) as { body: string; parentMessage: { body: string } | null }[]
+    const found = list.find((m) => m.body === 'ตอบกลับนะ')
+    expect(found?.parentMessage?.body).toBe('ข้อความต้นฉบับ')
+  })
+
+  it('parentMessageId ชี้ไปข้อความห้องอื่น หรือข้อความที่ถูกลบไปแล้ว → เพิกเฉยเงียบๆ (บันทึกข้อความสำเร็จ แต่ไม่ผูก reply)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const dm1 = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_pond' }), env)).json()) as { id: string }
+    const dm2 = (await (await app.request('/api/chat/channels', json(owner, { kind: 'dm', userId: 'u_somchai' }), env)).json()) as { id: string }
+    const msgInOtherRoom = (await (await app.request(`/api/chat/channels/${dm2.id}/messages`, json(owner, { body: 'อยู่คนละห้อง' }), env)).json()) as { id: string }
+
+    const crossRoom = await app.request(`/api/chat/channels/${dm1.id}/messages`, json(owner, { body: 'พยายาม reply ข้ามห้อง', parentMessageId: msgInOtherRoom.id }), env)
+    expect(crossRoom.status).toBe(201)
+    expect(((await crossRoom.json()) as { parentMessage: unknown }).parentMessage).toBeNull()
+
+    const deletedTarget = (await (await app.request(`/api/chat/channels/${dm1.id}/messages`, json(owner, { body: 'จะถูกลบ' }), env)).json()) as { id: string }
+    await app.request(`/api/chat/messages/${deletedTarget.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    const replyToDeleted = await app.request(`/api/chat/channels/${dm1.id}/messages`, json(owner, { body: 'reply ไปข้อความที่ลบแล้ว', parentMessageId: deletedTarget.id }), env)
+    expect(((await replyToDeleted.json()) as { parentMessage: unknown }).parentMessage).toBeNull()
+  })
+})
+
 describe('Pronista §Chat @mention + read receipt (2026-09-16)', () => {
   it('mentionedUserIds ที่ผ่านการเช็คสมาชิกแล้ว persist ลง DB จริง (ไม่ใช่แค่ใช้ยิงแจ้งเตือนตอนส่งแล้วทิ้ง)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')

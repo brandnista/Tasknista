@@ -23,6 +23,19 @@ async function myProjectIds(db: ReturnType<typeof createDb>, me: { id: string; r
   return (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, me.id))).map((r) => r.id)
 }
 
+/** Pronista §Chat reply (2026-09-17) — โหลด body+ชื่อผู้ส่งของข้อความต้นทางที่ถูกอ้างถึง (parentMessageId) มาทำ quote preview
+ * คืนเป็น Map กันซ้ำ — ข้อความเดียวกันอาจถูกใช้เป็นต้นทางของหลาย reply ในหน้าเดียวกัน ไม่ query ซ้ำ */
+async function loadParentMessages(db: ReturnType<typeof createDb>, parentIds: (string | null)[]): Promise<Map<string, { id: string; body: string; senderName: string }>> {
+  const ids = [...new Set(parentIds.filter((id): id is string => !!id))]
+  if (!ids.length) return new Map()
+  const rows = await db
+    .select({ id: chatMessages.id, body: chatMessages.body, senderName: users.name })
+    .from(chatMessages)
+    .innerJoin(users, eq(chatMessages.senderId, users.id))
+    .where(inArray(chatMessages.id, ids))
+  return new Map(rows.map((r) => [r.id, r]))
+}
+
 /** true ถ้าฉันมีสิทธิ์อ่าน/เขียนห้องนี้ */
 export async function canAccessChannel(db: ReturnType<typeof createDb>, channel: { kind: string; projectId: string | null; id: string }, me: { id: string; role: string }): Promise<boolean> {
   if (channel.kind === 'project') {
@@ -204,19 +217,29 @@ chatRoutes
     const attachments = messageIds.length ? await db.select().from(chatMessageAttachments).where(inArray(chatMessageAttachments.messageId, messageIds)) : []
     const attachmentsByMessage = new Map<string, typeof attachments>()
     for (const a of attachments) attachmentsByMessage.set(a.messageId, [...(attachmentsByMessage.get(a.messageId) ?? []), a])
-    return c.json(rows.map((r) => ({ ...r.msg, senderName: r.senderName, attachments: attachmentsByMessage.get(r.msg.id) ?? [] })).reverse())
+    // Pronista §Chat reply (2026-09-17) — โหลดข้อความต้นทางของแต่ละ reply มาแสดงเป็น quote preview เดียว (ไม่พึ่ง messages ที่โหลดในหน้านี้ เพราะข้อความต้นทางอาจเก่ากว่าหน้าปัจจุบัน)
+    const parentMap = await loadParentMessages(db, rows.map((r) => r.msg.parentMessageId))
+    return c.json(
+      rows
+        .map((r) => ({ ...r.msg, senderName: r.senderName, attachments: attachmentsByMessage.get(r.msg.id) ?? [], parentMessage: r.msg.parentMessageId ? (parentMap.get(r.msg.parentMessageId) ?? null) : null }))
+        .reverse(),
+    )
   })
 
   .post('/chat/channels/:id/messages', teamOrMenu('team'), async (c) => {
     // Pronista §Chat attachment caption (2026-09-16) — เดิม body ต้องไม่ว่าง (min 1) ทำให้ upload() ฝั่ง frontend ต้องยัดข้อความ "แนบไฟล์: ชื่อไฟล์" ให้เสมอ (attachment ผูกกับ message ต้องมี message ให้ผูกก่อน)
     // ตอนนี้ frontend ส่ง body ว่างสำหรับข้อความที่มีแต่ไฟล์แนบล้วนๆ (ไม่มีแคปชัน) — คลายเป็น allow ว่างได้ (ยังกันข้อความว่างเปล่าไม่มีไฟล์แนบด้วยจริงๆ อยู่ฝั่ง client — ปุ่มส่งเช็ค text.trim() ก่อนอยู่แล้ว)
-    const body = z.object({ body: z.string().max(4000), mentionedUserIds: z.array(z.string()).optional() }).safeParse(await c.req.json())
+    const body = z.object({ body: z.string().max(4000), mentionedUserIds: z.array(z.string()).optional(), parentMessageId: z.string().optional() }).safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const channel = (await db.select().from(chatChannels).where(eq(chatChannels.id, c.req.param('id'))).limit(1))[0]
     if (!channel) return c.json({ error: 'not_found' }, 404)
     if (!(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Chat reply (2026-09-17) — ต้องเป็นข้อความในห้องเดียวกันและยังไม่ถูกลบจริง ไม่งั้นเงียบๆ ไม่ผูก reply (กัน reply ข้ามห้อง/ไปยังข้อความที่ถูกลบไปแล้วระหว่างพิมพ์)
+    const parentMessageId = body.data.parentMessageId
+      ? (await db.select({ id: chatMessages.id }).from(chatMessages).where(and(eq(chatMessages.id, body.data.parentMessageId), eq(chatMessages.channelId, channel.id), isNull(chatMessages.deletedAt))).limit(1))[0]?.id ?? null
+      : null
     // Pronista §Team Chat mention — ไม่เชื่อ client parse ตรงๆ ต้องเป็นสมาชิกห้องนี้จริงถึงนับเป็น mention (กันแอบ mention คนนอกห้อง)
     // (2026-09-16 bug fix) — เดิมเช็ค `me.role === 'owner'` (สิทธิ์ของ "คนส่ง") ไม่ใช่ของ "คนที่ถูก mention" ทำให้ owner mention ใครก็ได้แม้ไม่ได้อยู่ในห้อง/โปรเจกต์นั้นจริง — ต้องเช็คสิทธิ์ของ userId เป้าหมายเท่านั้น
     const requested = [...new Set(body.data.mentionedUserIds ?? [])].filter((id) => id !== me.id)
@@ -230,7 +253,7 @@ chatRoutes
       if (isMember) mentioned.push(userId)
     }
     // Pronista §Chat @mention (2026-09-16) — เก็บ mentionedUserIds ที่ผ่านการเช็คสมาชิกแล้วลง DB ด้วย (ก่อนหน้านี้ใช้แค่ตอนยิงแจ้งเตือน ไม่เคย persist — frontend เลย highlight/re-render ไม่ได้หลัง reload)
-    const created = (await db.insert(chatMessages).values({ channelId: channel.id, senderId: me.id, body: body.data.body, mentionedUserIds: mentioned.length ? mentioned : null }).returning())[0]!
+    const created = (await db.insert(chatMessages).values({ channelId: channel.id, senderId: me.id, body: body.data.body, mentionedUserIds: mentioned.length ? mentioned : null, parentMessageId }).returning())[0]!
     for (const userId of mentioned) {
       await notifyUser(db, { userId, type: 'chat_mention', chatChannelId: channel.id, message: `${me.name} กล่าวถึงคุณในแชท: "${body.data.body.slice(0, 80)}"` })
     }
@@ -245,8 +268,9 @@ chatRoutes
       }
     }
 
-    await notifyChatChannel(c.env, channel.id, { type: 'chat_message', message: { ...created, senderName: me.name, attachments: [] } })
-    return c.json(created, 201)
+    const parentMessage = parentMessageId ? (await loadParentMessages(db, [parentMessageId])).get(parentMessageId) ?? null : null
+    await notifyChatChannel(c.env, channel.id, { type: 'chat_message', message: { ...created, senderName: me.name, attachments: [], parentMessage } })
+    return c.json({ ...created, parentMessage }, 201)
   })
 
   // แนบไฟล์/ลิงก์บนข้อความที่ส่งไปแล้ว — pattern เดียวกับ task-detail.ts (คู่ file/link, r2Key = chat/{channelId}/{uuid}-{filename})
