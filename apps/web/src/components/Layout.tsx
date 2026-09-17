@@ -224,10 +224,16 @@ export function Layout() {
     })
   }
   // Pronista §Pin เมนู (2026-09-11) — ปักหมุดเมนูโปรดให้ลอยบนสุด sidebar เสมอ แทนที่การลาก-วาง (พี่แบงค์ยืนยันว่าถ้า pin ได้ Drag and Drop ก็ไม่จำเป็น) จำค่าไว้ข้าม session แบบเดียวกับ sidebarCollapsed
+  // Pronista §Pin เมนู bug fix (2026-09-17) — เก็บเป็น "top:/to" หรือ "child:/to" แทนแค่ /to เฉยๆ
+  // สาเหตุบั๊กเดิม: เมนูแม่บางอัน (เช่น "งานของฉัน") มีลูกตัวแรกที่ to ซ้ำกับตัวเองเป๊ะ ({ to: '/my-tasks', label: 'งานของฉัน' })
+  // ไว้ทำ highlight/openGroups เฉยๆ — พอ pin ด้วย to เดี่ยวๆ แล้วหาแบบ "to ไม่ซ้ำกันทั้งแอป" (ที่จริงไม่จริงเฉพาะกรณีนี้) จะไปเจอเมนูแม่ก่อนเสมอ
+  // ปักหมุด "ลูก" เลยกลายเป็นปักหมุด "แม่ทั้งก้อน" (ลากเมนูย่อยทั้งหมดมาด้วย) — ใส่ prefix บอกชนิดให้ชัดเจนแทน แก้ที่รากของปัญหา
   const [pinnedTo, setPinnedTo] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem('pronista_pinned_menus')
-      return raw ? (JSON.parse(raw) as string[]) : []
+      const parsed = raw ? (JSON.parse(raw) as string[]) : []
+      // ของเก่าก่อนแก้บั๊กนี้เก็บแค่ to เฉยๆ ไม่มี prefix — เติม "top:" ให้อัตโนมัติ (พฤติกรรมเดิมทุกเคสยกเว้นเคสชนกันที่เพิ่งแก้ ซึ่งเดิมก็ผิดอยู่แล้ว)
+      return parsed.map((v) => (v.includes(':') ? v : `top:${v}`))
     } catch {
       return []
     }
@@ -323,25 +329,29 @@ export function Layout() {
     [items, user],
   )
   // Pronista §Pin เมนู — เมนูที่ถูกปักหมุด (กรองตามสิทธิ์จริงจาก items แล้ว) ลอยบนสุดตามลำดับที่ผู้ใช้จัด ส่วนที่เหลือแสดงต่อแบบเดิม ไม่ซ้ำกัน
-  // แต่ละรายการใน pinnedTo อาจเป็นเมนูหลักหรือเมนูย่อยก็ได้ — to ไม่ซ้ำกันทั้งแอป จึงหาเจอแค่ฝั่งเดียว
+  // key แต่ละอันใน pinnedTo เป็น "top:/to" หรือ "child:/to" ระบุชนิดชัดเจนแล้ว (แก้บั๊ก to ชนกันตอน pin ลูกที่ to ซ้ำกับแม่)
   const pinnedEntries = useMemo(
     () =>
       pinnedTo
-        .map((to) => {
-          const topItem = items.find((n) => n.to === to)
-          if (topItem) return { kind: 'top' as const, item: topItem }
+        .map((key) => {
+          const sep = key.indexOf(':')
+          const kind = key.slice(0, sep)
+          const to = key.slice(sep + 1)
+          if (kind === 'top') {
+            const topItem = items.find((n) => n.to === to)
+            return topItem ? { kind: 'top' as const, item: topItem } : null
+          }
           const child = childPinnables.find((c) => c.to === to)
-          if (child) return { kind: 'child' as const, child }
-          return null
+          return child ? { kind: 'child' as const, child } : null
         })
         .filter((e): e is NonNullable<typeof e> => !!e),
     [pinnedTo, items, childPinnables],
   )
   const pinnedSet = useMemo(
-    () => new Set(pinnedEntries.map((e) => (e.kind === 'top' ? e.item.to : e.child.to))),
+    () => new Set(pinnedEntries.map((e) => (e.kind === 'top' ? `top:${e.item.to}` : `child:${e.child.to}`))),
     [pinnedEntries],
   )
-  const unpinnedItems = useMemo(() => items.filter((n) => !pinnedSet.has(n.to)), [items, pinnedSet])
+  const unpinnedItems = useMemo(() => items.filter((n) => !pinnedSet.has(`top:${n.to}`)), [items, pinnedSet])
   // Pronista §nav highlight — เลือก NAV item ที่ to ตรง/ยาวที่สุด (เจาะจงที่สุด) เป็นตัวไฮไลต์เดียว กัน "/docs" ติดไฮไลต์พร้อม "/docs/history" เพราะ path ขึ้นต้นเหมือนกัน
   const activeTo = useMemo(() => {
     const path = location.pathname
@@ -362,7 +372,7 @@ export function Layout() {
   const renderNavRow = (item: (typeof items)[number]) => {
     const { to, label, icon: Icon, children } = item
     const isOpen = !!children && openGroups.has(to)
-    const isPinned = pinnedSet.has(to)
+    const isPinned = pinnedSet.has(`top:${to}`)
     return (
       <div key={to}>
         <div className="flex items-center gap-0.5 group">
@@ -391,7 +401,7 @@ export function Layout() {
           </NavLink>
           <button
             type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(`top:${to}`) }}
             aria-label={isPinned ? `เลิกปักหมุด ${label}` : `ปักหมุด ${label}`}
             className={`p-1 rounded hover:bg-divider ${isPinned ? 'text-brand-600' : 'text-muted'} ${PIN_ROW_ACTION_VISIBILITY}`}
           >
@@ -401,7 +411,7 @@ export function Layout() {
         {children && isOpen && (
           <div className="ml-[27px] mt-0.5 mb-0.5 space-y-0.5 border-l border-border-subtle pl-3">
             {children.filter((c) => !c.roles || (user && c.roles.includes(user.role))).map((c) => {
-              const isChildPinned = pinnedSet.has(c.to)
+              const isChildPinned = pinnedSet.has(`child:${c.to}`)
               return (
                 <div key={c.to} className="flex items-center gap-0.5 group">
                   <NavLink
@@ -420,7 +430,7 @@ export function Layout() {
                   </NavLink>
                   <button
                     type="button"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(c.to) }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(`child:${c.to}`) }}
                     aria-label={isChildPinned ? `เลิกปักหมุด ${c.label}` : `ปักหมุด ${c.label}`}
                     className={`p-1 rounded hover:bg-divider ${isChildPinned ? 'text-brand-600' : 'text-muted'} ${PIN_ROW_ACTION_VISIBILITY}`}
                   >
@@ -459,7 +469,7 @@ export function Layout() {
         </NavLink>
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(to) }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(`child:${to}`) }}
           aria-label={`เลิกปักหมุด ${label}`}
           className={`p-1 rounded hover:bg-divider text-brand-600 ${PIN_ROW_ACTION_VISIBILITY}`}
         >

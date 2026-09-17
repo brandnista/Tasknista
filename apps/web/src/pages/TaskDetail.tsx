@@ -483,6 +483,8 @@ export function TaskDetailPage() {
       })
       await reload()
       toast('บันทึกสำเร็จ')
+      // (2026-09-17) — กด "ส่งงาน" แล้วเด้งกลับไปหน้าก่อนหน้าที่เข้ามาทันที (ปกติคือ "งานของฉัน") แทนที่จะค้างอยู่หน้า Task Detail ต่อ — เฉพาะ submit เท่านั้น action อื่น (อนุมัติ/ตีกลับ/ปิดงานเอง ฯลฯ) ยังอยู่หน้าเดิมเหมือนเดิม
+      if (workflowAction === 'submit') navigate(-1)
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
     }
@@ -1315,18 +1317,20 @@ export function TaskDetailPage() {
                     </>
                   )}
 
-                  {/* Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (ว่าง = editor/owner โปรเจกต์คนไหนก็อนุมัติได้เหมือนเดิม) — เลือกจาก list เดียวกับผู้รับผิดชอบ */}
+                  {/* Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (ว่าง = fallback เป็นผู้จ่ายงานจริงตาม effectiveReviewerId ด้านบน)
+                      (2026-09-17 UX fix) — เดิมไม่เลือกแล้วโชว์ "— ไม่ระบุ —" เฉยๆ ทำให้ดูเหมือนไม่มีใครตรวจ ทั้งที่จริงระบบ fallback ให้ผู้จ่ายงานตรวจแทนอัตโนมัติอยู่แล้ว
+                      (ทั้ง dropdown ตอนแก้ไข และตอนอ่านอย่างเดียว) — เปลี่ยนให้โชว์ชื่อผู้จ่ายงานเป็นค่า default ตรงๆ ให้ตรงกับพฤติกรรมจริง ไม่ใช่แค่วงเล็บกำกับ */}
                   <span className="text-dim">ผู้ตรวจงาน</span>
                   {canEdit && !isAssigneeOnly ? (
                     <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-fit min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
-                      <option value="">{t.assignedByName ? `— ไม่ระบุ (${t.assignedByName}) —` : '— ไม่ระบุ —'}</option>
+                      <option value="">{t.assignedByName ?? '— ไม่ระบุ —'}</option>
                       {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                   ) : (
-                    t.reviewerName ? (
+                    (t.reviewerName ?? t.assignedByName) ? (
                       <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
-                        <Avatar name={t.reviewerName} avatarUrl={t.reviewerAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(t.reviewerName)} />
-                        {t.reviewerName}
+                        <Avatar name={(t.reviewerName ?? t.assignedByName)!} avatarUrl={t.reviewerName ? t.reviewerAvatarUrl : t.assignedByAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor((t.reviewerName ?? t.assignedByName)!)} />
+                        {t.reviewerName ?? t.assignedByName}
                       </span>
                     ) : (
                       <span className="w-fit text-muted text-xs">— ไม่ระบุ —</span>

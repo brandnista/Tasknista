@@ -219,11 +219,13 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
  * (เดิมกดทั้งแถวเปิดเมนู ActionMenu ให้เลือก "แชท"/"โทร" — พอตัด "โทร" ออกเหลือแค่ "แชท" ทางเดียว เมนูคั่นกลางเลยเกินจำเป็น เปลี่ยนเป็นไอคอนกดตรงแทน)
  * ไม่แตะฟีเจอร์เดิม (ลิสต์ห้องสนทนา/สร้างกลุ่ม) เลย — เป็นแค่ทางเข้าเพิ่มสำหรับเริ่มแชท 1:1 เร็วขึ้น ใช้ endpoint เดิมทุกอย่าง (POST /chat/channels kind:'dm' — idempotent มีห้องเดิมอยู่แล้วก็เปิดห้องเดิม) */
 function DirectoryPanel({ onStartChat }: { onStartChat: (userId: string) => void }) {
+  const { user: me } = useAuth()
   const { data } = useLoad<DirectoryUser[]>(() => api.get('/api/users'))
   const [search, setSearch] = useState('')
 
   const q = search.trim().toLowerCase()
-  const matches = (u: DirectoryUser) => !q || u.name.toLowerCase().includes(q)
+  // (2026-09-17 fix) — ไม่ต้องเห็นชื่อตัวเองในรายชื่อ (กดแชทกับตัวเองไม่มีความหมาย)
+  const matches = (u: DirectoryUser) => u.id !== me?.id && (!q || u.name.toLowerCase().includes(q))
   // (2026-09-16 fix) — เดิมรายชื่อกรองเหลือแค่ member/vendor ไม่มี Admin เลย ทั้งที่หน้าสร้างกลุ่มแชท (NewDmModal) ดึง /api/users ตรงๆ ไม่กรอง role เห็น Admin อยู่แล้ว — ทำให้สองที่ไม่ตรงกัน เพิ่มกลุ่ม Admin ให้ตรงกัน
   const admins = (data ?? []).filter((u) => u.role === 'owner' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
   const staff = (data ?? []).filter((u) => u.role === 'member' && matches(u)).sort((a, b) => a.name.localeCompare(b.name, 'th'))
@@ -297,12 +299,14 @@ function ChannelRow({ ch, active, onClick, onDelete }: { ch: ChatChannel; active
 }
 
 function NewDmModal({ onClose, onCreated }: { onClose: () => void; onCreated: (channelId: string) => void }) {
+  const { user: me } = useAuth()
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string[]>([])
   const [groupName, setGroupName] = useState('')
   const [busy, setBusy] = useState(false)
-  const filtered = (users ?? []).filter((u) => u.name.toLowerCase().includes(search.toLowerCase()))
+  // (2026-09-17 fix) — ไม่ต้องเห็นชื่อตัวเองในลิสต์เลือกคนเริ่มแชท (DM กับตัวเองไม่มีความหมาย)
+  const filtered = (users ?? []).filter((u) => u.id !== me?.id && u.name.toLowerCase().includes(search.toLowerCase()))
   const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   const canStart = selected.length === 1 || (selected.length > 1 && groupName.trim().length > 0)
 
