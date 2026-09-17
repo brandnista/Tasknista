@@ -177,6 +177,8 @@ html, body {
 .so-postit-drop { animation: so-postit-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
 /* typography ของเอกสาร (Tiptap) — ตาม mockup docs */
+/* Pronista §Heading hierarchy (2026-09-17) — เปิด h1 เพิ่ม (เดิมมีแค่ h2-h4) ใหญ่กว่า h2 ชัดเจน ให้เห็นลำดับขั้นจริง */
+.doc-editor h1 { font-size: 1.5rem; font-weight: 700; color: var(--ink); margin: 2.25rem 0 0.6rem; }
 .doc-editor h2 { font-size: 1.25rem; font-weight: 600; color: var(--ink); margin: 2rem 0 0.5rem; }
 .doc-editor h3 { font-size: 1.1rem; font-weight: 600; color: var(--ink); margin: 1.5rem 0 0.4rem; }
 .doc-editor h4 { font-size: 1rem; font-weight: 600; color: var(--strong); margin: 1.2rem 0 0.3rem; }

@@ -12,7 +12,7 @@ import { Placeholder } from '@tiptap/extensions'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import {
-  Bold, Code, Columns3, Heading2, Heading3, Heading4,
+  Bold, Code, Columns3, Heading1, Heading2, Heading3, Heading4,
   Image as ImageIcon, Italic, Link2, List, ListChecks, ListOrdered, Minus, Rows3,
   Strikethrough, Table, TextQuote,
 } from 'lucide-react'
@@ -73,7 +73,9 @@ declare module '@tiptap/core' {
 
 export function richTextExtensions(placeholder: string) {
   return [
-    StarterKit.configure({ heading: { levels: [2, 3, 4] } }),
+    // Pronista §Heading hierarchy (2026-09-17) — เปิด H1 เพิ่มตามคำขออาร์ม (เดิมสงวนไว้ให้ "ชื่อ" ของหน้า
+    // เช่น ชื่อ Task/เอกสาร/โน้ต ที่อยู่เหนือกล่องพิมพ์เป็น input ตัวใหญ่อยู่แล้ว — ตอนนี้เปิดให้เลือกในเนื้อหาได้ด้วย 4 ระดับ)
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }),
     TaskList,
     TaskItem.configure({ nested: true }),
     Video,
@@ -120,9 +122,9 @@ export function RichTextToolbar({
   return (
     // บั๊ก (2026-07-03): ปุ่มทูลบาร์กด "ตัวหนา/เอียง/ฯลฯ" แล้วไม่มีอะไรเกิดขึ้น — mousedown เดิมทำให้ ProseMirror เสียโฟกัส/selection ก่อน onClick จะรัน (ต้อง preventDefault ตอน mousedown เพื่อกันเบราว์เซอร์แย่งโฟกัสจาก editor)
     <div onMouseDown={(e) => e.preventDefault()} className="flex items-center gap-0.5 border-b border-border-subtle px-2 sm:px-3 h-12 shrink-0 overflow-x-auto">
-      {([2, 3, 4] as const).map((lv) => (
+      {([1, 2, 3, 4] as const).map((lv) => (
         <button key={lv} title={`หัวข้อ h${lv}`} onClick={() => editor.chain().focus().toggleHeading({ level: lv }).run()} className={btn(editor.isActive('heading', { level: lv }))}>
-          {lv === 2 ? <Heading2 className="w-4 h-4" /> : lv === 3 ? <Heading3 className="w-4 h-4" /> : <Heading4 className="w-4 h-4" />}
+          {lv === 1 ? <Heading1 className="w-4 h-4" /> : lv === 2 ? <Heading2 className="w-4 h-4" /> : lv === 3 ? <Heading3 className="w-4 h-4" /> : <Heading4 className="w-4 h-4" />}
         </button>
       ))}
       {divider}
