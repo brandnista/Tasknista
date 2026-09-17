@@ -4,6 +4,7 @@ import { api, ApiError } from './api'
 export type MenuKey =
   | 'dashboard'
   | 'myTasks'
+  | 'dailyReports'
   | 'myFiles'
   | 'workspace'
   | 'projects'

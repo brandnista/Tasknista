@@ -134,11 +134,12 @@ export function adminUsersMenuKeyForCategory(category: LoginPermissionCategory):
  * ให้เพดานคุมได้ (ค่า default ปิดหมดกัน privilege escalation โดยไม่ตั้งใจตอน deploy ฟีเจอร์นี้ครั้งแรก — ดู DEFAULT_PERMISSION_CEILINGS) */
 // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจากเมนู "งานของฉัน" เป็นเมนูหลักของตัวเอง ("แชร์กับฉัน" ย้ายไปเป็นเมนูย่อยของมันแทน) จึงต้องมีเพดานแยกจาก myTasks
 // Pronista §Second Brain (2026-09-08) — เมนูใหม่เก็บลิงก์ที่ดักจาก LINE group เฉพาะ ไม่ใช่ข้อมูลอ่อนไหวเหมือน vault — default เปิดให้ staff เห็นได้เลย (ดู DEFAULT_PERMISSION_CEILINGS)
-export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'myFiles', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members', 'notifications', 'vault', 'secondBrain'] as const
+export const PERMISSION_MENU_KEYS = ['dashboard', 'myTasks', 'dailyReports', 'myFiles', 'workspace', 'projects', 'team', 'docs', 'docsHistory', 'employees', 'partners', 'customers', 'members', 'notifications', 'vault', 'secondBrain'] as const
 export type PermissionMenuKey = (typeof PERMISSION_MENU_KEYS)[number]
 export const PERMISSION_MENU_LABEL: Record<PermissionMenuKey, string> = {
   dashboard: 'ภาพรวม',
   myTasks: 'งานของฉัน',
+  dailyReports: 'Daily Report',
   myFiles: 'ไฟล์ของฉัน',
   workspace: 'Workspace',
   projects: 'โปรเจกต์',
@@ -174,7 +175,7 @@ export const DEFAULT_PERMISSION_CEILINGS: Record<PermissionCategory, CeilingPerm
   staff: { ...FULL_ACCESS_PERMISSIONS, menus: { ...allMenus(true), employees: false, partners: false, customers: false, members: false, vault: false } },
   outsource: {
     ...VIEW_ONLY_PERMISSIONS,
-    menus: { ...allMenus(true), docs: false, docsHistory: false, employees: false, partners: false, customers: false, members: false, vault: false, secondBrain: false },
+    menus: { ...allMenus(true), dailyReports: false, docs: false, docsHistory: false, employees: false, partners: false, customers: false, members: false, vault: false, secondBrain: false },
   },
   customer: {
     ...VIEW_ONLY_PERMISSIONS,

@@ -132,7 +132,6 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [mode, setMode] = useState<'today' | 'history'>('today')
   const [date, setDate] = useState(bkkToday())
   const [openId, setOpenId] = useState<string | null>(initialReportId ?? null)
-  const [historyScope, setHistoryScope] = useState<'mine' | 'received'>('mine')
   const [rangePreset, setRangePreset] = useState<DateRangePreset>('month')
   const [customFrom, setCustomFrom] = useState(startOfMonthTH())
   const [customTo, setCustomTo] = useState(bkkToday())
@@ -179,8 +178,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const rangeFrom = rangePreset === 'week' ? startOfWeekTH() : rangePreset === 'month' ? startOfMonthTH() : customFrom
   const rangeTo = rangePreset === 'custom' ? customTo : bkkToday()
   const { data: historyData, reload: reloadHistory } = useLoad<{ reports: HistoryRow[] }>(
-    () => (mode === 'history' ? api.get(`/api/daily-reports/history?scope=${historyScope}&from=${rangeFrom}&to=${rangeTo}`) : Promise.resolve({ reports: [] })),
-    [mode, historyScope, rangeFrom, rangeTo],
+    () => (mode === 'history' ? api.get(`/api/daily-reports/history?scope=mine&from=${rangeFrom}&to=${rangeTo}`) : Promise.resolve({ reports: [] })),
+    [mode, rangeFrom, rangeTo],
   )
   const { data: recipients } = useLoad<{ recipients: Recipient[] }>(() => api.get('/api/daily-reports/recipients'), [])
 
@@ -383,11 +382,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
 
       {mode === 'history' ? (
         <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium w-fit">
-              <button onClick={() => setHistoryScope('mine')} className={`px-3 py-1.5 rounded-md ${historyScope === 'mine' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานของฉัน</button>
-              <button onClick={() => setHistoryScope('received')} className={`px-3 py-1.5 rounded-md ${historyScope === 'received' ? 'bg-white shadow-xs text-ink' : 'text-dim'}`}>รายงานที่ได้รับ</button>
-            </div>
+          <div className="flex items-center justify-end flex-wrap gap-2">
             {/* Pronista §Daily Report — ตัวกรองช่วงวันที่ สัปดาห์/เดือน/กำหนดเอง (recipient view) */}
             <div className="flex items-center gap-1.5 text-xs">
               {(['week', 'month', 'custom'] as DateRangePreset[]).map((p) => (
@@ -411,8 +406,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
           ) : (
             <div className="bg-white border border-border-subtle rounded-xl divide-y divide-divider overflow-hidden">
               {historyData!.reports.map((r) => {
-                const unread = historyScope === 'received' && !r.myReviewedAt
-                const counterpartName = historyScope === 'mine' ? r.recipients.map((x) => x.name).join(', ') || '—' : (r.userName ?? '—')
+                const unread = false
+                const counterpartName = r.recipients.map((x) => x.name).join(', ') || '—'
                 const snippet = r.notes?.trim() || `${r.itemCount} งาน`
                 return (
                   <div
@@ -421,7 +416,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                     className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-hover transition-colors ${unread ? 'bg-brand-50/40' : 'bg-white'}`}
                   >
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${unread ? 'bg-brand-600' : 'bg-transparent'}`} />
-                    <Avatar name={counterpartName} avatarUrl={historyScope === 'received' ? r.userAvatarUrl : null} className="w-8 h-8 text-xs shrink-0" colorClass={avatarColor(counterpartName)} />
+                    <Avatar name={counterpartName} avatarUrl={null} className="w-8 h-8 text-xs shrink-0" colorClass={avatarColor(counterpartName)} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
                         <span className={`text-[13.5px] truncate ${unread ? 'font-bold text-ink' : 'font-medium text-strong'}`}>{counterpartName}</span>

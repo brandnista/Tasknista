@@ -22,7 +22,7 @@ import type { AppEnv } from '../types'
  * Pronista §Daily Report — พนักงานรวบรวมงานที่ทำวันนี้ (ดึงจาก activity จริง หรือคีย์เอง) ส่งให้หัวหน้าที่เลือกทุกครั้งตอนกดส่ง
  * แทนอีเมลรายงานประจำวัน — workflow Draft → Submitted → Reviewed (auto flip ตอนหัวหน้าเปิดอ่าน)
  * แก้ไขได้ตลอดตราบใดที่ยังไม่ถึง 'reviewed' (submit ไม่ล็อกการแก้ไข แค่จุด notification + ทำให้หัวหน้าเห็นในลิสต์)
- * สิทธิ์เข้าถึง 1 รายงาน = เจ้าของ (userId) หรือผู้รับ (recipientId) หรือ Admin (owner) เท่านั้น — เช็ค inline ทุก route ไม่ใช้ canEditTask (คนละความสัมพันธ์)
+ * สิทธิ์เข้าถึง 1 รายงาน = เจ้าของ (userId) หรือหนึ่งในผู้รับที่ผู้ส่งเลือกเท่านั้น — role owner ไม่ได้สิทธิ์อ่านรายงานของคนอื่นโดยอัตโนมัติ
  */
 export const dailyReportRoutes = new Hono<AppEnv>()
 
@@ -43,9 +43,9 @@ function nextDateStr(date: string): string {
 
 const DAILY_REPORT_TASK_ACTIONS = new Set(['save', 'accept', 'submit', 'recall', 'approve', 'bounce'])
 
-// Pronista §Daily Report multi-recipient — เข้าถึงได้ = เจ้าของ, "หนึ่งในผู้รับ" (ผ่านตาราง daily_report_recipients), หรือ owner บริษัท
-async function canAccessReport(db: ReturnType<typeof createDb>, report: { id: string; userId: string }, me: { id: string; role: string }) {
-  if (report.userId === me.id || me.role === 'owner') return true
+// Pronista §Daily Report multi-recipient — เข้าถึงได้ = เจ้าของ หรือ "หนึ่งในผู้รับ" ผ่าน daily_report_recipients เท่านั้น
+async function canAccessReport(db: ReturnType<typeof createDb>, report: { id: string; userId: string }, me: { id: string }) {
+  if (report.userId === me.id) return true
   const row = (
     await db.select({ id: dailyReportRecipients.id }).from(dailyReportRecipients).where(and(eq(dailyReportRecipients.reportId, report.id), eq(dailyReportRecipients.recipientId, me.id))).limit(1)
   )[0]
@@ -252,7 +252,7 @@ dailyReportRoutes
   })
 
   // ประวัติ — mine = ที่ฉันเป็นเจ้าของ, received = ที่ฉันเป็นหนึ่งในผู้รับ (ผ่านตาราง daily_report_recipients)
-  // Pronista §Daily Report Gmail-style inbox — เพิ่ม from/to (กรองช่วงวันที่: สัปดาห์/เดือน/กำหนดเอง คำนวณฝั่ง frontend แล้วส่ง ISO date มา) + myReviewedAt (ต่อผู้ดู เอาไว้ทำตัวหนา = ยังไม่อ่าน)
+  // Pronista §Daily Report review workbench — เพิ่ม from/to + myReviewedAt และสัญญาณ Blocker เพื่อให้ผู้รับจัดลำดับคิวก่อนเปิดอ่าน
   .get('/daily-reports/history', teamOnly, async (c) => {
     const scope = c.req.query('scope') === 'received' ? 'received' : 'mine'
     const status = c.req.query('status')
@@ -316,6 +316,8 @@ dailyReportRoutes
         itemCount: countByReport.get(r.report.id) ?? 0,
         submittedAt: r.report.submittedAt,
         notes: r.report.notes,
+        blockerHasIssue: r.report.blockerHasIssue,
+        blockerDetail: r.report.blockerDetail,
         myReviewedAt: scope === 'received' ? (myReviewedAtByReport.get(r.report.id) ?? null) : null,
       })),
     })

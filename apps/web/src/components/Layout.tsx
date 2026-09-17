@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Folder,
   FolderKanban,
+  FileCheck2,
   Handshake,
   History,
   IdCard,
@@ -83,10 +84,16 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     children: [
       { to: '/my-tasks', label: 'งานของฉัน' },
       { to: '/my-tasks/dispatched', label: 'งานที่จ่ายให้คนอื่น' },
-      { to: '/my-tasks/daily-report', label: 'Daily Report' },
       { to: '/my-tasks/notes', label: 'My Note' },
       { to: '/my-tasks/meetings', label: 'การประชุม' },
     ],
+  },
+  {
+    to: '/daily-reports',
+    label: 'Daily Report',
+    icon: FileCheck2,
+    roles: ['owner', 'member', 'vendor', 'guest'],
+    menuKey: 'dailyReports',
   },
   // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจาก "งานของฉัน" เป็นเมนูหลักของตัวเอง "แชร์กับฉัน" ย้ายมาเป็นเมนูย่อยของมันแทน (เดิมเป็นพี่น้องกันใต้งานของฉัน)
   // owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)

@@ -181,13 +181,23 @@ describe('§Daily Report multi-recipient (2026-09-02)', () => {
     expect(forbidden.status).toBe(403)
   })
 
-  it('คนที่ไม่ใช่เจ้าของ/ผู้รับ/owner บริษัท เปิดรายงานไม่ได้ (403)', async () => {
+  it('คนที่ไม่ใช่เจ้าของหรือผู้รับ เปิดรายงานไม่ได้ (403)', async () => {
     const pond = await loginAs(app, 'pond@example-co.test')
     const created = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-24' }), env)).json()) as { id: string }
     await app.request(`/api/daily-reports/${created.id}/submit`, json(pond, { recipientIds: ['u_nam'] }), env)
 
     const somchai = await loginAs(app, 'somchai@example.com')
     const res = await app.request(`/api/daily-reports/${created.id}`, { headers: { cookie: somchai } }, env)
+    expect(res.status).toBe(403)
+  })
+
+  it('owner บริษัทที่ไม่ได้ถูกเลือกเป็นผู้รับ เปิดรายงานไม่ได้ (403)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/daily-reports', json(pond, { date: '2026-08-19' }), env)).json()) as { id: string }
+    await app.request(`/api/daily-reports/${created.id}/submit`, json(pond, { recipientIds: ['u_nam'] }), env)
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request(`/api/daily-reports/${created.id}`, { headers: { cookie: owner } }, env)
     expect(res.status).toBe(403)
   })
 })

@@ -96,7 +96,9 @@ const router = createBrowserRouter([
       { path: 'workload/:userId', element: <Protected roles={['owner']}><EmployeeWorkloadPage /></Protected> },
       { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
       { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
-      { path: 'my-tasks/daily-report', element: <Protected menuKey="myTasks"><MyTasksDailyReportPage /></Protected> },
+      { path: 'daily-reports', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
+      // คง route เดิมไว้ให้ notification / bookmark เก่าเปิด report query เดิมได้
+      { path: 'my-tasks/daily-report', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
       { path: 'my-tasks/notes', element: <Protected menuKey="myTasks"><MyTasksNotesPage /></Protected> },
       { path: 'my-tasks/meetings', element: <Protected menuKey="myTasks"><MyTasksMeetingsPage /></Protected> },
       // Pronista §My Files (2026-08-28) — owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
