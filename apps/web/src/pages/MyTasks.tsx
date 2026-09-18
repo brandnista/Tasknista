@@ -1,7 +1,9 @@
 /* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 */
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
+  ChevronRight,
   Clock,
   ClipboardCheck,
   ClipboardList,
@@ -53,22 +55,25 @@ const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00
 const fmtDateTime = (x: string | number) =>
   new Date(x).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-/** Pronista §My Tasks redesign (2026-09-18) — การ์ดสรุปสถิติแบบไอคอน 5 ใบ แทน StatStrip แบบข้อความล้วนเดิม */
+/** Pronista §My Tasks redesign (2026-09-18) — แถบสรุปสถิติเดียวต่อเนื่อง คั่นด้วยลูกศร ตามภาพตัวอย่างที่อาร์มส่งมาเป๊ะๆ (เดิมเป็นการ์ดแยกใบ) */
 function StatCards({ stats }: { stats: { label: string; value: number; icon: typeof ClipboardList; cls: string; onClick?: () => void }[] }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
-      {stats.map((s) => {
+    <div className="bg-white rounded-xl shadow-xs border border-border-subtle flex items-center overflow-x-auto mb-5">
+      {stats.map((s, i) => {
         const Tag = s.onClick ? 'button' : 'div'
         return (
-          <Tag key={s.label} onClick={s.onClick} className={`bg-white rounded-lg shadow-xs p-4 flex items-center gap-3 text-left ${s.onClick ? 'hover:shadow-sm cursor-pointer' : ''}`}>
-            <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 ${s.cls}`}>
-              <s.icon className="w-4.5 h-4.5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-xl font-bold text-ink leading-none">{s.value}</div>
-              <div className="text-xs text-muted mt-0.5 truncate">{s.label}</div>
-            </div>
-          </Tag>
+          <div key={s.label} className="flex items-center shrink-0">
+            {i > 0 && <ChevronRight className="w-4 h-4 text-border shrink-0" />}
+            <Tag onClick={s.onClick} className={`flex items-center gap-3 px-4 py-3.5 shrink-0 text-left ${s.onClick ? 'hover:bg-hover cursor-pointer' : ''}`}>
+              <div className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${s.cls}`}>
+                <s.icon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs text-muted whitespace-nowrap">{s.label}</div>
+                <div className="text-lg font-bold text-ink leading-tight whitespace-nowrap">{s.value} <span className="text-[11px] font-normal text-muted">งาน</span></div>
+              </div>
+            </Tag>
+          </div>
         )
       })}
     </div>
@@ -89,20 +94,27 @@ function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm font-semibold text-body flex items-center gap-1.5"><Inbox className="w-4 h-4 text-info-600" /> งานใหม่ที่รอคุณกดรับ ({pending.length})</div>
         {pending.length > 3 && (
-          <button onClick={() => setExpanded((v) => !v)} className="text-xs text-brand-600 hover:text-brand-700 font-medium shrink-0">
-            {expanded ? 'แสดงน้อยลง' : 'ดูทั้งหมด →'}
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="shrink-0 flex items-center gap-1 text-xs font-medium text-dim bg-white border border-border rounded-lg px-2.5 py-1.5 hover:bg-hover"
+          >
+            {expanded ? 'แสดงน้อยลง' : 'ดูทั้งหมด'} <ArrowRight className="w-3 h-3" />
           </button>
         )}
       </div>
       <div className="divide-y divide-info-100">
         {visible.map((t) => (
           <div key={t.id} className="flex items-center gap-3 py-2.5">
-            <Avatar name={t.dispatcherName ?? '—'} className="w-8 h-8 text-xs" />
             <button onClick={() => onOpenTask(t.id)} className="min-w-0 flex-1 text-left">
               <div className="text-[10px] font-mono text-muted">{t.code ?? '—'}</div>
               <div className="text-sm text-body truncate">{t.title}</div>
               <div className="text-[11px] text-muted">ได้รับมอบหมายเมื่อ {fmtDateTime(t.dispatchedAt!)}</div>
             </button>
+            {/* Pronista §My Tasks redesign (2026-09-18) — โชว์ไอคอน ตามด้วยชื่อผู้จ่ายงาน ตามภาพตัวอย่างเป๊ะๆ (เดิมมีแค่ไอคอน ไม่มีชื่อกำกับ) */}
+            <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+              <Avatar name={t.dispatcherName ?? '—'} className="w-6 h-6 text-[10px]" />
+              <span className="text-xs text-soft whitespace-nowrap max-w-20 truncate">{t.dispatcherName ?? '—'}</span>
+            </div>
             <button
               onClick={(e) => { e.stopPropagation(); onAccept(t.id) }}
               className="shrink-0 inline-flex items-center gap-1 text-xs bg-success-600 hover:bg-success-700 text-white px-2.5 py-1.5 rounded-lg font-medium"
@@ -332,13 +344,14 @@ export function MyTasksPage() {
     return Array.from(seen.entries())
   }, [tasks])
 
-  // Pronista §My Tasks redesign (2026-09-18) — การ์ดสรุปด้านบน 5 ใบ แทน StatStrip แบบข้อความล้วนเดิม ("รอตรวจ" กดแล้วพาไปหน้า /my-tasks/review ที่แยกออกไปแล้ว)
+  // Pronista §My Tasks redesign (2026-09-18) — แถบสรุปด้านบน 5 หมวด แทน StatStrip แบบข้อความล้วนเดิม ("รอตรวจ" กดแล้วพาไปหน้า /my-tasks/review ที่แยกออกไปแล้ว)
+  // สีไอคอนใช้ raw palette ตรงตามภาพตัวอย่างเป๊ะๆ ตามที่อาร์มยืนยัน (ข้อยกเว้นเดียวกับจานสีสถานะโปรเจกต์/avatar ที่ไม่ผูก design token — ดู CLAUDE.md §Semantic design tokens)
   const statCards = useMemo(() => [
-    { label: 'งานทั้งหมด', value: tasks.length, icon: ClipboardList, cls: 'bg-brand-50 text-brand-600' },
-    { label: 'รอรับ', value: tasks.filter(isPendingAccept).length, icon: Inbox, cls: 'bg-success-50 text-success-600' },
-    { label: 'กำลังทำ', value: tasks.filter((t) => t.status === 'on_processing').length, icon: Zap, cls: 'bg-warning-50 text-warning-600' },
-    { label: 'รอตรวจ', value: pendingReviewCount, icon: ClipboardCheck, cls: 'bg-violet-50 text-violet-600', onClick: () => navigate('/my-tasks/review') },
-    { label: 'เกินกำหนด', value: tasks.filter(isOverdue).length, icon: Clock, cls: 'bg-danger-50 text-danger-600' },
+    { label: 'งานทั้งหมด', value: tasks.length, icon: ClipboardList, cls: 'bg-blue-100 text-blue-600' },
+    { label: 'รอรับ', value: tasks.filter(isPendingAccept).length, icon: Inbox, cls: 'bg-green-100 text-green-600' },
+    { label: 'กำลังทำ', value: tasks.filter((t) => t.status === 'on_processing').length, icon: Zap, cls: 'bg-amber-100 text-amber-600' },
+    { label: 'รอตรวจ', value: pendingReviewCount, icon: ClipboardCheck, cls: 'bg-purple-100 text-purple-600', onClick: () => navigate('/my-tasks/review') },
+    { label: 'เกินกำหนด', value: tasks.filter(isOverdue).length, icon: Clock, cls: 'bg-red-100 text-red-600' },
   ], [tasks, pendingReviewCount, today])
 
   const filteredTasks = useMemo(() => {
@@ -470,6 +483,8 @@ export function MyTasksPage() {
                 bouncedTaskIds={bouncedTaskIds}
                 soonDays={cfg?.dueSoonDays}
                 meId={user?.id}
+                tintColumns
+                onAddTask={() => setQuickAddOpen(true)}
               />
             ) : (
               <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
