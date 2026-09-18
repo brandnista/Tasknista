@@ -92,8 +92,8 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <DashboardGate /> },
-      { path: 'workload', element: <Protected roles={['owner']}><WorkloadPage /></Protected> },
-      { path: 'workload/:userId', element: <Protected roles={['owner']}><EmployeeWorkloadPage /></Protected> },
+      { path: 'workload', element: <Protected roles={['owner', 'member', 'vendor']}><WorkloadPage /></Protected> },
+      { path: 'workload/:userId', element: <Protected roles={['owner', 'member', 'vendor']}><EmployeeWorkloadPage /></Protected> },
       { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
       { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
       { path: 'daily-reports', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },

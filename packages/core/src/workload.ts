@@ -1,6 +1,7 @@
 import { daysBetweenISO } from './crm'
 import { addDaysISO } from './cycle'
 import type { Weekday, WeeklyMinutes } from './manhour'
+import { splitSessionMinutes } from './time'
 
 /**
  * Pronista §Workload — เกลี่ยเวลาประเมิน (estimateMinutes) ของ Task 1 ตัว ลงวันปฏิทินที่งานนั้น "ตกอยู่"
@@ -49,4 +50,46 @@ export function suggestEstimateMinutes(startDate: string | null, dueDate: string
   let total = 0
   for (let i = 0; i < days; i++) total += weeklyMinutes[weekdayOfISO(addDaysISO(startDate, i))]
   return total
+}
+
+/**
+ * Pronista §Calendar/Workload (2026-09-18) — นับนาทีประชุม (จาก Google Calendar) ต่อคนต่อวัน เพื่อหักเข้า Workload
+ * รับเฉพาะ event ที่ควรนับแล้ว (busy=true, ไม่ใช่ all-day — กรองไว้ก่อนเรียกฟังก์ชันนี้)
+ * - ประชุม 2 นัดของคนเดียวกันเวลาทับซ้อนกัน → นับตาม union ของช่วงเวลา ไม่บวกซ้ำสองรอบ (merge interval ก่อนตัดนาที)
+ * - ประชุมที่คาบเกี่ยว 2 วัน (ข้ามเที่ยงคืน BKK) → หักนาทีแยกให้ถูกวัน (reuse splitSessionMinutes เดิม)
+ * - นับเฉพาะวันที่อยู่ในช่วง [from, to] ที่ผู้เรียกขอมา
+ */
+export interface WorkloadMeetingEvent {
+  userId: string
+  startAt: number // ms (epoch) — เวลาเริ่มจริง
+  endAt: number // ms (epoch) — เวลาจบจริง ต้อง > startAt
+}
+
+export function meetingMinutesByDate(events: readonly WorkloadMeetingEvent[], from: string, to: string): Record<string, Record<string, number>> {
+  const byUser = new Map<string, { start: number; end: number }[]>()
+  for (const e of events) {
+    if (e.endAt <= e.startAt) continue
+    const list = byUser.get(e.userId) ?? []
+    list.push({ start: e.startAt, end: e.endAt })
+    byUser.set(e.userId, list)
+  }
+
+  const result: Record<string, Record<string, number>> = {}
+  for (const [userId, intervals] of byUser) {
+    intervals.sort((a, b) => a.start - b.start)
+    const merged: { start: number; end: number }[] = []
+    for (const iv of intervals) {
+      const last = merged[merged.length - 1]
+      if (last && iv.start <= last.end) last.end = Math.max(last.end, iv.end)
+      else merged.push({ ...iv })
+    }
+    for (const iv of merged) {
+      for (const { workDate, minutes } of splitSessionMinutes(iv.start, iv.end)) {
+        if (workDate < from || workDate > to) continue
+        result[userId] ??= {}
+        result[userId]![workDate] = (result[userId]![workDate] ?? 0) + minutes
+      }
+    }
+  }
+  return result
 }

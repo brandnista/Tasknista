@@ -69,10 +69,11 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     icon: LayoutDashboard,
     roles: ['owner', 'member', 'vendor', 'guest'],
     menuKey: 'dashboard',
-    // Pronista §Workload (Phase 2, 2026-09-04) — เมนูย่อย Workload owner-only (ภาพรวมภาระงานทีม) ใต้ "ภาพรวม" เดิม
+    // Pronista §Workload (Phase 2, 2026-09-04) — เมนูย่อย Workload (ภาพรวมภาระงานทีม) ใต้ "ภาพรวม" เดิม
+    // Pronista §Calendar/Workload (2026-09-18) — เปิดให้ owner+member+vendor เห็น (เดิม owner เท่านั้น) ยืนยันกับอาร์มแล้ว — guest (ลูกค้า) ไม่เห็น
     children: [
       { to: '/', label: 'ภาพรวม' },
-      { to: '/workload', label: 'Workload', roles: ['owner'] },
+      { to: '/workload', label: 'Workload', roles: ['owner', 'member', 'vendor'] },
     ],
   },
   {

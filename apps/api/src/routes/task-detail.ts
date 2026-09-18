@@ -5,6 +5,7 @@ import {
   createDb,
   docLinks,
   docs,
+  DOC_TYPES,
   epics,
   projectMembers,
   projects,
@@ -23,6 +24,7 @@ import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { copyR2DocFile } from '../lib/doc-file'
 import { notifyUser } from '../lib/notify'
 import { canEditTask, canEditTaskCollab, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
@@ -503,6 +505,56 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       meta: { filename: att.filename },
     })
     return c.json({ ok: true })
+  })
+
+  // Pronista §Project Documents (2026-09-17) — โปรโมทไฟล์แนบ Task ให้เป็นเอกสารโปรเจกต์ (สำเนาอิสระ — ไม่ลบ/แตะ taskAttachments ต้นฉบับ)
+  // permission = canEditTask เดียวกับ endpoint attachment อื่นๆ (ไม่ใช้ actions.doc.create เพราะกดจากหน้า Task ที่ canEditTask คุมอยู่แล้ว)
+  .post('/tasks/:id/attachments/:attId/promote', teamOnly, async (c) => {
+    const body = z.object({ docType: z.enum(DOC_TYPES), docVersion: z.string().min(1).max(30) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!task) return c.json({ error: 'not_found' }, 404)
+    if (!task.projectId) return c.json({ error: 'no_project', message: 'งานนี้ไม่ได้ผูกกับโปรเจกต์' }, 400)
+    const me = c.get('user')
+    if (!(await canEditTask(db, task, me))) return c.json({ error: 'forbidden' }, 403)
+    const att = (await db.select().from(taskAttachments).where(and(eq(taskAttachments.id, c.req.param('attId')), eq(taskAttachments.taskId, task.id))).limit(1))[0]
+    if (!att) return c.json({ error: 'not_found' }, 404)
+
+    let r2Key: string | null = null
+    if (att.r2Key) {
+      r2Key = await copyR2DocFile(c.env, att.r2Key, att.filename)
+      if (!r2Key) return c.json({ error: 'object_missing' }, 404)
+    }
+    const inserted = await db
+      .insert(docs)
+      .values({
+        title: att.filename,
+        kind: att.externalUrl ? 'link' : 'file',
+        r2Key,
+        filename: att.externalUrl ? null : att.filename,
+        mime: att.mime,
+        sizeBytes: att.sizeBytes,
+        externalUrl: att.externalUrl,
+        docType: body.data.docType,
+        docVersion: body.data.docVersion.trim(),
+        source: 'task_attachment',
+        sourceTaskAttachmentId: att.id,
+        ownerId: me.id,
+        createdBy: me.id,
+        updatedBy: me.id,
+      })
+      .returning()
+    const doc = inserted[0]!
+    await db.insert(docLinks).values({ docId: doc.id, projectId: task.projectId, createdBy: me.id })
+    await writeAudit(c.env, {
+      actorId: me.id,
+      action: 'doc.promote_from_task',
+      entity: 'doc',
+      entityId: doc.id,
+      meta: { taskId: task.id, sourceAttachmentId: att.id },
+    })
+    return c.json(doc, 201)
   })
 
   // Pronista §Document Traceability — ไล่ chain ของ task นี้ทั้งขึ้น (upstream = อ้างอิงถึงเล่มก่อนหน้า) และลง (downstream = ถูกเล่มถัดไปอ้างอิงถึง) ผ่าน task_references

@@ -1,4 +1,4 @@
-import { Calendar, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Plus, Users, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../lib/api'
@@ -19,6 +19,10 @@ interface CalEvent {
   attendees?: { id: string; name: string }[]
   /** ประชุมจากเมนู "ทีม" — อ่านอย่างเดียว คลิกแล้วพาไปหน้าทีมแทนที่จะลบ */
   readOnly?: boolean
+  // Pronista §Calendar/Workload (2026-09-18) — event จาก Google Calendar มีเวลาจริง + แหล่งที่มา
+  startAt?: number | null
+  endAt?: number | null
+  source?: 'local' | 'gcal'
 }
 interface UserOpt {
   id: string
@@ -50,6 +54,15 @@ const TYPE_DOT: Record<CalEvent['type'], string> = {
   other: 'bg-info-500',
   payroll: 'bg-brand-500',
 }
+
+// Pronista §Calendar/Workload (2026-09-18) — สีประจำตัวแต่ละคน (คงที่ตาม userId — hash → index) ใช้กับจุด/แถบข้างชื่อในตัวกรองรายคน
+const PERSON_DOT_COLORS = ['bg-brand-500', 'bg-info-500', 'bg-success-500', 'bg-warning-500', 'bg-danger-500', 'bg-orange-500', 'bg-purple-500', 'bg-pink-500']
+function personColor(userId: string): string {
+  let h = 0
+  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0
+  return PERSON_DOT_COLORS[h % PERSON_DOT_COLORS.length]!
+}
+const fmtHM = (ms: number) => new Date(ms).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
 
 const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']
 const DOWF = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์']
@@ -133,13 +146,63 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
   )
 }
 
+const SOURCE_LABEL: Record<string, string> = { local: 'สร้างในระบบ', gcal: 'Google Calendar' }
+
+/** Pronista §Calendar/Workload (2026-09-18) — คลิก event แล้วเห็นรายละเอียดก่อน (คน/แหล่งที่มา/เวลา/ประเภท) แทนที่จะลบทันทีแบบเดิม (เสี่ยงมือลั่น) ลบจริงเป็นปุ่มแยกในนี้ */
+function EventDetailModal({ e, onClose, onDeleted }: { e: CalEvent; onClose: () => void; onDeleted: () => void }) {
+  const { confirmDialog } = useDialog()
+  const navigate = useNavigate()
+  const del = async () => {
+    const yes = await confirmDialog({ title: 'ลบกิจกรรมนี้?', message: e.title, confirmLabel: 'ลบ', danger: true })
+    if (!yes) return
+    await api.delete(`/api/calendar/${e.id}`)
+    onDeleted()
+  }
+  const timeRange = e.startAt && e.endAt ? `${fmtHM(e.startAt)}–${fmtHM(e.endAt)}` : null
+  return (
+    <div className="fixed inset-0 z-50">
+      <div onClick={onClose} className="absolute inset-0 bg-ink/30 so-fade-in" />
+      <div className="absolute inset-0 grid place-items-center p-4 pointer-events-none">
+        <div className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl p-5 so-pop-in">
+          <div className="flex items-start justify-between mb-3 gap-2">
+            <div className="font-semibold text-ink">{e.title}</div>
+            <button onClick={onClose} className="text-muted hover:text-soft shrink-0"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="space-y-1.5 text-sm text-body">
+            <div>ประเภท: {TYPE_LABEL[e.type] ?? e.type}</div>
+            {e.userName && <div>ผู้รับผิดชอบ: {e.userName}</div>}
+            {timeRange && <div>เวลา: {timeRange}</div>}
+            {!timeRange && <div>วันที่: {e.startDate}{e.endDate ? ` – ${e.endDate}` : ''}</div>}
+            {e.source && <div>แหล่งที่มา: {SOURCE_LABEL[e.source]}</div>}
+            {e.readOnly && <div>แหล่งที่มา: นัดจากเมนู "ทีม"</div>}
+            {e.projectName && <div>โปรเจกต์: {e.projectName}</div>}
+            {e.attendees && e.attendees.length > 0 && <div>ผู้เข้าร่วม: {e.attendees.map((a) => a.name).join(', ')}</div>}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            {e.readOnly ? (
+              <button onClick={() => { onClose(); navigate('/team') }} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700">ไปที่หน้าทีม</button>
+            ) : e.type === 'payroll' ? (
+              <span className="text-xs text-muted">อัตโนมัติจากรอบเงินเดือน — แก้ไขที่หน้าตั้งค่า</span>
+            ) : (
+              <button onClick={() => void del()} className="text-sm bg-danger-50 text-danger-600 px-4 py-2 rounded-lg hover:bg-danger-100">ลบกิจกรรมนี้</button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function TeamCalendar() {
   // มือถือ (< 640px) เริ่มที่ Week view — Month view 7 คอลัมน์แคบเกินอ่านบนจอเล็ก
   const [view, setView] = useState<'day' | 'week' | 'month'>(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 'week' : 'month'))
   const [ref, setRef] = useState(() => bkkNow())
   const [adding, setAdding] = useState(false)
-  const { confirmDialog } = useDialog()
-  const navigate = useNavigate()
+  const [detailEvent, setDetailEvent] = useState<CalEvent | null>(null)
+  // Pronista §Calendar/Workload (2026-09-18) — ตัวกรองรายคน (เลือกดูปฏิทินของพนักงานคนไหนก็ได้) — ว่าง = เห็นทุกคน
+  const [personFilterOpen, setPersonFilterOpen] = useState(false)
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
 
   // โหลดครอบทั้งช่วงที่มองเห็น (เดือน ±7 วัน)
   const range = useMemo(() => {
@@ -148,20 +211,14 @@ export function TeamCalendar() {
     const end = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 7))
     return { from: iso(start), to: iso(end) }
   }, [ref])
-  const { data, reload } = useLoad<{ events: CalEvent[] }>(() => api.get(`/api/calendar?from=${range.from}&to=${range.to}`), [range.from, range.to])
+  const userIdsParam = selectedUserIds.length > 0 ? `&userIds=${selectedUserIds.join(',')}` : ''
+  const { data, reload } = useLoad<{ events: CalEvent[] }>(
+    () => api.get(`/api/calendar?from=${range.from}&to=${range.to}${userIdsParam}`),
+    [range.from, range.to, userIdsParam],
+  )
 
   const eventsOn = (date: string) =>
     (data?.events ?? []).filter((e) => e.startDate <= date && (e.endDate ?? e.startDate) >= date)
-
-  const removeEvent = async (e: CalEvent) => {
-    if (e.type === 'payroll') return // virtual จาก config
-    if (e.readOnly) { navigate('/team'); return } // ประชุมจากเมนู "ทีม" — จัดการที่นั่นเท่านั้น
-    const yes = await confirmDialog({ title: 'ลบกิจกรรมนี้?', message: e.title, confirmLabel: 'ลบ', danger: true })
-    if (yes) {
-      await api.delete(`/api/calendar/${e.id}`)
-      await reload()
-    }
-  }
 
   const nav = (dir: -1 | 1) => {
     const d = new Date(ref)
@@ -171,26 +228,32 @@ export function TeamCalendar() {
   }
 
   // Pronista §1 (2026-07-03) — meeting: ผู้เข้าร่วม + โปรเจกต์ ให้เห็นในทูลทิป (ใครถูก assign ก็เห็นชื่อตัวเองในนี้)
+  // Pronista §Calendar/Workload (2026-09-18) — คลิกดูรายละเอียดก่อนเสมอ (ไม่ลบทันที) เปลี่ยนคำใบ้ทูลทิปตาม
   const eventTooltip = (e: CalEvent) => {
+    const timeRange = e.startAt && e.endAt ? `${fmtHM(e.startAt)}–${fmtHM(e.endAt)}\n` : ''
     if (e.type === 'payroll') return `${e.title} (อัตโนมัติจากรอบเงินเดือน)`
     if (e.type === 'meeting') {
       const who = e.attendees && e.attendees.length > 0 ? `ผู้เข้าร่วม: ${e.attendees.map((a) => a.name).join(', ')}` : 'ยังไม่มีผู้เข้าร่วม'
       const proj = e.projectName ? ` · โปรเจกต์: ${e.projectName}` : ''
-      return `${e.title}${proj}\n${who}\n${e.readOnly ? 'นัดจากเมนู "ทีม" — คลิกเพื่อดูรายละเอียด' : 'คลิกเพื่อลบ'}`
+      return `${timeRange}${e.title}${proj}\n${who}\nคลิกเพื่อดูรายละเอียด`
     }
-    return `${e.title} — คลิกเพื่อลบ`
+    return `${timeRange}${e.title} — คลิกเพื่อดูรายละเอียด`
   }
 
   const EventChip = ({ e, size }: { e: CalEvent; size: 'sm' | 'md' }) => (
     <div
-      onClick={(ev) => { ev.stopPropagation(); void removeEvent(e) }}
+      onClick={(ev) => { ev.stopPropagation(); setDetailEvent(e) }}
       title={eventTooltip(e)}
-      className={`truncate rounded px-1 mt-0.5 ${TYPE_CLS[e.type]} ${size === 'sm' ? 'text-[10px]' : 'text-[11px] px-1.5 py-0.5'} ${e.type === 'payroll' ? '' : 'cursor-pointer hover:opacity-75'}`}
+      className={`truncate rounded px-1 mt-0.5 flex items-center gap-1 ${TYPE_CLS[e.type]} ${size === 'sm' ? 'text-[10px]' : 'text-[11px] px-1.5 py-0.5'} ${e.type === 'payroll' ? '' : 'cursor-pointer hover:opacity-75'}`}
     >
-      {e.type === 'leave' && e.userName ? `${e.userName}ลา` : e.title}
-      {e.type === 'meeting' && e.attendees && e.attendees.length > 0 && size === 'md' && (
-        <span className="opacity-70"> · {e.attendees.map((a) => a.name).join(', ')}</span>
-      )}
+      {e.userId && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${personColor(e.userId)}`} />}
+      <span className="truncate">
+        {e.startAt && <span className="opacity-70">{fmtHM(e.startAt)} </span>}
+        {e.type === 'leave' && e.userName ? `${e.userName}ลา` : e.title}
+        {e.type === 'meeting' && e.attendees && e.attendees.length > 0 && size === 'md' && (
+          <span className="opacity-70"> · {e.attendees.map((a) => a.name).join(', ')}</span>
+        )}
+      </span>
     </div>
   )
 
@@ -221,6 +284,32 @@ export function TeamCalendar() {
           <span className="text-sm text-muted">{label}</span>
         </div>
         <div className="flex items-center justify-between sm:justify-end gap-2">
+          {/* Pronista §Calendar/Workload (2026-09-18) — ตัวกรองรายคน */}
+          <div className="relative">
+            <button
+              onClick={() => setPersonFilterOpen((v) => !v)}
+              className={`text-xs font-medium border rounded-lg px-2.5 min-h-[44px] sm:min-h-0 sm:py-1.5 flex items-center gap-1.5 ${selectedUserIds.length > 0 ? 'border-brand-400 text-brand-700 bg-brand-50' : 'border-border text-dim hover:bg-hover'}`}
+            >
+              <Users className="w-3.5 h-3.5" /> {selectedUserIds.length > 0 ? `${selectedUserIds.length} คน` : 'ทุกคน'}
+            </button>
+            {personFilterOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPersonFilterOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-lg shadow-lg border border-border-subtle z-20 max-h-64 overflow-y-auto">
+                  {selectedUserIds.length > 0 && (
+                    <button onClick={() => setSelectedUserIds([])} className="w-full text-left text-xs text-brand-700 px-3 py-2 hover:bg-hover border-b border-divider">ล้างตัวกรอง (ดูทุกคน)</button>
+                  )}
+                  {(userOpts ?? []).map((u) => (
+                    <label key={u.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-hover">
+                      <input type="checkbox" checked={selectedUserIds.includes(u.id)} onChange={() => setSelectedUserIds(toggle(selectedUserIds, u.id))} />
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${personColor(u.id)}`} />
+                      <span className="text-body truncate">{u.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <div className="flex bg-divider rounded-lg p-0.5 text-xs font-medium">
             {(['day', 'week', 'month'] as const).map((v) => (
               <button key={v} onClick={() => setView(v)} className={`px-2.5 py-2 sm:py-1 rounded-md capitalize ${view === v ? 'bg-white shadow-xs text-brand-700' : 'text-dim'}`}>
@@ -302,8 +391,12 @@ export function TeamCalendar() {
             <div className="text-sm text-muted py-8 text-center">ไม่มีกิจกรรม</div>
           ) : (
             eventsOn(iso(ref)).map((e) => (
-              <div key={e.id} onClick={() => void removeEvent(e)} className={`rounded-lg px-3 py-2 mb-1.5 text-sm ${TYPE_CLS[e.type]} ${e.type === 'payroll' ? '' : 'cursor-pointer hover:opacity-75'}`}>
-                <div>{e.type === 'leave' && e.userName ? `${e.userName}ลา — ` : ''}{e.title}</div>
+              <div key={e.id} onClick={() => setDetailEvent(e)} className={`rounded-lg px-3 py-2 mb-1.5 text-sm ${TYPE_CLS[e.type]} ${e.type === 'payroll' ? '' : 'cursor-pointer hover:opacity-75'}`}>
+                <div className="flex items-center gap-1.5">
+                  {e.userId && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${personColor(e.userId)}`} />}
+                  {e.startAt && e.endAt && <span className="opacity-70">{fmtHM(e.startAt)}–{fmtHM(e.endAt)}</span>}
+                  <span>{e.type === 'leave' && e.userName ? `${e.userName}ลา — ` : ''}{e.title}</span>
+                </div>
                 {e.type === 'meeting' && (e.projectName || (e.attendees && e.attendees.length > 0)) && (
                   <div className="text-[11px] opacity-70 mt-0.5">
                     {e.projectName && <>โปรเจกต์: {e.projectName}</>}
@@ -317,8 +410,11 @@ export function TeamCalendar() {
         </div>
       )}
 
-      <p className="text-[11px] text-muted mt-2">วันลา/ประชุม/วันหยุด + ตัดรอบ/จ่ายเงินเดือน (อัตโนมัติจาก config) · คลิกกิจกรรมเพื่อลบ · subscribe เป็น ICS ได้ที่ ตั้งค่า</p>
+      <p className="text-[11px] text-muted mt-2">วันลา/ประชุม/วันหยุด + ตัดรอบ/จ่ายเงินเดือน (อัตโนมัติจาก config) · คลิกกิจกรรมเพื่อดูรายละเอียด · subscribe เป็น ICS ได้ที่ ตั้งค่า</p>
       {adding && <AddEventModal defaultDate={view === 'month' ? todayISO() : iso(ref)} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void reload() }} />}
+      {detailEvent && (
+        <EventDetailModal e={detailEvent} onClose={() => setDetailEvent(null)} onDeleted={() => { setDetailEvent(null); void reload() }} />
+      )}
     </div>
   )
 }

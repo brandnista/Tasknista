@@ -3,7 +3,6 @@ import {
   calendarEvents,
   createDb,
   inboxGoogleClients,
-  users,
   type CalendarConnection,
 } from '@seedoffice/db'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -90,8 +89,11 @@ async function fetchEvents(
   return { items, syncToken: nextSyncToken, expired: false }
 }
 
-/** เขียน events ที่ map แล้วลง calendar_events (upsert/ลบ ด้วย gcalId) */
-async function applyEvents(env: Env, items: GcalEvent[], ownerId: string): Promise<void> {
+/** เขียน events ที่ map แล้วลง calendar_events (upsert/ลบ ด้วย gcalId+connectionId คู่กัน — ไม่ใช่ gcalId เดี่ยวๆ)
+ * Pronista §Calendar/Workload (2026-09-18) — dedup key เดิม (gcalId อย่างเดียว) ทำให้ประชุมเดียวกันที่ถูกเชิญ 2 คน sync ผ่านคนละ connection
+ * จะเขียนทับ/ข้ามกันเอง เหลือ event แค่แถวเดียว → Workload หักเวลาได้แค่คนเดียว ทั้งที่ทั้งคู่ควรถูกหัก
+ * เปลี่ยนเป็น (gcalId, connectionId) คู่กัน ให้แต่ละคนที่เชื่อมปฏิทินตัวเองได้ event แยกแถวของตัวเอง */
+async function applyEvents(env: Env, items: GcalEvent[], conn: { id: string; userId: string }): Promise<void> {
   const db = createDb(env.DB)
   for (const raw of items) {
     const m = mapGcalEvent(raw)
@@ -99,41 +101,49 @@ async function applyEvents(env: Env, items: GcalEvent[], ownerId: string): Promi
     const [existing] = await db
       .select({ id: calendarEvents.id })
       .from(calendarEvents)
-      .where(eq(calendarEvents.gcalId, m.gcalId))
+      .where(and(eq(calendarEvents.gcalId, m.gcalId), eq(calendarEvents.connectionId, conn.id)))
       .limit(1)
-    if (m.cancelled) {
+    // ยกเลิกแล้ว หรือเจ้าของ connection (self) ปฏิเสธคำเชิญแล้ว — ไม่ต้องมี event ค้างอยู่ (Pronista §3.2: "ไม่คำนวณเหตุการณ์ที่ผู้ใช้ปฏิเสธแล้ว")
+    if (m.cancelled || m.declined) {
       if (existing) await db.delete(calendarEvents).where(eq(calendarEvents.id, existing.id))
       continue
     }
+    const fields = {
+      title: m.title,
+      startDate: m.startDate,
+      endDate: m.endDate,
+      startAt: m.startAt ? new Date(m.startAt) : null,
+      endAt: m.endAt ? new Date(m.endAt) : null,
+      allDay: m.allDay,
+      busy: m.busy,
+      private: m.private,
+    }
     if (existing) {
-      await db
-        .update(calendarEvents)
-        .set({ title: m.title, startDate: m.startDate, endDate: m.endDate })
-        .where(eq(calendarEvents.id, existing.id))
+      await db.update(calendarEvents).set(fields).where(eq(calendarEvents.id, existing.id))
     } else {
       await db.insert(calendarEvents).values({
-        title: m.title,
-        startDate: m.startDate,
-        endDate: m.endDate,
+        ...fields,
         type: 'meeting',
         source: 'gcal',
         gcalId: m.gcalId,
-        createdBy: ownerId,
+        connectionId: conn.id,
+        userId: conn.userId,
+        createdBy: conn.userId,
       })
     }
   }
 }
 
-/** sync 1 connection — โยน ReconnectError ถ้า token เพิกถอน (route/cron จัดการ disconnected) */
+/** sync 1 connection — โยน ReconnectError ถ้า token เพิกถอน (route/cron จัดการ disconnected)
+ * Pronista §Calendar/Workload (2026-09-18) — เลิก hardcode "user แรกที่ role=owner" เป็นเจ้าของ event ทุกอันแบบเดิม
+ * ใช้ conn.userId (เจ้าของการเชื่อมต่อจริง) แทน — connection เก่าก่อนฟีเจอร์นี้ที่ยังไม่มี userId จะข้าม sync ไปก่อน (ต้องเชื่อมใหม่ผ่าน flow ใหม่) */
 export async function syncCalendar(env: Env, connectionId: string): Promise<void> {
   const db = createDb(env.DB)
   const [conn] = await db
     .select()
     .from(calendarConnections)
     .where(eq(calendarConnections.id, connectionId))
-  if (!conn || conn.status !== 'connected') return
-  const [owner] = await db.select({ id: users.id }).from(users).where(eq(users.role, 'owner')).limit(1)
-  if (!owner) return // ไม่มี owner ให้ผูก createdBy — ข้าม
+  if (!conn || conn.status !== 'connected' || !conn.userId) return
 
   const token = await getCalendarAccessToken(env, conn)
   let result = await fetchEvents(token, conn.syncToken)
@@ -141,7 +151,7 @@ export async function syncCalendar(env: Env, connectionId: string): Promise<void
     // syncToken หมดอายุ → full resync แล้วตั้ง token ใหม่
     result = await fetchEvents(token, null)
   }
-  await applyEvents(env, result.items, owner.id)
+  await applyEvents(env, result.items, { id: conn.id, userId: conn.userId })
   await db
     .update(calendarConnections)
     .set({ syncToken: result.syncToken, lastSyncAt: new Date(), lastError: null })

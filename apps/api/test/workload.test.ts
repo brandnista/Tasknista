@@ -1,14 +1,33 @@
 import { env } from 'cloudflare:test'
-import { calendarEvents, companyConfig, createDb, sprints, tasks } from '@seedoffice/db'
+import { calendarConnections, calendarEvents, companyConfig, createDb, inboxGoogleClients, sprints, tasks } from '@seedoffice/db'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
+import { encryptSecret } from '../src/lib/crypto'
 import { loginAs, seedUsers } from './helpers'
+
+const json = (cookie: string, body: unknown) => ({
+  method: 'POST',
+  headers: { cookie, 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+async function makeUnrelatedGuest() {
+  const owner = await loginAs(app, 'owner@example-co.test')
+  const p = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์ของ guest', type: 'project' }), env)).json()) as { id: string }
+  await app.request(
+    '/api/admin/users',
+    json(owner, { email: 'guest-workload@example.com', name: 'ลูกค้า', role: 'guest', projectIds: [p.id] }),
+    env,
+  )
+  return loginAs(app, 'guest-workload@example.com')
+}
 
 beforeEach(async () => {
   await seedUsers()
   // storage แชร์ข้าม test file ทั้ง suite (singleWorker) — เคลียร์ manhourMinutesPerDay ให้แน่ใจว่าใช้ค่า fallback 480 คงที่ ไม่ปนกับที่ manhour.test.ts เซ็ตทิ้งไว้
   await createDb(env.DB).update(companyConfig).set({ manhourMinutesPerDay: null }).where(eq(companyConfig.id, 1))
+  await env.DB.prepare("DELETE FROM calendar_events WHERE source = 'gcal'").run()
 })
 
 async function makeTask(overrides: Partial<typeof tasks.$inferInsert> & { id: string }) {
@@ -20,13 +39,15 @@ async function makeTask(overrides: Partial<typeof tasks.$inferInsert> & { id: st
 }
 
 describe('Pronista §Workload — GET /api/workload', () => {
-  it('owner เข้าได้ · member/vendor 403', async () => {
+  it('owner/member/vendor เข้าได้ (เดิม owner เท่านั้น — เปิดกว้างตามโจทย์) · guest (ลูกค้า) 403', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')
     const somchai = await loginAs(app, 'somchai@example.com')
+    const guest = await makeUnrelatedGuest()
     expect((await app.request('/api/workload?from=2026-09-01&to=2026-09-07', { headers: { cookie: owner } }, env)).status).toBe(200)
-    expect((await app.request('/api/workload?from=2026-09-01&to=2026-09-07', { headers: { cookie: pond } }, env)).status).toBe(403)
-    expect((await app.request('/api/workload?from=2026-09-01&to=2026-09-07', { headers: { cookie: somchai } }, env)).status).toBe(403)
+    expect((await app.request('/api/workload?from=2026-09-01&to=2026-09-07', { headers: { cookie: pond } }, env)).status).toBe(200)
+    expect((await app.request('/api/workload?from=2026-09-01&to=2026-09-07', { headers: { cookie: somchai } }, env)).status).toBe(200)
+    expect((await app.request('/api/workload?from=2026-09-01&to=2026-09-07', { headers: { cookie: guest } }, env)).status).toBe(403)
   })
 
   it('roster = owner+member+vendor (active) · ไม่รวมคนที่ disabled', async () => {
@@ -91,7 +112,7 @@ describe('Pronista §Workload — GET /api/workload', () => {
     const res = (await (await app.request('/api/workload?from=2026-10-19&to=2026-10-20', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { capacityMinutes: number; onLeave: boolean; usedMinutes: number; taskIds: string[] }>>
     }
-    expect(res.grid.u_pond!['2026-10-20']).toEqual({ capacityMinutes: 0, onLeave: true, usedMinutes: 0, taskIds: [] })
+    expect(res.grid.u_pond!['2026-10-20']).toEqual({ capacityMinutes: 0, onLeave: true, usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, taskIds: [] })
     expect(res.grid.u_pond!['2026-10-19']!.onLeave).toBe(false) // 2026-10-19 = จันทร์
     expect(res.grid.u_pond!['2026-10-19']!.capacityMinutes).toBe(480)
   })
@@ -119,7 +140,7 @@ describe('Pronista §Workload — GET /api/workload', () => {
 })
 
 describe('Pronista §Workload — GET /api/workload/sprints', () => {
-  it('คืนเฉพาะ sprint ที่ planned/active · ไม่รวม completed · owner-only', async () => {
+  it('คืนเฉพาะ sprint ที่ planned/active · ไม่รวม completed · owner/member/vendor เข้าได้ (เดิม owner เท่านั้น)', async () => {
     const db = createDb(env.DB)
     await db
       .insert(sprints)
@@ -131,11 +152,78 @@ describe('Pronista §Workload — GET /api/workload/sprints', () => {
       .onConflictDoNothing()
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')
-    expect((await app.request('/api/workload/sprints', { headers: { cookie: pond } }, env)).status).toBe(403)
+    const guest = await makeUnrelatedGuest()
+    expect((await app.request('/api/workload/sprints', { headers: { cookie: pond } }, env)).status).toBe(200)
+    expect((await app.request('/api/workload/sprints', { headers: { cookie: guest } }, env)).status).toBe(403)
     const res = (await (await app.request('/api/workload/sprints', { headers: { cookie: owner } }, env)).json()) as { sprints: { id: string }[] }
     const ids = res.sprints.map((s) => s.id)
     expect(ids).toContain('wl_sp_planned')
     expect(ids).toContain('wl_sp_active')
     expect(ids).not.toContain('wl_sp_done')
+  })
+})
+
+describe('Pronista §Calendar/Workload (2026-09-18) — ประชุมจาก Google Calendar หักเข้า Workload', () => {
+  async function seedGcalMeeting(opts: { userId: string; startAt: Date; endAt: Date; allDay?: boolean; busy?: boolean }) {
+    const db = createDb(env.DB)
+    const [gClient] = await db
+      .insert(inboxGoogleClients)
+      .values({ label: 'test', clientId: 'x.apps.googleusercontent.com', clientSecretEnc: await encryptSecret('s', env.INBOX_ENC_KEY) })
+      .returning()
+    const [conn] = await db
+      .insert(calendarConnections)
+      .values({ clientId: gClient!.id, userId: opts.userId, status: 'connected', connectedAt: new Date() })
+      .returning()
+    await db.insert(calendarEvents).values({
+      title: 'ประชุม',
+      type: 'meeting',
+      source: 'gcal',
+      gcalId: `gc-${crypto.randomUUID()}`,
+      connectionId: conn!.id,
+      userId: opts.userId,
+      startDate: opts.startAt.toISOString().slice(0, 10),
+      startAt: opts.startAt,
+      endAt: opts.endAt,
+      allDay: opts.allDay ?? false,
+      busy: opts.busy ?? true,
+      createdBy: opts.userId,
+    })
+  }
+
+  it('ประชุม 14:00-16:00 BKK → meetingMinutes=120, usedMinutes รวมด้วย (ตัวอย่างตรงจากโจทย์)', async () => {
+    await seedGcalMeeting({ userId: 'u_pond', startAt: new Date('2026-11-05T14:00:00+07:00'), endAt: new Date('2026-11-05T16:00:00+07:00') })
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload?from=2026-11-05&to=2026-11-05', { headers: { cookie: owner } }, env)).json()) as {
+      grid: Record<string, Record<string, { usedMinutes: number; meetingMinutes: number; taskMinutes: number }>>
+    }
+    expect(res.grid.u_pond!['2026-11-05']).toMatchObject({ usedMinutes: 120, meetingMinutes: 120, taskMinutes: 0 })
+  })
+
+  it('event ทั้งวัน (allDay) → ไม่นับเข้า meetingMinutes เลย', async () => {
+    await seedGcalMeeting({ userId: 'u_pond', startAt: new Date('2026-11-06T00:00:00+07:00'), endAt: new Date('2026-11-07T00:00:00+07:00'), allDay: true })
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload?from=2026-11-06&to=2026-11-06', { headers: { cookie: owner } }, env)).json()) as {
+      grid: Record<string, Record<string, { meetingMinutes: number }>>
+    }
+    expect(res.grid.u_pond!['2026-11-06']!.meetingMinutes).toBe(0)
+  })
+
+  it('busy=false (transparency=transparent, "ว่าง") → ไม่นับเข้า meetingMinutes', async () => {
+    await seedGcalMeeting({ userId: 'u_pond', startAt: new Date('2026-11-07T14:00:00+07:00'), endAt: new Date('2026-11-07T15:00:00+07:00'), busy: false })
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload?from=2026-11-07&to=2026-11-07', { headers: { cookie: owner } }, env)).json()) as {
+      grid: Record<string, Record<string, { meetingMinutes: number }>>
+    }
+    expect(res.grid.u_pond!['2026-11-07']!.meetingMinutes).toBe(0)
+  })
+
+  it('มีทั้ง Task และประชุมในวันเดียวกัน → รวมทั้งสองแหล่งเข้า usedMinutes, แยก breakdown ถูกต้อง', async () => {
+    await makeTask({ id: 'wl_t_mix', dueDate: '2026-11-08', estimateMinutes: 60 })
+    await seedGcalMeeting({ userId: 'u_pond', startAt: new Date('2026-11-08T14:00:00+07:00'), endAt: new Date('2026-11-08T15:00:00+07:00') })
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload?from=2026-11-08&to=2026-11-08', { headers: { cookie: owner } }, env)).json()) as {
+      grid: Record<string, Record<string, { usedMinutes: number; taskMinutes: number; meetingMinutes: number }>>
+    }
+    expect(res.grid.u_pond!['2026-11-08']).toMatchObject({ usedMinutes: 120, taskMinutes: 60, meetingMinutes: 60 })
   })
 })

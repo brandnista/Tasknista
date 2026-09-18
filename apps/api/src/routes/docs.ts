@@ -8,6 +8,7 @@ import { canEditDoc, canViewDoc, getDocAccess } from '../lib/doc-acl'
 import { createTasksFromBreakoutItems } from '../lib/doc-breakout-tasks'
 import { extractDocumentXml, extractParagraphs, extractTables } from '../lib/docx-parse'
 import { renderDocxToHtml, renderDocxToMarkdown } from '../lib/docx-render'
+import { copyR2DocFile, streamDocFile } from '../lib/doc-file'
 import { canEditProject, getProjectRole } from '../lib/project-role'
 import { nextTemplateDocNumber } from '../lib/template-doc-code'
 import { sanitizeCodePrefix } from '../lib/task-code'
@@ -485,16 +486,7 @@ export const docRoutes = new Hono<AppEnv>()
     if (!doc || doc.kind !== 'file' || !doc.r2Key) return c.json({ error: 'not_found' }, 404)
     const access = await getDocAccess(db, doc.id, me.id, me.role)
     if (!canViewDoc(access)) return c.json({ error: 'forbidden' }, 403)
-    const obj = await c.env.FILES.get(doc.r2Key)
-    if (!obj) return c.json({ error: 'object_missing' }, 404)
-    const inlineSafe = doc.mime === 'application/pdf'
-    return new Response(obj.body, {
-      headers: {
-        'content-type': doc.mime ?? 'application/octet-stream',
-        'content-disposition': `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(doc.filename ?? doc.title)}"`,
-        'cache-control': 'private, max-age=3600',
-      },
-    })
+    return streamDocFile(c.env, doc)
   })
 
   // Pronista §Document Management MVP — แปลง .docx เป็น HTML ให้เปิดอ่านได้ในแอปทันที (Chrome/Edge ไม่มีตัวแสดงผล .docx ในตัวเหมือน PDF)
@@ -673,10 +665,8 @@ export const docRoutes = new Hono<AppEnv>()
     }
     let newR2Key: string | null = null
     if (doc.kind === 'file' && doc.r2Key) {
-      const obj = await c.env.FILES.get(doc.r2Key)
-      if (!obj) return c.json({ error: 'object_missing' }, 404)
-      newR2Key = `docs/${crypto.randomUUID()}-${doc.filename ?? 'copy'}`
-      await c.env.FILES.put(newR2Key, obj.body, { httpMetadata: { contentType: doc.mime ?? undefined } })
+      newR2Key = await copyR2DocFile(c.env, doc.r2Key, doc.filename ?? 'copy')
+      if (!newR2Key) return c.json({ error: 'object_missing' }, 404)
     }
     const siblings = await db
       .select({ id: docs.id })

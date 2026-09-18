@@ -32,13 +32,19 @@ export interface CalendarEventOut {
   /** Pronista §Team Meeting (2026-08-27) — มาจากระบบนัดประชุมเมนู "ทีม" ไม่ใช่ event ที่เพิ่มมือในปฏิทินนี้ ดู/แก้ไขจริงต้องไปหน้า "ทีม" */
   readOnly?: boolean
   meetingId?: string
+  // Pronista §Calendar/Workload (2026-09-18) — event จาก Google Calendar (source='gcal') มีเวลาจริง + private/source เพิ่มมา
+  startAt?: number | null
+  endAt?: number | null
+  source?: 'local' | 'gcal'
+  private?: boolean
 }
 
 const bkkDateOf = (ms: number) => new Date(ms + 7 * 3_600_000).toISOString().slice(0, 10)
 const bkkTimeOf = (ms: number) => new Date(ms).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
 
-/** ประชุมจากระบบนัดประชุม (เมนู "ทีม") — ดึงมาแสดงร่วมในปฏิทินทีมงานแบบอ่านอย่างเดียว */
-async function gatherTeamMeetingEvents(db: Db, from: string, to: string): Promise<CalendarEventOut[]> {
+/** ประชุมจากระบบนัดประชุม (เมนู "ทีม") — ดึงมาแสดงร่วมในปฏิทินทีมงานแบบอ่านอย่างเดียว
+ * userIds (ถ้ามา) — กรองเฉพาะประชุมที่มีคนใน list เป็นผู้เข้าร่วม (ตัวกรองรายคนของปฏิทินทีมงาน) */
+async function gatherTeamMeetingEvents(db: Db, from: string, to: string, userIds?: string[]): Promise<CalendarEventOut[]> {
   const rowsRaw = await db
     .select({ m: meetings, projectName: projects.name })
     .from(meetings)
@@ -56,18 +62,20 @@ async function gatherTeamMeetingEvents(db: Db, from: string, to: string): Promis
         .innerJoin(users, eq(meetingParticipants.userId, users.id))
         .where(inArray(meetingParticipants.meetingId, meetingIds))
     : []
-  return rows.map((r) => ({
-    id: `meeting-${r.m.id}`,
-    title: `${bkkTimeOf(r.m.startAt.getTime())} ${r.m.title}`,
-    startDate: bkkDateOf(r.m.startAt.getTime()),
-    endDate: null,
-    type: 'meeting',
-    projectId: r.m.projectId,
-    projectName: r.projectName,
-    attendees: attendeeRows.filter((a) => a.meetingId === r.m.id).map((a) => ({ id: a.id, name: a.name })),
-    readOnly: true,
-    meetingId: r.m.id,
-  }))
+  return rows
+    .map((r) => ({
+      id: `meeting-${r.m.id}`,
+      title: `${bkkTimeOf(r.m.startAt.getTime())} ${r.m.title}`,
+      startDate: bkkDateOf(r.m.startAt.getTime()),
+      endDate: null,
+      type: 'meeting' as const,
+      projectId: r.m.projectId,
+      projectName: r.projectName,
+      attendees: attendeeRows.filter((a) => a.meetingId === r.m.id).map((a) => ({ id: a.id, name: a.name })),
+      readOnly: true,
+      meetingId: r.m.id,
+    }))
+    .filter((e) => !userIds || userIds.length === 0 || e.attendees.some((a) => userIds.includes(a.id)))
 }
 
 /** event ตัดรอบ/จ่ายเงินเดือนจาก config — virtual ไม่เก็บใน DB (เปลี่ยน config แล้วขยับเอง) */
@@ -93,18 +101,28 @@ export function payrollEvents(from: string, to: string, cutoffDay: number): Cale
 /**
  * ดึง event ของปฏิทินทีมในช่วง [from, to] รวม payroll virtual — ใช้ร่วมกับ ICS feed (E6)
  * event หลายวันเก็บที่ startDate แต่ครอบช่วง จึงเผื่อ startDate ย้อนไป 31 วันแล้วกรองด้วย endDate
+ * Pronista §Calendar/Workload (2026-09-18) — เพิ่ม opts (ไม่บังคับ กัน ICS feed เดิมพัง เพราะเรียกไม่มี opts):
+ * - userIds: ตัวกรองรายคนของปฏิทินทีมงาน (เลือกดูปฏิทินของพนักงานคนไหนก็ได้)
+ * - viewerId: ใครเป็นคนดู — ใช้ตัดสิน private masking (event private ของคนอื่น → เห็นแค่ "ไม่ว่าง", เจ้าของ/owner เห็นเต็ม)
+ * - viewerIsOwner: owner เห็นเต็มเสมอ (bypass private mask) เหมือน pattern สิทธิ์อื่นในระบบ
  */
 export async function gatherCalendarEvents(
   db: Db,
   from: string,
   to: string,
+  opts: { userIds?: string[]; viewerId?: string; viewerIsOwner?: boolean } = {},
 ): Promise<CalendarEventOut[]> {
+  const { userIds, viewerId, viewerIsOwner } = opts
+  const where =
+    userIds && userIds.length > 0
+      ? and(lte(calendarEvents.startDate, to), gte(calendarEvents.startDate, addDaysISO(from, -31)), inArray(calendarEvents.userId, userIds))
+      : and(lte(calendarEvents.startDate, to), gte(calendarEvents.startDate, addDaysISO(from, -31)))
   const rows = await db
     .select({ ev: calendarEvents, userName: users.name, projectName: projects.name })
     .from(calendarEvents)
     .leftJoin(users, eq(calendarEvents.userId, users.id))
     .leftJoin(projects, eq(calendarEvents.projectId, projects.id))
-    .where(and(lte(calendarEvents.startDate, to), gte(calendarEvents.startDate, addDaysISO(from, -31))))
+    .where(where)
   const cfg = (await db.select().from(companyConfig).limit(1))[0]
   const visible = rows.filter((r) => (r.ev.endDate ?? r.ev.startDate) >= from)
   // Pronista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคน) ต่อ event ที่มองเห็น
@@ -117,13 +135,19 @@ export async function gatherCalendarEvents(
         .where(inArray(calendarEventAttendees.eventId, eventIds))
     : []
   return [
-    ...visible.map((r) => ({
-      ...r.ev,
-      userName: r.userName,
-      projectName: r.projectName,
-      attendees: attendeeRows.filter((a) => a.eventId === r.ev.id).map((a) => ({ id: a.id, name: a.name })),
-    })),
-    ...(await gatherTeamMeetingEvents(db, from, to)),
+    ...visible.map((r) => {
+      const isPrivate = !!r.ev.private && r.ev.userId !== viewerId && !viewerIsOwner
+      return {
+        ...r.ev,
+        userName: r.userName,
+        projectName: r.projectName,
+        title: isPrivate ? 'ไม่ว่าง' : r.ev.title,
+        attendees: isPrivate ? [] : attendeeRows.filter((a) => a.eventId === r.ev.id).map((a) => ({ id: a.id, name: a.name })),
+        startAt: r.ev.startAt ? +r.ev.startAt : null,
+        endAt: r.ev.endAt ? +r.ev.endAt : null,
+      }
+    }),
+    ...(await gatherTeamMeetingEvents(db, from, to, userIds)),
     ...payrollEvents(from, to, cfg?.cutoffDay ?? 25),
   ]
 }
@@ -137,7 +161,11 @@ export const calendarRoutes = new Hono<AppEnv>()
       .safeParse({ from: c.req.query('from'), to: c.req.query('to') })
     if (!q.success) return c.json({ error: 'invalid_range' }, 400)
     const db = createDb(c.env.DB)
-    return c.json({ events: await gatherCalendarEvents(db, q.data.from, q.data.to) })
+    const me = c.get('user')
+    const userIds = c.req.query('userIds')?.split(',').filter(Boolean)
+    return c.json({
+      events: await gatherCalendarEvents(db, q.data.from, q.data.to, { userIds, viewerId: me.id, viewerIsOwner: me.role === 'owner' }),
+    })
   })
 
   .post('/', async (c) => {

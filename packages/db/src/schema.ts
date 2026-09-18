@@ -816,6 +816,8 @@ export const clientNotes = sqliteTable(
 // Pronista §merge (2026-07-03) — "เอกสาร" ดูดรวม "คลังเอกสาร" (item 3) เข้ามาเป็นเมนูเดียว: 1 โหนดในทรีเป็นได้ทั้งหน้าวิกิ (kind='page'), ลิงก์ Google Docs (kind='link'), หรือไฟล์อัปโหลด (kind='file')
 export const DOC_KINDS = ['page', 'link', 'file', 'template', 'folder'] as const
 export const DOC_MEMBER_ROLES = ['viewer', 'editor'] as const
+// Pronista §Project Documents (2026-09-17) — ที่มาของเอกสารที่สร้างผ่านแท็บ "เอกสาร" ในโปรเจกต์ (แยกจากระบบ wiki เดิม)
+export const DOC_SOURCES = ['upload', 'gdrive', 'task_attachment'] as const
 
 /** เอกสาร/wiki tree (SPEC §4.16) — sub-page ลึกได้ · เก็บ markdown · soft-delete ทั้ง subtree · +สิทธิ์ private/team + ลิงก์/ไฟล์ (จาก "คลังเอกสาร" เดิม) */
 export const docs = sqliteTable(
@@ -845,6 +847,11 @@ export const docs = sqliteTable(
     docVersion: text('doc_version'), // เช่น "1.0"
     // Pronista §Document Traceability — ประเภทเอกสารสำหรับฟิลเตอร์ (ดู DOC_TYPES) — null = ไม่ระบุ/ไม่เข้าพวก
     docType: text('doc_type', { enum: DOC_TYPES }),
+    // Pronista §Project Documents (2026-09-17) — ที่มาของเอกสารที่สร้างผ่านแท็บ "เอกสาร" ในโปรเจกต์ (ต่างจาก wiki เดิมที่ null ทั้งหมด)
+    source: text('source', { enum: DOC_SOURCES }),
+    driveFileId: text('drive_file_id'), // ดึงจาก URL ตอนเพิ่มลิงก์ Google Drive/Docs (kind='link', source='gdrive')
+    // onDelete:'set null' — แค่ provenance เสริม (ที่มาหลักคือคอลัมน์ source ข้างบน) ไม่ควรบล็อกการลบไฟล์แนบต้นฉบับใน Task ทีหลัง
+    sourceTaskAttachmentId: text('source_task_attachment_id').references(() => taskAttachments.id, { onDelete: 'set null' }),
     ownerId: text('owner_id').references(() => users.id), // เจ้าของ (สิทธิ์เต็มเสมอ) — เติมจาก createdBy ตอน migrate ของเก่า
     // private = เห็นเฉพาะเจ้าของ+คนใน docMembers · team = ทุกคน (owner/member) เห็นอย่างน้อย viewer — ของเก่าทั้งหมด default 'team' กัน regression (วิกิเดิมทุกคนเห็นหมดอยู่แล้ว)
     visibility: text('visibility', { enum: ['private', 'team'] }).notNull().default('team'),
@@ -1511,10 +1518,19 @@ export const calendarEvents = sqliteTable(
     startDate: text('start_date').notNull(), // YYYY-MM-DD (all-day ระบุเวลาในชื่อได้ตามสไตล์ mockup)
     endDate: text('end_date'), // ช่วงหลายวัน (รวมวันสุดท้าย)
     type: text('type', { enum: CALENDAR_EVENT_TYPES }).notNull().default('other'),
-    userId: text('user_id').references(() => users.id), // วันลาของใคร → team activity
+    // วันลาของใคร → team activity · event จาก gcal (type='meeting'): เจ้าของ connection ที่ sync เข้ามา (Pronista §Calendar/Workload 2026-09-18)
+    userId: text('user_id').references(() => users.id),
     projectId: text('project_id').references(() => projects.id),
     source: text('source', { enum: ['local', 'gcal'] }).notNull().default('local'), // gcal = P3
     gcalId: text('gcal_id'),
+    // Pronista §Calendar/Workload (2026-09-18) — connection ที่ sync event นี้เข้ามา (onDelete cascade: ปลดเชื่อมแล้วลบเฉพาะ event ของ connection นั้น ไม่ใช่ทั้งหมดแบบเดิม)
+    connectionId: text('connection_id').references(() => calendarConnections.id, { onDelete: 'cascade' }),
+    // เวลาเริ่ม/จบจริง (ms) — มีเฉพาะ event ที่ Google ส่ง dateTime มา (ไม่ใช่ all-day) ใช้คำนวณชั่วโมงล็อกใน Workload
+    startAt: integer('start_at', { mode: 'timestamp_ms' }),
+    endAt: integer('end_at', { mode: 'timestamp_ms' }),
+    allDay: integer('all_day', { mode: 'boolean' }).notNull().default(false),
+    busy: integer('busy', { mode: 'boolean' }).notNull().default(true), // จาก Google transparency (transparent = ว่าง ไม่หัก Workload)
+    private: integer('private', { mode: 'boolean' }).notNull().default(false), // จาก Google visibility — คนอื่นเห็นแค่ "ไม่ว่าง"
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id),
@@ -1675,6 +1691,8 @@ export const calendarConnections = sqliteTable('calendar_connections', {
   clientId: text('client_id')
     .notNull()
     .references(() => inboxGoogleClients.id),
+  // Pronista §Calendar/Workload (2026-09-18) — เจ้าของการเชื่อมต่อนี้ (แต่ละคนเชื่อมปฏิทินของตัวเองได้) — null = แถวเก่าก่อนฟีเจอร์นี้ (ไม่มีเจ้าของ ต้องเชื่อมใหม่)
+  userId: text('user_id').references(() => users.id),
   googleEmail: text('google_email'),
   googleAccountId: text('google_account_id'),
   refreshTokenEnc: text('refresh_token_enc'),

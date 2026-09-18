@@ -4,13 +4,14 @@
  */
 import {
   addDaysISO,
+  meetingMinutesByDate,
   resolveManhourMinutesPerDay,
   spreadTaskMinutes,
   weekdayOfISO,
   type ManhourUserType,
 } from '@seedoffice/core'
 import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, users } from '@seedoffice/db'
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { checklistCountsFor } from '../lib/workspace-query'
@@ -56,10 +57,12 @@ export const workloadRoutes = new Hono<AppEnv>()
       .filter((t) => !t.dueDate)
       .map((t) => ({ id: t.id, code: t.code, title: t.title, assigneeId: t.assigneeId!, estimateMinutes: t.estimateMinutes ?? 0 }))
 
-    type Cell = { usedMinutes: number; capacityMinutes: number; onLeave: boolean; taskIds: string[] }
+    // Pronista §Calendar/Workload (2026-09-18) — แยก taskMinutes/meetingMinutes ให้ frontend โชว์ breakdown แหล่งที่มาได้ (usedMinutes รวมยังคงมีไว้เหมือนเดิม)
+    type Cell = { usedMinutes: number; taskMinutes: number; meetingMinutes: number; capacityMinutes: number; onLeave: boolean; taskIds: string[] }
     const grid: Record<string, Record<string, Cell>> = {}
     for (const u of roster) grid[u.id] = {}
-    const cellOf = (userId: string, date: string): Cell => (grid[userId]![date] ??= { usedMinutes: 0, capacityMinutes: 0, onLeave: false, taskIds: [] })
+    const cellOf = (userId: string, date: string): Cell =>
+      (grid[userId]![date] ??= { usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, capacityMinutes: 0, onLeave: false, taskIds: [] })
 
     for (const t of taskRows) {
       if (!t.dueDate || !t.assigneeId) continue
@@ -68,7 +71,38 @@ export const workloadRoutes = new Hono<AppEnv>()
         if (date < from || date > to) continue
         const cell = cellOf(t.assigneeId, date)
         cell.usedMinutes += minutes
+        cell.taskMinutes += minutes
         cell.taskIds.push(t.id)
+      }
+    }
+
+    // ประชุมจาก Google Calendar (source='gcal') — เฉพาะที่มีเวลาจริง (ไม่ใช่ all-day) และ busy=true (transparent = ว่าง ไม่หัก) — declined ไม่ถูก sync เข้ามาอยู่แล้วตั้งแต่ gcal-sync.ts
+    const meetingRows = await db
+      .select({ userId: calendarEvents.userId, startAt: calendarEvents.startAt, endAt: calendarEvents.endAt })
+      .from(calendarEvents)
+      .where(
+        and(
+          eq(calendarEvents.source, 'gcal'),
+          eq(calendarEvents.type, 'meeting'),
+          eq(calendarEvents.allDay, false),
+          eq(calendarEvents.busy, true),
+          isNotNull(calendarEvents.userId),
+          isNotNull(calendarEvents.startAt),
+          isNotNull(calendarEvents.endAt),
+          inArray(calendarEvents.userId, rosterIds),
+        ),
+      )
+    const meetingMinutes = meetingMinutesByDate(
+      meetingRows.map((r) => ({ userId: r.userId!, startAt: +r.startAt!, endAt: +r.endAt! })),
+      addDaysISO(from, -1), // ประชุมอาจเริ่มก่อนเที่ยงคืน BKK ของวันก่อนหน้าแล้วคาบมาถึง from
+      to,
+    )
+    for (const [userId, byDate] of Object.entries(meetingMinutes)) {
+      for (const [date, minutes] of Object.entries(byDate)) {
+        if (date < from || date > to) continue
+        const cell = cellOf(userId, date)
+        cell.usedMinutes += minutes
+        cell.meetingMinutes += minutes
       }
     }
 

@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Send,
   Trash2,
+  Upload,
   X,
   XCircle,
 } from 'lucide-react'
@@ -426,6 +427,10 @@ export function TaskDetailPage() {
   const [docTypeForUpload, setDocTypeForUpload] = useState<TaskDocType | ''>('')
   const [existingDocPickerOpen, setExistingDocPickerOpen] = useState(false)
   const [existingDocQuery, setExistingDocQuery] = useState('')
+  // Pronista §Project Documents (2026-09-17) — โปรโมทไฟล์แนบ Task เป็นเอกสารโปรเจกต์ (สำเนาอิสระ ไฟล์แนบเดิมยังอยู่)
+  const [promoteAttachment, setPromoteAttachment] = useState<{ id: string; filename: string } | null>(null)
+  const [promoteDocType, setPromoteDocType] = useState<TaskDocType | ''>('')
+  const [promoteDocVersion, setPromoteDocVersion] = useState('1.0')
   const { data: projectDocs } = useLoad<ProjectDocOpt[]>(
     () => (existingDocPickerOpen && t?.projectId ? api.get(`/api/projects/${t.projectId}/docs`) : Promise.resolve([])),
     [existingDocPickerOpen],
@@ -700,6 +705,19 @@ export function TaskDetailPage() {
     const created = (await res.json()) as { id: string }
     await api.post(`/api/docs/${created.id}/links`, { taskId: t.id })
     await reload()
+  }
+  // Pronista §Project Documents (2026-09-17) — โปรโมทไฟล์แนบทั่วไปของ task นี้ให้เป็นเอกสารโปรเจกต์ (คนละระบบกับ "เอกสารทางการ" ด้านบน — ไฟล์แนบต้นฉบับไม่หาย)
+  const confirmPromote = async () => {
+    if (!promoteAttachment || !promoteDocType || !promoteDocVersion.trim()) return
+    try {
+      await api.post(`/api/tasks/${t.id}/attachments/${promoteAttachment.id}/promote`, { docType: promoteDocType, docVersion: promoteDocVersion.trim() })
+      toast('เพิ่มเป็นเอกสารโปรเจกต์แล้ว')
+      setPromoteAttachment(null)
+      setPromoteDocType('')
+      setPromoteDocVersion('1.0')
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'โปรโมทไม่สำเร็จ ลองใหม่อีกครั้ง' })
+    }
   }
   // Pronista §Back to Basic — ผูกเอกสารที่มีอยู่แล้วในโปรเจกต์เดียวกัน (ไม่ใช่สร้างใหม่)
   const linkExistingDoc = async (docId: string) => {
@@ -1119,9 +1137,12 @@ export function TaskDetailPage() {
                       )}
                       <span className="text-[11px] text-muted shrink-0 w-14 text-right">{a.sizeBytes != null ? fmtAttSize(a.sizeBytes) : ''}</span>
                       {renamingAttachment?.id !== a.id && (
-                        <div className="flex items-center justify-end gap-1 shrink-0 w-14 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                        <div className="flex items-center justify-end gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                           {canEdit && (
                             <>
+                              {t.projectId && (
+                                <button onClick={() => { setPromoteAttachment({ id: a.id, filename: a.filename }); setPromoteDocType(''); setPromoteDocVersion('1.0') }} className="p-1 rounded hover:bg-white text-dim hover:text-brand-700" title="เพิ่มเป็นเอกสารโปรเจกต์"><Upload className="w-3.5 h-3.5" /></button>
+                              )}
                               <button onClick={() => setRenamingAttachment({ id: a.id, draft: a.filename })} className="p-1 rounded hover:bg-white text-dim hover:text-brand-700" title="เปลี่ยนชื่อ"><Pencil className="w-3.5 h-3.5" /></button>
                               <button onClick={() => void removeAttachment(a.id)} className="p-1 rounded hover:bg-white text-dim hover:text-danger-600" title="ลบ"><X className="w-3.5 h-3.5" /></button>
                             </>
@@ -1647,6 +1668,43 @@ export function TaskDetailPage() {
 
       {templatePickerOpen && (
         <TemplatePickerModal parentId={null} onClose={() => setTemplatePickerOpen(false)} onCreated={(docId) => void onTemplateDocCreated(docId)} />
+      )}
+
+      {promoteAttachment && (
+        <div className="fixed inset-0 z-50">
+          <div onClick={() => setPromoteAttachment(null)} className="absolute inset-0 bg-ink/30" />
+          <div className="absolute inset-x-0 top-24 mx-auto w-full max-w-sm px-4">
+            <div className="bg-white rounded-lg shadow-2xl p-5">
+              <div className="font-semibold text-ink text-sm mb-1">เพิ่มเป็นเอกสารโปรเจกต์ — {promoteAttachment.filename}</div>
+              <p className="text-xs text-muted mb-3">สร้างสำเนาเอกสารในแท็บ "เอกสาร" ของโปรเจกต์ ไฟล์แนบเดิมในงานนี้ยังอยู่เหมือนเดิม</p>
+              <div className="flex gap-2 mb-4">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-muted mb-1 block">ประเภทเอกสาร *</label>
+                  <select
+                    value={promoteDocType}
+                    onChange={(e) => setPromoteDocType(e.target.value as TaskDocType | '')}
+                    className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+                  >
+                    <option value="">เลือกประเภท…</option>
+                    {TASK_DOC_TYPES.map((dt) => <option key={dt} value={dt}>{dt}</option>)}
+                  </select>
+                </div>
+                <div className="w-28">
+                  <label className="text-xs font-medium text-muted mb-1 block">เวอร์ชัน *</label>
+                  <input
+                    value={promoteDocVersion}
+                    onChange={(e) => setPromoteDocVersion(e.target.value)}
+                    className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setPromoteAttachment(null)} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
+                <button onClick={() => void confirmPromote()} disabled={!promoteDocType || !promoteDocVersion.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">เพิ่มเอกสาร</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {docUploadPending && (

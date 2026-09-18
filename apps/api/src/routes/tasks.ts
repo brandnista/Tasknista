@@ -490,6 +490,31 @@ export const taskRoutes = new Hono<AppEnv>()
     )
   })
 
+  // Pronista §My Tasks reviewer queue — งานที่ผู้ใช้ปัจจุบันถูกระบุเป็น Reviewer และกำลังรอตรวจ
+  // แยกจาก /tasks/mine เพราะ assignee กับ reviewer เป็นคนละบทบาท และไม่ควรทำให้งานของคนอื่นปนในลิสต์งานที่รับผิดชอบ
+  .get('/tasks/pending-review', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const rows = await db
+      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name, assigneeName: users.name })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
+      .leftJoin(users, eq(tasks.assigneeId, users.id))
+      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+      .orderBy(asc(tasks.submittedAt), asc(tasks.dueDate))
+    const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
+    return c.json(
+      rows.map((r) => ({
+        ...r.task,
+        projectName: r.projectName ?? r.workspaceName,
+        assigneeName: r.assigneeName,
+        checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
+        checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
+      })),
+    )
+  })
+
   // Pronista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
   // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
   // ทั้งที่จ่ายไปจริง (assignedBy ตรง) เปลี่ยนเป็น leftJoin ทั้งคู่ (projects/workspaces) แล้ว fallback ชื่อที่โชว์เป็นชื่อ Workspace room แทนตอนไม่มีโปรเจกต์

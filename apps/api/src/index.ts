@@ -36,6 +36,7 @@ import { myFileRoutes } from './routes/my-files'
 import { myNoteRoutes } from './routes/my-notes'
 import { projectReleaseRoutes } from './routes/project-releases'
 import { projectChangelogRoutes } from './routes/project-changelogs'
+import { projectDocumentRoutes } from './routes/project-documents'
 import { projectRoutes } from './routes/projects'
 import { sprintRoutes } from './routes/sprints'
 import { taskDetailRoutes } from './routes/task-detail'
@@ -98,6 +99,8 @@ app.route('/api/tokens', tokenRoutes)
 app.use('/api/projects/*', requireAuth)
 app.use('/api/projects', requireAuth)
 app.route('/api/projects', projectRoutes)
+// Pronista §Project Documents — เอกสารระดับโปรเจกต์ (คนละสิทธิ์กับ /api/docs/* wiki เดิม — เช็คในแต่ละ handler เอง ผ่านสิทธิ์เพดานโปรเจกต์)
+app.route('/api/projects', projectDocumentRoutes)
 // Pronista §Sprint & Board — /api/sprints/:id/* ไม่ได้อยู่ใต้ /api/projects/* จึงต้องมี requireAuth ของตัวเอง
 app.use('/api/sprints/*', requireAuth)
 // Pronista §Workspace — รวม Sprint/Backlog ข้ามโปรเจกต์ (อ่านอย่างเดียว — mutation ใช้ endpoint เดิมของ sprints/tasks ทั้งหมด)
@@ -206,15 +209,17 @@ app.route('/api/expenses', expenseRoutes)
 app.use('/api/calendar', requireAuth, teamOnly)
 app.use('/api/calendar/*', requireAuth, teamOnly)
 app.route('/api/calendar', calendarRoutes)
-// เชื่อม Google Calendar (sync ขาเข้า · SPEC §4.14 E6) = owner เท่านั้น
-app.use('/api/calendar-connect', requireAuth, ownerOnly)
-app.use('/api/calendar-connect/*', requireAuth, ownerOnly)
+// เชื่อม Google Calendar (sync ขาเข้า · SPEC §4.14 E6) — owner+member เชื่อมปฏิทินของตัวเองได้ (เดิม owner เท่านั้น)
+// Pronista §Calendar/Workload (2026-09-18) — เปิดให้ owner+member self-service เชื่อมต่อปฏิทินส่วนตัว (ยืนยันกับอาร์มแล้ว: vendor/guest เชื่อมไม่ได้)
+app.use('/api/calendar-connect', requireAuth, teamOnly)
+app.use('/api/calendar-connect/*', requireAuth, teamOnly)
 app.route('/api/calendar-connect', calendarConnectRoutes)
 app.use('/api/team-activity', requireAuth, teamOnly)
 app.route('/api/team-activity', teamActivityRoutes)
-// Pronista §Workload (Phase 2, 2026-09-04) — ภาพรวมภาระงานทีม = owner เท่านั้น (mirror /api/overview/company)
-app.use('/api/workload', requireAuth, ownerOnly)
-app.use('/api/workload/*', requireAuth, ownerOnly)
+// Pronista §Workload (Phase 2, 2026-09-04) — ภาพรวมภาระงานทีม
+// Pronista §Calendar/Workload (2026-09-18) — เปิดให้ owner+member+vendor เห็น Workload ของทีมได้ (เดิม owner เท่านั้น) ยืนยันกับอาร์มแล้ว — guest (ลูกค้า) ไม่เห็น
+app.use('/api/workload', requireAuth, requireRole('owner', 'member', 'vendor'))
+app.use('/api/workload/*', requireAuth, requireRole('owner', 'member', 'vendor'))
 app.route('/api', workloadRoutes)
 // Secret Vault (2026-09-03, เปิดเพดานให้ปรับได้ 2026-09-08) — เก็บรหัสผ่าน/ข้อมูลลับ owner เข้าได้เสมอ + หมวดอื่นเปิดผ่าน "เพดานสิทธิ์" ได้ (default ปิด)
 app.use('/api/vault', requireAuth, ceilingMenu('vault'))
