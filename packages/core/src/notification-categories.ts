@@ -30,6 +30,8 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'task_reassigned',
       // Pronista §Business Rules Workflow (เฟส B, 2026-09-15)
       'task_cancelled',
+      // Pronista §My Tasks menu badges (2026-09-18)
+      'task_review_requested',
     ],
   },
   { key: 'chat_mention', label: 'มีคนแท็กฉันในแชท', types: ['chat_mention'] },
