@@ -16,14 +16,19 @@ const INBOX_SYNC_CRON = '* * * * *'
 
 /**
  * Cron 3 จังหวะ:
- * - ทุก 1 นาที: sync อีเมลกลาง (E2 — เฉพาะกล่อง connected · ไม่มีกล่อง = จบทันที)
- * - ทุก 30 นาที: กวาด timer วิ่งเกินเพดาน (ปิดที่เพดาน) + ล้าง session หมดอายุ + sync Google Calendar (E6)
+ * - ทุก 1 นาที: sync อีเมลกลาง (E2 — เฉพาะกล่อง connected · ไม่มีกล่อง = จบทันที) + sync Google Calendar (E6)
+ * - ทุก 30 นาที: กวาด timer วิ่งเกินเพดาน (ปิดที่เพดาน) + ล้าง session หมดอายุ
  * - รายวัน 03:00 BKK: backup D1 → R2 (T18 — ต้องมาก่อนปิดงวดจริงครั้งแรก)
+ *
+ * Pronista §Calendar/Workload (2026-09-18) — ย้าย syncAllCalendars จาก cron ทุก 30 นาที มาเกาะ cron ทุก 1 นาทีแทน
+ * (ตามที่อาร์มขอ ประชุมที่ถูกเชิญเข้ามาจะโผล่ในปฏิทินทีมงาน/Workload ไวขึ้นมาก ไม่ต้องรอสูงสุด 30 นาที) — ใช้ incremental sync token
+ * อยู่แล้ว รอบที่ไม่มีอะไรเปลี่ยนเบามาก + Google Calendar API quota เริ่มต้นสูงมาก ไม่กระทบทีมขนาดนี้
  */
 export async function runScheduled(env: Env, cron: string): Promise<void> {
   if (cron === INBOX_SYNC_CRON) {
     await wakeSnoozedThreads(env)
     await syncAllMailboxes(env)
+    await syncAllCalendars(env) // E6 — sync ขาเข้า Google Calendar (กลืน error รายตัวเอง)
     // Pronista §Meeting Schedule Tab (2026-08-27) — เตือนล่วงหน้าก่อนประชุมเริ่ม ต้องละเอียดระดับนาที เลยเกาะ cron ทุก 1 นาทีที่มีอยู่แล้ว (ไม่มี Cloudflare Queues ในระบบนี้)
     return notifyMeetingReminders(createDb(env.DB), Date.now())
   }
@@ -39,7 +44,6 @@ export async function runScheduled(env: Env, cron: string): Promise<void> {
     await closeSession(env, s, task?.projectId ?? '', Date.now())
   }
   await purgeExpiredSessions(env)
-  await syncAllCalendars(env) // E6 — sync ขาเข้า Google Calendar (กลืน error รายตัวเอง)
 
   // Pronista §Sprint & Board — sprint ที่ active ครบกำหนด (endDate < วันนี้ ตามเวลาไทย) → ปิดอัตโนมัติ (task ไม่ Done เด้งกลับ backlog)
   const today = bkkDateOf(Date.now())
