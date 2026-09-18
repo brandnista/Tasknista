@@ -856,6 +856,17 @@ export const taskRoutes = new Hono<AppEnv>()
         projectId: before.projectId,
         message: `งาน "${before.title}" ส่งมารอตรวจแล้ว`,
       })
+      // Pronista §My Tasks menu badges (2026-09-18) — มีผู้ตรวจเฉพาะ (reviewerId) แยกจากผู้จ่ายงาน → ต้องแจ้งผู้ตรวจด้วย ไม่งั้นหน้า "งานรอตรวจ" ไม่มีทางมีแจ้งเตือนเข้าเลย (เดิมแจ้งแค่ assignedBy)
+      // type แยกจาก task_submitted เจตนา — กันตัวเลขแจ้งเตือนเมนู "งานที่จ่ายให้คนอื่น" กับ "งานรอตรวจ" นับปนกัน
+      if (before.reviewerId && before.reviewerId !== before.assignedBy) {
+        await notifyUser(db, {
+          userId: before.reviewerId,
+          type: 'task_review_requested',
+          taskId: before.id,
+          projectId: before.projectId,
+          message: `งาน "${before.title}" ส่งมารอตรวจแล้ว`,
+        })
+      }
     }
     if (body.data.status === 'done' && before.status === 'waiting_for_test' && before.assigneeId) {
       await notifyUser(db, {

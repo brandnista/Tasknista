@@ -18,6 +18,8 @@ export function notificationHref(n: NotificationLike): string | undefined {
   if (n.type === 'chat_mention' || n.type === 'chat_message') return n.chatChannelId ? `/team?tab=chat&channel=${n.chatChannelId}` : '/team'
   if (n.type === 'member_expiry_reminder') return n.memberId ? `/members/${n.memberId}` : undefined
   if (n.type === 'note_shared') return '/my-tasks/notes'
+  // Pronista §My Tasks menu badges (2026-09-18) — แจ้งเตือนผู้ตรวจ พาไปหน้า "งานรอตรวจ" ตรงๆ (คนละหน้ากับ task_submitted ที่ไปหาผู้จ่ายงาน — ตกไป fallback taskId ด้านล่างตามเดิม)
+  if (n.type === 'task_review_requested') return '/my-tasks/review'
   if (n.type === 'domain_expiry_reminder' || n.type === 'domain_expired') return '/admin/domains'
   if (n.type === 'sellnista_expiry_reminder' || n.type === 'sellnista_expired') return '/admin/sellnista'
   // Pronista §Notification href fix (2026-09-11) — vault_accessed ไม่มี taskId/projectId/... เลย ตกไปที่ generic fallback ล่างสุดแล้วได้ undefined คลิกแล้วไม่ไปไหนเลย

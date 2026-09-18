@@ -1,7 +1,6 @@
 /* Hallmark · pre-emit critique: P4 H5 E5 S5 R5 V4 */
 import {
   CheckCircle2,
-  ClipboardCheck,
   ClipboardList,
   Copy,
   LayoutGrid,
@@ -224,13 +223,11 @@ export function MyTasksPage() {
   const { alertDialog } = useDialog()
   const openTask = (id: string) => navigate(`/tasks/${id}`)
   const { data, reload } = useLoad<MyTask[]>(() => api.get('/api/tasks/mine'))
-  const { data: pendingReviewData } = useLoad<MyTask[]>(() => api.get('/api/tasks/pending-review'))
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
   const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
   // Pronista §Notification overhaul (2026-08-27) — ย้ายมาอ่านจาก NotificationsProvider กลาง (แท็บ "แจ้งเตือน" ในหน้านี้ถูกถอดออกแล้ว เพราะมีกระดิ่งที่ Navbar เป็นจุดเข้าถึงหลักแทน)
   const { rows: notifRows } = useNotifications()
   const tasks = data ?? []
-  const pendingReviewTasks = pendingReviewData ?? []
   const notifications = notifRows ?? []
 
   // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
@@ -242,7 +239,6 @@ export function MyTasksPage() {
   const [todayOnly, setTodayOnly] = useState(false)
   const [view, setView] = useState<'board' | 'list'>('board')
   const [summaryOpen, setSummaryOpen] = useState(false)
-  const [taskScope, setTaskScope] = useState<'assigned' | 'review'>('assigned')
 
   // Pronista §My Work fix (2026-09-11) — เดิมไม่ดัก error เลย ปุ่ม "✓ เสร็จแล้ว" ในวิดเจ็ต "งานย่อยที่รอทำ" เลยเงียบสนิทตอน backend ปฏิเสธ (เช่น งานย่อยที่ถูกจ่ายมาแล้วกำลังทำอยู่ ข้ามไป done ตรงๆ ไม่ได้ ต้องผ่าน "ส่งตรวจ" ก่อน — PATCH /tasks/:id เช็คเงื่อนไขนี้อยู่แล้วฝั่ง server) ผู้ใช้กดแล้วไม่เกิดอะไรขึ้นเลย งงว่าทำไมกดไม่ติด
   const changeStatus = async (taskId: string, status: KanbanTask['status']) => {
@@ -310,33 +306,6 @@ export function MyTasksPage() {
     <>
       <PageHeader title="งานของฉัน" />
       <div className="p-4 sm:p-6">
-      <div className="flex items-center gap-1 border-b border-divider mb-4 overflow-x-auto">
-        <button
-          onClick={() => setTaskScope('assigned')}
-          className={`shrink-0 flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${taskScope === 'assigned' ? 'border-brand-600 text-brand-700' : 'border-transparent text-dim hover:text-body'}`}
-        >
-          <ClipboardList className="w-4 h-4" /> งานที่ฉันรับผิดชอบ
-          <span className="text-[11px] bg-hover text-dim rounded-full px-1.5 py-0.5">{tasks.length}</span>
-        </button>
-        <button
-          onClick={() => setTaskScope('review')}
-          className={`shrink-0 flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${taskScope === 'review' ? 'border-brand-600 text-brand-700' : 'border-transparent text-dim hover:text-body'}`}
-        >
-          <ClipboardCheck className="w-4 h-4" /> งานรอตรวจของฉัน
-          <span className={`text-[11px] rounded-full px-1.5 py-0.5 ${pendingReviewTasks.length > 0 ? 'bg-warning-100 text-warning-700' : 'bg-hover text-dim'}`}>{pendingReviewTasks.length}</span>
-        </button>
-      </div>
-
-      {taskScope === 'review' ? (
-        <div>
-          <div className="mb-3">
-            <h2 className="text-base font-semibold text-ink">งานที่รอคุณตรวจ</h2>
-            <p className="text-sm text-muted mt-0.5">แสดงเฉพาะงานที่คุณถูกเลือกเป็นผู้ตรวจและผู้รับผิดชอบส่งงานแล้ว</p>
-          </div>
-          <TaskListView tasks={pendingReviewTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
-        </div>
-      ) : (
-      <>
       <div className="flex items-start justify-between gap-3 mb-4">
         <p className="text-sm text-muted">สวัสดี {user?.name} — นี่คือสรุปงานที่คุณรับผิดชอบ</p>
         <button
@@ -429,8 +398,6 @@ export function MyTasksPage() {
               <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
             )}
           </div>
-      </>
-      )}
       <DailySummaryModal
         open={summaryOpen}
         onClose={() => setSummaryOpen(false)}

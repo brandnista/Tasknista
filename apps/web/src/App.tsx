@@ -33,6 +33,7 @@ import { MyTasksDailyReportPage } from './pages/MyTasksDailyReport'
 import { MyTasksDispatchedPage } from './pages/MyTasksDispatched'
 import { MyTasksMeetingsPage } from './pages/MyTasksMeetings'
 import { MyTasksNotesPage } from './pages/MyTasksNotes'
+import { MyTasksReviewPage } from './pages/MyTasksReview'
 import { NotificationsPage } from './pages/Notifications'
 import { ProjectDetailPage } from './pages/ProjectDetail'
 import { ProjectEditPage } from './pages/ProjectEdit'
@@ -96,6 +97,7 @@ const router = createBrowserRouter([
       { path: 'workload/:userId', element: <Protected roles={['owner', 'member', 'vendor']}><EmployeeWorkloadPage /></Protected> },
       { path: 'my-tasks', element: <Protected menuKey="myTasks"><MyTasksPage /></Protected> },
       { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
+      { path: 'my-tasks/review', element: <Protected menuKey="myTasks"><MyTasksReviewPage /></Protected> },
       { path: 'daily-reports', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
       // คง route เดิมไว้ให้ notification / bookmark เก่าเปิด report query เดิมได้
       { path: 'my-tasks/daily-report', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
