@@ -452,13 +452,16 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/tasks/mine', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
+    // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ต้องรู้ว่าใครจ่ายงานมา (assignedBy) โชว์เป็นคอลัมน์ในตารางได้
+    const dispatcher = alias(users, 'dispatcher')
     // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
     // แม้จะจ่ายมาแล้ว/กดรับงานแล้วจริง (status ขยับเป็น on_processing) ก็ไม่โผล่ใน "งานของฉัน" — ล้อ fix เดียวกับ /tasks/dispatched-by-me ด้านล่าง: leftJoin ทั้งคู่ (projects/workspaces) + fallback ชื่อที่โชว์
     const rows = await db
-      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name })
+      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name, dispatcherName: dispatcher.name })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
+      .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
       // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
       .where(and(eq(tasks.assigneeId, me.id), isNotNull(tasks.dispatchedAt)))
       .orderBy(asc(tasks.dueDate))
@@ -486,7 +489,13 @@ export const taskRoutes = new Hono<AppEnv>()
       return { checklistDone: c?.done ?? 0, checklistTotal: c?.total ?? 0 }
     }
     return c.json(
-      rows.map((r) => ({ ...r.task, projectName: r.projectName ?? r.workspaceName, myRole: roleOf(r.task.projectId), ...checklistOf(r.task.id) })),
+      rows.map((r) => ({
+        ...r.task,
+        projectName: r.projectName ?? r.workspaceName,
+        dispatcherName: r.dispatcherName,
+        myRole: roleOf(r.task.projectId),
+        ...checklistOf(r.task.id),
+      })),
     )
   })
 

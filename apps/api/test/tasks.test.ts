@@ -835,13 +835,14 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
 
     const list = (await (
       await app.request('/api/tasks/mine', { headers: { cookie: pond } }, env)
-    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string }[]
+    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string; dispatcherName: string | null }[]
     const row = list.find((r) => r.id === t.id)
     expect(row).toBeTruthy()
     expect(row?.status).toBe('on_processing')
     expect(row?.projectId).toBeNull()
     expect(row?.projectName).toBe(ws.name) // fallback เป็นชื่อ Workspace room เพราะไม่มีโปรเจกต์
     expect(row?.myRole).toBe('editor') // ไม่มี project role ให้ derive — ล้อ task-detail.ts
+    expect(row?.dispatcherName).toBe('เมธ') // Pronista §My Tasks table (2026-09-18) — owner เป็นคนกด dispatch → ต้อง resolve ชื่อ assignedBy ออกมาด้วย
   })
 })
 

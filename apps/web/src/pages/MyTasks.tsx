@@ -36,12 +36,17 @@ interface MyTask extends KanbanTask {
   completedAt: string | number | null
   submittedAt: string | number | null
   sprintId: string | null
+  // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ใครเป็นคนกดจ่ายงานนี้มา (tasks.assignedBy resolve เป็นชื่อ)
+  dispatcherName: string | null
 }
 const PRIORITY_ORDER: Record<MyTask['priority'], number> = { high: 0, normal: 1, low: 2 }
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 // Pronista §My Work UX — completedAt/submittedAt มาจาก API เป็น ISO string (Date ถูก serialize ผ่าน JSON) ต้อง +7h ก่อนตัดเป็นวันที่ไทย
 const bkkDay = (x: string | number) => new Date(new Date(x).getTime() + 7 * 3_600_000).toISOString().slice(0, 10)
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00+07:00`) - Date.parse(`${a}T00:00:00+07:00`)) / 86_400_000)
+// Pronista §My Tasks — วันที่+เวลาแบบไทย (dd/mm/yy HH:mm) ให้คอลัมน์ "วันที่ เวลา" ของตาราง "งานใหม่ที่รอกดรับ"
+const fmtDateTime = (x: string | number) =>
+  new Date(x).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 /** Pronista §My Work/Notification — งานย่อยของฉันที่ยังไม่เสร็จ เรียง priority แล้ว deadline พร้อมปุ่มติ๊กเสร็จตรงๆ */
 function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onComplete: (id: string) => void }) {
@@ -74,28 +79,51 @@ function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTas
   )
 }
 
-/** Pronista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน */
+/** Pronista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน
+ * Pronista §My Tasks table redesign (2026-09-18) — เปลี่ยนเป็นตารางหัวคอลัมน์ชัดเจน (วันที่เวลา/รหัสงาน/ชื่องาน/ผู้จ่ายงาน/ปุ่มรับงาน) + เรียงงานที่จ่ายมาใหม่สุดไว้บนสุด (เดิมไม่เรียงเลย ใช้ลำดับดิบจาก API) */
 function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onAccept: (id: string) => void }) {
-  const pending = tasks.filter((t) => t.dispatchedAt && t.status === 'non_start')
+  const pending = tasks
+    .filter((t) => t.dispatchedAt && t.status === 'non_start')
+    .sort((a, b) => new Date(b.dispatchedAt!).getTime() - new Date(a.dispatchedAt!).getTime())
   if (pending.length === 0) return null
   return (
     <div className="bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-5">
-      <div className="text-sm font-semibold text-body mb-2">งานใหม่ที่รอคุณกดรับ</div>
-      <div className="divide-y divide-divider">
-        {pending.map((t) => (
-          <div key={t.id} className="flex items-center gap-3 py-2.5">
-            <button onClick={() => onOpenTask(t.id)} className="min-w-0 flex-1 text-left">
-              <div className="text-sm text-body truncate">{t.title}</div>
-              <div className="text-[11px] text-muted">{t.projectName}</div>
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onAccept(t.id) }}
-              className="shrink-0 flex items-center gap-1 text-xs bg-success-600 hover:bg-success-700 text-white px-2.5 py-1.5 rounded-lg font-medium"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" /> รับงาน
-            </button>
-          </div>
-        ))}
+      <div className="text-sm font-semibold text-body mb-3">งานใหม่ที่รอคุณกดรับ ({pending.length})</div>
+      <div className="overflow-x-auto -mx-4 px-4">
+        <table className="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr className="text-[11px] text-muted uppercase tracking-wide text-left border-b border-info-200">
+              <th className="font-medium py-2 pr-3 whitespace-nowrap">วันที่ เวลา</th>
+              <th className="font-medium py-2 pr-3 whitespace-nowrap">รหัสงาน</th>
+              <th className="font-medium py-2 pr-3">ชื่องาน</th>
+              <th className="font-medium py-2 pr-3 whitespace-nowrap">ถูกจ่ายโดย</th>
+              <th className="font-medium py-2 text-right whitespace-nowrap">&nbsp;</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-info-100">
+            {pending.map((t) => (
+              <tr key={t.id} className="hover:bg-white/60">
+                <td className="py-2.5 pr-3 text-xs text-muted whitespace-nowrap tabular-nums">{fmtDateTime(t.dispatchedAt!)}</td>
+                <td className="py-2.5 pr-3 text-xs font-mono text-muted whitespace-nowrap">{t.code ?? '—'}</td>
+                <td className="py-2.5 pr-3 min-w-0">
+                  <button onClick={() => onOpenTask(t.id)} className="text-left hover:underline">
+                    <div className="text-body truncate max-w-[320px]">{t.title}</div>
+                    <div className="text-[11px] text-muted">{t.projectName}</div>
+                  </button>
+                </td>
+                <td className="py-2.5 pr-3 text-xs text-muted whitespace-nowrap">{t.dispatcherName ?? '—'}</td>
+                <td className="py-2.5 text-right whitespace-nowrap">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onAccept(t.id) }}
+                    className="inline-flex items-center gap-1 text-xs bg-success-600 hover:bg-success-700 text-white px-2.5 py-1.5 rounded-lg font-medium"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> รับงาน
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
