@@ -845,6 +845,41 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
   })
 })
 
+describe('§My Tasks reviewer queue — GET /tasks/pending-review', () => {
+  it('Reviewer เห็นงานที่ส่งตรวจแล้ว แม้ไม่ใช่ Assignee และงานหายจากคิวเมื่ออนุมัติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_queue', email: 'reviewqueue@example-co.test', name: 'ผู้ตรวจ', role: 'member' }).onConflictDoNothing()
+    const reviewer = await loginAs(app, 'reviewqueue@example-co.test')
+    const { p, g1 } = await setupProject(owner)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_reviewer_queue', positionId: 'pos_full_access' }), env)
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานที่รอตรวจ', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { reviewerId: 'u_reviewer_queue' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+
+    const beforeSubmit = (await (
+      await app.request('/api/tasks/pending-review', { headers: { cookie: reviewer } }, env)
+    ).json()) as { id: string }[]
+    expect(beforeSubmit.some((row) => row.id === t.id)).toBe(false)
+
+    expect((await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test', workflowAction: 'submit' }), env)).status).toBe(200)
+    const pending = (await (
+      await app.request('/api/tasks/pending-review', { headers: { cookie: reviewer } }, env)
+    ).json()) as { id: string; status: string; assigneeName: string | null }[]
+    expect(pending.find((row) => row.id === t.id)).toMatchObject({ status: 'waiting_for_test', assigneeName: 'ปอนด์' })
+
+    expect((await app.request(`/api/tasks/${t.id}`, patchJson(reviewer, { status: 'done', workflowAction: 'approve' }), env)).status).toBe(200)
+    const afterApprove = (await (
+      await app.request('/api/tasks/pending-review', { headers: { cookie: reviewer } }, env)
+    ).json()) as { id: string }[]
+    expect(afterApprove.some((row) => row.id === t.id)).toBe(false)
+  })
+})
+
 // (2026-09-16) §Assign to me fix — เจอบั๊กจริง: ปุ่ม "Assign to me" ไม่โผล่ให้พนักงานทั่วไป (ไม่ใช่ owner/editor โปรเจกต์) เลย
 // ทั้งที่ตั้งใจให้เป็นแบบ Jira (ใครก็หยิบงานว่างในโปรเจกต์ตัวเองไปทำได้) — เปิดช่องทางแคบๆ ให้ self-claim งานว่าง + self-dispatch ได้ โดยไม่กระทบสิทธิ์แก้ไข field อื่น/จ่ายงานให้คนอื่น
 describe('§Assign to me fix — self-claim งานว่าง + self-dispatch สำหรับพนักงานที่ไม่ใช่ editor โปรเจกต์', () => {
