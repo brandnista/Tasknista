@@ -53,12 +53,14 @@ type Role = Me['role']
 const TEAM_NOTIFICATION_TYPES = ['chat_mention', 'chat_message', 'meeting_scheduled'] as const
 // Pronista §Secret Vault Permission (2026-09-08) — เมนู "Secret Vault" นับแจ้งเตือนเข้าใช้งานแยกของตัวเอง ไม่ปนกับ "งานของฉัน"
 const VAULT_NOTIFICATION_TYPES = ['vault_accessed'] as const
-const MY_TASKS_EXCLUDED_TYPES = new Set<string>([...TEAM_NOTIFICATION_TYPES, ...VAULT_NOTIFICATION_TYPES])
-// Pronista §My Tasks menu badges (2026-09-18) — แยกตัวเลขแจ้งเตือนต่อ sub-menu ("งานของฉัน" เดิมยังนับรวมทุกอย่าง ไม่ตัด — ตัวนี้แค่เพิ่ม badge ย่อยให้เห็นละเอียดขึ้น)
+// Pronista §My Tasks menu badges (2026-09-18) — แยกตัวเลขแจ้งเตือนต่อ sub-menu แต่ละอัน
 const MY_TASKS_ASSIGNED_TYPES = ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const
-const MY_TASKS_DISPATCHED_TYPES = ['task_submitted', 'task_accepted', 'task_rejected', 'task_recalled'] as const
+const MY_TASKS_DISPATCHED_TYPES = ['task_submitted', 'task_accepted', 'task_rejected', 'task_recalled', 'subtask_completed'] as const
 const MY_TASKS_REVIEW_TYPES = ['task_review_requested'] as const
+const MY_TASKS_NOTES_TYPES = ['note_shared'] as const
 const MY_TASKS_MEETINGS_TYPES = ['meeting_scheduled', 'meeting_updated', 'meeting_cancelled', 'meeting_reminder'] as const
+// Pronista §My Tasks menu badges fix (2026-09-18) — เมนูแม่ "งานของฉัน" เดิมนับแบบ excludeTypes (ทุกอย่างยกเว้นทีม/วอลต์) ทำให้ตัวเลขรวมไม่ตรงกับผลรวม sub-menu ที่กางออกมา (มีบางประเภท เช่น daily_report_*/expiry_reminder ที่ไม่ได้อยู่ใน sub-menu ไหนเลยแต่ถูกนับรวมด้วย) — เปลี่ยนเป็นรวม type ของ 5 sub-menu ตรงๆ ให้เลขแม่ = ผลรวมลูกเป๊ะ ตามที่อาร์มขอ
+const MY_TASKS_ALL_TYPES = [...MY_TASKS_ASSIGNED_TYPES, ...MY_TASKS_DISPATCHED_TYPES, ...MY_TASKS_REVIEW_TYPES, ...MY_TASKS_NOTES_TYPES, ...MY_TASKS_MEETINGS_TYPES] as const
 // Pronista §Pin เมนู — ซ่อนปุ่ม pin/เลื่อนลำดับไว้ก่อน โผล่ตอน hover แถว (เมาส์) เท่านั้น
 // อุปกรณ์ที่ไม่มี hover จริง (มือถือ/แตะ) ให้โชว์ค้างเสมอ เพราะแตะแล้วไม่มีทาง "hover ก่อนกด" ได้
 const PIN_ROW_ACTION_VISIBILITY = 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
@@ -401,7 +403,7 @@ export function Layout() {
           >
             <Icon className="w-[18px] h-[18px] shrink-0" />
             <span className="flex-1 min-w-0 truncate">{label}</span>
-            {to === '/my-tasks' && <NotificationBell excludeTypes={MY_TASKS_EXCLUDED_TYPES} />}
+            {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ALL_TYPES} />}
             {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
             {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
             {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
@@ -436,7 +438,7 @@ export function Layout() {
                     {c.to === '/my-tasks' && <NotificationBell types={MY_TASKS_ASSIGNED_TYPES} />}
                     {c.to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} />}
                     {c.to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} />}
-                    {c.to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+                    {c.to === '/my-tasks/notes' && <NotificationBell types={MY_TASKS_NOTES_TYPES} />}
                     {c.to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} />}
                   </NavLink>
                   <button
@@ -479,7 +481,7 @@ export function Layout() {
           {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ASSIGNED_TYPES} />}
           {to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} />}
           {to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} />}
-          {to === '/my-tasks/notes' && <NotificationBell types={['note_shared']} />}
+          {to === '/my-tasks/notes' && <NotificationBell types={MY_TASKS_NOTES_TYPES} />}
           {to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} />}
         </NavLink>
         <button
