@@ -51,24 +51,6 @@ function allowedDragTargets(t: KanbanTask, meId?: string): TaskStatus[] {
 const PRIORITY_DOT = { low: 'bg-border', normal: 'bg-warning-400', high: 'bg-danger-500' } as const
 const PRIORITY_LABEL = { low: 'ต่ำ', normal: 'กลาง', high: 'สูง' } as const
 
-// Pronista §My Tasks redesign (2026-09-18) — สีพื้นหลัง/ปุ่มต่อคอลัมน์ (opt-in ผ่าน `tintColumns` — ไม่กระทบหน้าอื่นที่ใช้ StatusKanban อยู่แล้ว เช่น Workload drill-down)
-const COLUMN_TINT_BG: Record<TaskStatus, string> = {
-  non_start: 'bg-hover/60',
-  on_processing: 'bg-info-50/60',
-  waiting_for_test: 'bg-warning-50/60',
-  done: 'bg-success-50/60',
-  rejected: 'bg-hover/60',
-  cancelled: 'bg-hover/60',
-}
-const ADD_TASK_BTN_CLS: Record<TaskStatus, string> = {
-  non_start: 'bg-white border-border text-dim hover:bg-hover',
-  on_processing: 'bg-info-50 border-info-100 text-info-700 hover:bg-info-100',
-  waiting_for_test: 'bg-warning-50 border-warning-100 text-warning-700 hover:bg-warning-100',
-  done: 'bg-success-50 border-success-100 text-success-700 hover:bg-success-100',
-  rejected: 'bg-white border-border text-dim hover:bg-hover',
-  cancelled: 'bg-white border-border text-dim hover:bg-hover',
-}
-
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
 function dueBadge(dueDate: string | null, status: TaskStatus, soonDays = 3) {
@@ -82,7 +64,7 @@ function dueBadge(dueDate: string | null, status: TaskStatus, soonDays = 3) {
 
 /** Pronista §2.12 — Kanban 4 สถานะตายตัว ใช้ทั้งในโปรเจกต์เดี่ยว (ProjectDetail) และข้ามโปรเจกต์ (งานของฉัน)
  * canEdit: boolean (ทุกใบเท่ากัน) หรือ function ต่อใบ (Pronista §permission — พนักงานลากได้เฉพาะงานที่ตัวเอง assign) */
-export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bouncedTaskIds, soonDays, meId, tintColumns, onAddTask }: {
+export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bouncedTaskIds, soonDays, meId }: {
   tasks: KanbanTask[]
   onOpenTask: (id: string) => void
   onStatusChange: (id: string, status: TaskStatus) => void | Promise<void>
@@ -93,9 +75,6 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
   soonDays?: number
   // Pronista §Kanban drag constraints (2026-08-26) — ตัวผู้ใช้ที่กำลังดูบอร์ดอยู่ ใช้เช็คข้อยกเว้น "งานที่คีย์เอง" ต่อใบ (ไม่ระบุ = ปิดข้อยกเว้นนี้ กลับไปใช้กฎ assignee ปกติล้วน)
   meId?: string
-  // Pronista §My Tasks redesign (2026-09-18) — opt-in เท่านั้น (ไม่ระบุ = พฤติกรรม/หน้าตาเดิมทุกประการ กันกระทบหน้าอื่นที่ใช้ component นี้อยู่)
-  tintColumns?: boolean
-  onAddTask?: (status: TaskStatus) => void
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const over = (e: DragEvent) => e.preventDefault()
@@ -112,7 +91,7 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
             key={status}
             onDragOver={dropOk ? over : undefined}
             onDrop={dropOk ? () => { if (dragId) void onStatusChange(dragId, status); setDragId(null) } : undefined}
-            className={`rounded-lg p-2 min-h-24 ${tintColumns ? COLUMN_TINT_BG[status] : 'bg-hover/60'}`}
+            className="bg-hover/60 rounded-lg p-2 min-h-24"
           >
             <div className="flex items-center gap-1.5 px-1.5 py-1 mb-1.5">
               <span className={`w-2 h-2 rounded-full ${TASK_STATUS_DOT[status]}`} />
@@ -174,14 +153,6 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
                 )
               })}
               {col.length === 0 && <div className="text-center text-[11px] text-border py-3">ไม่มีงาน</div>}
-              {onAddTask && (
-                <button
-                  onClick={() => onAddTask(status)}
-                  className={`w-full text-xs font-medium py-2 rounded-lg border ${tintColumns ? ADD_TASK_BTN_CLS[status] : 'bg-white border-border text-dim hover:bg-hover'}`}
-                >
-                  + เพิ่มงาน
-                </button>
-              )}
             </div>
           </div>
         )

@@ -10,25 +10,23 @@ import {
   Copy,
   Inbox,
   LayoutGrid,
-  Plus,
   Rows3,
   Search,
   X,
   Zap,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { type DragEvent, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
-import { MyWorkSummary } from '../components/MyWorkSummary'
+import { MyWorkSummary, taskTypeLabel } from '../components/MyWorkSummary'
 import { PageHeader } from '../components/PageHeader'
-import { QuickAddModal, TASK_CREATED_EVENT } from '../components/QuickAdd'
-import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
+import { type KanbanTask } from '../components/StatusKanban'
 import { TaskListView } from '../components/TaskListView'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
-import { isInactiveStatus, KANBAN_TASK_STATUS_ORDER, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { isInactiveStatus, KANBAN_TASK_STATUS_ORDER, TASK_STATUS_DOT, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
@@ -73,6 +71,105 @@ function StatCards({ stats }: { stats: { label: string; value: number; icon: typ
                 <div className="text-lg font-bold text-ink leading-tight whitespace-nowrap">{s.value} <span className="text-[11px] font-normal text-muted">งาน</span></div>
               </div>
             </Tag>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Pronista §My Tasks redesign — สีคอลัมน์/บอร์ดเฉพาะหน้านี้ ต้องตรงภาพตัวอย่างเป๊ะ — คอลัมน์เป็นสีอ่อนตามสถานะ + การ์ดขาวล้วนเสมอ (ไม่ทาสีทั้งใบตามความเร่งด่วนแบบ StatusKanban กลาง)
+const BOARD_COLUMN_BG: Record<TaskStatus, string> = {
+  non_start: 'bg-hover/50',
+  on_processing: 'bg-info-50/60',
+  waiting_for_test: 'bg-warning-50/60',
+  done: 'bg-success-50/60',
+  rejected: 'bg-hover/50',
+  cancelled: 'bg-hover/50',
+}
+const BOARD_PRIORITY_DOT = { low: 'bg-success-500', normal: 'bg-warning-400', high: 'bg-danger-500' } as const
+const BOARD_PRIORITY_LABEL = { low: 'ต่ำ', normal: 'กลาง', high: 'สูง' } as const
+// non_start ใช้จุดสีเข้มกว่า TASK_STATUS_DOT เดิม (bg-border จางเกินไป มองแทบไม่เห็นในภาพตัวอย่าง) — ที่เหลือ (on_processing/waiting_for_test) สีเดิมตรงกับภาพอยู่แล้ว
+const BOARD_COLUMN_DOT: Record<TaskStatus, string> = { ...TASK_STATUS_DOT, non_start: 'bg-strong' }
+
+// Pronista §Kanban drag constraints (2026-08-26) — mirror ของ StatusKanban.tsx (ไม่ export ให้ import ข้ามได้ — คัดลอกตรรกะเดิมมาเพราะ component นี้แยกจากกัน)
+const BOARD_ASSIGNEE_DRAG_TARGETS: Partial<Record<TaskStatus, TaskStatus[]>> = {
+  non_start: ['on_processing'],
+  on_processing: [],
+  waiting_for_test: ['on_processing'],
+}
+function boardDragTargets(t: MyTask, meId?: string): TaskStatus[] {
+  if (meId && t.createdBy === meId) return KANBAN_TASK_STATUS_ORDER.filter((s) => s !== t.status)
+  return BOARD_ASSIGNEE_DRAG_TARGETS[t.status] ?? []
+}
+const fmtBoardDate = (d: string | null) => (d ? new Date(`${d}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—')
+
+/** Pronista §My Tasks redesign (2026-09-18) — บอร์ดเฉพาะหน้านี้ (ไม่ใช้ StatusKanban กลางที่ใช้ร่วมกับหน้าอื่น) เพราะภาพตัวอย่างต้องการการ์ดสีขาวล้วนเสมอ + สีคอลัมน์/ป้ายกำกับต่างจาก StatusKanban เดิม การแก้ StatusKanban กลางจะกระทบหน้าอื่น (เช่น Workload drill-down) ที่ไม่ได้ขอ */
+function MyTasksBoard({ tasks, onOpenTask, onStatusChange, bouncedTaskIds, meId }: {
+  tasks: MyTask[]
+  onOpenTask: (id: string) => void
+  onStatusChange: (id: string, status: TaskStatus) => void | Promise<void>
+  bouncedTaskIds: Set<string>
+  meId?: string
+}) {
+  const [dragId, setDragId] = useState<string | null>(null)
+  const over = (e: DragEvent) => e.preventDefault()
+  const dragTask = dragId ? tasks.find((t) => t.id === dragId) : null
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {KANBAN_TASK_STATUS_ORDER.map((status) => {
+        const col = tasks.filter((t) => t.status === status)
+        const dragTaskEditable = !!dragTask && (dragTask.myRole === 'owner' || dragTask.myRole === 'editor')
+        const dropOk = dragTaskEditable && boardDragTargets(dragTask!, meId).includes(status)
+        return (
+          <div
+            key={status}
+            onDragOver={dropOk ? over : undefined}
+            onDrop={dropOk ? () => { if (dragId) void onStatusChange(dragId, status); setDragId(null) } : undefined}
+            className={`rounded-lg p-2 min-h-24 ${BOARD_COLUMN_BG[status]}`}
+          >
+            <div className="flex items-center gap-1.5 px-1.5 py-1 mb-1.5">
+              {status === 'done' ? <CheckCircle2 className="w-3.5 h-3.5 text-success-600" /> : <span className={`w-2 h-2 rounded-full ${BOARD_COLUMN_DOT[status]}`} />}
+              <span className="text-sm font-semibold text-body">{TASK_STATUS_LABEL[status]}</span>
+              <span className="text-xs text-muted">{col.length}</span>
+            </div>
+            <div className="space-y-2">
+              {col.map((t) => {
+                const editable = t.myRole === 'owner' || t.myRole === 'editor'
+                const draggableTargets = boardDragTargets(t, meId)
+                const draggable = editable && draggableTargets.length > 0
+                const dragTitle = !editable
+                  ? 'ต้องมีสิทธิ์แก้ไข (editor) ในโปรเจกต์นี้'
+                  : draggableTargets.length === 0
+                    ? 'เปลี่ยนสถานะนี้ผ่านปุ่มในหน้ารายละเอียดงานเท่านั้น'
+                    : undefined
+                return (
+                  <div
+                    key={t.id}
+                    draggable={draggable}
+                    onDragStart={() => setDragId(t.id)}
+                    onClick={() => onOpenTask(t.id)}
+                    title={dragTitle}
+                    className={`bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${editable ? '' : 'opacity-80'}`}
+                  >
+                    {t.code && <div className="text-[10px] font-mono text-muted mb-1">{t.code}</div>}
+                    <div className="text-sm text-body mb-2 line-clamp-2">{t.title}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {t.kind !== undefined && <span className="text-[10px] px-1.5 py-0.5 rounded bg-divider text-dim">{taskTypeLabel(t)}</span>}
+                      <span className="flex items-center gap-1 text-[11px] text-dim">
+                        <span className={`w-1.5 h-1.5 rounded-full ${BOARD_PRIORITY_DOT[t.priority]}`} /> {BOARD_PRIORITY_LABEL[t.priority]}
+                      </span>
+                      {bouncedTaskIds.has(t.id) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning-100 text-warning-700">↩️ ตีกลับ</span>}
+                      <span className="flex items-center gap-1 text-[11px] text-muted ml-auto shrink-0">
+                        <Clock className="w-3 h-3" /> {fmtBoardDate(t.dueDate)}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+              {col.length === 0 && <div className="text-center text-[11px] text-border py-3">ไม่มีงาน</div>}
+            </div>
           </div>
         )
       })}
@@ -306,14 +403,6 @@ export function MyTasksPage() {
   const [todayOnly, setTodayOnly] = useState(false)
   const [view, setView] = useState<'board' | 'list'>('board')
   const [summaryOpen, setSummaryOpen] = useState(false)
-  // Pronista §My Tasks redesign (2026-09-18) — ปุ่ม "+ สร้างงาน" ใหม่ในหน้านี้ ใช้ modal "เพิ่มงานด่วน" เดิมที่มีอยู่แล้วทั้งระบบ (ปุ่ม ⚡ มุมขวาบน) ไม่สร้าง flow ใหม่ซ้ำซ้อน
-  const [quickAddOpen, setQuickAddOpen] = useState(false)
-
-  useEffect(() => {
-    const onCreated = () => void reload()
-    window.addEventListener(TASK_CREATED_EVENT, onCreated)
-    return () => window.removeEventListener(TASK_CREATED_EVENT, onCreated)
-  }, [reload])
 
   // Pronista §My Work fix (2026-09-11) — เดิมไม่ดักerror เลย ปุ่มเปลี่ยนสถานะเลยเงียบสนิทตอน backend ปฏิเสธ ผู้ใช้กดแล้วไม่เกิดอะไรขึ้นเลย งงว่าทำไมกดไม่ติด
   const changeStatus = async (taskId: string, status: KanbanTask['status']) => {
@@ -404,20 +493,12 @@ export function MyTasksPage() {
           <h2 className="text-base font-semibold text-ink">งานทั้งหมดของฉัน</h2>
           <p className="text-xs text-muted mt-0.5">รายการงานที่คุณรับผิดชอบ สามารถกรองและจัดการข้อมูลได้</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="hidden sm:flex border border-border rounded-lg overflow-hidden h-9">
-            <button onClick={() => setView('board')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full ${view === 'board' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
-              <LayoutGrid className="w-3.5 h-3.5" /> Board
-            </button>
-            <button onClick={() => setView('list')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full border-l border-border ${view === 'list' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
-              <Rows3 className="w-3.5 h-3.5" /> List
-            </button>
-          </div>
-          <button
-            onClick={() => setQuickAddOpen(true)}
-            className="flex items-center gap-1.5 text-xs font-medium bg-brand-600 hover:bg-brand-700 text-white px-3 h-9 rounded-lg"
-          >
-            <Plus className="w-3.5 h-3.5" /> สร้างงาน
+        <div className="hidden sm:flex border border-border rounded-lg overflow-hidden h-9 shrink-0">
+          <button onClick={() => setView('board')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full ${view === 'board' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
+            <LayoutGrid className="w-3.5 h-3.5" /> Board
+          </button>
+          <button onClick={() => setView('list')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full border-l border-border ${view === 'list' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
+            <Rows3 className="w-3.5 h-3.5" /> List
           </button>
         </div>
       </div>
@@ -475,16 +556,12 @@ export function MyTasksPage() {
           </div>
           <div className="hidden sm:block">
             {view === 'board' ? (
-              <StatusKanban
+              <MyTasksBoard
                 tasks={filteredTasks}
-                canEdit={(t) => (t as MyTask).myRole === 'owner' || (t as MyTask).myRole === 'editor'}
                 onOpenTask={openTask}
                 onStatusChange={changeStatus}
                 bouncedTaskIds={bouncedTaskIds}
-                soonDays={cfg?.dueSoonDays}
                 meId={user?.id}
-                tintColumns
-                onAddTask={() => setQuickAddOpen(true)}
               />
             ) : (
               <TaskListView tasks={filteredTasks} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
@@ -498,7 +575,6 @@ export function MyTasksPage() {
         inProgress={inProgressList}
         blockers={blockersList}
       />
-      {quickAddOpen && <QuickAddModal onClose={() => setQuickAddOpen(false)} />}
       </div>
     </>
   )
