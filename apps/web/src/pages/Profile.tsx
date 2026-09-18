@@ -3,6 +3,7 @@ import { Check, Loader2, Plug } from 'lucide-react'
 import { useState, type ChangeEvent } from 'react'
 import { AccessTokens } from '../components/AccessTokens'
 import { Avatar } from '../components/Avatar'
+import { GoogleCalendarConnect } from '../components/GoogleCalendarConnect'
 import { PageHeader } from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { api } from '../lib/api'
@@ -120,6 +121,9 @@ export function ProfilePage() {
             </p>
           </div>
         </div>
+
+        {/* Pronista §Calendar/Workload (2026-09-18) — เชื่อมต่อ Google Calendar ส่วนตัว (owner+member เท่านั้น ตรงกับ teamOnly ฝั่ง API) */}
+        {canToken && <GoogleCalendarConnect userId={user.id} />}
 
         {/* การเชื่อมต่อขั้นสูง — แยกจากข้อมูลส่วนตัวหลักชัดเจน ไม่ใช่ทุกคนต้องใช้ */}
         {canToken && (

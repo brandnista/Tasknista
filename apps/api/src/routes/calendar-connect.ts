@@ -1,6 +1,5 @@
 import {
   calendarConnections,
-  calendarEvents,
   createDb,
   inboxGoogleClients,
 } from '@seedoffice/db'
@@ -14,8 +13,11 @@ import { newToken } from '../lib/session'
 import type { AppEnv } from '../types'
 
 /**
- * เชื่อม Google Calendar เพื่อ sync ขาเข้า (SPEC §4.14 · E6) — owner เท่านั้น (mount ใน index.ts)
- * ใช้ OAuth client (Internal) ตัวเดียวกับอีเมลกลาง
+ * เชื่อม Google Calendar เพื่อ sync ขาเข้า (SPEC §4.14 · E6) — owner+member เชื่อมปฏิทินของตัวเองได้ (mount ใน index.ts)
+ * Pronista §Calendar/Workload (2026-09-18) — เดิม owner เท่านั้น เชื่อมได้บัญชีเดียวทั้งบริษัท ไม่ผูกกับใครเลย
+ * (ทุกคนเห็น event เดียวกันหมด ระบบไม่รู้ว่า "ของใคร") เปลี่ยนเป็นแบบรายคน: แต่ละคนเชื่อมปฏิทิน Google ของตัวเองได้
+ * (คนละอีเมลกับบัญชี Pronista ก็ได้ — แก้ปัญหาที่พี่แบงค์ login ด้วย manager@brandnista.co.th แต่ใช้ Google Calendar จริงที่ banknista@gmail.com)
+ * ใช้ OAuth client (Internal) ตัวเดียวกับอีเมลกลาง — auto-pick ตัวแรก ไม่ต้องให้ผู้ใช้ทั่วไปเลือกเอง (เรื่องเทคนิคที่ไม่ควรต้องรู้)
  * Pronista §Google Meet Integration (2026-08-28) — เพิ่ม scope calendar.events (เขียน) ควบคู่ readonly เดิม
  * เพื่อให้ routes/meetings.ts สร้างนัดประชุมพร้อมลิงก์ Google Meet อัตโนมัติได้ (ดู lib/gcal-meet.ts)
  * refresh token เข้ารหัสก่อนเก็บ · ไม่หลุดออก response
@@ -54,13 +56,14 @@ function runAfter(c: Context<AppEnv>, p: Promise<unknown>): void {
 
 export const calendarConnectRoutes = new Hono<AppEnv>()
 
-  // รายการบัญชีที่เชื่อม + client ที่เลือกได้ (ไม่ส่ง refreshTokenEnc)
+  // รายการบัญชีที่เชื่อม — owner เห็นทุกคน (ช่วย troubleshoot), คนอื่นเห็นแค่ของตัวเอง (ไม่ส่ง refreshTokenEnc)
   .get('/', async (c) => {
     const db = createDb(c.env.DB)
-    const connections = await db
+    const me = c.get('user')
+    const rows = await db
       .select({
         id: calendarConnections.id,
-        clientId: calendarConnections.clientId,
+        userId: calendarConnections.userId,
         googleEmail: calendarConnections.googleEmail,
         scope: calendarConnections.scope,
         status: calendarConnections.status,
@@ -70,27 +73,25 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
       })
       .from(calendarConnections)
       .orderBy(calendarConnections.createdAt)
-    const clients = await db
-      .select({ id: inboxGoogleClients.id, label: inboxGoogleClients.label })
-      .from(inboxGoogleClients)
-      .where(isNull(inboxGoogleClients.deletedAt))
-      .orderBy(inboxGoogleClients.label)
-    return c.json({ connections, clients })
+    const connections = me.role === 'owner' ? rows : rows.filter((r) => r.userId === me.id)
+    return c.json({ connections })
   })
 
-  // เริ่มเชื่อม — redirect ไป Google (offline + consent การันตี refresh token)
+  // เริ่มเชื่อม — redirect ไป Google (offline + consent การันตี refresh token) · auto-pick client ตัวแรก ไม่ต้องให้เลือกเอง
   .get('/connect', async (c) => {
-    const clientId = c.req.query('clientId')
-    if (!clientId) return c.json({ error: 'client_required' }, 400)
     const db = createDb(c.env.DB)
     const [client] = await db
-      .select({ clientId: inboxGoogleClients.clientId })
+      .select({ id: inboxGoogleClients.id, clientId: inboxGoogleClients.clientId })
       .from(inboxGoogleClients)
-      .where(and(eq(inboxGoogleClients.id, clientId), isNull(inboxGoogleClients.deletedAt)))
-    if (!client) return c.json({ error: 'client_not_found' }, 404)
+      .where(isNull(inboxGoogleClients.deletedAt))
+      .orderBy(inboxGoogleClients.createdAt)
+      .limit(1)
+    if (!client) return c.json({ error: 'client_not_found', message: 'ยังไม่มีการตั้งค่า Google OAuth client — ติดต่อ owner' }, 404)
 
+    const me = c.get('user')
     const state = newToken().slice(0, 32)
-    setCookie(c, GCAL_STATE_COOKIE, `${state}.${clientId}`, {
+    // เก็บ userId ไปกับ state cookie ด้วย (callback ไม่การันตี session เดียวกับตอนเริ่ม redirect ไป Google)
+    setCookie(c, GCAL_STATE_COOKIE, `${state}.${client.id}.${me.id}`, {
       httpOnly: true,
       secure: c.env.APP_URL.startsWith('https://'),
       sameSite: 'Lax',
@@ -111,13 +112,15 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
 
   // Google เด้งกลับ — แลก code → ยืนยัน scope ปฏิทิน → เก็บ token เข้ารหัส
   .get('/callback', async (c) => {
-    const fail = (code: string) => c.redirect(`/admin?gcal_error=${code}`)
+    const fail = (code: string) => c.redirect(`/profile?gcal_error=${code}`)
     const { code, state } = c.req.query()
     const stateCookie = getCookie(c, GCAL_STATE_COOKIE)
     deleteCookie(c, GCAL_STATE_COOKIE, { path: '/' })
-    const [cookieState, clientRowId] = stateCookie?.split('.') ?? []
-    if (!code || !state || !cookieState || state !== cookieState || !clientRowId)
+    const [cookieState, clientRowId, userId] = stateCookie?.split('.') ?? []
+    if (!code || !state || !cookieState || state !== cookieState || !clientRowId || !userId)
       return c.json({ error: 'invalid_state' }, 400)
+    // กันเคส session สลับกลางทาง (login คนละคนระหว่าง redirect ไป Google แล้วกลับมา) — เชื่อมได้แค่ให้ตัวเองเท่านั้น
+    if (c.get('user').id !== userId) return c.json({ error: 'session_mismatch' }, 400)
 
     const db = createDb(c.env.DB)
     const [client] = await db
@@ -151,12 +154,12 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
 
     const { sub, email } = decodeIdToken(token.id_token)
     const refreshTokenEnc = await encryptSecret(token.refresh_token, c.env.INBOX_ENC_KEY)
-    // เชื่อมบัญชีเดิมซ้ำ = อัปเดต (reconnect) ไม่สร้างใหม่
+    // เชื่อมบัญชี Google เดิมซ้ำ (คนเดียวกัน) = อัปเดต (reconnect) ไม่สร้างใหม่ — สโคปด้วย userId ด้วย กันคนละคนที่บังเอิญเชื่อม Google account เดียวกันทับกัน
     const [existing] = sub
       ? await db
           .select({ id: calendarConnections.id })
           .from(calendarConnections)
-          .where(eq(calendarConnections.googleAccountId, sub))
+          .where(and(eq(calendarConnections.googleAccountId, sub), eq(calendarConnections.userId, userId)))
           .limit(1)
       : []
     let connId: string
@@ -179,6 +182,7 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
         .insert(calendarConnections)
         .values({
           clientId: clientRowId,
+          userId,
           googleEmail: email ?? null,
           googleAccountId: sub ?? null,
           refreshTokenEnc,
@@ -197,17 +201,19 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
       meta: { email: email ?? null },
     })
     runAfter(c, syncCalendar(c.env, connId))
-    return c.redirect('/admin?gcal=connected')
+    return c.redirect('/profile?gcal=connected')
   })
 
-  // sync เดี๋ยวนี้
+  // sync เดี๋ยวนี้ — เจ้าของ connection เท่านั้น (owner sync แทนใครก็ได้ เพื่อ troubleshoot)
   .post('/:id/sync', async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const [conn] = await db
-      .select({ id: calendarConnections.id, status: calendarConnections.status })
+      .select({ id: calendarConnections.id, userId: calendarConnections.userId, status: calendarConnections.status })
       .from(calendarConnections)
       .where(eq(calendarConnections.id, c.req.param('id')))
     if (!conn) return c.json({ error: 'not_found' }, 404)
+    if (me.role !== 'owner' && conn.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
     if (conn.status !== 'connected') return c.json({ error: 'not_connected' }, 400)
     try {
       await syncCalendar(c.env, conn.id)
@@ -221,18 +227,21 @@ export const calendarConnectRoutes = new Hono<AppEnv>()
     return c.json({ ok: true, ...state })
   })
 
-  // ปลดการเชื่อม — ลบ connection + event ที่ sync เข้ามาทั้งหมด (ของ source=gcal)
+  // ปลดการเชื่อม — เจ้าของ connection เท่านั้น (owner ปลดแทนใครก็ได้)
+  // Pronista §Calendar/Workload (2026-09-18) — เดิมลบ calendarEvents ทั้งหมดที่ source='gcal' แบบเหมาเข่ง (บั๊ก — กระทบคนอื่นที่เชื่อมปฏิทินไว้ด้วย)
+  // ตอนนี้ event ผูกกับ connectionId + onDelete cascade ที่ schema แล้ว → ลบแค่ connection row พอ ลบเฉพาะ event ของ connection นี้อัตโนมัติ
   .delete('/:id', async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const [conn] = await db
-      .select({ id: calendarConnections.id })
+      .select({ id: calendarConnections.id, userId: calendarConnections.userId })
       .from(calendarConnections)
       .where(eq(calendarConnections.id, c.req.param('id')))
     if (!conn) return c.json({ error: 'not_found' }, 404)
-    await db.delete(calendarEvents).where(eq(calendarEvents.source, 'gcal'))
+    if (me.role !== 'owner' && conn.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
     await db.delete(calendarConnections).where(eq(calendarConnections.id, conn.id))
     await writeAudit(c.env, {
-      actorId: c.get('user').id,
+      actorId: me.id,
       action: 'gcal.disconnect',
       entity: 'calendar_connections',
       entityId: conn.id,

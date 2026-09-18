@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { WeeklyMinutes } from './manhour'
-import { spreadTaskMinutes, suggestEstimateMinutes, weekdayOfISO } from './workload'
+import { meetingMinutesByDate, spreadTaskMinutes, suggestEstimateMinutes, weekdayOfISO } from './workload'
+
+// เวลา BKK (UTC+7) แปลงเป็น ms ด้วยมือ กันสับสนเรื่อง timezone ของเครื่องรัน test
+const bkk = (iso: string) => new Date(`${iso}+07:00`).getTime()
 
 describe('spreadTaskMinutes — เกลี่ยเวลาประเมินลงวันปฏิทิน', () => {
   it('ไม่มี dueDate เลย → ว่าง (ไปอยู่ unscheduled)', () => {
@@ -93,5 +96,61 @@ describe('weekdayOfISO', () => {
     expect(weekdayOfISO('2026-09-05')).toBe('sat')
     expect(weekdayOfISO('2026-09-06')).toBe('sun')
     expect(weekdayOfISO('2026-09-07')).toBe('mon')
+  })
+})
+
+describe('meetingMinutesByDate — นับนาทีประชุมต่อคนต่อวัน (Workload)', () => {
+  it('ประชุมเดียว 14:00-16:00 → 120 นาทีในวันนั้น (ตัวอย่างตรงจากโจทย์)', () => {
+    const events = [{ userId: 'u1', startAt: bkk('2026-09-10T14:00:00'), endAt: bkk('2026-09-10T16:00:00') }]
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({ u1: { '2026-09-10': 120 } })
+  })
+
+  it('2 ประชุมทับเวลากัน (คนเดียวกัน) → นับ union ไม่บวกซ้ำ', () => {
+    const events = [
+      { userId: 'u1', startAt: bkk('2026-09-10T14:00:00'), endAt: bkk('2026-09-10T16:00:00') }, // 14-16
+      { userId: 'u1', startAt: bkk('2026-09-10T15:00:00'), endAt: bkk('2026-09-10T17:00:00') }, // 15-17 ทับ
+    ]
+    // union = 14:00-17:00 = 180 นาที ไม่ใช่ 120+120=240
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({ u1: { '2026-09-10': 180 } })
+  })
+
+  it('2 ประชุมไม่ทับกัน (คนเดียวกัน) → บวกกันตรงๆ', () => {
+    const events = [
+      { userId: 'u1', startAt: bkk('2026-09-10T09:00:00'), endAt: bkk('2026-09-10T10:00:00') },
+      { userId: 'u1', startAt: bkk('2026-09-10T14:00:00'), endAt: bkk('2026-09-10T15:00:00') },
+    ]
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({ u1: { '2026-09-10': 120 } })
+  })
+
+  it('คนละคนกัน ประชุมเวลาเดียวกัน → แยกคนละแถว ไม่ปนกัน', () => {
+    const events = [
+      { userId: 'u1', startAt: bkk('2026-09-10T14:00:00'), endAt: bkk('2026-09-10T16:00:00') },
+      { userId: 'u2', startAt: bkk('2026-09-10T14:00:00'), endAt: bkk('2026-09-10T16:00:00') },
+    ]
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({
+      u1: { '2026-09-10': 120 },
+      u2: { '2026-09-10': 120 },
+    })
+  })
+
+  it('ประชุมคาบเกี่ยว 2 วัน (ข้ามเที่ยงคืน BKK) → หักนาทีแยกให้ถูกวัน', () => {
+    const events = [{ userId: 'u1', startAt: bkk('2026-09-10T23:00:00'), endAt: bkk('2026-09-11T01:00:00') }]
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({
+      u1: { '2026-09-10': 60, '2026-09-11': 60 },
+    })
+  })
+
+  it('event นอกช่วง [from, to] ที่ขอมา → ไม่นับ', () => {
+    const events = [{ userId: 'u1', startAt: bkk('2026-08-01T14:00:00'), endAt: bkk('2026-08-01T15:00:00') }]
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({})
+  })
+
+  it('endAt <= startAt (ข้อมูลเพี้ยน) → ข้ามไปเงียบๆ ไม่ throw', () => {
+    const events = [{ userId: 'u1', startAt: bkk('2026-09-10T14:00:00'), endAt: bkk('2026-09-10T14:00:00') }]
+    expect(meetingMinutesByDate(events, '2026-09-01', '2026-09-30')).toEqual({})
+  })
+
+  it('array ว่าง → คืน object ว่าง', () => {
+    expect(meetingMinutesByDate([], '2026-09-01', '2026-09-30')).toEqual({})
   })
 })

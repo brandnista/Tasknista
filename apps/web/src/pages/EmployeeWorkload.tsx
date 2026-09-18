@@ -1,6 +1,7 @@
 /**
  * Pronista §Workload Drill-down (2026-09-07) — เจาะดูงานของพนักงานคนเดียวจากตาราง Workload
- * กดชื่อ/Avatar = เห็นทุกงาน · กดช่องวัน = พก taskIds ของวันนั้นมากรอง (แถบกรองเอาออกได้) — owner-only เหมือน /workload
+ * กดชื่อ/Avatar = เห็นทุกงาน · กดช่องวัน = พก taskIds ของวันนั้นมากรอง (แถบกรองเอาออกได้)
+ * Pronista §Calendar/Workload (2026-09-18) — เปิดให้ owner+member+vendor เข้าได้ (เดิม owner-only) เหมือน /workload
  */
 import { LayoutGrid, Rows3, X } from 'lucide-react'
 import { useState } from 'react'

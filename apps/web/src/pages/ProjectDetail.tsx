@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronLeft, ChevronRight, FileText, Filter, GripVertical, History, LayoutTemplate, Link2, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, FileText, Filter, GripVertical, History, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { ActionMenu } from '../components/ActionMenu'
 import { BottomSheet } from '../components/BottomSheet'
 import { minutesToHoursLabel, resolveTaskTypes, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
@@ -18,6 +18,7 @@ import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
 import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
 import { ProjectChangeLogTab } from '../components/ProjectChangeLogTab'
 import { ProjectEstimateSection } from '../components/ProjectEstimateSection'
+import { ProjectDocumentsTab } from '../components/ProjectDocumentsTab'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
@@ -1282,65 +1283,6 @@ interface ProjectDoc {
   docType: 'MOM' | 'BRD' | 'SOW' | 'SRS' | 'PEP' | 'UIR' | 'CR' | 'API' | null
 }
 
-const PROJECT_DOC_TABS = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR'] as const
-type ProjectDocTab = 'all' | (typeof PROJECT_DOC_TABS)[number]
-const PROJECT_DOC_TAB_LABEL: Record<ProjectDocTab, string> = { all: 'ทั้งหมด', MOM: 'MOM', BRD: 'BRD', SOW: 'SOW', SRS: 'SRS', PEP: 'PEP', UIR: 'UIR' }
-
-/** Pronista §merge — Tab "เอกสาร" แทน Kanban/ตารางเดิม: เอกสารทั้งหมดที่ผูกไว้กับโปรเจกต์นี้ (ตรงๆ หรือผ่าน task/sub-task) กดแล้วพาไปเปิดที่เมนู "เอกสาร"
- * Pronista §Document Management MVP — เพิ่ม sub-tabs ตามประเภทเอกสาร (เหมือน Backlog) เหนือรายการ แสดงเฉพาะแท็บที่มีเอกสารจริง */
-function ProjectDocsSection({ projectId }: { projectId: string }) {
-  const { data: docList } = useLoad<ProjectDoc[]>(() => api.get(`/api/projects/${projectId}/docs`), [projectId])
-  const [tab, setTab] = useState<ProjectDocTab>('all')
-  const docTabsPresent = useMemo(
-    () => PROJECT_DOC_TABS.filter((t) => (docList ?? []).some((d) => d.docType === t)),
-    [docList],
-  )
-  const shownDocs = useMemo(
-    () => (tab === 'all' ? (docList ?? []) : (docList ?? []).filter((d) => d.docType === tab)),
-    [docList, tab],
-  )
-  return (
-    <div className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
-      <div className="text-sm font-semibold text-strong mb-3">เอกสารที่ผูกกับโปรเจกต์นี้ ({(docList ?? []).length})</div>
-      {docTabsPresent.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 mb-3 pb-3 border-b border-divider">
-          {(['all', ...docTabsPresent] as ProjectDocTab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`text-xs font-medium px-2.5 py-1 rounded-full border ${tab === t ? 'bg-brand-600 border-brand-600 text-white' : 'border-border-subtle text-dim hover:bg-hover'}`}
-            >
-              {PROJECT_DOC_TAB_LABEL[t]}
-            </button>
-          ))}
-        </div>
-      )}
-      {docList && docList.length === 0 && (
-        <div className="text-sm text-muted py-6 text-center">
-          ยังไม่มีเอกสารผูกไว้ — ไปที่เมนู "เอกสาร" แล้วผูกเอกสารกับโปรเจกต์นี้ หรือกับ Task/Sub-task ในโปรเจกต์นี้ได้เลย
-        </div>
-      )}
-      {docList && docList.length > 0 && shownDocs.length === 0 && (
-        <div className="text-sm text-muted py-6 text-center">ไม่มีเอกสารในแท็บนี้</div>
-      )}
-      <div className="space-y-1.5">
-        {shownDocs.map((d) => (
-          <Link
-            key={d.id}
-            to={`/docs/${d.id}`}
-            className="flex items-center gap-2.5 text-sm px-3 py-2.5 rounded-lg border border-border-subtle hover:bg-hover"
-          >
-            {d.kind === 'template' ? <LayoutTemplate className="w-4 h-4 text-brand-500 shrink-0" /> : d.kind === 'link' ? <Link2 className="w-4 h-4 text-info-500 shrink-0" /> : <FileText className="w-4 h-4 text-brand-500 shrink-0" />}
-            <span className="font-mono text-xs text-muted shrink-0">{d.templateDocNumber ?? d.srsDocNumber ?? ''}</span>
-            <span className="flex-1 min-w-0 truncate">{d.title}</span>
-            {d.docType && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 bg-brand-50 text-brand-700">{d.docType}</span>}
-          </Link>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 interface ProjectAllTask {
   id: string
   code: string | null
@@ -2603,7 +2545,14 @@ export function ProjectDetailPage() {
         </>
       )}
 
-      {view === 'docs' && id && <ProjectDocsSection projectId={id} />}
+      {view === 'docs' && id && (
+        <ProjectDocumentsTab
+          projectId={id}
+          canCreate={project.myPermissions?.actions.doc.create ?? false}
+          canEdit={project.myPermissions?.actions.doc.edit ?? false}
+          canDelete={project.myPermissions?.actions.doc.delete ?? false}
+        />
+      )}
 
       {view === 'assets' && id && <DocumentHistoryTable projectId={id} projectName={project.name} canEdit={canEdit} />}
 
