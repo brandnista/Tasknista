@@ -25,18 +25,21 @@ describe('Pronista §System Enhancements — Sellnista CRUD (owner-only)', () =>
     const pond = await loginAs(app, 'pond@example-co.test')
 
     const created = (await (
-      await app.request('/api/admin/sellnista', json(owner, { name: 'Sellnista Pro', expiryDate: '2027-01-01' }), env)
-    ).json()) as { id: string; name: string; notifyEnabled: boolean }
+      await app.request('/api/admin/sellnista', json(owner, { name: 'Sellnista Pro', storefrontUrl: 'https://shop.example.com', adminUrl: 'https://admin.example.com', expiryDate: '2027-01-01' }), env)
+    ).json()) as { id: string; name: string; storefrontUrl: string | null; adminUrl: string | null; notifyEnabled: boolean }
     expect(created.name).toBe('Sellnista Pro')
     expect(created.notifyEnabled).toBe(true) // default เปิด
+    expect(created.storefrontUrl).toBe('https://shop.example.com')
+    expect(created.adminUrl).toBe('https://admin.example.com')
 
     expect((await app.request('/api/admin/sellnista', json(pond, { name: 'hack', expiryDate: '2027-01-01' }), env)).status).toBe(403)
     expect((await app.request('/api/admin/sellnista', { headers: { cookie: pond } }, env)).status).toBe(403)
 
-    const patchRes = await app.request(`/api/admin/sellnista/${created.id}`, patch(owner, { name: 'Sellnista Pro (renamed)' }), env)
+    const patchRes = await app.request(`/api/admin/sellnista/${created.id}`, patch(owner, { name: 'Sellnista Pro (renamed)', adminUrl: null }), env)
     expect(patchRes.status).toBe(200)
-    const list = (await (await app.request('/api/admin/sellnista', { headers: { cookie: owner } }, env)).json()) as { id: string; name: string }[]
+    const list = (await (await app.request('/api/admin/sellnista', { headers: { cookie: owner } }, env)).json()) as { id: string; name: string; adminUrl: string | null }[]
     expect(list.find((d) => d.id === created.id)?.name).toBe('Sellnista Pro (renamed)')
+    expect(list.find((d) => d.id === created.id)?.adminUrl).toBeNull()
 
     expect((await app.request(`/api/admin/sellnista/${created.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
     const after = (await (await app.request('/api/admin/sellnista', { headers: { cookie: owner } }, env)).json()) as { id: string }[]

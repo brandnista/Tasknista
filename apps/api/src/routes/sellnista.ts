@@ -9,6 +9,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const sellnistaPayload = z.object({
   name: z.string().min(1).max(255),
+  storefrontUrl: z.string().url().max(1000).nullable().optional(),
+  adminUrl: z.string().url().max(1000).nullable().optional(),
   expiryDate: isoDate,
   notifyEnabled: z.boolean().optional(),
 })
@@ -43,7 +45,7 @@ export const sellnistaRoutes = new Hono<AppEnv>()
     const created = (
       await db
         .insert(sellnistaSubscriptions)
-        .values({ name: body.data.name, expiryDate: body.data.expiryDate, notifyEnabled: body.data.notifyEnabled ?? true, createdBy: me.id })
+        .values({ name: body.data.name, storefrontUrl: body.data.storefrontUrl ?? null, adminUrl: body.data.adminUrl ?? null, expiryDate: body.data.expiryDate, notifyEnabled: body.data.notifyEnabled ?? true, createdBy: me.id })
         .returning()
     )[0]!
     await writeAudit(c.env, { actorId: me.id, action: 'sellnista.create', entity: 'sellnista_subscription', entityId: created.id, meta: { name: created.name } })
@@ -61,6 +63,8 @@ export const sellnistaRoutes = new Hono<AppEnv>()
     if (!before) return c.json({ error: 'not_found' }, 404)
     const patch: Record<string, unknown> = { updatedAt: new Date() }
     if (body.data.name !== undefined) patch.name = body.data.name
+    if (body.data.storefrontUrl !== undefined) patch.storefrontUrl = body.data.storefrontUrl
+    if (body.data.adminUrl !== undefined) patch.adminUrl = body.data.adminUrl
     if (body.data.notifyEnabled !== undefined) patch.notifyEnabled = body.data.notifyEnabled
     // Pronista §Domain Management pattern — เปลี่ยนวันหมดอายุ = เกตแจ้งเตือนต้องเคลียร์ใหม่ทั้งหมด
     if (body.data.expiryDate !== undefined && body.data.expiryDate !== before.expiryDate) {

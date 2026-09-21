@@ -74,7 +74,11 @@ app.use('/api/admin/*', requireAuth, async (c, next) => {
   const path = c.req.path
   const isUsersPath = path === '/api/admin/users' || path.startsWith('/api/admin/users/')
   const isTeamsRead = path === '/api/admin/teams' && c.req.method === 'GET'
+  const isServiceRead = c.req.method === 'GET' && (
+    path === '/api/admin/domains' || path.startsWith('/api/admin/domains/') || path === '/api/admin/product-types'
+  )
   if (isUsersPath || isTeamsRead) return next()
+  if (isServiceRead) return teamOnly(c, next)
   return ownerOnly(c, next)
 })
 app.route('/api/admin', adminRoutes)

@@ -4,7 +4,7 @@
  * Pronista §Domain Detail Page (2026-08-28) — จัดหน้าใหม่ตามแบบ reference (list ค้นหา/pagination/toggle + หน้า detail แยกแท็บ Nameservers ฯลฯ)
  * แถวนี้เหลือแค่ ข้อมูลย่อ + toggle แจ้งเตือน + ไปหน้ารายละเอียด/ต่ออายุ — แก้ไข/ลบย้ายไปอยู่ในหน้ารายละเอียดแทน
  */
-import { AlertTriangle, Globe, Plus, RefreshCw, Search, Settings, X } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, ExternalLink, Globe, Plus, RefreshCw, Search, Settings, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
@@ -12,6 +12,7 @@ import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { URGENCY_BORDER_CLASS, dueUrgency } from '../lib/due-urgency'
 import { useLoad } from '../lib/useLoad'
 
@@ -20,6 +21,9 @@ export interface DomainRow {
   name: string
   registeredDate: string | null
   expiryDate: string
+  serviceUrl: string | null
+  productTypeId: string | null
+  productTypeName: string | null
   provider: string | null
   responsibleUserId: string | null
   responsibleName: string | null
@@ -37,6 +41,7 @@ export interface DomainRow {
 }
 interface UserOpt { id: string; name: string }
 interface ProjectOpt { id: string; name: string }
+interface ProductTypeOpt { id: string; name: string; sortOrder: number }
 
 export const fmtDate = (iso: string) => new Date(`${iso}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
 const PAGE_SIZE = 10
@@ -46,9 +51,12 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
   const { alertDialog } = useDialog()
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
+  const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
   const [name, setName] = useState(domain?.name ?? '')
   const [registeredDate, setRegisteredDate] = useState(domain?.registeredDate ?? '')
   const [expiryDate, setExpiryDate] = useState(domain?.expiryDate ?? '')
+  const [serviceUrl, setServiceUrl] = useState(domain?.serviceUrl ?? '')
+  const [productTypeId, setProductTypeId] = useState(domain?.productTypeId ?? '')
   const [provider, setProvider] = useState(domain?.provider ?? '')
   const [responsibleUserId, setResponsibleUserId] = useState(domain?.responsibleUserId ?? '')
   const [projectId, setProjectId] = useState(domain?.projectId ?? '')
@@ -62,6 +70,8 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
         name: name.trim(),
         registeredDate: registeredDate || null,
         expiryDate,
+        serviceUrl: serviceUrl.trim() || null,
+        productTypeId: productTypeId || null,
         provider: provider.trim() || null,
         responsibleUserId: responsibleUserId || null,
         projectId: projectId || null,
@@ -82,17 +92,28 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-          <span className="font-semibold text-ink text-sm">{domain ? 'แก้ไขโดเมน' : 'เพิ่มโดเมน'}</span>
+          <span className="font-semibold text-ink text-sm">{domain ? 'แก้ไขบริการ' : 'เพิ่มบริการ'}</span>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3 overflow-y-auto">
           <div>
-            <label className="text-[11px] text-muted block mb-0.5">ชื่อโดเมน</label>
-            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น pronista.com" className={input} />
+            <label className="text-[11px] text-muted block mb-0.5">ชื่อบริการ</label>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น pronista.com หรือ Cloudflare" className={input} />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">URL</label>
+            <input type="url" value={serviceUrl} onChange={(e) => setServiceUrl(e.target.value)} placeholder="https://example.com" className={input} />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">Package / สินค้า</label>
+            <select value={productTypeId} onChange={(e) => setProductTypeId(e.target.value)} className={input}>
+              <option value="">— ไม่ระบุ —</option>
+              {(productTypeData?.productTypes ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[11px] text-muted block mb-0.5">วันที่จดทะเบียน (ไม่บังคับ)</label>
+              <label className="text-[11px] text-muted block mb-0.5">วันที่เริ่มต้น (ไม่บังคับ)</label>
               <DateInputTH value={registeredDate} onChange={setRegisteredDate} className={input} />
             </div>
             <div>
@@ -124,7 +145,7 @@ export function DomainModal({ domain, onClose, onDone }: { domain: DomainRow | n
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
           <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
           <button onClick={() => void submit()} disabled={!name.trim() || !expiryDate || busy} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40">
-            {domain ? 'บันทึก' : 'เพิ่มโดเมน'}
+            {domain ? 'บันทึก' : 'เพิ่มบริการ'}
           </button>
         </div>
       </div>
@@ -174,7 +195,7 @@ export function RenewDomainModal({ domain, onClose, onDone }: { domain: DomainRo
   )
 }
 
-function NotifyToggle({ domain, onChanged }: { domain: DomainRow; onChanged: () => void }) {
+function NotifyToggle({ domain, onChanged, editable }: { domain: DomainRow; onChanged: () => void; editable: boolean }) {
   const [saving, setSaving] = useState(false)
   const toggle = async () => {
     setSaving(true)
@@ -187,7 +208,7 @@ function NotifyToggle({ domain, onChanged }: { domain: DomainRow; onChanged: () 
   }
   return (
     <div className="flex items-center gap-1.5">
-      <button
+      {editable ? <button
         type="button"
         role="switch"
         aria-checked={domain.notifyEnabled}
@@ -196,24 +217,38 @@ function NotifyToggle({ domain, onChanged }: { domain: DomainRow; onChanged: () 
         className={`relative w-[38px] h-[22px] rounded-full shrink-0 transition-colors disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:outline-offset-2 ${domain.notifyEnabled ? 'bg-brand-600' : 'bg-border'}`}
       >
         <span className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] rounded-full bg-white shadow-xs transition-transform ${domain.notifyEnabled ? 'translate-x-4' : ''}`} />
-      </button>
+      </button> : <span aria-hidden="true" className={`w-2 h-2 rounded-full ${domain.notifyEnabled ? 'bg-brand-600' : 'bg-border'}`} />}
       <span className={`text-xs font-medium ${domain.notifyEnabled ? 'text-brand-700' : 'text-dim'}`}>{domain.notifyEnabled ? 'On' : 'Off'}</span>
     </div>
   )
 }
 
 export function AdminDomainsPage() {
+  const { user } = useAuth()
+  const canManage = user?.role === 'owner'
   const { data, reload } = useLoad<DomainRow[]>(() => api.get('/api/admin/domains'))
   const [modalDomain, setModalDomain] = useState<DomainRow | null | 'new'>(null)
   const [renewDomain, setRenewDomain] = useState<DomainRow | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [sortKey, setSortKey] = useState<'name' | 'expiry'>('expiry')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const domainsList = data ?? []
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return q ? domainsList.filter((d) => d.name.toLowerCase().includes(q)) : domainsList
-  }, [domainsList, search])
+    const matches = q ? domainsList.filter((d) => d.name.toLowerCase().includes(q)) : domainsList
+    return [...matches].sort((a, b) => {
+      const left = sortKey === 'name' ? a.name.toLocaleLowerCase('th') : a.expiryDate
+      const right = sortKey === 'name' ? b.name.toLocaleLowerCase('th') : b.expiryDate
+      return left.localeCompare(right, 'th') * (sortDirection === 'asc' ? 1 : -1)
+    })
+  }, [domainsList, search, sortDirection, sortKey])
+  const changeSort = (key: 'name' | 'expiry') => {
+    setSortDirection((current) => sortKey === key ? (current === 'asc' ? 'desc' : 'asc') : 'asc')
+    setSortKey(key)
+    setPage(1)
+  }
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageSafe = Math.min(page, totalPages)
   const pageItems = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE)
@@ -221,12 +256,12 @@ export function AdminDomainsPage() {
   return (
     <>
       <PageHeader
-        title="จัดการโดเมน"
-        action={
+        title="บริการ"
+        action={canManage ? (
           <button onClick={() => setModalDomain('new')} className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" /> เพิ่มโดเมน
+            <Plus className="w-3.5 h-3.5" /> เพิ่มบริการ
           </button>
-        }
+        ) : undefined}
       />
       <div className="p-4 sm:p-6">
         {!data ? (
@@ -234,7 +269,7 @@ export function AdminDomainsPage() {
         ) : domainsList.length === 0 ? (
           <div className="bg-white rounded-lg shadow-xs text-center text-sm text-muted py-14">
             <Globe className="w-8 h-8 mx-auto mb-2 text-border" />
-            ยังไม่มีโดเมนในระบบ — กด "เพิ่มโดเมน" เพื่อเริ่มติดตามวันหมดอายุ
+            ยังไม่มีบริการในระบบ
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-xs overflow-hidden">
@@ -248,7 +283,7 @@ export function AdminDomainsPage() {
                   className="w-full text-sm bg-hover rounded-lg pl-8 pr-3 py-1.5 focus:outline-hidden"
                 />
               </div>
-              <span className="text-xs text-muted shrink-0">{filtered.length} โดเมน</span>
+              <span className="text-xs text-muted shrink-0">{filtered.length} บริการ</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -256,9 +291,10 @@ export function AdminDomainsPage() {
               <table className="w-full min-w-max text-sm">
                 <thead>
                   <tr className="text-left text-[11px] text-muted border-b border-divider">
-                    <th className="px-4 py-2.5 font-medium">Domain Name</th>
-                    <th className="px-4 py-2.5 font-medium">Registrar</th>
-                    <th className="px-4 py-2.5 font-medium">วันหมดอายุ</th>
+                    <th className="px-4 py-2.5 font-medium"><button onClick={() => changeSort('name')} className="inline-flex items-center gap-1 hover:text-body">ชื่อบริการ <ArrowUpDown className="w-3 h-3" /></button></th>
+                    <th className="px-4 py-2.5 font-medium">Package</th>
+                    <th className="px-4 py-2.5 font-medium">โปรเจกต์</th>
+                    <th className="px-4 py-2.5 font-medium"><button onClick={() => changeSort('expiry')} className="inline-flex items-center gap-1 hover:text-body">วันหมดอายุ <ArrowUpDown className="w-3 h-3" /></button></th>
                     <th className="px-4 py-2.5 font-medium">แจ้งเตือนหมดอายุ</th>
                     <th className="px-4 py-2.5 font-medium"></th>
                   </tr>
@@ -268,23 +304,27 @@ export function AdminDomainsPage() {
                     const urgency = dueUrgency(d.expiryDate, false, 30)
                     return (
                       <tr key={d.id} className={URGENCY_BORDER_CLASS[urgency]}>
-                        <td className="px-4 py-2.5 font-medium text-body">{d.name}</td>
-                        <td className="px-4 py-2.5 text-muted">{d.provider ?? '—'}</td>
+                        <td className="px-4 py-2.5 font-medium text-body">
+                          <div>{d.name}</div>
+                          {d.serviceUrl && <a href={d.serviceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-brand-600 hover:underline"><ExternalLink className="w-3 h-3" /> เปิด URL</a>}
+                        </td>
+                        <td className="px-4 py-2.5 text-muted">{d.productTypeName ?? '—'}</td>
+                        <td className="px-4 py-2.5 text-muted">{d.projectName ?? '—'}</td>
                         <td className="px-4 py-2.5">
                           <span className={`inline-flex items-center gap-1 ${urgency === 'overdue' ? 'text-danger-600 font-medium' : urgency === 'soon' ? 'text-warning-700' : 'text-body'}`}>
                             {urgency === 'overdue' && <AlertTriangle className="w-3.5 h-3.5" />}
                             {fmtDate(d.expiryDate)}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5"><NotifyToggle domain={d} onChanged={reload} /></td>
+                        <td className="px-4 py-2.5"><NotifyToggle domain={d} onChanged={reload} editable={canManage} /></td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-4 justify-end whitespace-nowrap">
-                            <Link to={`/admin/domains/${d.id}`} title="ตั้งค่า" className="flex items-center gap-1 text-[12px] text-dim hover:text-brand-700">
-                              <Settings className="w-3.5 h-3.5 shrink-0" /> ตั้งค่า
+                            <Link to={`/admin/domains/${d.id}`} title="ดูรายละเอียด" className="flex items-center gap-1 text-[12px] text-dim hover:text-brand-700">
+                              <Settings className="w-3.5 h-3.5 shrink-0" /> {canManage ? 'ตั้งค่า' : 'ดูรายละเอียด'}
                             </Link>
-                            <button onClick={() => setRenewDomain(d)} title="ต่ออายุ" className="flex items-center gap-1 text-[12px] text-brand-600 hover:text-brand-700 font-medium">
+                            {canManage && <button onClick={() => setRenewDomain(d)} title="ต่ออายุ" className="flex items-center gap-1 text-[12px] text-brand-600 hover:text-brand-700 font-medium">
                               <RefreshCw className="w-3.5 h-3.5 shrink-0" /> ต่ออายุ
-                            </button>
+                            </button>}
                           </div>
                         </td>
                       </tr>

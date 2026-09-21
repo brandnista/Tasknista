@@ -10,6 +10,7 @@ import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { URGENCY_BORDER_CLASS, dueUrgency } from '../lib/due-urgency'
 import { useLoad } from '../lib/useLoad'
 import { DomainModal, fmtDate, RenewDomainModal, type DomainRow } from './AdminDomains'
@@ -25,7 +26,7 @@ const label = 'text-[11px] text-muted block mb-0.5'
 const input = 'w-full text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden'
 const saveBtn = 'text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40'
 
-function InfoTab({ domain, onEdit, onChanged }: { domain: DomainRow; onEdit: () => void; onChanged: () => void }) {
+function InfoTab({ domain, onEdit, onChanged, canManage }: { domain: DomainRow; onEdit: () => void; onChanged: () => void; canManage: boolean }) {
   const urgency = dueUrgency(domain.expiryDate, false, 30)
   const isExpired = urgency === 'overdue'
   const [saving, setSaving] = useState(false)
@@ -50,20 +51,22 @@ function InfoTab({ domain, onEdit, onChanged }: { domain: DomainRow; onEdit: () 
   return (
     <div className={card}>
       <div className="flex items-center justify-between mb-1">
-        <span className="font-semibold text-ink text-sm">ข้อมูลโดเมน : {domain.name}</span>
-        <button onClick={onEdit} className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+        <span className="font-semibold text-ink text-sm">ข้อมูลบริการ : {domain.name}</span>
+        {canManage && <button onClick={onEdit} className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
           <Pencil className="w-3.5 h-3.5" /> แก้ไข
-        </button>
+        </button>}
       </div>
       {row('Status', (
         <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${isExpired ? 'bg-danger-50 text-danger-700' : 'bg-success-50 text-success-700'}`}>
           {isExpired && <AlertTriangle className="w-3 h-3" />} {isExpired ? 'หมดอายุแล้ว' : 'Active'}
         </span>
       ))}
-      {row('วันที่จดทะเบียน', domain.registeredDate ? fmtDate(domain.registeredDate) : '—')}
+      {row('วันที่เริ่มต้น', domain.registeredDate ? fmtDate(domain.registeredDate) : '—')}
       {row('วันหมดอายุ', <span className={isExpired ? 'text-danger-600' : ''}>{fmtDate(domain.expiryDate)}</span>)}
+      {row('URL', domain.serviceUrl ? <a href={domain.serviceUrl} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">{domain.serviceUrl}</a> : '—')}
+      {row('Package / สินค้า', domain.productTypeName ?? '—')}
       {row('แจ้งเตือนหมดอายุ', (
-        <button
+        canManage ? <button
           type="button"
           role="switch"
           aria-checked={domain.notifyEnabled}
@@ -72,7 +75,7 @@ function InfoTab({ domain, onEdit, onChanged }: { domain: DomainRow; onEdit: () 
           className={`relative w-[38px] h-[22px] rounded-full shrink-0 transition-colors disabled:opacity-60 ${domain.notifyEnabled ? 'bg-brand-600' : 'bg-border'}`}
         >
           <span className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] rounded-full bg-white shadow-xs transition-transform ${domain.notifyEnabled ? 'translate-x-4' : ''}`} />
-        </button>
+        </button> : <span className={domain.notifyEnabled ? 'text-success-700' : 'text-muted'}>{domain.notifyEnabled ? 'เปิด' : 'ปิด'}</span>
       ))}
       {row('Registrar', domain.provider ?? '—')}
       {row('ผู้รับผิดชอบ', domain.responsibleName ?? '—')}
@@ -84,7 +87,7 @@ function InfoTab({ domain, onEdit, onChanged }: { domain: DomainRow; onEdit: () 
   )
 }
 
-function NameserversTab({ domain, onChanged }: { domain: DomainRow; onChanged: () => void }) {
+function NameserversTab({ domain, onChanged, canManage }: { domain: DomainRow; onChanged: () => void; canManage: boolean }) {
   const toast = useToast()
   const { alertDialog } = useDialog()
   const [values, setValues] = useState<string[]>(() => {
@@ -117,18 +120,20 @@ function NameserversTab({ domain, onChanged }: { domain: DomainRow; onChanged: (
         {values.map((v, i) => (
           <div key={i}>
             <label className={label}>NS{i + 1}{i >= 2 ? ' (ไม่บังคับ)' : ''}</label>
-            <input value={v} onChange={(e) => setValues((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))} placeholder={i < 2 ? 'เช่น jim.ns.cloudflare.com' : ''} className={input} />
+            <input value={v} disabled={!canManage} onChange={(e) => setValues((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))} placeholder={i < 2 ? 'เช่น jim.ns.cloudflare.com' : ''} className={`${input} disabled:opacity-70`} />
           </div>
         ))}
       </div>
-      <div className="flex justify-end mt-4">
+      {canManage && <div className="flex justify-end mt-4">
         <button onClick={() => void save()} disabled={busy} className={saveBtn}>บันทึก</button>
-      </div>
+      </div>}
     </div>
   )
 }
 
 export function DomainDetailPage() {
+  const { user } = useAuth()
+  const canManage = user?.role === 'owner'
   const { id } = useParams()
   const navigate = useNavigate()
   const { confirmDialog } = useDialog()
@@ -154,16 +159,16 @@ export function DomainDetailPage() {
     <>
       <PageHeader
         title={domain.name}
-        action={
+        action={canManage ? (
           <div className="flex items-center gap-2">
             <button onClick={() => setRenewOpen(true)} className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg">สั่งต่ออายุ</button>
             <button onClick={() => void remove()} title="ลบโดเมน" className="p-1.5 rounded-lg hover:bg-danger-50 text-dim hover:text-danger-600"><Trash2 className="w-4 h-4" /></button>
           </div>
-        }
+        ) : undefined}
       />
       <div className="p-4 sm:p-6">
         <Link to="/admin/domains" className="text-sm text-muted hover:text-soft flex items-center gap-1 mb-4">
-          <ChevronLeft className="w-4 h-4" /> โดเมนทั้งหมด
+          <ChevronLeft className="w-4 h-4" /> บริการทั้งหมด
         </Link>
 
         <div className="flex items-center gap-x-4 gap-y-1 flex-wrap border-b border-divider mb-4 overflow-x-auto">
@@ -178,8 +183,8 @@ export function DomainDetailPage() {
           ))}
         </div>
 
-        {tab === 'info' && <InfoTab domain={domain} onEdit={() => setEditOpen(true)} onChanged={reload} />}
-        {tab === 'ns' && <NameserversTab domain={domain} onChanged={reload} />}
+        {tab === 'info' && <InfoTab domain={domain} onEdit={() => setEditOpen(true)} onChanged={reload} canManage={canManage} />}
+        {tab === 'ns' && <NameserversTab domain={domain} onChanged={reload} canManage={canManage} />}
       </div>
 
       {editOpen && <DomainModal domain={domain} onClose={() => setEditOpen(false)} onDone={() => { setEditOpen(false); void reload() }} />}

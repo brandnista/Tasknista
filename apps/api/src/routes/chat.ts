@@ -312,12 +312,14 @@ chatRoutes
     if (!channel || !(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
     const obj = await c.env.FILES.get(att.r2Key)
     if (!obj) return c.json({ error: 'object_missing' }, 404)
-    const inlineSafe = /^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|quicktime))$/.test(att.mime ?? '')
+    const inlineSafe = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml)|video\/(mp4|webm|quicktime))$/.test(att.mime ?? '')
     return new Response(obj.body, {
       headers: {
         'content-type': inlineSafe && att.mime ? att.mime : 'application/octet-stream',
         'content-disposition': `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(att.filename)}"`,
         'cache-control': 'private, max-age=31536000, immutable',
+        // SVG แสดงผ่าน <img> ได้ แต่ต้องปิด script/navigation ของเอกสาร SVG ที่ผู้ใช้อัปโหลด
+        ...(att.mime === 'image/svg+xml' ? { 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'", 'x-content-type-options': 'nosniff' } : {}),
       },
     })
   })

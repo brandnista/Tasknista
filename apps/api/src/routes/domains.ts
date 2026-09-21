@@ -1,5 +1,6 @@
-import { createDb, domains, projects, users } from '@seedoffice/db'
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { productTypeById, resolveProductTypes } from '@seedoffice/core'
+import { companyConfig, createDb, domains, projects, users } from '@seedoffice/db'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -26,6 +27,8 @@ const domainPayload = z.object({
   name: z.string().min(1).max(255),
   registeredDate: isoDate.nullable().optional(),
   expiryDate: isoDate,
+  serviceUrl: z.string().url().max(1000).nullable().optional(),
+  productTypeId: z.string().max(100).nullable().optional(),
   provider: z.string().max(255).nullable().optional(),
   responsibleUserId: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
@@ -50,18 +53,21 @@ export const domainRoutes = new Hono<AppEnv>()
 
   .get('/domains', async (c) => {
     const db = createDb(c.env.DB)
+    const cfg = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+    const productTypes = resolveProductTypes(cfg?.productTypes)
     const rows = await db
       .select({ domain: domains, responsibleName: users.name, projectName: projects.name })
       .from(domains)
       .leftJoin(users, eq(domains.responsibleUserId, users.id))
       .leftJoin(projects, eq(domains.projectId, projects.id))
       .where(isNull(domains.deletedAt))
-      .orderBy(desc(domains.expiryDate))
-    return c.json(rows.map((r) => ({ ...r.domain, responsibleName: r.responsibleName, projectName: r.projectName })))
+      .orderBy(asc(domains.expiryDate))
+    return c.json(rows.map((r) => ({ ...r.domain, responsibleName: r.responsibleName, projectName: r.projectName, productTypeName: productTypeById(productTypes, r.domain.productTypeId)?.name ?? null })))
   })
 
   .get('/domains/:id', async (c) => {
     const db = createDb(c.env.DB)
+    const cfg = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
     const row = (
       await db
         .select({ domain: domains, responsibleName: users.name, projectName: projects.name })
@@ -72,7 +78,7 @@ export const domainRoutes = new Hono<AppEnv>()
         .limit(1)
     )[0]
     if (!row) return c.json({ error: 'not_found' }, 404)
-    return c.json({ ...row.domain, responsibleName: row.responsibleName, projectName: row.projectName })
+    return c.json({ ...row.domain, responsibleName: row.responsibleName, projectName: row.projectName, productTypeName: productTypeById(resolveProductTypes(cfg?.productTypes), row.domain.productTypeId)?.name ?? null })
   })
 
   .post('/domains', async (c) => {
@@ -80,6 +86,10 @@ export const domainRoutes = new Hono<AppEnv>()
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
+    if (body.data.productTypeId) {
+      const cfg = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+      if (!productTypeById(resolveProductTypes(cfg?.productTypes), body.data.productTypeId)) return c.json({ error: 'invalid_product_type' }, 400)
+    }
     const created = (
       await db
         .insert(domains)
@@ -87,6 +97,8 @@ export const domainRoutes = new Hono<AppEnv>()
           name: body.data.name,
           registeredDate: body.data.registeredDate ?? null,
           expiryDate: body.data.expiryDate,
+          serviceUrl: body.data.serviceUrl ?? null,
+          productTypeId: body.data.productTypeId ?? null,
           provider: body.data.provider ?? null,
           responsibleUserId: body.data.responsibleUserId ?? null,
           projectId: body.data.projectId ?? null,
@@ -103,11 +115,17 @@ export const domainRoutes = new Hono<AppEnv>()
     if (!body.success) return c.json({ error: body.error.issues[0]?.message ?? 'invalid' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
+    if (body.data.productTypeId) {
+      const cfg = (await db.select({ productTypes: companyConfig.productTypes }).from(companyConfig).limit(1))[0]
+      if (!productTypeById(resolveProductTypes(cfg?.productTypes), body.data.productTypeId)) return c.json({ error: 'invalid_product_type' }, 400)
+    }
     const before = (await db.select().from(domains).where(and(eq(domains.id, c.req.param('id')), isNull(domains.deletedAt))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     const patch: Record<string, unknown> = { updatedAt: new Date() }
     if (body.data.name !== undefined) patch.name = body.data.name
     if (body.data.registeredDate !== undefined) patch.registeredDate = body.data.registeredDate
+    if (body.data.serviceUrl !== undefined) patch.serviceUrl = body.data.serviceUrl
+    if (body.data.productTypeId !== undefined) patch.productTypeId = body.data.productTypeId
     if (body.data.provider !== undefined) patch.provider = body.data.provider
     if (body.data.responsibleUserId !== undefined) patch.responsibleUserId = body.data.responsibleUserId
     if (body.data.projectId !== undefined) patch.projectId = body.data.projectId

@@ -19,8 +19,8 @@ const patch = (cookie: string, body: unknown) => ({ ...json(cookie, body), metho
 
 const addDays = (isoToday: string, days: number) => new Date(Date.parse(`${isoToday}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
 
-describe('Pronista §Domain Management — CRUD (owner-only)', () => {
-  it('owner สร้าง/แก้ไข/ลบโดเมนได้ · member ทำอะไรไม่ได้เลย (403)', async () => {
+describe('Pronista §Domain Management — owner จัดการ · member อ่านอย่างเดียว', () => {
+  it('owner สร้าง/แก้ไข/ลบได้ · member อ่านรายการได้แต่แก้ไขไม่ได้', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')
 
@@ -30,7 +30,9 @@ describe('Pronista §Domain Management — CRUD (owner-only)', () => {
     expect(created.name).toBe('pronista.com')
 
     expect((await app.request('/api/admin/domains', json(pond, { name: 'hack.com', expiryDate: '2027-01-01' }), env)).status).toBe(403)
-    expect((await app.request('/api/admin/domains', { headers: { cookie: pond } }, env)).status).toBe(403)
+    expect((await app.request('/api/admin/domains', { headers: { cookie: pond } }, env)).status).toBe(200)
+    expect((await app.request(`/api/admin/domains/${created.id}`, patch(pond, { provider: 'Nope' }), env)).status).toBe(403)
+    expect((await app.request(`/api/admin/domains/${created.id}`, { method: 'DELETE', headers: { cookie: pond } }, env)).status).toBe(403)
 
     const patchRes = await app.request(`/api/admin/domains/${created.id}`, patch(owner, { provider: 'GoDaddy' }), env)
     expect(patchRes.status).toBe(200)
@@ -78,10 +80,12 @@ describe('Pronista §Domain Management — CRUD (owner-only)', () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const p = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์โดเมน', type: 'project' }), env)).json()) as { id: string }
     const created = (await (
-      await app.request('/api/admin/domains', json(owner, { name: 'client-site.com', expiryDate: '2027-06-01', responsibleUserId: 'u_pond', projectId: p.id }), env)
+      await app.request('/api/admin/domains', json(owner, { name: 'client-site.com', serviceUrl: 'https://client.example.com', productTypeId: 'prd_pronista', expiryDate: '2027-06-01', responsibleUserId: 'u_pond', projectId: p.id }), env)
     ).json()) as { id: string }
-    const list = (await (await app.request('/api/admin/domains', { headers: { cookie: owner } }, env)).json()) as { id: string; responsibleName: string; projectName: string }[]
+    const list = (await (await app.request('/api/admin/domains', { headers: { cookie: owner } }, env)).json()) as { id: string; serviceUrl: string | null; productTypeName: string | null; responsibleName: string; projectName: string }[]
     const row = list.find((d) => d.id === created.id)!
+    expect(row.serviceUrl).toBe('https://client.example.com')
+    expect(row.productTypeName).toBe('Pronista')
     expect(row.responsibleName).toBe('ปอนด์')
     expect(row.projectName).toBe('โปรเจกต์โดเมน')
   })

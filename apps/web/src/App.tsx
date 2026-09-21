@@ -296,7 +296,7 @@ const router = createBrowserRouter([
       {
         path: 'admin/domains',
         element: (
-          <Protected roles={['owner']}>
+          <Protected roles={['owner', 'member']}>
             <AdminDomainsPage />
           </Protected>
         ),
@@ -304,7 +304,7 @@ const router = createBrowserRouter([
       {
         path: 'admin/domains/:id',
         element: (
-          <Protected roles={['owner']}>
+          <Protected roles={['owner', 'member']}>
             <DomainDetailPage />
           </Protected>
         ),

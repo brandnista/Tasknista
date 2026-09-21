@@ -2168,6 +2168,8 @@ export const domains = sqliteTable(
     name: text('name').notNull(), // เช่น pronista.com
     registeredDate: text('registered_date'), // YYYY-MM-DD — ไม่บังคับ
     expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
+    serviceUrl: text('service_url'),
+    productTypeId: text('product_type_id'), // อ้างอิง id จาก company_config.product_types
     provider: text('provider'), // ผู้ให้บริการ/ผู้จดทะเบียน (แสดงเป็น "Registrar" ใน UI)
     responsibleUserId: text('responsible_user_id').references((): AnySQLiteColumn => users.id),
     projectId: text('project_id').references(() => projects.id),
@@ -2211,6 +2213,8 @@ export const sellnistaSubscriptions = sqliteTable(
   {
     id: id(),
     name: text('name').notNull(), // ชื่อบริการที่ Subscribe
+    storefrontUrl: text('storefront_url'), // ลิงก์หน้าบ้าน (ไม่บังคับ)
+    adminUrl: text('admin_url'), // ลิงก์หลังบ้าน (ไม่บังคับ)
     expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
     notifyEnabled: integer('notify_enabled', { mode: 'boolean' }).notNull().default(true),
     notifiedTiers: text('notified_tiers', { mode: 'json' }).$type<number[]>(),
