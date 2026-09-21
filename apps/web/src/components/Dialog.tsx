@@ -35,6 +35,9 @@ export interface PromptOptions {
   initialValue?: string
   inputType?: 'text' | 'date'
   confirmLabel?: string
+  /** ฟิลด์บังคับ: แสดง * และปิดปุ่มยืนยันจนกว่าจะกรอกข้อความ */
+  required?: boolean
+  fieldLabel?: string
 }
 
 type Pending =
@@ -108,6 +111,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const ok = useCallback(() => {
     const p = pendingRef.current
     if (!p) return
+    if (p.kind === 'prompt' && p.opts.required && !value.trim()) return
     finish(p.kind === 'confirm' ? true : value)
   }, [finish, value])
 
@@ -157,14 +161,22 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 </p>
               )}
               {pending.kind === 'prompt' && (
-                <input
-                  ref={inputRef}
-                  type={pending.opts.inputType ?? 'text'}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  placeholder={pending.opts.placeholder}
-                  className="w-full mt-3 text-sm bg-white shadow-xs rounded-lg px-3 py-2.5 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
-                />
+                <div className="mt-3">
+                  {pending.opts.fieldLabel && (
+                    <label className="block text-xs font-medium text-body mb-1.5">
+                      {pending.opts.fieldLabel}{pending.opts.required && <span className="text-danger-600"> *</span>}
+                    </label>
+                  )}
+                  <input
+                    ref={inputRef}
+                    type={pending.opts.inputType ?? 'text'}
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={pending.opts.placeholder}
+                    aria-required={pending.opts.required || undefined}
+                    className="w-full text-sm bg-white shadow-xs rounded-lg px-3 py-2.5 focus:outline-hidden focus:ring-2 focus:ring-brand-200"
+                  />
+                </div>
               )}
               <div className="flex justify-end gap-2 mt-5">
                 {pending.kind !== 'alert' && (
@@ -178,9 +190,10 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 <button
                   ref={okRef}
                   onClick={ok}
+                  disabled={pending.kind === 'prompt' && pending.opts.required && !value.trim()}
                   className={`text-sm font-medium text-white px-4 py-2 rounded-lg ${
                     danger ? 'bg-danger-600 hover:bg-danger-700' : 'bg-brand-600 hover:bg-brand-700'
-                  }`}
+                  } disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
                   {opts.confirmLabel ?? 'ตกลง'}
                 </button>

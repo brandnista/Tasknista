@@ -98,6 +98,7 @@ interface HistoryRow {
   myReviewedAt: number | null
 }
 interface Recipient { id: string; name: string }
+interface ProjectOpt { id: string; name: string }
 
 type DateRangePreset = 'week' | 'month' | 'custom'
 /** Asia/Bangkok "วันนี้" → จุดเริ่มสัปดาห์ (จันทร์) เป็น YYYY-MM-DD */
@@ -143,6 +144,9 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [manualTitle, setManualTitle] = useState('')
   const [manualHours, setManualHours] = useState('')
   const [manualBusy, setManualBusy] = useState(false)
+  const [convertingManualId, setConvertingManualId] = useState<string | null>(null)
+  const [convertProjectId, setConvertProjectId] = useState('')
+  const [convertBusy, setConvertBusy] = useState(false)
   // Pronista §Daily Report manual item edit (2026-09-16) — แก้งานคีย์เอง (ชื่อ/ชม.) ได้หลังบันทึกแล้ว ไม่ต้องลบแล้วเพิ่มใหม่
   const [editingManualId, setEditingManualId] = useState<string | null>(null)
   const [editManualTitle, setEditManualTitle] = useState('')
@@ -182,6 +186,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     [mode, rangeFrom, rangeTo],
   )
   const { data: recipients } = useLoad<{ recipients: Recipient[] }>(() => api.get('/api/daily-reports/recipients'), [])
+  const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'), [])
 
   const ensureReport = async (): Promise<ReportDetail> => {
     if (report) return report
@@ -245,6 +250,21 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
       await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
     } finally {
       setEditManualBusy(false)
+    }
+  }
+  const convertManualToTask = async (itemId: string) => {
+    if (!report || !convertProjectId || convertBusy) return
+    setConvertBusy(true)
+    try {
+      await api.post(`/api/daily-reports/${report.id}/items/${itemId}/convert-to-task`, { projectId: convertProjectId })
+      setConvertingManualId(null)
+      setConvertProjectId('')
+      await reloadReport()
+      await reloadMyTasks()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'แปลงเป็น Task ไม่สำเร็จ' })
+    } finally {
+      setConvertBusy(false)
     }
   }
   const updateItemNote = async (itemId: string, note: string) => {
@@ -636,7 +656,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                             <button onClick={cancelEditManual} aria-label="ยกเลิก" className="text-border hover:text-dim shrink-0"><X className="w-4 h-4" /></button>
                           </div>
                         ) : (
-                          <div key={it.id} className="group flex items-start gap-3 px-3.5 py-3 hover:bg-hover bg-white">
+                          <div key={it.id} className="group px-3.5 py-3 hover:bg-hover bg-white">
+                            <div className="flex items-start gap-3">
                             <span className="mt-0.5 w-[19px] h-[19px] rounded-md border-[1.6px] border-brand-600 bg-brand-600 shrink-0 grid place-items-center">
                               <Check className="w-3 h-3 text-white" strokeWidth={3} />
                             </span>
@@ -645,9 +666,21 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                               <div className="text-[11.5px] text-muted mt-0.5">คีย์เอง</div>
                             </button>
                             <span className="text-xs text-dim tabular-nums shrink-0 pt-0.5">{fmtMinutes(it.minutes)}</span>
+                            <button onClick={() => { setConvertingManualId(it.id); setConvertProjectId('') }} className="text-[11px] text-brand-700 hover:underline shrink-0">แปลงเป็น Task</button>
                             {/* Pronista §มือถือไม่มี hover จริง — โชว์ปุ่มแก้ไขค้างไว้เสมอบนอุปกรณ์สัมผัส (mirror PIN_ROW_ACTION_VISIBILITY ใน Layout.tsx) */}
                             <button onClick={() => startEditManual(it)} className="text-border hover:text-brand-600 shrink-0 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity" aria-label="แก้ไข"><Pencil className="w-3.5 h-3.5" /></button>
                             <button onClick={() => void removeItem(it.id)} className="text-border hover:text-danger-600 shrink-0" aria-label="ลบ"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                            {convertingManualId === it.id && (
+                              <div className="mt-2 ml-8 flex items-center gap-2 rounded-lg bg-brand-50 p-2">
+                                <select value={convertProjectId} onChange={(e) => setConvertProjectId(e.target.value)} className="min-w-0 flex-1 text-xs bg-white border border-brand-200 rounded-lg px-2.5 py-2">
+                                  <option value="">เลือกโปรเจกต์ปลายทาง…</option>
+                                  {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                                <button onClick={() => void convertManualToTask(it.id)} disabled={!convertProjectId || convertBusy} className="text-xs font-semibold bg-brand-600 text-white px-3 py-2 rounded-lg disabled:opacity-40">สร้าง Task</button>
+                                <button onClick={() => setConvertingManualId(null)} className="p-1 text-muted" aria-label="ยกเลิก"><X className="w-4 h-4" /></button>
+                              </div>
+                            )}
                           </div>
                         ),
                       )}

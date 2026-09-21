@@ -288,7 +288,7 @@ interface Detail {
   // Pronista §Task Detail redesign — เกณฑ์ว่าเสร็จ แยกจาก description อิสระ
   checklist: { id: string; text: string; done: boolean }[]
   customFields: { id: string; label: string; value: string }[]
-  comments: { id: string; body: string; userName: string; userAvatarUrl?: string | null; createdAt: number; isBlocked: boolean }[]
+  comments: { id: string; userId: string; body: string; userName: string; userAvatarUrl?: string | null; createdAt: number; editedAt: number | null; isBlocked: boolean }[]
   attachments: { id: string; filename: string; mime: string | null; sizeBytes: number | null; externalUrl: string | null; linkType: string | null }[]
   linkedDocuments: { linkId: string; id: string; title: string; kind: 'page' | 'link' | 'file' | 'template' | 'folder'; externalUrl: string | null }[]
   activity: { id: string; action: string; actorName: string; actorAvatarUrl?: string | null; meta: Record<string, unknown> | null; at: number }[]
@@ -405,6 +405,7 @@ export function TaskDetailPage() {
   )
   const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
   const [comment, setComment] = useState('')
+  const [editingComment, setEditingComment] = useState<{ id: string; body: string; isBlocked: boolean } | null>(null)
   const [dispatching, setDispatching] = useState(false)
   const [claiming, setClaiming] = useState(false)
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ตัด Auto-save ทั้งหมด: ทุกฟิลด์ทั่วไปแก้เป็น draft ในเครื่องก่อน ไม่ยิง PATCH จนกว่าจะกด "บันทึกเพื่ออัปเดตข้อมูล"
@@ -611,7 +612,7 @@ export function TaskDetailPage() {
   }
   // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner เท่านั้น บังคับใส่เหตุผลเสมอ (mirror reject)
   const cancelTask = async () => {
-    const reason = await promptDialog({ title: 'ยกเลิกงาน', message: 'บอกเหตุผลที่ยกเลิกงานนี้', placeholder: 'เช่น scope เปลี่ยน / ลูกค้ายกเลิก', confirmLabel: 'ยกเลิกงาน' })
+    const reason = await promptDialog({ title: 'ยกเลิกงาน', message: 'บอกเหตุผลที่ยกเลิกงานนี้', fieldLabel: 'เหตุผลการยกเลิก', required: true, placeholder: 'เช่น scope เปลี่ยน / ลูกค้ายกเลิก', confirmLabel: 'ยกเลิกงาน' })
     if (!reason?.trim()) return
     try {
       await api.post(`/api/tasks/${t.id}/cancel`, { reason: reason.trim() })
@@ -634,6 +635,17 @@ export function TaskDetailPage() {
     if (!text) return
     await api.post(`/api/tasks/${t.id}/comments`, { body: text, isBlocked })
     setComment('')
+    await reload()
+  }
+  const saveComment = async () => {
+    if (!editingComment?.body.trim()) return
+    await api.patch(`/api/tasks/${t.id}/comments/${editingComment.id}`, { body: editingComment.body.trim(), isBlocked: editingComment.isBlocked })
+    setEditingComment(null)
+    await reload()
+  }
+  const deleteComment = async (commentId: string) => {
+    if (!(await confirmDialog({ title: 'ลบคอมเมนต์นี้?', message: 'ข้อความจะไม่แสดงใน Task อีกต่อไป', danger: true, confirmLabel: 'ลบ' }))) return
+    await api.delete(`/api/tasks/${t.id}/comments/${commentId}`)
     await reload()
   }
   const reportBlocked = async () => {
@@ -811,7 +823,7 @@ export function TaskDetailPage() {
   // ผู้จ่ายงานให้ตัวเองจริง (assignedBy === assigneeId) — ข้อยกเว้นให้ปิดงานได้เองทันทีโดยไม่ต้องผ่านขั้นตอนอนุมัติ (ผ่านปุ่ม "ปิดงานเอง" ที่ scope เฉพาะ done เท่านั้น ไม่ใช่ dropdown อิสระด้านล่าง)
   // (2026-09-15 follow-up) — เดิมใช้ createdBy (แค่คนคีย์ Task ขึ้นในระบบ) เปลี่ยนมาใช้ assignedBy===assigneeId (คนที่มอบหมายงานรอบปัจจุบันกับคนรับงาน เป็นคนเดียวกันจริง) ให้ตรงกับ Business Rules spec ข้อ 9 (createdBy ไม่ควรมีสิทธิ์ข้าม Workflow) — mirror สัญญาณเดียวกับ canEditDispatcherNotes ด้านบน และ backend (PATCH /tasks/:id)
   // (เฟส A, 2026-09-15) — ต้อง "ไม่มี Reviewer" ด้วยถึงจะปิดงานเองได้ (สเปกข้อ 7/8: self-assign มี reviewer → ต้องรอ approve เหมือนงานทั่วไป ไม่ใช่ปิดเองอิสระ)
-  const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId && !t.reviewerId
+  const isSelfDispatched = !!t.assignedBy && t.assignedBy === t.assigneeId && (!t.reviewerId || t.reviewerId === t.assigneeId)
   // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ถ้าระบุ Reviewer ไว้ เฉพาะ reviewer คนนั้น (หรือ owner บริษัท) เท่านั้นที่อนุมัติ/ตีกลับงาน "รอตรวจ" ได้ — ไม่มี reviewer (ค่าเริ่มต้น) = ใครก็ได้ที่ canEdit เหมือนเดิม
   // (2026-09-15 follow-up) — ไม่ระบุ reviewer ตรงๆ → fallback เป็นผู้จ่ายงาน (assignedBy) แทน "editor/owner คนไหนก็ได้" ตามที่ยืนยันแล้ว — mirror สัญญาณเดียวกับ backend เป๊ะ
   const effectiveReviewerId = t.reviewerId ?? t.assignedBy
@@ -825,16 +837,17 @@ export function TaskDetailPage() {
 
   // Pronista §Task Detail redesign — ฟีดรวม คอมเมนต์+ประวัติกิจกรรม เรียงตามเวลา แทนสองส่วนแยกกันแบบเดิม
   type FeedEntry =
-    | { kind: 'comment'; id: string; at: number; body: string; userName: string; userAvatarUrl?: string | null; isBlocked: boolean }
+    | { kind: 'comment'; id: string; userId: string; at: number; body: string; userName: string; userAvatarUrl?: string | null; editedAt: number | null; isBlocked: boolean }
     | { kind: 'activity'; id: string; at: number; actorName: string; actorAvatarUrl?: string | null; action: string; meta: Record<string, unknown> | null }
   const feed: FeedEntry[] = [
-    ...t.comments.map((c): FeedEntry => ({ kind: 'comment', id: c.id, at: c.createdAt, body: c.body, userName: c.userName, userAvatarUrl: c.userAvatarUrl, isBlocked: c.isBlocked })),
+    ...t.comments.map((c): FeedEntry => ({ kind: 'comment', id: c.id, userId: c.userId, at: c.createdAt, body: c.body, userName: c.userName, userAvatarUrl: c.userAvatarUrl, editedAt: c.editedAt, isBlocked: c.isBlocked })),
     ...t.activity.map((a): FeedEntry => ({ kind: 'activity', id: a.id, at: a.at, actorName: a.actorName, actorAvatarUrl: a.actorAvatarUrl, action: a.action, meta: a.meta })),
   ].sort((a, b) => a.at - b.at)
   // Pronista §System Requirements Update — ประวัติการเปลี่ยนแปลง: เฉพาะความเคลื่อนไหวสถานะ/ผู้รับผิดชอบ/ประเภทงาน ไม่รวมคอมเมนต์/แนบไฟล์/เวลา
   const historyFeed = feed.filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
   // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แท็บ "Comments" แยกเฉพาะคอมเมนต์ ไม่ปนกิจกรรม
   const commentsFeed = feed.filter((f): f is FeedEntry & { kind: 'comment' } => f.kind === 'comment')
+  const latestRejectionReason = [...historyFeed].reverse().find((f) => f.action === 'task.reject' && typeof f.meta?.reason === 'string')?.meta?.reason as string | undefined
 
   const siblingTotal = t.siblings.length + 1
   const siblingDone = t.siblings.filter((s) => s.status === 'done').length + (done ? 1 : 0)
@@ -937,9 +950,29 @@ export function TaskDetailPage() {
                 f.kind === 'comment' ? (
                   <div key={`c-${f.id}`} className="flex gap-2">
                     <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
-                        <b className="text-body">{f.userName}</b> · {f.body}
+                        <div className="flex items-center gap-2 mb-1">
+                          <b className="text-body">{f.userName}</b>
+                          {f.editedAt && <span className="text-[10px] text-muted">แก้ไขแล้ว</span>}
+                          {f.userId === user?.id && editingComment?.id !== f.id && (
+                            <span className="ml-auto flex items-center gap-1">
+                              <button onClick={() => setEditingComment({ id: f.id, body: f.body, isBlocked: f.isBlocked })} className="p-1 text-muted hover:text-brand-700" title="แก้ไขคอมเมนต์"><Pencil className="w-3 h-3" /></button>
+                              <button onClick={() => void deleteComment(f.id)} className="p-1 text-muted hover:text-danger-600" title="ลบคอมเมนต์"><Trash2 className="w-3 h-3" /></button>
+                            </span>
+                          )}
+                        </div>
+                        {editingComment?.id === f.id ? (
+                          <div className="space-y-2">
+                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" />
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => setEditingComment(null)} className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
+                              <button onClick={() => void saveComment()} disabled={!editingComment.body.trim()} className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 text-white disabled:opacity-40">บันทึก</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <RichTextEditor content={f.body} editable={false} bare minHeight="min-h-0" />
+                        )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
@@ -976,14 +1009,16 @@ export function TaskDetailPage() {
           )}
 
           {activityTab === 'comments' && (
-            <div className="flex gap-2 mt-3">
-              <input value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void postComment() }} className="flex-1 min-w-0 text-sm bg-white shadow-xs rounded-lg px-3 py-2" placeholder="เพิ่มความเห็น..." />
-              {isAssignee && (
-                <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
-                  <AlertTriangle className="w-4 h-4" /> ติดขัด
-                </button>
-              )}
-              <button onClick={() => void postComment()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded-lg shrink-0" title="ส่ง"><Send className="w-4 h-4" /></button>
+            <div className="mt-3 space-y-2">
+              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" />
+              <div className="flex justify-end gap-2">
+                {isAssignee && (
+                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 py-2 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
+                    <AlertTriangle className="w-4 h-4" /> ติดขัด
+                  </button>
+                )}
+                <button onClick={() => void postComment()} disabled={!comment.trim()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded-lg shrink-0 disabled:opacity-40" title="ส่ง"><Send className="w-4 h-4" /></button>
+              </div>
             </div>
           )}
         </div>
@@ -1556,7 +1591,11 @@ export function TaskDetailPage() {
               <div className="border-t border-border-subtle pt-4 space-y-2">
                 {isAssignee ? (
                   // Pronista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → คนที่ถูก assign เอง (self-assign) ก็ต้องกด "จ่ายงาน" ได้เหมือน flow ปกติ (เดิมมีแต่ข้อความเฉยๆ ไม่มีปุ่มเลย ทำให้ self-assign ค้าง ไปต่อไม่ได้ด้วยตัวเอง) · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม
-                  !t.dispatchedAt ? (
+                  !t.dispatchedAt && t.status === 'rejected' ? (
+                    <div className="bg-danger-50 text-danger-700 text-xs rounded-lg px-3 py-2">
+                      คุณปฏิเสธงานนี้แล้ว{latestRejectionReason ? `: ${latestRejectionReason}` : ''} — รอผู้จ่ายงานแก้ไขหรือจ่ายงานให้อีกครั้ง
+                    </div>
+                  ) : !t.dispatchedAt ? (
                     <>
                       <button onClick={() => void dispatch()} disabled={dispatching} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
                         <CheckCircle2 className="w-4 h-4" /> {assignedByOther ? 'ยืนยันรับงาน' : 'จ่ายงาน (ให้ตัวเอง)'}
@@ -1607,8 +1646,9 @@ export function TaskDetailPage() {
                   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องกดก่อนงานถึงจะโผล่ในหน้า "งานของฉัน" ของผู้รับผิดชอบ
                   <>
                     <button onClick={() => void dispatch()} disabled={!t.assigneeId || dispatching} title={!t.assigneeId ? 'เลือกผู้รับผิดชอบก่อน' : undefined} className="w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg disabled:opacity-40 font-medium">
-                      <CheckCircle2 className="w-4 h-4" /> จ่ายงาน
+                      <CheckCircle2 className="w-4 h-4" /> {t.status === 'rejected' ? 'จ่ายงานอีกครั้ง' : 'จ่ายงาน'}
                     </button>
+                    {t.status === 'rejected' && latestRejectionReason && <div className="bg-danger-50 text-danger-700 text-xs rounded-lg px-3 py-2">เหตุผลที่ปฏิเสธ: {latestRejectionReason}</div>}
                     <button onClick={deleteTask} className="w-full flex items-center justify-center gap-1.5 text-sm text-muted hover:text-danger-600 px-3 py-2 rounded-lg"><Trash2 className="w-3.5 h-3.5" /> ลบงานนี้</button>
                   </>
                 ) : t.status === 'non_start' ? (
@@ -1644,7 +1684,7 @@ export function TaskDetailPage() {
             {/* Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ยกเลิกงาน: editor/owner โปรเจกต์เท่านั้น (ไม่ใช่ assignee-only) ซ่อนถ้าปิด/ยกเลิกไปแล้ว
                 (2026-09-16 fix) — งานที่ไม่ผูกโปรเจกต์ (t.projectId ว่าง) backend /tasks/:id/cancel บังคับต้องเป็น owner บริษัทจริงเท่านั้น (เข้มกว่า canEditTask ทั่วไปที่ยอม assignee/editor)
                 แต่ t.myRole ฝั่งนี้ถูกตั้งเป็น 'editor' เหมารวมทุกคนตอนไม่มีโปรเจกต์ (task-detail.ts) ทำให้ canEdit เป็น true ผิดๆ สำหรับพนักงานทั่วไป กดแล้วโดน 403 — เพิ่มเช็ค role จริงจาก user ตรงๆ กันไว้อีกชั้นเฉพาะกรณีนี้ */}
-            {canEdit && !isAssigneeOnly && t.status !== 'done' && t.status !== 'cancelled' && (t.projectId || user?.role === 'owner') && (
+            {user?.role === 'owner' && t.status !== 'done' && t.status !== 'cancelled' && (
               <div className="border-t border-border-subtle pt-4">
                 <button onClick={() => void cancelTask()} className="w-full flex items-center justify-center gap-1.5 text-sm border border-danger-200 text-danger-600 hover:bg-danger-50 px-3 py-2 rounded-lg">
                   <XCircle className="w-4 h-4" /> ยกเลิกงาน

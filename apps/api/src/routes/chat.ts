@@ -126,9 +126,10 @@ chatRoutes
       const mine = await db.select({ channelId: chatChannelMembers.channelId }).from(chatChannelMembers).where(eq(chatChannelMembers.userId, me.id))
       const theirs = await db.select({ channelId: chatChannelMembers.channelId }).from(chatChannelMembers).where(eq(chatChannelMembers.userId, body.data.userId))
       const theirSet = new Set(theirs.map((r) => r.channelId))
-      const sharedChannelId = mine.map((r) => r.channelId).find((id) => theirSet.has(id))
-      if (sharedChannelId) {
-        const existing = (await db.select().from(chatChannels).where(and(eq(chatChannels.id, sharedChannelId), eq(chatChannels.kind, 'dm'))).limit(1))[0]
+      const sharedChannelIds = mine.map((r) => r.channelId).filter((id) => theirSet.has(id))
+      if (sharedChannelIds.length) {
+        // ผู้ใช้สองคนอาจอยู่ group เดียวกันหลายห้อง ต้องค้นหา DM ใน shared IDs ทั้งหมด
+        const existing = (await db.select().from(chatChannels).where(and(inArray(chatChannels.id, sharedChannelIds), eq(chatChannels.kind, 'dm'))).limit(1))[0]
         if (existing) return c.json(existing)
       }
       const created = (await db.insert(chatChannels).values({ kind: 'dm' }).returning())[0]!

@@ -620,6 +620,8 @@ export const taskComments = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    editedAt: integer('edited_at', { mode: 'timestamp_ms' }),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('task_comments_task_idx').on(t.taskId)],
 )

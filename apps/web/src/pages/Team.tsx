@@ -142,6 +142,8 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
   const [subTab, setSubTab] = useState<'messages' | 'directory'>('messages')
   // เปิดแชทจากรายชื่อ — เรียก POST /chat/channels แบบเดิมทุกอย่าง (idempotent อยู่แล้ว มีห้องเดิมก็คืนห้องเดิม) แล้วสลับกลับมาแท็บ "แชท" พร้อมเลือกห้องนั้นให้เลย
   const startDmFromDirectory = async (userId: string) => {
+    // เคลียร์ห้องเดิมทันที ไม่ให้ข้อความของ contact ก่อนหน้ากะพริบระหว่างโหลดห้องใหม่
+    setSelectedId(null)
     const ch = await api.post<{ id: string }>('/api/chat/channels', { kind: 'dm', userId })
     setSubTab('messages')
     await reload()
