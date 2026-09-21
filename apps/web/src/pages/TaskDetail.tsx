@@ -1344,8 +1344,8 @@ export function TaskDetailPage() {
                         <option value="">— ไม่ระบุ —</option>
                         {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                       </select>
-                      {/* Pronista §Workspace/Task Jira-alignment (3.1, 2026-09-04) — "Assign to me" แบบ Jira: โผล่เมื่อ draft ยังไม่มีผู้รับผิดชอบ */}
-                      {!draftVal('assigneeId') && user && (
+                      {/* โผล่เมื่อผู้รับผิดชอบใน draft ยังไม่ใช่ผู้ใช้ปัจจุบัน รวมกรณีเปลี่ยนจากตัวเองไปเป็นคนอื่น */}
+                      {user && draftVal('assigneeId') !== user.id && (
                         <button type="button" onClick={assignToMe} className="text-[11px] text-brand-700 hover:text-brand-800 underline decoration-dotted shrink-0">
                           Assign to me
                         </button>

@@ -1,6 +1,6 @@
 /**
  * Pronista §Workload (Phase 2) — ภาพรวมภาระงานทีม: ใคร ทำอะไร วันไหน เหลือ Manhour เท่าไหร่
- * นับเฉพาะ task ที่ status='on_processing' (กดรับงานแล้ว) ของคนในทีม (owner+member+vendor, ตัด guest ออก) — owner-only endpoint
+ * นับ task ที่ assignee เคยกดรับงานแล้ว โดยไม่ผูกกับสถานะปัจจุบัน ยกเว้น cancelled/deleted
  */
 import {
   addDaysISO,
@@ -11,7 +11,7 @@ import {
   type ManhourUserType,
 } from '@seedoffice/core'
 import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, users } from '@seedoffice/db'
-import { and, asc, eq, gte, inArray, isNotNull, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, lte, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { checklistCountsFor } from '../lib/workspace-query'
@@ -47,7 +47,8 @@ export const workloadRoutes = new Hono<AppEnv>()
       .from(tasks)
       .where(
         and(
-          eq(tasks.status, 'on_processing'),
+          isNotNull(tasks.acceptedAt),
+          ne(tasks.status, 'cancelled'),
           inArray(tasks.assigneeId, rosterIds),
           sprintId ? eq(tasks.sprintId, sprintId) : undefined,
         ),
@@ -149,8 +150,7 @@ export const workloadRoutes = new Hono<AppEnv>()
     if (!user) return c.json({ error: 'not_found' }, 404)
     const ids = c.req.query('ids')?.split(',').filter(Boolean)
 
-    // หน้านี้เป็นมุมมองของ owner ดูงานคนอื่น (ไม่ใช่หน้า "งานของฉัน" ของเจ้าตัว) — ไม่เช็คเกตจ่ายงาน (dispatchedAt) เหมือน /tasks/mine
-    // เพราะต้องให้เห็นตรงกับ taskIds ที่ตาราง Workload เองนับไว้แล้ว (ซึ่งนับจาก status='on_processing' ล้วนๆ ไม่เช็ค dispatchedAt เหมือนกัน)
+    // หน้านี้เป็นมุมมองเจาะจากตาราง Workload — ถ้าส่ง ids มา จะเห็นเฉพาะงานที่ถูกนับใน Cell นั้น
     const rows = await db
       .select({ task: tasks, projectName: projects.name })
       .from(tasks)

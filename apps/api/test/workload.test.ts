@@ -34,7 +34,7 @@ async function makeTask(overrides: Partial<typeof tasks.$inferInsert> & { id: st
   const db = createDb(env.DB)
   await db
     .insert(tasks)
-    .values({ title: 'งานทดสอบ', createdBy: 'u_owner', status: 'on_processing', assigneeId: 'u_pond', ...overrides })
+    .values({ title: 'งานทดสอบ', createdBy: 'u_owner', status: 'on_processing', assigneeId: 'u_pond', acceptedAt: new Date('2026-09-01T00:00:00Z'), ...overrides })
     .onConflictDoNothing()
 }
 
@@ -67,6 +67,20 @@ describe('Pronista §Workload — GET /api/workload', () => {
     }
     expect(res.grid.u_pond!['2026-10-01']!.usedMinutes).toBe(120)
     expect(res.grid.u_pond!['2026-10-01']!.taskIds).toContain('wl_t1')
+  })
+
+  it('ล็อก Slot หลังเคยกดรับโดยไม่สนสถานะ · cancelled และงานที่ยังไม่รับไม่นับ', async () => {
+    await makeTask({ id: 'wl_accepted_waiting', status: 'waiting_for_test', dueDate: '2026-10-02', estimateMinutes: 60 })
+    await makeTask({ id: 'wl_accepted_done', status: 'done', dueDate: '2026-10-02', estimateMinutes: 90 })
+    await makeTask({ id: 'wl_cancelled', status: 'cancelled', dueDate: '2026-10-02', estimateMinutes: 120 })
+    await makeTask({ id: 'wl_not_accepted', status: 'on_processing', acceptedAt: null, dueDate: '2026-10-02', estimateMinutes: 180 })
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload?from=2026-10-02&to=2026-10-02', { headers: { cookie: owner } }, env)).json()) as {
+      grid: Record<string, Record<string, { usedMinutes: number; taskIds: string[] }>>
+    }
+    const cell = res.grid.u_pond!['2026-10-02']!
+    expect(cell.usedMinutes).toBe(150)
+    expect(cell.taskIds.sort()).toEqual(['wl_accepted_done', 'wl_accepted_waiting'])
   })
 
   it('งานมี startDate+dueDate 2 วัน → เกลี่ยเท่ากันทั้งสองวัน', async () => {

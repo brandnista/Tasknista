@@ -690,6 +690,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Assign/Accept audit (2026-09-03) — งานที่ไปไกลกว่า non_start แล้วก็ต้องรีเซ็ตสถานะกลับด้วย กันคนใหม่โดนข้ามขั้นตอน "รับงาน" ไปเลย (ยืนยันแล้วว่าต้องการแบบนี้ตาม QA test script ASSIGN-007)
     if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) {
       patch.dispatchedAt = null
+      patch.acceptedAt = null
       if (before.status !== 'non_start') {
         patch.status = 'non_start'
         patch.completedAt = null
@@ -970,7 +971,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB กัน race จากการกดซ้ำ/พร้อมกัน
     const updated = await db
       .update(tasks)
-      .set({ status: 'on_processing', version: sql`${tasks.version} + 1` })
+      .set({ status: 'on_processing', acceptedAt: before.acceptedAt ?? new Date(), version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start')))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)

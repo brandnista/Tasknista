@@ -164,8 +164,8 @@ describe('§Assign/Accept audit — dispatch/accept/reject/reassign', () => {
     const beforeNew = await notifCountFor('u_owner', 'task_reassigned')
     const res = await app.request(`/api/tasks/${t.id}`, { ...json(owner, { assigneeId: 'u_owner' }), method: 'PATCH' }, env)
     expect(res.status).toBe(200)
-    const updated = (await res.json()) as { status: string; dispatchedAt: number | null; assigneeId: string }
-    expect(updated).toMatchObject({ status: 'non_start', dispatchedAt: null, assigneeId: 'u_owner' })
+    const updated = (await res.json()) as { status: string; dispatchedAt: number | null; acceptedAt: number | null; assigneeId: string }
+    expect(updated).toMatchObject({ status: 'non_start', dispatchedAt: null, acceptedAt: null, assigneeId: 'u_owner' })
     expect(await notifCountFor('u_pond', 'task_reassigned')).toBe(beforeOld + 1) // คนเก่า
     expect(await notifCountFor('u_owner', 'task_reassigned')).toBe(beforeNew + 1) // คนใหม่
   })
@@ -210,6 +210,7 @@ describe('§Assign/Accept audit — dispatch/accept/reject/reassign', () => {
     const before = await notifCountFor('u_owner', 'task_accepted')
     const res = await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
     expect(res.status).toBe(200)
+    expect(((await res.clone().json()) as { acceptedAt: number | null }).acceptedAt).not.toBeNull()
     expect(await notifCountFor('u_owner', 'task_accepted')).toBe(before + 1)
   })
 

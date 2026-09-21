@@ -546,6 +546,8 @@ export const tasks = sqliteTable(
     version: integer('version').notNull().default(1),
     // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId
     dispatchedAt: integer('dispatched_at', { mode: 'timestamp_ms' }),
+    // Workload: เวลาที่ผู้รับผิดชอบกด "รับงาน" ครั้งแรก ใช้ล็อก Slot โดยไม่ผูกกับสถานะ workflow ปัจจุบัน
+    acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }),
     status: text('status', { enum: TASK_STATUSES }).notNull().default('non_start'),
     priority: text('priority', { enum: ['low', 'normal', 'high'] }).notNull().default('normal'),
     // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels, ไม่มี DB-level FK) เลือกได้หลายอัน
