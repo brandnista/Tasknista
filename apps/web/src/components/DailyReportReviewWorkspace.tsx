@@ -5,7 +5,6 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
-  FileText,
   Inbox,
   MessageSquare,
   Send,
@@ -216,8 +215,8 @@ export function DailyReportReviewWorkspace({ initialReportId }: { initialReportI
           </div>
         </div>
 
-        <div className="grid min-h-[610px] grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <aside className={`${selectedId ? 'hidden lg:block' : 'block'} border-divider lg:border-r`} aria-label="คิว Daily Report">
+        <div className="min-h-[610px]">
+          <aside className={selectedId ? 'hidden' : 'block'} aria-label="รายการ Daily Report ที่ได้รับ">
             {historyLoading ? (
               <div className="p-5 text-sm text-muted">กำลังโหลดคิวรายงาน…</div>
             ) : historyError ? (
@@ -234,34 +233,32 @@ export function DailyReportReviewWorkspace({ initialReportId }: { initialReportI
               <div className="divide-y divide-divider">
                 {visibleReports.map((item) => {
                   const unread = !item.myReviewedAt
-                  const selected = selectedId === item.id
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => setSelectedId(item.id)}
-                      className={`group w-full px-4 py-4 text-left transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500 ${selected ? 'bg-brand-50' : 'hover:bg-hover'} ${unread ? 'bg-brand-50/40' : 'bg-white'}`}
+                      className={`group grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500 sm:grid-cols-[12px_40px_180px_minmax(0,1fr)_100px] sm:px-4 ${unread ? 'bg-brand-50/45 hover:bg-brand-50/70' : 'bg-white hover:bg-hover'}`}
                     >
-                      <div className="flex items-start gap-3">
-                        <div className="relative shrink-0">
-                          <Avatar name={item.userName ?? '—'} avatarUrl={item.userAvatarUrl} className="h-10 w-10 text-xs" colorClass={avatarColor(item.userName ?? '—')} />
-                          {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-brand-600" aria-label="ยังไม่อ่าน" />}
+                      <span className={`hidden h-2 w-2 rounded-full sm:block ${unread ? 'bg-brand-600' : 'bg-transparent'}`} aria-label={unread ? 'ยังไม่อ่าน' : 'อ่านแล้ว'} />
+                      <div className="relative row-span-2 shrink-0 sm:row-span-1">
+                        <Avatar name={item.userName ?? '—'} avatarUrl={item.userAvatarUrl} className="h-9 w-9 text-xs" colorClass={avatarColor(item.userName ?? '—')} />
+                        {unread && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-brand-600 sm:hidden" />}
+                      </div>
+                      <span className={`hidden truncate text-sm sm:block ${unread ? 'font-bold text-ink' : 'font-medium text-body'}`}>{item.userName ?? 'ไม่พบชื่อ'}</span>
+                      <div className="min-w-0">
+                        <div className={`truncate text-sm ${unread ? 'font-bold text-ink' : 'font-medium text-body'}`}>
+                          <span className="sm:hidden">{item.userName ?? 'ไม่พบชื่อ'} · </span>
+                          Daily Report {fmtDateTH(item.reportDate)} · {item.itemCount} งาน
+                          <span className="font-normal text-muted"> — {item.notes?.trim() || item.blockerDetail?.trim() || 'ไม่มีหมายเหตุเพิ่มเติม'}</span>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`truncate text-sm ${unread ? 'font-bold text-ink' : 'font-semibold text-strong'}`}>{item.userName ?? 'ไม่พบชื่อ'}</span>
-                            <span className="shrink-0 text-[10.5px] tabular-nums text-muted">{fmtSentAt(item.submittedAt)}</span>
-                          </div>
-                          <div className="mt-1 text-xs font-medium text-body">{fmtDateTH(item.reportDate)} · {item.itemCount} งาน</div>
-                          <div className="mt-2 flex items-center gap-1.5">
-                            {item.blockerHasIssue ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-danger-50 px-2 py-1 text-[10.5px] font-semibold text-danger-700"><AlertTriangle className="h-3 w-3" /> มี Blocker</span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-success-50 px-2 py-1 text-[10.5px] font-semibold text-success-700"><CheckCircle2 className="h-3 w-3" /> ไม่มี Blocker</span>
-                            )}
-                            <span className="truncate text-[10.5px] text-muted">{item.notes?.trim() || item.blockerDetail?.trim() || 'ไม่มีหมายเหตุเพิ่มเติม'}</span>
-                          </div>
+                        <div className="mt-1 flex items-center gap-1.5 sm:hidden">
+                          <span className={`text-[10.5px] font-semibold ${item.blockerHasIssue ? 'text-danger-700' : 'text-success-700'}`}>{item.blockerHasIssue ? 'มี Blocker' : 'ไม่มี Blocker'}</span>
                         </div>
+                      </div>
+                      <div className="row-span-2 flex flex-col items-end gap-1.5 sm:row-span-1">
+                        <span className={`whitespace-nowrap text-[10.5px] tabular-nums ${unread ? 'font-bold text-ink' : 'text-muted'}`}>{fmtSentAt(item.submittedAt)}</span>
+                        <span className={`hidden whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold sm:inline-flex ${item.blockerHasIssue ? 'bg-danger-50 text-danger-700' : 'bg-success-50 text-success-700'}`}>{item.blockerHasIssue ? 'มี Blocker' : 'ปกติ'}</span>
                       </div>
                     </button>
                   )
@@ -270,22 +267,14 @@ export function DailyReportReviewWorkspace({ initialReportId }: { initialReportI
             )}
           </aside>
 
-          <main className={`${selectedId ? 'block' : 'hidden lg:block'} min-w-0 bg-hover/40`}>
-            {!selectedId ? (
-              <div className="grid min-h-[610px] place-items-center px-8 text-center">
-                <div className="max-w-sm">
-                  <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl border border-border-subtle bg-white text-brand-600 shadow-xs"><FileText className="h-5 w-5" /></div>
-                  <h2 className="mt-4 text-base font-bold text-ink">เลือกรายงานที่ต้องการอ่าน</h2>
-                  <p className="mt-1.5 text-sm leading-6 text-muted">รายงานจะถูกนับว่าอ่านแล้วเมื่อคุณเปิดดูรายละเอียด</p>
-                </div>
-              </div>
-            ) : reportLoading ? (
+          <main className={`${selectedId ? 'block' : 'hidden'} min-w-0 bg-hover/40`}>
+            {reportLoading ? (
               <div className="p-6 text-sm text-muted">กำลังเปิดรายงาน…</div>
             ) : reportError || !report ? (
               <div className="m-5 rounded-xl bg-danger-50 p-4 text-sm text-danger-700">เปิดรายงานไม่สำเร็จ กรุณาลองใหม่</div>
             ) : (
               <div className="p-4 sm:p-6">
-                <button type="button" onClick={() => setSelectedId(null)} className="mb-4 inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-dim hover:text-body focus-visible:outline-2 focus-visible:outline-brand-500 lg:hidden">
+                <button type="button" onClick={() => setSelectedId(null)} className="mb-4 inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-dim hover:text-body focus-visible:outline-2 focus-visible:outline-brand-500">
                   <ArrowLeft className="h-4 w-4" /> กลับไปที่คิวรายงาน
                 </button>
 
