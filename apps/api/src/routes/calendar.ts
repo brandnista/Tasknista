@@ -179,6 +179,8 @@ export const calendarRoutes = new Hono<AppEnv>()
         projectId: z.string().optional(),
         attendeeIds: z.array(z.string()).optional(), // Pronista §1 — ผู้เข้าร่วมประชุม (หลายคน)
       })
+      // Pronista §Leave Request (2026-09-22) — ปิดทางลัดเดิม บังคับผ่านเมนู "ขอลา" (POST /api/leave-requests) เท่านั้น
+      .refine((d) => d.type !== 'leave', { message: 'สร้างวันลาตรงๆ ไม่ได้แล้ว — ใช้เมนู "ขอลา" แทน' })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
     if (body.data.endDate && body.data.endDate < body.data.startDate)

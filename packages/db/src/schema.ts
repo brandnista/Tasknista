@@ -1547,6 +1547,56 @@ export const calendarEvents = sqliteTable(
   (t) => [index('calendar_events_date_idx').on(t.startDate)],
 )
 
+// Pronista §Leave Request (2026-09-22, Phase 1) — ประเภทลา ตั้งค่าได้โดย Admin ไม่ hard-code
+export const leaveTypes = sqliteTable('leave_types', {
+  id: id(),
+  name: text('name').notNull(), // เช่น "ลาพักร้อน", "ลาป่วย"
+  icon: text('icon'), // ชื่อ lucide icon ให้ frontend เลือกแสดง (optional)
+  requiresReason: integer('requires_reason', { mode: 'boolean' }).notNull().default(true),
+  requiresAttachment: integer('requires_attachment', { mode: 'boolean' }).notNull().default(false),
+  // โควตาคงที่ต่อ role (วัน/ปี) — Phase 1 ยังไม่มี accrual/reset/pro-rate
+  quotaDaysByRole: text('quota_days_by_role', { mode: 'json' }).$type<Partial<Record<'owner' | 'member' | 'vendor', number>>>(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date()),
+})
+
+export const LEAVE_REQUEST_STATUSES = ['pending', 'approved', 'rejected', 'withdrawn'] as const
+
+/** Pronista §Leave Request — ผู้อนุมัติ = users.managerId ของผู้ยื่น (snapshot ตอนยื่น กัน manager เปลี่ยนทีหลังแล้วงงว่าใครควรเห็นคำขอเก่า) ไม่มี manager → fallback แจ้ง owner ทุกคน */
+export const leaveRequests = sqliteTable(
+  'leave_requests',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    leaveTypeId: text('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id),
+    startDate: text('start_date').notNull(), // YYYY-MM-DD
+    endDate: text('end_date').notNull(),
+    reason: text('reason'),
+    status: text('status', { enum: LEAVE_REQUEST_STATUSES }).notNull().default('pending'),
+    approverId: text('approver_id').references((): AnySQLiteColumn => users.id),
+    decidedBy: text('decided_by').references((): AnySQLiteColumn => users.id),
+    decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
+    rejectReason: text('reject_reason'),
+    // ผูกกลับไปยัง event ที่สร้างตอนอนุมัติ (ลบ event ด้วยถ้ามีการ withdraw ทีหลัง)
+    calendarEventId: text('calendar_event_id').references((): AnySQLiteColumn => calendarEvents.id),
+    attachmentR2Key: text('attachment_r2_key'),
+    attachmentFilename: text('attachment_filename'),
+    attachmentMime: text('attachment_mime'),
+    attachmentSizeBytes: integer('attachment_size_bytes'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('leave_requests_user_idx').on(t.userId), index('leave_requests_approver_idx').on(t.approverId, t.status)],
+)
+
 /** Pronista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคนต่อ event) แยกจาก calendarEvents.userId (ใช้เฉพาะ "วันลาของใคร" อยู่แล้ว) */
 export const calendarEventAttendees = sqliteTable(
   'calendar_event_attendees',
@@ -1833,6 +1883,10 @@ export const NOTIFICATION_TYPES = [
   'task_cancelled',
   // Pronista §My Tasks menu badges (2026-09-18) — แจ้งผู้ตรวจ (reviewerId) โดยเฉพาะตอนงานส่งมารอตรวจ — แยกจาก task_submitted (ไปหาผู้จ่ายงาน) กันตัวเลขแจ้งเตือนของเมนู "งานที่จ่ายให้คนอื่น" กับ "งานรอตรวจ" ปนกัน
   'task_review_requested',
+  // Pronista §Leave Request (2026-09-22, Phase 1)
+  'leave_requested',
+  'leave_approved',
+  'leave_rejected',
 ] as const
 
 export const notifications = sqliteTable(

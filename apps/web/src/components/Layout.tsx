@@ -17,6 +17,7 @@ import {
   MessageSquare,
   NotebookText,
   Pin,
+  Plane,
   Settings,
   UserCheck,
   Users,
@@ -53,6 +54,8 @@ type Role = Me['role']
 const TEAM_NOTIFICATION_TYPES = ['chat_mention', 'chat_message', 'meeting_scheduled'] as const
 // Pronista §Secret Vault Permission (2026-09-08) — เมนู "Secret Vault" นับแจ้งเตือนเข้าใช้งานแยกของตัวเอง ไม่ปนกับ "งานของฉัน"
 const VAULT_NOTIFICATION_TYPES = ['vault_accessed'] as const
+// Pronista §Leave Request (2026-09-22, Phase 1)
+const LEAVE_NOTIFICATION_TYPES = ['leave_requested', 'leave_approved', 'leave_rejected'] as const
 // Pronista §My Tasks menu badges (2026-09-18) — แยกตัวเลขแจ้งเตือนต่อ sub-menu แต่ละอัน
 const MY_TASKS_ASSIGNED_TYPES = ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const
 const MY_TASKS_DISPATCHED_TYPES = ['task_submitted', 'task_accepted', 'task_rejected', 'task_recalled', 'subtask_completed'] as const
@@ -111,6 +114,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     roles: ['owner', 'member', 'vendor', 'guest'],
     menuKey: 'dailyReports',
   },
+  // Pronista §Leave Request (2026-09-22, Phase 1) — ไม่มี menuKey เหมือน "บริการ" (ไม่ผ่านเพดานเมนู) เห็นได้ทุกคน ยกเว้น guest
+  { to: '/leave', label: 'ขอลา', icon: Plane, roles: ['owner', 'member', 'vendor'] },
   // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจาก "งานของฉัน" เป็นเมนูหลักของตัวเอง "แชร์กับฉัน" ย้ายมาเป็นเมนูย่อยของมันแทน (เดิมเป็นพี่น้องกันใต้งานของฉัน)
   // owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
   {
@@ -413,6 +418,7 @@ export function Layout() {
             {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ALL_TYPES} filter={(r) => isAssignedTaskNotificationRelevant(r, user?.id)} />}
             {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
             {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
+            {to === '/leave' && <NotificationBell types={LEAVE_NOTIFICATION_TYPES} />}
             {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
           </NavLink>
           <button

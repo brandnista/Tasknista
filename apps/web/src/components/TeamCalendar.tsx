@@ -45,6 +45,8 @@ const TYPE_CLS: Record<CalEvent['type'], string> = {
 const TYPE_LABEL: Record<string, string> = {
   holiday: 'วันหยุด', leave: 'วันลา', meeting: 'ประชุม', deadline: 'กำหนดส่ง', other: 'อื่นๆ',
 }
+// Pronista §Leave Request (2026-09-22) — ตัด "วันลา" ออกจากตัวเลือกใน "เพิ่มกิจกรรม" (ต้องยื่นผ่านเมนู "ขอลา" เท่านั้น) — TYPE_LABEL เดิมยังต้องใช้แสดงป้าย/สีของ event ลาที่อนุมัติแล้ว
+const ADD_EVENT_TYPE_OPTIONS = Object.entries(TYPE_LABEL).filter(([k]) => k !== 'leave')
 // มือถือ (Month view) แสดงจุดสีแทนข้อความยาว กันตัดคำจนอ่านไม่รู้เรื่อง — คลิกวันที่เพื่อดูรายละเอียดแทน
 const TYPE_DOT: Record<CalEvent['type'], string> = {
   holiday: 'bg-success-500',
@@ -86,7 +88,6 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
       type: form.type,
       startDate: form.start,
       ...(form.end && form.end > form.start ? { endDate: form.end } : {}),
-      ...(form.type === 'leave' && form.userId ? { userId: form.userId } : {}),
       ...(form.type === 'meeting' ? { attendeeIds, ...(form.projectId ? { projectId: form.projectId } : {}) } : {}),
     })
     onDone()
@@ -103,14 +104,8 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
           <div className="space-y-2">
             <input autoFocus placeholder="ชื่อ เช่น ประชุมทีม 10:00" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={input} />
             <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className={input} aria-label="ประเภท">
-              {Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {ADD_EVENT_TYPE_OPTIONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            {form.type === 'leave' && (
-              <select value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} className={input} aria-label="ใครลา">
-                <option value="">— ใครลา —</option>
-                {(userOpts ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            )}
             <div className="grid grid-cols-2 gap-2">
               <label className="text-[11px] text-muted">เริ่ม<DateInputTH value={form.start} onChange={(v) => setForm({ ...form, start: v })} className={input} /></label>
               <label className="text-[11px] text-muted">ถึง (ถ้าหลายวัน)<DateInputTH value={form.end} onChange={(v) => setForm({ ...form, end: v })} className={input} /></label>
@@ -138,7 +133,7 @@ function AddEventModal({ defaultDate, onClose, onDone }: { defaultDate: string; 
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
-            <button onClick={() => void submit().then(onDone)} disabled={!form.title.trim() || (form.type === 'leave' && !form.userId)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">เพิ่ม</button>
+            <button onClick={() => void submit().then(onDone)} disabled={!form.title.trim()} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">เพิ่ม</button>
           </div>
         </div>
       </div>

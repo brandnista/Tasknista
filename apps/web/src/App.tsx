@@ -20,6 +20,7 @@ import { DocumentComparePage } from './pages/DocumentCompare'
 import { DocumentHistoryPage } from './pages/DocumentHistory'
 import { DocViewerPage } from './pages/DocViewer'
 import { EmployeeDetailPage } from './pages/EmployeeDetail'
+import { LeaveRequestPage } from './pages/LeaveRequest'
 import { Login } from './pages/Login'
 import { MemberDetailPage } from './pages/MemberDetail'
 import { MemberOrdersPage } from './pages/MemberOrders'
@@ -99,6 +100,8 @@ const router = createBrowserRouter([
       { path: 'my-tasks/dispatched', element: <Protected menuKey="myTasks"><MyTasksDispatchedPage /></Protected> },
       { path: 'my-tasks/review', element: <Protected menuKey="myTasks"><MyTasksReviewPage /></Protected> },
       { path: 'daily-reports', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
+      // Pronista §Leave Request (2026-09-22, Phase 1) — ไม่มี menuKey เหมือนเมนู "บริการ"
+      { path: 'leave', element: <Protected roles={['owner', 'member', 'vendor']}><LeaveRequestPage /></Protected> },
       // คง route เดิมไว้ให้ notification / bookmark เก่าเปิด report query เดิมได้
       { path: 'my-tasks/daily-report', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
       { path: 'my-tasks/notes', element: <Protected menuKey="myTasks"><MyTasksNotesPage /></Protected> },
