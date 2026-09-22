@@ -54,7 +54,7 @@ const STATUS_COLUMN_CLASS: Partial<Record<TaskStatus, string>> = {
   non_start: 'border-border bg-hover/60',
   on_processing: 'border-info-200 bg-info-50/55',
   waiting_for_test: 'border-warning-200 bg-warning-50/55',
-  done: 'border-success-200 bg-success-50/55',
+  done: 'border-success-100 bg-success-50/55',
 }
 const STATUS_COUNT_CLASS: Partial<Record<TaskStatus, string>> = {
   non_start: 'bg-divider text-soft',
