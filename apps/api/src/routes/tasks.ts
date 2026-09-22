@@ -457,7 +457,13 @@ export const taskRoutes = new Hono<AppEnv>()
     // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
     // แม้จะจ่ายมาแล้ว/กดรับงานแล้วจริง (status ขยับเป็น on_processing) ก็ไม่โผล่ใน "งานของฉัน" — ล้อ fix เดียวกับ /tasks/dispatched-by-me ด้านล่าง: leftJoin ทั้งคู่ (projects/workspaces) + fallback ชื่อที่โชว์
     const rows = await db
-      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name, dispatcherName: dispatcher.name })
+      .select({
+        task: tasks,
+        projectName: projects.name,
+        workspaceName: workspaces.name,
+        dispatcherName: dispatcher.name,
+        dispatcherAvatarUrl: dispatcher.avatarUrl,
+      })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
@@ -493,6 +499,7 @@ export const taskRoutes = new Hono<AppEnv>()
         ...r.task,
         projectName: r.projectName ?? r.workspaceName,
         dispatcherName: r.dispatcherName,
+        dispatcherAvatarUrl: r.dispatcherAvatarUrl,
         myRole: roleOf(r.task.projectId),
         ...checklistOf(r.task.id),
       })),

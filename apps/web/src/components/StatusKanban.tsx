@@ -50,6 +50,18 @@ function allowedDragTargets(t: KanbanTask, meId?: string): TaskStatus[] {
 
 const PRIORITY_DOT = { low: 'bg-border', normal: 'bg-warning-400', high: 'bg-danger-500' } as const
 const PRIORITY_LABEL = { low: 'ต่ำ', normal: 'กลาง', high: 'สูง' } as const
+const STATUS_COLUMN_CLASS: Partial<Record<TaskStatus, string>> = {
+  non_start: 'border-border bg-hover/60',
+  on_processing: 'border-info-200 bg-info-50/55',
+  waiting_for_test: 'border-warning-200 bg-warning-50/55',
+  done: 'border-success-100 bg-success-50/55',
+}
+const STATUS_COUNT_CLASS: Partial<Record<TaskStatus, string>> = {
+  non_start: 'bg-divider text-soft',
+  on_processing: 'bg-info-100 text-info-700',
+  waiting_for_test: 'bg-warning-100 text-warning-700',
+  done: 'bg-success-100 text-success-700',
+}
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
@@ -91,12 +103,12 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
             key={status}
             onDragOver={dropOk ? over : undefined}
             onDrop={dropOk ? () => { if (dragId) void onStatusChange(dragId, status); setDragId(null) } : undefined}
-            className="bg-hover/60 rounded-lg p-2 min-h-24"
+            className={`min-h-24 rounded-lg border p-2 ${STATUS_COLUMN_CLASS[status] ?? 'border-border bg-hover/60'}`}
           >
             <div className="flex items-center gap-1.5 px-1.5 py-1 mb-1.5">
               <span className={`w-2 h-2 rounded-full ${TASK_STATUS_DOT[status]}`} />
               <span className="text-sm font-semibold text-body">{TASK_STATUS_LABEL[status]}</span>
-              <span className="text-xs text-muted">{col.length}</span>
+              <span className={`ml-auto min-w-6 rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold tabular-nums ${STATUS_COUNT_CLASS[status] ?? 'bg-divider text-soft'}`}>{col.length}</span>
             </div>
             <div className="space-y-2">
               {col.map((t) => {
