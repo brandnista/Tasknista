@@ -11,6 +11,7 @@ import {
   Inbox,
   LayoutGrid,
   PlayCircle,
+  Plus,
   Rows3,
   RotateCw,
   Search,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
 import { StatusKanban, type KanbanTask } from '../components/StatusKanban'
@@ -26,6 +28,7 @@ import { TaskListView } from '../components/TaskListView'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
+import { avatarColor } from './ProjectDetail'
 import { isInactiveStatus, KANBAN_TASK_STATUS_ORDER, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
@@ -44,6 +47,7 @@ interface MyTask extends KanbanTask {
   sprintId: string | null
   // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ใครเป็นคนกดจ่ายงานนี้มา (tasks.assignedBy resolve เป็นชื่อ)
   dispatcherName: string | null
+  dispatcherAvatarUrl: string | null
   taskType: string | null
   subTaskType: string | null
 }
@@ -136,18 +140,22 @@ function NewlyDispatchedWidget({ tasks, taskTypes, loading, acceptingTaskId, onO
               </div>
             )}
             {!loading && filtered.slice(0, 5).map((t) => (
-              <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 hover:bg-white/60">
+              <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-white/60 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <button onClick={() => onOpenTask(t.id)} className="min-w-0 text-left focus-visible:outline-2 focus-visible:outline-brand-500">
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 font-mono text-[10px] text-info-700">{t.code ?? '—'}</span>
                     <span className="truncate text-sm font-semibold text-body">{t.title}</span>
                   </div>
-                  <div className="mt-1 truncate text-[11px] text-muted">{fmtDateTime(t.dispatchedAt!)} · จาก {t.dispatcherName ?? '—'} · {t.projectName}</div>
+                  <div className="mt-1 truncate text-[11px] text-muted">{fmtDateTime(t.dispatchedAt!)} · {t.projectName ?? 'ไม่ผูกโปรเจกต์'}</div>
                 </button>
+                  <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-2 sm:col-start-2 sm:row-start-1" title={`ผู้จ่ายงาน: ${t.dispatcherName ?? '—'}`}>
+                    <Avatar name={t.dispatcherName ?? '—'} avatarUrl={t.dispatcherAvatarUrl} className="h-7 w-7 shrink-0 text-[10px] ring-2 ring-white" colorClass={avatarColor(t.dispatcherName ?? '—')} />
+                    <span className="max-w-28 truncate text-xs font-medium text-soft">{t.dispatcherName ?? '—'}</span>
+                  </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); onAccept(t.id) }}
                     disabled={acceptingTaskId === t.id}
-                    className="inline-flex min-w-20 items-center justify-center gap-1 rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-wait disabled:bg-brand-400"
+                    className="col-start-2 row-span-2 row-start-1 inline-flex min-h-11 min-w-20 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-brand-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 disabled:cursor-wait disabled:bg-brand-400 sm:col-start-3 sm:row-span-1"
                   >
                     {acceptingTaskId === t.id ? <RotateCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                     {acceptingTaskId === t.id ? 'กำลังรับ' : 'รับงาน'}
@@ -453,11 +461,18 @@ export function MyTasksPage() {
               <div className="flex items-center gap-2 text-base font-bold text-ink"><BriefcaseBusiness className="h-4.5 w-4.5 text-brand-600" /> งานทั้งหมดของฉัน</div>
               <p className="mt-1 text-xs text-muted">ค้นหา กรอง และติดตามงานจากทุกโปรเจกต์ในที่เดียว</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex overflow-hidden rounded-lg border border-border">
                 <button type="button" aria-pressed={view === 'board'} onClick={() => setView('board')} className={`flex h-9 items-center gap-1.5 px-3 text-xs font-semibold focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-brand-500 ${view === 'board' ? 'bg-brand-600 text-white' : 'bg-white text-dim hover:bg-hover'}`}><LayoutGrid className="h-3.5 w-3.5" /> Board</button>
                 <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')} className={`flex h-9 items-center gap-1.5 border-l border-border px-3 text-xs font-semibold focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-brand-500 ${view === 'list' ? 'bg-brand-600 text-white' : 'bg-white text-dim hover:bg-hover'}`}><Rows3 className="h-3.5 w-3.5" /> List</button>
               </div>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyN', bubbles: true }))}
+                className="inline-flex h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-brand-600 px-3 text-xs font-semibold text-white hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 active:bg-brand-800 sm:h-9"
+              >
+                <Plus className="h-3.5 w-3.5" /> สร้างงาน
+              </button>
             </div>
           </div>
 

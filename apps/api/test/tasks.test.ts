@@ -1,5 +1,6 @@
 import { createDb, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
+import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
 import { loginAs, seedUsers } from './helpers'
@@ -862,6 +863,7 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
   it('จ่ายงาน Backlog ที่คีย์ตรงในห้อง (ไม่ผูกโปรเจกต์) ให้คนอื่น กดรับงานแล้ว → โผล่ใน "งานของฉัน" ของคนรับ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')
+    await createDb(env.DB).update(users).set({ avatarUrl: 'https://example.com/dispatcher.png' }).where(eq(users.id, 'u_owner'))
     const ws = (await (
       await app.request('/api/workspaces', json(owner, { name: 'ห้องทดสอบ mine', type: 'business' }), env)
     ).json()) as { id: string; name: string }
@@ -875,7 +877,7 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
 
     const list = (await (
       await app.request('/api/tasks/mine', { headers: { cookie: pond } }, env)
-    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string; dispatcherName: string | null }[]
+    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string; dispatcherName: string | null; dispatcherAvatarUrl: string | null }[]
     const row = list.find((r) => r.id === t.id)
     expect(row).toBeTruthy()
     expect(row?.status).toBe('on_processing')
@@ -883,6 +885,7 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
     expect(row?.projectName).toBe(ws.name) // fallback เป็นชื่อ Workspace room เพราะไม่มีโปรเจกต์
     expect(row?.myRole).toBe('editor') // ไม่มี project role ให้ derive — ล้อ task-detail.ts
     expect(row?.dispatcherName).toBe('เมธ') // Pronista §My Tasks table (2026-09-18) — owner เป็นคนกด dispatch → ต้อง resolve ชื่อ assignedBy ออกมาด้วย
+    expect(row?.dispatcherAvatarUrl).toBe('https://example.com/dispatcher.png')
   })
 })
 
