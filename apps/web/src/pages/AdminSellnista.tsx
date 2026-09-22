@@ -3,7 +3,7 @@
  * รายการบริการที่ Subscribe กับระบบ Sellnista + วันหมดอายุ — แจ้งเตือนอัตโนมัติ 30/15/7/1 วันก่อนหมดอายุ ทำใน apps/api/src/scheduled.ts:notifySellnistaExpiry
  * ระบบแยกต่างหากจาก "จัดการโดเมน"/productTypes โดยตั้งใจ — โครงหน้าก็อป AdminDomains.tsx เป๊ะ แต่ตัดฟิลด์ registrar/ผู้รับผิดชอบ/โปรเจกต์ออก (สเปกมีแค่ ชื่อบริการ/วันหมดอายุ/แจ้งเตือน)
  */
-import { AlertTriangle, Plus, Store, X } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Plus, Store, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { DateInputTH } from '../components/DateInputTH'
@@ -17,6 +17,8 @@ import { fmtDate } from './AdminDomains'
 interface SellnistaRow {
   id: string
   name: string
+  storefrontUrl: string | null
+  adminUrl: string | null
   expiryDate: string
   notifyEnabled: boolean
 }
@@ -28,13 +30,15 @@ function SellnistaModal({ item, onClose, onDone }: { item: SellnistaRow | null; 
   const { alertDialog } = useDialog()
   const [name, setName] = useState(item?.name ?? '')
   const [expiryDate, setExpiryDate] = useState(item?.expiryDate ?? '')
+  const [storefrontUrl, setStorefrontUrl] = useState(item?.storefrontUrl ?? '')
+  const [adminUrl, setAdminUrl] = useState(item?.adminUrl ?? '')
   const [busy, setBusy] = useState(false)
 
   const submit = async () => {
     if (!name.trim() || !expiryDate) return
     setBusy(true)
     try {
-      const payload = { name: name.trim(), expiryDate }
+      const payload = { name: name.trim(), storefrontUrl: storefrontUrl.trim() || null, adminUrl: adminUrl.trim() || null, expiryDate }
       if (item) await api.patch(`/api/admin/sellnista/${item.id}`, payload)
       else await api.post('/api/admin/sellnista', payload)
       toast('บันทึกสำเร็จ')
@@ -58,6 +62,14 @@ function SellnistaModal({ item, onClose, onDone }: { item: SellnistaRow | null; 
           <div>
             <label className="text-[11px] text-muted block mb-0.5">ชื่อบริการ</label>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น Sellnista Pro Plan" className={input} />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">ลิงก์หน้าบ้าน (ไม่บังคับ)</label>
+            <input type="url" value={storefrontUrl} onChange={(e) => setStorefrontUrl(e.target.value)} placeholder="https://example.com" className={input} />
+          </div>
+          <div>
+            <label className="text-[11px] text-muted block mb-0.5">ลิงก์หลังบ้าน (ไม่บังคับ)</label>
+            <input type="url" value={adminUrl} onChange={(e) => setAdminUrl(e.target.value)} placeholder="https://admin.example.com" className={input} />
           </div>
           <div>
             <label className="text-[11px] text-muted block mb-0.5">วันหมดอายุ</label>
@@ -162,6 +174,7 @@ export function AdminSellnistaPage() {
                 <thead>
                   <tr className="text-left text-[11px] text-muted border-b border-divider">
                     <th className="px-4 py-2.5 font-medium">ชื่อบริการ</th>
+                    <th className="px-4 py-2.5 font-medium">ลิงก์</th>
                     <th className="px-4 py-2.5 font-medium">วันหมดอายุ</th>
                     <th className="px-4 py-2.5 font-medium">แจ้งเตือนหมดอายุ</th>
                     <th className="px-4 py-2.5 font-medium"></th>
@@ -173,6 +186,13 @@ export function AdminSellnistaPage() {
                     return (
                       <tr key={item.id} className={URGENCY_BORDER_CLASS[urgency]}>
                         <td className="px-4 py-2.5 font-medium text-body">{item.name}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-3 text-[12px]">
+                            {item.storefrontUrl && <a href={item.storefrontUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline"><ExternalLink className="w-3 h-3" /> หน้าบ้าน</a>}
+                            {item.adminUrl && <a href={item.adminUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-600 hover:underline"><ExternalLink className="w-3 h-3" /> หลังบ้าน</a>}
+                            {!item.storefrontUrl && !item.adminUrl && <span className="text-muted">—</span>}
+                          </div>
+                        </td>
                         <td className="px-4 py-2.5">
                           <span className={`inline-flex items-center gap-1 ${urgency === 'overdue' ? 'text-danger-600 font-medium' : urgency === 'soon' ? 'text-warning-700' : 'text-body'}`}>
                             {urgency === 'overdue' && <AlertTriangle className="w-3.5 h-3.5" />}

@@ -1,4 +1,4 @@
-import { Calendar, MessageCircle, MessagesSquare, Paperclip, Plus, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { Calendar, Download, MessageCircle, MessagesSquare, Minus, Paperclip, Plus, RotateCcw, Search, Send, Trash2, Users, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -142,6 +142,8 @@ function ChatTab({ initialChannelId }: { initialChannelId?: string } = {}) {
   const [subTab, setSubTab] = useState<'messages' | 'directory'>('messages')
   // เปิดแชทจากรายชื่อ — เรียก POST /chat/channels แบบเดิมทุกอย่าง (idempotent อยู่แล้ว มีห้องเดิมก็คืนห้องเดิม) แล้วสลับกลับมาแท็บ "แชท" พร้อมเลือกห้องนั้นให้เลย
   const startDmFromDirectory = async (userId: string) => {
+    // เคลียร์ห้องเดิมทันที ไม่ให้ข้อความของ contact ก่อนหน้ากะพริบระหว่างโหลดห้องใหม่
+    setSelectedId(null)
     const ch = await api.post<{ id: string }>('/api/chat/channels', { kind: 'dm', userId })
     setSubTab('messages')
     await reload()
@@ -366,6 +368,8 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null)
   const [convertFor, setConvertFor] = useState<ChatMessage | null>(null)
   // Pronista §Chat reply (2026-09-17) — ข้อความที่กำลังจะตอบกลับ (โชว์แถบ preview เหนือช่องพิมพ์ ยกเลิกได้ก่อนส่ง)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
@@ -390,6 +394,13 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
   const isPrependingRef = useRef(false)
   // §Team Chat history fix — loadingMore (state) เปลี่ยนไม่ทันทีทันใด (batched) ถ้า onScroll ยิงรัวๆ ก่อน re-render จะหลุดผ่าน guard ได้หลายรอบพร้อมกัน ยิง fetch ซ้ำ/ข้อความเก่าโผล่ซ้ำ — ใช้ ref เช็คแบบ synchronous แทน
   const loadingMoreRef = useRef(false)
+
+  useEffect(() => {
+    if (!pendingFile || !pendingFile.type.startsWith('image/')) { setPendingPreviewUrl(null); return }
+    const url = URL.createObjectURL(pendingFile)
+    setPendingPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [pendingFile])
 
   useEffect(() => { setMessages(data ?? []); setHasMore((data?.length ?? 0) >= 50) }, [data])
   useEffect(() => {
@@ -482,16 +493,25 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
 
   const send = async () => {
     const body = text.trim()
-    if (!body || sending) return
+    if ((!body && !pendingFile) || sending) return
     setSending(true)
-    setText('')
     setMentionOpen(false)
     const replyingTo = replyTo?.id
-    setReplyTo(null)
     try {
       const mentionedUserIds = canMention ? detectMentions(body, members) : []
-      await api.post(`/api/chat/channels/${channel.id}/messages`, { body, mentionedUserIds, ...(replyingTo ? { parentMessageId: replyingTo } : {}) })
+      const created = await api.post<ChatMessage>(`/api/chat/channels/${channel.id}/messages`, { body, mentionedUserIds, ...(replyingTo ? { parentMessageId: replyingTo } : {}) })
+      if (pendingFile) {
+        const fd = new FormData()
+        fd.append('file', pendingFile)
+        const res = await fetch(`/api/chat/messages/${created.id}/attachments`, { method: 'POST', body: fd })
+        if (!res.ok) throw new Error('attachment_failed')
+      }
+      setText('')
+      setPendingFile(null)
+      setReplyTo(null)
       onSent()
+    } catch (e) {
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'ส่งข้อความหรือไฟล์ไม่สำเร็จ — รับไฟล์ขนาดไม่เกิน 15MB' })
     } finally {
       setSending(false)
     }
@@ -558,21 +578,12 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
     return map
   }, [messages, members, meId])
 
-  const upload = async (file: File) => {
-    // ต้องมีข้อความก่อนถึงจะแนบไฟล์ได้ (ไฟล์แนบผูกกับ message) — เดิมยัดแคปชัน "แนบไฟล์: ชื่อไฟล์" ให้เสมอ ตอนนี้ส่ง body ว่างแทน (ตัด API ฝั่ง server ให้รับ body ว่างได้แล้ว) โชว์แค่รูป/คลิป/ไฟล์เพียวๆ ไม่มีข้อความซ้ำซ้อน
-    const created = await api.post<ChatMessage>(`/api/chat/channels/${channel.id}/messages`, { body: '' })
-    onSent()
-    const fd = new FormData()
-    fd.append('file', file)
-    const res = await fetch(`/api/chat/messages/${created.id}/attachments`, { method: 'POST', body: fd })
-    if (!res.ok) await alertDialog({ title: 'แนบไฟล์ไม่สำเร็จ — รับไฟล์ขนาดไม่เกิน 15MB' })
-  }
-  // Pronista §Chat paste image (2026-09-17) — ก็อปรูปมาวาง (Ctrl+V) ในช่องพิมพ์แล้วแนบขึ้นแชทได้เลย เหมือนแอปแชททั่วไป — reuse upload() เดิมทุกอย่าง (สร้างข้อความเปล่าแล้วผูกไฟล์แนบเข้าไป)
+  // วาง/เลือกไฟล์ให้ preview ใน composer ก่อน ผู้ใช้เติมข้อความได้และส่งจริงเมื่อกดปุ่ม Send เท่านั้น
   const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
     if (file) {
       e.preventDefault()
-      void upload(file)
+      setPendingFile(file)
     }
   }
 
@@ -630,6 +641,13 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
           <button onClick={() => setReplyTo(null)} className="p-1 rounded hover:bg-divider text-dim shrink-0" aria-label="ยกเลิกการตอบกลับ"><X className="w-3.5 h-3.5" /></button>
         </div>
       )}
+      {pendingFile && (
+        <div className="flex items-center gap-3 px-3 pt-2 border-t border-border-subtle bg-hover/60">
+          {pendingPreviewUrl ? <img src={pendingPreviewUrl} alt={pendingFile.name} className="w-16 h-16 rounded-lg object-contain bg-white border border-border-subtle" /> : <Paperclip className="w-5 h-5 text-dim" />}
+          <div className="min-w-0 flex-1"><div className="text-xs font-medium text-body truncate">{pendingFile.name}</div><div className="text-[11px] text-muted">พร้อมส่ง — เพิ่มข้อความประกอบได้</div></div>
+          <button onClick={() => setPendingFile(null)} className="p-1.5 rounded-lg hover:bg-divider text-dim" aria-label="เอาไฟล์ออก"><X className="w-4 h-4" /></button>
+        </div>
+      )}
       <div className={`relative p-3 flex items-end gap-2 ${replyTo ? '' : 'border-t border-border-subtle'}`}>
         {mentionOpen && mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-3 mb-1 w-56 max-h-48 overflow-y-auto bg-white rounded-lg shadow-2xl border border-border-subtle p-1 z-10">
@@ -646,7 +664,7 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
             ))}
           </div>
         )}
-        <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+        <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setPendingFile(f); e.target.value = '' }} />
         <button onClick={() => fileRef.current?.click()} className="p-2 rounded-lg hover:bg-hover text-dim shrink-0" title="แนบไฟล์"><Paperclip className="w-4 h-4" /></button>
         <textarea
           ref={textareaRef}
@@ -659,7 +677,7 @@ function ChatPanel({ channel, meId, onBack, onSent }: { channel: ChatChannel; me
           style={{ maxHeight: COMPOSER_MAX_HEIGHT }}
           className="flex-1 text-sm bg-hover rounded-lg px-3 py-2 resize-none overflow-y-auto focus:outline-hidden"
         />
-        <button onClick={() => void send()} disabled={!text.trim() || sending} className="p-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40 shrink-0"><Send className="w-4 h-4" /></button>
+        <button onClick={() => void send()} disabled={(!text.trim() && !pendingFile) || sending} className="p-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40 shrink-0"><Send className="w-4 h-4" /></button>
       </div>
       {convertFor && <ConvertToTaskModal message={convertFor} onClose={() => setConvertFor(null)} />}
     </div>
@@ -772,7 +790,20 @@ function MessageRow({
   const { confirmDialog, alertDialog } = useDialog()
   const [menuOpen, setMenuOpen] = useState(false)
   // Pronista §Chat inline media (2026-09-16) — รูป/คลิปที่แนบมา โชว์ตรงในแชทเลยแบบ LINE/Messenger ไม่ต้องกดออกไปดูอีกที
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; filename: string } | null>(null)
+  const [lightboxZoom, setLightboxZoom] = useState(1)
+  const [lightboxOffset, setLightboxOffset] = useState({ x: 0, y: 0 })
+  const lightboxDrag = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null)
+  const openLightbox = (src: string, filename: string) => {
+    setLightbox({ src, filename })
+    setLightboxZoom(1)
+    setLightboxOffset({ x: 0, y: 0 })
+  }
+  const changeLightboxZoom = (next: number) => {
+    const zoom = Math.min(4, Math.max(0.5, next))
+    setLightboxZoom(zoom)
+    if (zoom === 1) setLightboxOffset({ x: 0, y: 0 })
+  }
   // Pronista §Chat edit (2026-09-17) — แก้ไขข้อความของตัวเองได้ (backend รองรับอยู่แล้ว แค่ไม่เคยมี UI) แก้ในบับเบิลเดิมเลย ไม่ใช่ popup แยก
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState(m.body)
@@ -846,8 +877,8 @@ function MessageRow({
           const src = a.r2Key ? `/api/chat/attachments/${a.id}` : a.externalUrl
           if (src && a.mime?.startsWith('image/')) {
             return (
-              <button key={a.id} type="button" onClick={() => setLightboxUrl(src)} className="block mt-1 max-w-[240px]">
-                <img src={src} alt={a.filename} className="max-w-full max-h-60 rounded-lg object-cover cursor-zoom-in" />
+              <button key={a.id} type="button" onClick={() => openLightbox(src, a.filename)} className="block mt-1 max-w-[240px]">
+                <img src={src} alt={a.filename} className="max-w-full max-h-60 rounded-lg object-contain cursor-zoom-in bg-white" />
               </button>
             )
           }
@@ -860,10 +891,45 @@ function MessageRow({
             </a>
           )
         })}
-        {lightboxUrl && (
-          <div className="fixed inset-0 z-50 bg-ink/80 grid place-items-center p-4" onClick={() => setLightboxUrl(null)}>
-            <img src={lightboxUrl} alt="" className="max-w-full max-h-full rounded-lg" onClick={(e) => e.stopPropagation()} />
-            <button onClick={() => setLightboxUrl(null)} aria-label="ปิด" className="absolute top-4 right-4 text-white bg-black/40 hover:bg-black/60 rounded-full p-2">
+        {lightbox && (
+          <div
+            className="fixed inset-0 z-50 bg-ink/90 overflow-hidden select-none"
+            onWheel={(e) => { e.preventDefault(); changeLightboxZoom(lightboxZoom + (e.deltaY < 0 ? 0.25 : -0.25)) }}
+            onPointerMove={(e) => {
+              if (!lightboxDrag.current || lightboxZoom <= 1) return
+              setLightboxOffset({
+                x: lightboxDrag.current.offsetX + e.clientX - lightboxDrag.current.x,
+                y: lightboxDrag.current.offsetY + e.clientY - lightboxDrag.current.y,
+              })
+            }}
+            onPointerUp={() => { lightboxDrag.current = null }}
+            onPointerCancel={() => { lightboxDrag.current = null }}
+          >
+            <div className="absolute inset-0 grid place-items-center p-16" onClick={() => setLightbox(null)}>
+              <img
+                src={lightbox.src}
+                alt={lightbox.filename}
+                draggable={false}
+                className={`max-w-full max-h-full object-contain rounded-lg ${lightboxZoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
+                style={{ transform: `translate(${lightboxOffset.x}px, ${lightboxOffset.y}px) scale(${lightboxZoom})` }}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
+                  if (lightboxZoom <= 1) return
+                  lightboxDrag.current = { x: e.clientX, y: e.clientY, offsetX: lightboxOffset.x, offsetY: lightboxOffset.y }
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                }}
+              />
+            </div>
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-xl bg-black/55 text-white p-1.5 shadow-lg">
+              <button type="button" onClick={() => changeLightboxZoom(lightboxZoom - 0.25)} aria-label="ซูมออก" className="p-2 rounded-lg hover:bg-white/15"><Minus className="w-4 h-4" /></button>
+              <button type="button" onClick={() => changeLightboxZoom(1)} className="min-w-16 px-2 py-1.5 text-xs rounded-lg hover:bg-white/15" title="รีเซ็ตขนาด">
+                {Math.round(lightboxZoom * 100)}%
+              </button>
+              <button type="button" onClick={() => changeLightboxZoom(lightboxZoom + 0.25)} aria-label="ซูมเข้า" className="p-2 rounded-lg hover:bg-white/15"><Plus className="w-4 h-4" /></button>
+              <button type="button" onClick={() => { setLightboxZoom(1); setLightboxOffset({ x: 0, y: 0 }) }} aria-label="จัดภาพให้อยู่กึ่งกลาง" className="p-2 rounded-lg hover:bg-white/15"><RotateCcw className="w-4 h-4" /></button>
+              <a href={lightbox.src} download={lightbox.filename} aria-label="ดาวน์โหลด" className="p-2 rounded-lg hover:bg-white/15"><Download className="w-4 h-4" /></a>
+            </div>
+            <button onClick={() => setLightbox(null)} aria-label="ปิด" className="absolute top-4 right-4 text-white bg-black/55 hover:bg-black/75 rounded-full p-2">
               <X className="w-5 h-5" />
             </button>
           </div>

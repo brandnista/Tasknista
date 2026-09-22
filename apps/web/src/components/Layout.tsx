@@ -130,11 +130,11 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     to: '/admin/domains',
     label: 'บริการ',
     icon: Briefcase,
-    roles: ['owner'],
+    roles: ['owner', 'member'],
     children: [
-      { to: '/admin/domains', label: 'จัดการโดเมน' },
+      { to: '/admin/domains', label: 'รายการบริการ' },
       // Pronista §System Enhancements — Sellnista: บริการ Subscription แยกระบบต่างหาก (ไม่ผูก productTypes ของ projects)
-      { to: '/admin/sellnista', label: 'Sellnista' },
+      { to: '/admin/sellnista', label: 'Sellnista', roles: ['owner'] },
     ],
   },
   // Pronista §Secret Vault (2026-09-03, เปิดเพดานได้ 2026-09-08) — owner เห็นเสมอ หมวดอื่นเปิด/ปิดได้จาก "เพดานสิทธิ์" (default ปิด, ข้อมูลอ่อนไหว)

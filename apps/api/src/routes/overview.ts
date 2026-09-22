@@ -147,8 +147,22 @@ export const overviewRoutes = new Hono<AppEnv>()
         dueDate: t.dueDate,
       }))
 
-    // ภาระงานทีม — สมาชิก active ที่ไม่ใช่ vendor · นับงานยังไม่เสร็จ + เวลาที่ลงวันนี้
     const activeUsers = await db.select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl, role: users.role }).from(users).where(eq(users.status, 'active'))
+    const userNameById = new Map(activeUsers.map((u) => [u.id, u.name]))
+    const waitingReviewList = allTasks
+      .filter((t) => t.status === 'waiting_for_test')
+      .sort((a, b) => Number(a.submittedAt ?? 0) - Number(b.submittedAt ?? 0))
+      .slice(0, 12)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        projectId: t.projectId,
+        projectName: t.projectId ? (projectNameById.get(t.projectId) ?? '') : 'Backlog',
+        submittedAt: t.submittedAt,
+        assigneeName: t.assigneeId ? (userNameById.get(t.assigneeId) ?? '') : '',
+      }))
+
+    // เก็บ payload เดิมไว้รองรับ client รุ่นเก่า; หน้าภาพรวมรุ่นใหม่ใช้ /workload ซึ่งอิง Manhour จริง
     const unfinishedByUser = new Map<string, number>()
     const overdueByUser = new Map<string, number>()
     for (const t of allTasks) {
@@ -176,5 +190,5 @@ export const overviewRoutes = new Hono<AppEnv>()
       }))
       .sort((a, b) => b.unfinished - a.unfinished)
 
-    return c.json({ overdueList, dueSoonList, teamWorkload })
+    return c.json({ overdueList, dueSoonList, waitingReviewList, teamWorkload })
   })

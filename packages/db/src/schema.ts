@@ -546,6 +546,8 @@ export const tasks = sqliteTable(
     version: integer('version').notNull().default(1),
     // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId
     dispatchedAt: integer('dispatched_at', { mode: 'timestamp_ms' }),
+    // Workload: เวลาที่ผู้รับผิดชอบกด "รับงาน" ครั้งแรก ใช้ล็อก Slot โดยไม่ผูกกับสถานะ workflow ปัจจุบัน
+    acceptedAt: integer('accepted_at', { mode: 'timestamp_ms' }),
     status: text('status', { enum: TASK_STATUSES }).notNull().default('non_start'),
     priority: text('priority', { enum: ['low', 'normal', 'high'] }).notNull().default('normal'),
     // Pronista §Workspace — แท็กสี (อ้าง id ใน company_config.labels, ไม่มี DB-level FK) เลือกได้หลายอัน
@@ -620,6 +622,8 @@ export const taskComments = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    editedAt: integer('edited_at', { mode: 'timestamp_ms' }),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('task_comments_task_idx').on(t.taskId)],
 )
@@ -2166,6 +2170,8 @@ export const domains = sqliteTable(
     name: text('name').notNull(), // เช่น pronista.com
     registeredDate: text('registered_date'), // YYYY-MM-DD — ไม่บังคับ
     expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
+    serviceUrl: text('service_url'),
+    productTypeId: text('product_type_id'), // อ้างอิง id จาก company_config.product_types
     provider: text('provider'), // ผู้ให้บริการ/ผู้จดทะเบียน (แสดงเป็น "Registrar" ใน UI)
     responsibleUserId: text('responsible_user_id').references((): AnySQLiteColumn => users.id),
     projectId: text('project_id').references(() => projects.id),
@@ -2209,6 +2215,8 @@ export const sellnistaSubscriptions = sqliteTable(
   {
     id: id(),
     name: text('name').notNull(), // ชื่อบริการที่ Subscribe
+    storefrontUrl: text('storefront_url'), // ลิงก์หน้าบ้าน (ไม่บังคับ)
+    adminUrl: text('admin_url'), // ลิงก์หลังบ้าน (ไม่บังคับ)
     expiryDate: text('expiry_date').notNull(), // YYYY-MM-DD
     notifyEnabled: integer('notify_enabled', { mode: 'boolean' }).notNull().default(true),
     notifiedTiers: text('notified_tiers', { mode: 'json' }).$type<number[]>(),

@@ -19,6 +19,9 @@ export default defineConfig(async () => {
             // base64 ของ 32 bytes คงที่ — ใช้แค่ในเทสต์
             INBOX_ENC_KEY: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
             VAULT_ENC_KEY: 'ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=',
+            // ค่าจำลองสำหรับเทสต์ webhook เท่านั้น ไม่ใช่ credential จริง
+            LINE_CHANNEL_SECRET: 'test-line-channel-secret',
+            LINE_SECOND_BRAIN_GROUP_ID: 'Cdevfakegroupid1234567890',
           },
         },
       }),

@@ -1,4 +1,5 @@
 /* Hallmark · pre-emit critique: P4 H5 E5 S5 R5 V4 */
+import { resolveTaskTypes, type TaskType } from '@seedoffice/core'
 import {
   CheckCircle2,
   ClipboardList,
@@ -37,6 +38,8 @@ interface MyTask extends KanbanTask {
   sprintId: string | null
   // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ใครเป็นคนกดจ่ายงานนี้มา (tasks.assignedBy resolve เป็นชื่อ)
   dispatcherName: string | null
+  taskType: string | null
+  subTaskType: string | null
 }
 const PRIORITY_ORDER: Record<MyTask['priority'], number> = { high: 0, normal: 1, low: 2 }
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
@@ -81,13 +84,29 @@ function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTas
 /** Pronista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน
  * Pronista §My Tasks table redesign (2026-09-18) — เปลี่ยนเป็นตารางหัวคอลัมน์ชัดเจน (วันที่เวลา/รหัสงาน/ชื่องาน/ผู้จ่ายงาน/ปุ่มรับงาน) + เรียงงานที่จ่ายมาใหม่สุดไว้บนสุด (เดิมไม่เรียงเลย ใช้ลำดับดิบจาก API) */
 function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[]; onOpenTask: (id: string) => void; onAccept: (id: string) => void }) {
+  const { data: cfg } = useLoad<{ taskTypes: TaskType[] }>(() => api.get('/api/config'))
+  const [taskTypeFilter, setTaskTypeFilter] = useState('')
   const pending = tasks
     .filter((t) => t.dispatchedAt && t.status === 'non_start')
     .sort((a, b) => new Date(b.dispatchedAt!).getTime() - new Date(a.dispatchedAt!).getTime())
+  const filtered = taskTypeFilter ? pending.filter((t) => t.taskType === taskTypeFilter) : pending
   if (pending.length === 0) return null
   return (
     <div className="bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-5">
-      <div className="text-sm font-semibold text-body mb-3">งานใหม่ที่รอคุณกดรับ ({pending.length})</div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+        <div className="text-sm font-semibold text-body">
+          งานใหม่ที่รอคุณกดรับ ({taskTypeFilter ? `${filtered.length}/${pending.length}` : pending.length})
+        </div>
+        <select
+          value={taskTypeFilter}
+          onChange={(e) => setTaskTypeFilter(e.target.value)}
+          aria-label="กรองประเภทงานใหม่ที่รอกดรับ"
+          className="w-full sm:w-52 border border-info-200 bg-white text-soft px-2.5 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400"
+        >
+          <option value="">ประเภทงานทั้งหมด</option>
+          {resolveTaskTypes(cfg?.taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+        </select>
+      </div>
       <div className="overflow-x-auto -mx-4 px-4">
         <table className="w-full text-sm min-w-[640px]">
           <thead>
@@ -100,7 +119,7 @@ function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[
             </tr>
           </thead>
           <tbody className="divide-y divide-info-100">
-            {pending.map((t) => (
+            {filtered.map((t) => (
               <tr key={t.id} className="hover:bg-white/60">
                 <td className="py-2.5 pr-3 text-xs text-muted whitespace-nowrap tabular-nums">{fmtDateTime(t.dispatchedAt!)}</td>
                 <td className="py-2.5 pr-3 text-xs font-mono text-muted whitespace-nowrap">{t.code ?? '—'}</td>
@@ -121,6 +140,9 @@ function NewlyDispatchedWidget({ tasks, onOpenTask, onAccept }: { tasks: MyTask[
                 </td>
               </tr>
             ))}
+            {filtered.length === 0 && (
+              <tr><td colSpan={5} className="py-6 text-center text-xs text-muted">ไม่มีงานใหม่ในประเภทที่เลือก</td></tr>
+            )}
           </tbody>
         </table>
       </div>

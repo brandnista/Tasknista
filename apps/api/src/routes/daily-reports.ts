@@ -15,6 +15,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyUser } from '../lib/notify'
+import { createQuickTask } from '../lib/quick-task'
+import { getProjectPermissions } from '../lib/project-role'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -122,7 +124,7 @@ async function loadReportDetail(db: ReturnType<typeof createDb>, reportId: strin
 const itemInput = z
   .object({
     taskId: z.string().optional(),
-    manualTitle: z.string().min(1).max(200).optional(),
+    manualTitle: z.string().min(1).max(1000, 'รายละเอียดงานต้องไม่เกิน 1,000 ตัวอักษร').optional(),
     manualMinutes: z.number().int().nonnegative().max(1440).optional(),
     note: z.string().max(2000).nullable().optional(),
   })
@@ -373,7 +375,7 @@ dailyReportRoutes
   // เพิ่มงานเข้ารายงาน — ผูก task จริง (taskId, upsert กันซ้ำ) หรือคีย์เองแบบ freeform (manualTitle+manualMinutes)
   .post('/daily-reports/:id/items', teamOnly, async (c) => {
     const body = itemInput.safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    if (!body.success) return c.json({ error: 'invalid', message: body.error.issues[0]?.message ?? 'ข้อมูลรายการไม่ถูกต้อง' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
@@ -410,11 +412,11 @@ dailyReportRoutes
     const body = z
       .object({
         note: z.string().max(2000).nullable().optional(),
-        manualTitle: z.string().min(1).max(200).optional(),
+        manualTitle: z.string().min(1).max(1000, 'รายละเอียดงานต้องไม่เกิน 1,000 ตัวอักษร').optional(),
         manualMinutes: z.number().int().nonnegative().max(1440).optional(),
       })
       .safeParse(await c.req.json())
-    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    if (!body.success) return c.json({ error: 'invalid', message: body.error.issues[0]?.message ?? 'ข้อมูลรายการไม่ถูกต้อง' }, 400)
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
@@ -433,6 +435,30 @@ dailyReportRoutes
     const updated = (await db.update(dailyReportItems).set(patch).where(eq(dailyReportItems.id, item.id)).returning())[0]
     if (!updated) return c.json({ error: 'not_found' }, 404)
     return c.json(updated)
+  })
+
+  // แปลงรายการที่คีย์เองให้เป็น Task จริง แล้วผูกรายการเดิมเข้ากับ Task ที่สร้างทันที
+  .post('/daily-reports/:id/items/:itemId/convert-to-task', teamOnly, async (c) => {
+    const body = z.object({ projectId: z.string().min(1) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid', message: 'กรุณาเลือกโปรเจกต์' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const report = (await db.select().from(dailyReports).where(eq(dailyReports.id, c.req.param('id'))).limit(1))[0]
+    if (!report) return c.json({ error: 'not_found' }, 404)
+    if (!canEditReport(report, me)) return c.json({ error: 'forbidden' }, 403)
+    if (isLocked(report)) return c.json({ error: 'locked', message: 'รายงานถูกล็อกแล้ว' }, 400)
+    const item = (await db.select().from(dailyReportItems).where(and(eq(dailyReportItems.id, c.req.param('itemId')), eq(dailyReportItems.reportId, report.id))).limit(1))[0]
+    if (!item) return c.json({ error: 'not_found' }, 404)
+    if (item.taskId || !item.manualTitle) return c.json({ error: 'not_manual_item', message: 'รายการนี้ถูกแปลงเป็น Task แล้ว' }, 409)
+    const project = (await db.select().from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
+    if (!project) return c.json({ error: 'project_not_found' }, 404)
+    const permissions = await getProjectPermissions(db, project.id, me.id, me.role)
+    if (!permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
+    const created = await createQuickTask(db, { projectId: project.id, title: item.manualTitle, description: item.note, createdBy: me.id })
+    if (!created) return c.json({ error: 'project_not_found' }, 404)
+    await db.update(dailyReportItems).set({ taskId: created.id, manualTitle: null, manualMinutes: null }).where(eq(dailyReportItems.id, item.id))
+    await writeAudit(c.env, { actorId: me.id, action: 'task.create', entity: 'task', entityId: created.id, meta: { title: created.title, source: 'daily_report', reportId: report.id, reportItemId: item.id } })
+    return c.json(created, 201)
   })
 
   .delete('/daily-reports/:id/items/:itemId', teamOnly, async (c) => {

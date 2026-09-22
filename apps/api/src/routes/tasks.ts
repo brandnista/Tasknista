@@ -611,7 +611,8 @@ export const taskRoutes = new Hono<AppEnv>()
     if (body.data.status && body.data.status !== before.status && before.assigneeId === me.id && before.dispatchedAt) {
       const nextStatus = body.data.status
       // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — self-close ลัดขั้นได้เฉพาะ "ไม่มี Reviewer" ด้วย (ตรงสเปกข้อ 7/8: self-assign ไม่มี reviewer→ปิดเองได้เลย, มี reviewer→ต้องรอ approve เหมือนงานทั่วไป)
-      const isSelfDispatched = before.assignedBy === me.id && !before.reviewerId
+      // reviewer ที่ระบบ default เป็นคนจ่ายงานเอง ไม่ควรทำให้ self-dispatch สูญเสียสิทธิ์ปิดงานเอง
+      const isSelfDispatched = before.assignedBy === me.id && (!before.reviewerId || before.reviewerId === me.id)
       const assigneeAllowedNext: Partial<Record<(typeof TASK_STATUSES)[number], (typeof TASK_STATUSES)[number][]>> = {
         non_start: ['on_processing'],
         on_processing: isSelfDispatched ? ['waiting_for_test', 'done'] : ['waiting_for_test'],
@@ -689,6 +690,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Assign/Accept audit (2026-09-03) — งานที่ไปไกลกว่า non_start แล้วก็ต้องรีเซ็ตสถานะกลับด้วย กันคนใหม่โดนข้ามขั้นตอน "รับงาน" ไปเลย (ยืนยันแล้วว่าต้องการแบบนี้ตาม QA test script ASSIGN-007)
     if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) {
       patch.dispatchedAt = null
+      patch.acceptedAt = null
       if (before.status !== 'non_start') {
         patch.status = 'non_start'
         patch.completedAt = null
@@ -936,7 +938,13 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — งานที่เคยถูกปฏิเสธมาก่อน (status='rejected') จ่ายซ้ำ (คนเดิมหรือหลัง reassign ที่รีเซ็ตเป็น non_start ไปแล้วก็ไม่เข้าเงื่อนไขนี้อยู่แล้ว) → รีเซ็ตกลับ non_start ให้เข้ารอบ accept ใหม่ปกติ
     const updated = await db
       .update(tasks)
-      .set({ dispatchedAt: new Date(), status: before.status === 'rejected' ? 'non_start' : before.status, version: sql`${tasks.version} + 1` })
+      .set({
+        dispatchedAt: new Date(),
+        status: before.status === 'rejected' ? 'non_start' : before.status,
+        // หากไม่เลือกผู้ตรวจ ให้ผู้จ่ายงานรอบนี้เป็นผู้ตรวจโดยอัตโนมัติ
+        reviewerId: before.reviewerId ?? me.id,
+        version: sql`${tasks.version} + 1`,
+      })
       .where(and(eq(tasks.id, before.id), isNull(tasks.dispatchedAt)))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_dispatched', message: 'งานนี้ถูกจ่ายไปแล้ว' }, 409)
@@ -963,7 +971,7 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Assign/Accept audit (2026-09-03) — เพิ่ม WHERE guard ซ้ำที่ระดับ DB กัน race จากการกดซ้ำ/พร้อมกัน
     const updated = await db
       .update(tasks)
-      .set({ status: 'on_processing', version: sql`${tasks.version} + 1` })
+      .set({ status: 'on_processing', acceptedAt: before.acceptedAt ?? new Date(), version: sql`${tasks.version} + 1` })
       .where(and(eq(tasks.id, before.id), eq(tasks.status, 'non_start')))
       .returning()
     if (!updated[0]) return c.json({ error: 'already_accepted' }, 409)
@@ -1035,12 +1043,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     const me = c.get('user')
-    if (before.projectId) {
-      const role = await getProjectRole(db, before.projectId, me.id, me.role)
-      if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
-    } else if (me.role !== 'owner') {
-      return c.json({ error: 'forbidden' }, 403)
-    }
+    // การยกเลิกกระทบ workflow ทั้งงาน จึงจำกัดไว้เฉพาะ Admin บริษัทเท่านั้น
+    if (me.role !== 'owner') return c.json({ error: 'forbidden' }, 403)
     if (before.status === 'done' || before.status === 'cancelled') return c.json({ error: 'invalid_status', message: 'งานนี้ปิด/ยกเลิกไปแล้ว' }, 400)
     const updated = await db
       .update(tasks)

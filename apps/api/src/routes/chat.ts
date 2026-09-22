@@ -126,9 +126,10 @@ chatRoutes
       const mine = await db.select({ channelId: chatChannelMembers.channelId }).from(chatChannelMembers).where(eq(chatChannelMembers.userId, me.id))
       const theirs = await db.select({ channelId: chatChannelMembers.channelId }).from(chatChannelMembers).where(eq(chatChannelMembers.userId, body.data.userId))
       const theirSet = new Set(theirs.map((r) => r.channelId))
-      const sharedChannelId = mine.map((r) => r.channelId).find((id) => theirSet.has(id))
-      if (sharedChannelId) {
-        const existing = (await db.select().from(chatChannels).where(and(eq(chatChannels.id, sharedChannelId), eq(chatChannels.kind, 'dm'))).limit(1))[0]
+      const sharedChannelIds = mine.map((r) => r.channelId).filter((id) => theirSet.has(id))
+      if (sharedChannelIds.length) {
+        // ผู้ใช้สองคนอาจอยู่ group เดียวกันหลายห้อง ต้องค้นหา DM ใน shared IDs ทั้งหมด
+        const existing = (await db.select().from(chatChannels).where(and(inArray(chatChannels.id, sharedChannelIds), eq(chatChannels.kind, 'dm'))).limit(1))[0]
         if (existing) return c.json(existing)
       }
       const created = (await db.insert(chatChannels).values({ kind: 'dm' }).returning())[0]!
@@ -311,12 +312,14 @@ chatRoutes
     if (!channel || !(await canAccessChannel(db, channel, me))) return c.json({ error: 'forbidden' }, 403)
     const obj = await c.env.FILES.get(att.r2Key)
     if (!obj) return c.json({ error: 'object_missing' }, 404)
-    const inlineSafe = /^(image\/(png|jpeg|gif|webp|avif)|video\/(mp4|webm|quicktime))$/.test(att.mime ?? '')
+    const inlineSafe = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml)|video\/(mp4|webm|quicktime))$/.test(att.mime ?? '')
     return new Response(obj.body, {
       headers: {
         'content-type': inlineSafe && att.mime ? att.mime : 'application/octet-stream',
         'content-disposition': `${inlineSafe ? 'inline' : 'attachment'}; filename="${encodeURIComponent(att.filename)}"`,
         'cache-control': 'private, max-age=31536000, immutable',
+        // SVG แสดงผ่าน <img> ได้ แต่ต้องปิด script/navigation ของเอกสาร SVG ที่ผู้ใช้อัปโหลด
+        ...(att.mime === 'image/svg+xml' ? { 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'", 'x-content-type-options': 'nosniff' } : {}),
       },
     })
   })

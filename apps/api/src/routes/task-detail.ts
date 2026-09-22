@@ -85,7 +85,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .select({ comment: taskComments, userName: users.name, userAvatarUrl: users.avatarUrl })
       .from(taskComments)
       .innerJoin(users, eq(taskComments.userId, users.id))
-      .where(eq(taskComments.taskId, taskId))
+      .where(and(eq(taskComments.taskId, taskId), isNull(taskComments.deletedAt)))
       .orderBy(asc(taskComments.createdAt))
     const attachments = await db
       .select()
@@ -371,6 +371,31 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       await notifyUser(db, { userId, type: 'task_commented', taskId: task.id, projectId: task.projectId, message })
     }
     return c.json({ ...inserted[0], userName: me.name }, 201)
+  })
+
+  // เจ้าของคอมเมนต์แก้ไข/ลบข้อความของตัวเองได้เท่านั้น (ลบแบบ soft-delete เพื่อคง audit trail)
+  .patch('/tasks/:taskId/comments/:commentId', async (c) => {
+    const body = z.object({ body: z.string().min(1).max(4000), isBlocked: z.boolean().optional() }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid', message: body.error.issues[0]?.message ?? 'ข้อมูลไม่ถูกต้อง' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const comment = (await db.select().from(taskComments).where(and(eq(taskComments.id, c.req.param('commentId')), eq(taskComments.taskId, c.req.param('taskId')), isNull(taskComments.deletedAt))).limit(1))[0]
+    if (!comment) return c.json({ error: 'not_found' }, 404)
+    if (comment.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    const updated = (await db.update(taskComments).set({ body: body.data.body, isBlocked: body.data.isBlocked ?? comment.isBlocked, editedAt: new Date() }).where(eq(taskComments.id, comment.id)).returning())[0]!
+    await writeAudit(c.env, { actorId: me.id, action: 'task.comment.edit', entity: 'task', entityId: comment.taskId, meta: { commentId: comment.id } })
+    return c.json(updated)
+  })
+
+  .delete('/tasks/:taskId/comments/:commentId', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const comment = (await db.select().from(taskComments).where(and(eq(taskComments.id, c.req.param('commentId')), eq(taskComments.taskId, c.req.param('taskId')), isNull(taskComments.deletedAt))).limit(1))[0]
+    if (!comment) return c.json({ error: 'not_found' }, 404)
+    if (comment.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    await db.update(taskComments).set({ deletedAt: new Date() }).where(eq(taskComments.id, comment.id))
+    await writeAudit(c.env, { actorId: me.id, action: 'task.comment.delete', entity: 'task', entityId: comment.taskId, meta: { commentId: comment.id } })
+    return c.json({ ok: true })
   })
 
   // อัปโหลดไฟล์ → R2 (multipart) — owner+member

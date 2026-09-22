@@ -122,13 +122,12 @@ async function bulkConvertTasks(ids: string[], to: 'task' | 'defect' | 'cr'): Pr
   return { ok: ids.length - failed, failed }
 }
 
-/** แถบปุ่มจัดการกลุ่ม: ลบทั้งหมด/ลบที่เลือก/ย้ายทั้งหมด/ย้ายที่เลือก — ใช้ร่วมกันทั้ง 3 แท็บ (Backlog ทั่วไป/Defect/Task-Story-CR) */
-function BulkKindActions({ totalCount, selectedCount, excludeKind, busy, onDeleteAll, onDeleteSelected, onMoveAll, onMoveSelected }: {
+/** แถบปุ่มจัดการกลุ่ม: ลบได้เฉพาะรายการที่เลือก ป้องกันการลบทั้งแท็บโดยไม่ตั้งใจ */
+function BulkKindActions({ totalCount, selectedCount, excludeKind, busy, onDeleteSelected, onMoveAll, onMoveSelected }: {
   totalCount: number
   selectedCount: number
   excludeKind: 'task' | 'defect' | 'cr' | 'backlog'
   busy: boolean
-  onDeleteAll: () => void
   onDeleteSelected: () => void
   onMoveAll: (to: 'task' | 'defect' | 'cr') => void
   onMoveSelected: (to: 'task' | 'defect' | 'cr') => void
@@ -144,7 +143,6 @@ function BulkKindActions({ totalCount, selectedCount, excludeKind, busy, onDelet
       </select>
       <button onClick={() => onMoveAll(moveTo)} disabled={busy} className={`${btn} text-brand-700 border border-brand-200 bg-brand-50 hover:bg-brand-100`}>ย้ายทั้งหมด ({totalCount})</button>
       <button onClick={() => onMoveSelected(moveTo)} disabled={busy || selectedCount === 0} className={`${btn} text-brand-700 border border-brand-200 bg-brand-50 hover:bg-brand-100`}>ย้ายที่เลือก ({selectedCount})</button>
-      <button onClick={onDeleteAll} disabled={busy} className={`${btn} text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100`}>ลบทั้งหมด ({totalCount})</button>
       <button onClick={onDeleteSelected} disabled={busy || selectedCount === 0} className={`${btn} text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100`}>ลบที่เลือก ({selectedCount})</button>
     </div>
   )
@@ -283,7 +281,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
           onConvertPick: (to: 'task' | 'subtask') => setConvertModal({ taskId, to }),
         }
       : {}
-  const [tab, setTab] = useState<BacklogTab>('regular')
+  const [tab, setTab] = useState<BacklogTab>('all')
   // Pronista §Back to Basic (ต่อยอด) — Epic/Story ซ่อนเป็นค่าเริ่มต้น (เก็บที่ localStorage ต่อเครื่อง)
   const [showEpicStory, setShowEpicStory] = useState(() => localStorage.getItem('tasknista_show_epic_story') === '1')
   // Pronista §System Requirements Update — รหัสงานซ่อนเป็นค่าเริ่มต้นทุกแท็บย่อยของ Backlog กดปุ่มถึงจะโชว์ (เก็บที่ localStorage ต่อเครื่อง เหมือน showEpicStory)
@@ -570,7 +568,6 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
             selectedCount={selected.size}
             excludeKind="backlog"
             busy={deleting || moving}
-            onDeleteAll={() => void bulkDeleteConfirm(activeList.map((t) => t.id))}
             onDeleteSelected={() => void bulkDeleteConfirm([...selected])}
             onMoveAll={(to) => void bulkMoveConfirm(activeList.map((t) => t.id), to)}
             onMoveSelected={(to) => void bulkMoveConfirm([...selected], to)}
@@ -1582,7 +1579,6 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
             selectedCount={sel.selected.size}
             excludeKind="defect"
             busy={sel.bulkBusy}
-            onDeleteAll={() => void bulkDeleteConfirm(sel.filtered.map((t) => t.id))}
             onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
             onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
             onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
@@ -2184,7 +2180,6 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               selectedCount={sel.selected.size}
               excludeKind={level}
               busy={sel.bulkBusy}
-              onDeleteAll={() => void bulkDeleteConfirm(sel.filtered.map((t) => t.id))}
               onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
               onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
               onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
