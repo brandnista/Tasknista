@@ -1597,6 +1597,30 @@ export const leaveRequests = sqliteTable(
   (t) => [index('leave_requests_user_idx').on(t.userId), index('leave_requests_approver_idx').on(t.approverId, t.status)],
 )
 
+/** Pronista §Leave Request Phase 2 (2026-09-22) — บันทึกปรับยอดวันลาที่ใช้ไปมือ (backfill ก่อนขึ้นระบบ/แก้ยอดผิด) — insert-only ledger mirror payAdjustments (บรรทัด ~1410) */
+export const leaveBalanceAdjustments = sqliteTable(
+  'leave_balance_adjustments',
+  {
+    id: id(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    leaveTypeId: text('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id),
+    year: text('year').notNull(), // 'YYYY' — ปีที่นับรวมกับยอดที่คำนวณจาก leave_requests ปีเดียวกัน
+    days: integer('days').notNull(), // บวก = นับเป็นวันที่ใช้ไปเพิ่ม (backfill) · ลบ = insert แถวหักล้างแก้ยอดที่กรอกผิดก่อนหน้า
+    note: text('note'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [index('leave_balance_adjustments_user_type_year_idx').on(t.userId, t.leaveTypeId, t.year)],
+)
+
 /** Pronista §1 (2026-07-03) — ผู้เข้าร่วมประชุม (หลายคนต่อ event) แยกจาก calendarEvents.userId (ใช้เฉพาะ "วันลาของใคร" อยู่แล้ว) */
 export const calendarEventAttendees = sqliteTable(
   'calendar_event_attendees',

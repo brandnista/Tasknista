@@ -1,6 +1,7 @@
 import { bkkDateOf, computeLeaveBalance, leaveDaysInclusive } from '@seedoffice/core'
-import { calendarEvents, createDb, leaveRequests, leaveTypes, users, type Db } from '@seedoffice/db'
+import { calendarEvents, createDb, leaveBalanceAdjustments, leaveRequests, leaveTypes, users, type Db } from '@seedoffice/db'
 import { and, desc, eq, gte, lte } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -9,6 +10,7 @@ import type { AppEnv } from '../types'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_FILE_BYTES = 15 * 1024 * 1024 // 15MB ต่อไฟล์ — mirror task-detail.ts
+const decider = alias(users, 'decider') // Pronista §Leave Request Phase 2 — ชื่อผู้อนุมัติ/ปฏิเสธ (decidedBy) ใน GET /mine ใช้แสดง timeline
 
 /** owner ทุกคน (ไม่ลบ deletedAt เพราะ users ไม่มี soft-delete ที่นี่ ใช้ pattern เดียวกับที่อื่นในระบบ) — fallback ผู้อนุมัติเมื่อผู้ยื่นไม่มี manager */
 async function ownerUserIds(db: Db): Promise<string[]> {
@@ -24,20 +26,26 @@ export const leaveRoutes = new Hono<AppEnv>()
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const year = bkkDateOf(Date.now()).slice(0, 4)
-    const [types, myRequests] = await Promise.all([
+    const [types, myRequests, myAdjustments] = await Promise.all([
       db.select().from(leaveTypes).where(eq(leaveTypes.active, true)).orderBy(leaveTypes.sortOrder),
       db
         .select({ leaveTypeId: leaveRequests.leaveTypeId, status: leaveRequests.status, startDate: leaveRequests.startDate, endDate: leaveRequests.endDate })
         .from(leaveRequests)
         .where(and(eq(leaveRequests.userId, me.id), gte(leaveRequests.startDate, `${year}-01-01`), lte(leaveRequests.startDate, `${year}-12-31`))),
+      // Pronista §Leave Request Phase 2 — ยอดที่ Admin backfill ไว้ (เช่น ลาไปแล้วก่อนขึ้นระบบ) พับรวมเข้ายอดที่ใช้ไปด้วย ให้เจ้าตัวเห็นยอดจริง
+      db
+        .select({ leaveTypeId: leaveBalanceAdjustments.leaveTypeId, days: leaveBalanceAdjustments.days })
+        .from(leaveBalanceAdjustments)
+        .where(and(eq(leaveBalanceAdjustments.userId, me.id), eq(leaveBalanceAdjustments.year, year))),
     ])
     const role = me.role === 'owner' || me.role === 'member' || me.role === 'vendor' ? me.role : 'member'
     return c.json({
       types: types.map((t) => {
         const quota = t.quotaDaysByRole?.[role] ?? null
         const approvedDays = myRequests.filter((r) => r.leaveTypeId === t.id && r.status === 'approved').reduce((s, r) => s + leaveDaysInclusive(r.startDate, r.endDate), 0)
+        const adjustedDays = myAdjustments.filter((a) => a.leaveTypeId === t.id).reduce((s, a) => s + a.days, 0)
         const pendingDays = myRequests.filter((r) => r.leaveTypeId === t.id && r.status === 'pending').reduce((s, r) => s + leaveDaysInclusive(r.startDate, r.endDate), 0)
-        return { ...t, balance: computeLeaveBalance(quota, approvedDays, pendingDays) }
+        return { ...t, balance: computeLeaveBalance(quota, approvedDays + adjustedDays, pendingDays) }
       }),
     })
   })
@@ -115,17 +123,18 @@ export const leaveRoutes = new Hono<AppEnv>()
     return c.json(inserted, 201)
   })
 
-  // ประวัติของฉัน ทุกสถานะ
+  // ประวัติของฉัน ทุกสถานะ (รวมชื่อผู้อนุมัติ/ปฏิเสธ ใช้แสดงไทม์ไลน์สถานะ)
   .get('/mine', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const rows = await db
-      .select({ req: leaveRequests, leaveTypeName: leaveTypes.name })
+      .select({ req: leaveRequests, leaveTypeName: leaveTypes.name, decidedByName: decider.name })
       .from(leaveRequests)
       .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+      .leftJoin(decider, eq(leaveRequests.decidedBy, decider.id))
       .where(eq(leaveRequests.userId, me.id))
       .orderBy(desc(leaveRequests.createdAt))
-    return c.json({ rows: rows.map((r) => ({ ...r.req, leaveTypeName: r.leaveTypeName })) })
+    return c.json({ rows: rows.map((r) => ({ ...r.req, leaveTypeName: r.leaveTypeName, decidedByName: r.decidedByName })) })
   })
 
   // คำขอที่รอฉันอนุมัติ (approverId ตรง หรือ owner เห็นทุกคำขอ)
@@ -196,16 +205,38 @@ export const leaveRoutes = new Hono<AppEnv>()
     return c.json(updated)
   })
 
+  // Pronista §Leave Request Phase 2 — ถอนคำขอ (pending) หรือยกเลิกเอง (approved แต่ยังไม่ถึงวันเริ่มลา) รวมไว้ endpoint เดียว ใช้ status 'withdrawn' เหมือนกันทั้งคู่
   .post('/:id/withdraw', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const before = (await db.select().from(leaveRequests).where(eq(leaveRequests.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     if (before.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
-    if (before.status !== 'pending') return c.json({ error: 'not_pending' }, 409)
-    const updated = (await db.update(leaveRequests).set({ status: 'withdrawn' }).where(eq(leaveRequests.id, before.id)).returning())[0]!
-    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.withdraw', entity: 'leave_request', entityId: before.id, meta: {} })
+    const today = bkkDateOf(Date.now())
+    const canWithdraw = before.status === 'pending' || (before.status === 'approved' && before.startDate > today)
+    if (!canWithdraw) return c.json({ error: 'not_pending' }, 409)
+    // เคลียร์ FK ที่ leave_requests อ้าง calendarEventId ก่อน แล้วค่อยลบ event เดิม (ลบก่อนจะชน FOREIGN KEY constraint)
+    const updated = (await db.update(leaveRequests).set({ status: 'withdrawn', calendarEventId: null }).where(eq(leaveRequests.id, before.id)).returning())[0]!
+    if (before.calendarEventId) await db.delete(calendarEvents).where(eq(calendarEvents.id, before.calendarEventId))
+    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.withdraw', entity: 'leave_request', entityId: before.id, meta: { from: before.status } })
     return c.json(updated)
+  })
+
+  // ทีมลาวันนี้/สัปดาห์นี้ (widget หน้า "ขอลา") — เฉพาะ approved ช่วงวันที่ทับซ้อนกับ from..to (default วันนี้..+6 วัน)
+  .get('/on-leave', async (c) => {
+    const db = createDb(c.env.DB)
+    const today = bkkDateOf(Date.now())
+    const from = c.req.query('from') ?? today
+    const to = c.req.query('to') ?? bkkDateOf(Date.now() + 6 * 86_400_000)
+    if (!isoDate.safeParse(from).success || !isoDate.safeParse(to).success) return c.json({ error: 'invalid_range' }, 400)
+    const rows = await db
+      .select({ userId: leaveRequests.userId, userName: users.name, leaveTypeName: leaveTypes.name, startDate: leaveRequests.startDate, endDate: leaveRequests.endDate })
+      .from(leaveRequests)
+      .innerJoin(users, eq(leaveRequests.userId, users.id))
+      .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+      .where(and(eq(leaveRequests.status, 'approved'), lte(leaveRequests.startDate, to), gte(leaveRequests.endDate, from)))
+      .orderBy(leaveRequests.startDate)
+    return c.json({ rows })
   })
 
   // ไฟล์แนบ (ใบรับรองแพทย์ ฯลฯ) — เฉพาะผู้ยื่น/ผู้อนุมัติที่ถูกระบุ/owner

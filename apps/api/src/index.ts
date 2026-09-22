@@ -21,6 +21,7 @@ import { financeRoutes } from './routes/finance'
 import { icsFeedRoutes } from './routes/ics'
 import { importDataRoutes } from './routes/import-data'
 import { inboxSettingsRoutes } from './routes/inbox-settings'
+import { leaveAdminRoutes } from './routes/leave-admin'
 import { leaveRoutes } from './routes/leave'
 import { inboxThreadRoutes } from './routes/inbox-threads'
 import { overviewRoutes } from './routes/overview'
@@ -214,6 +215,10 @@ app.route('/api/expenses', expenseRoutes)
 app.use('/api/leave-requests', requireAuth, requireRole('owner', 'member', 'vendor'))
 app.use('/api/leave-requests/*', requireAuth, requireRole('owner', 'member', 'vendor'))
 app.route('/api/leave-requests', leaveRoutes)
+// Pronista §Leave Request Phase 2 (2026-09-22): ภาพรวมทั้งทีม + ตั้งค่าประเภทลา + ปรับยอด — owner เท่านั้น
+app.use('/api/leave-admin', requireAuth, ownerOnly)
+app.use('/api/leave-admin/*', requireAuth, ownerOnly)
+app.route('/api/leave-admin', leaveAdminRoutes)
 // ปฏิทินทีม + team activity: owner+member (vendor ไม่เห็น team hub — SPEC §4.10)
 app.use('/api/calendar', requireAuth, teamOnly)
 app.use('/api/calendar/*', requireAuth, teamOnly)

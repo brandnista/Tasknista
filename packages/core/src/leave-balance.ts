@@ -24,3 +24,6 @@ export function computeLeaveBalance(quotaDays: number | null, approvedDaysThisYe
     waiting: pendingDaysThisYear,
   }
 }
+
+/** Pronista §Leave Request Phase 2 (2026-09-22) — ตัวเลือกไอคอนที่ Admin เลือกได้ตอนตั้งค่าประเภทลา (ชื่อ string อ้างอิง แม็ปเป็น lucide component จริงฝั่ง frontend) */
+export const LEAVE_ICON_NAMES = ['calendar', 'heart-pulse', 'briefcase', 'pause-circle', 'plane', 'baby', 'shield-alert', 'clock'] as const

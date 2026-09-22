@@ -1,4 +1,4 @@
-import { createDb, leaveTypes, users } from '@seedoffice/db'
+import { createDb, leaveBalanceAdjustments, leaveTypes, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -24,6 +24,8 @@ let certTypeId: string
 beforeEach(async () => {
   await seedUsers()
   const db = createDb(env.DB)
+  // ลำดับสำคัญ — leave_balance_adjustments/leave_requests อ้าง leave_types (FK) ต้องลบก่อน ไม่งั้น DELETE leave_types ชน constraint
+  await env.DB.prepare('DELETE FROM leave_balance_adjustments').run()
   await env.DB.prepare('DELETE FROM leave_requests').run()
   await env.DB.prepare('DELETE FROM leave_types').run()
   await env.DB.prepare('DELETE FROM calendar_events').run()
@@ -204,5 +206,74 @@ describe('§Leave Request — Phase 1', () => {
   it('vendor เข้า /api/leave-requests ได้ (roles ที่อนุญาต: owner/member/vendor)', async () => {
     const vendor = await loginAs(app, 'somchai@example.com')
     expect((await app.request('/api/leave-requests/types', { headers: { cookie: vendor } }, env)).status).toBe(200)
+  })
+})
+
+describe('§Leave Request — Phase 2', () => {
+  it('withdraw ยอมรับ approved+ยังไม่ถึงวันเริ่ม (ยกเลิกเองได้) และลบ calendarEvent ที่ผูกไว้', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2099-01-01', endDate: '2099-01-02', reason: 'อนาคตไกล' }), env)
+    ).json()) as { id: string }
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const approved = (await (await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)).json()) as { calendarEventId: string }
+    expect(approved.calendarEventId).toBeTruthy()
+
+    const cancelled = await app.request(`/api/leave-requests/${created.id}/withdraw`, { method: 'POST', headers: { cookie: pond } }, env)
+    expect(cancelled.status).toBe(200)
+    expect(((await cancelled.json()) as { status: string }).status).toBe('withdrawn')
+
+    const eventRow = await env.DB.prepare('SELECT id FROM calendar_events WHERE id = ?').bind(approved.calendarEventId).first()
+    expect(eventRow).toBeNull()
+  })
+
+  it('withdraw ปฏิเสธ approved+ถึงวันแล้ว/ผ่านไปแล้ว → 409', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2020-01-01', endDate: '2020-01-02', reason: 'ย้อนอดีต' }), env)
+    ).json()) as { id: string }
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)
+
+    const res = await app.request(`/api/leave-requests/${created.id}/withdraw`, { method: 'POST', headers: { cookie: pond } }, env)
+    expect(res.status).toBe(409)
+  })
+
+  it('GET /on-leave คืนเฉพาะ approved ที่ช่วงวันทับซ้อนกับ from..to', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2031-06-10', endDate: '2031-06-12', reason: 'ทดสอบ on-leave' }), env)
+    ).json()) as { id: string }
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)
+
+    const overlap = (await (await app.request('/api/leave-requests/on-leave?from=2031-06-11&to=2031-06-20', { headers: { cookie: pond } }, env)).json()) as { rows: { userId: string }[] }
+    expect(overlap.rows.map((r) => r.userId)).toContain('u_pond')
+
+    const noOverlap = (await (await app.request('/api/leave-requests/on-leave?from=2031-07-01&to=2031-07-05', { headers: { cookie: pond } }, env)).json()) as { rows: unknown[] }
+    expect(noOverlap.rows).toHaveLength(0)
+  })
+
+  it('GET /types พับยอด leave_balance_adjustments (backfill) เข้ายอดที่ใช้ไปด้วย', async () => {
+    const db = createDb(env.DB)
+    const year = new Date().toLocaleString('en-CA', { timeZone: 'Asia/Bangkok' }).slice(0, 4)
+    await db.insert(leaveBalanceAdjustments).values({ userId: 'u_pond', leaveTypeId: sickTypeId, year, days: 5, note: 'backfill ก่อนขึ้นระบบ', createdBy: 'u_owner' })
+
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const types = (await (await app.request('/api/leave-requests/types', { headers: { cookie: pond } }, env)).json()) as { types: { id: string; balance: { remain: number } }[] }
+    const sick = types.types.find((t) => t.id === sickTypeId)!
+    expect(sick.balance.remain).toBe(25) // quota 30 - adjustment 5
+  })
+
+  it('GET /mine คืนชื่อผู้อนุมัติ/ปฏิเสธ (decidedByName) ถูกต้อง', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2026-09-22', endDate: '2026-09-22', reason: 'ไม่สบาย' }), env)
+    ).json()) as { id: string }
+    const owner = await loginAs(app, 'owner@example-co.test')
+    await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)
+
+    const mine = (await (await app.request('/api/leave-requests/mine', { headers: { cookie: pond } }, env)).json()) as { rows: { id: string; decidedByName: string | null }[] }
+    expect(mine.rows.find((r) => r.id === created.id)?.decidedByName).toBe('เมธ')
   })
 })
