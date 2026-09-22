@@ -206,6 +206,54 @@ describe('Pronista §System Enhancements — GET /notifications รองรั�
   })
 })
 
+// Pronista §PRD badge fix (2026-09-22, อัญ) — เมนู "งานของฉัน" บัดจ์เลข 2 แต่หน้าว่างเปล่า: root cause คือ task_commented แจ้งไปถึง createdBy/prior commenter
+// ที่ไม่ใช่ assignee ปัจจุบัน ซึ่งไม่ผ่านเงื่อนไขเดียวกับหน้า /tasks/mine (assigneeId=me + dispatchedAt ไม่ว่าง) — GET /notifications ต้อง join คืน taskAssigneeId/taskDispatchedAt
+// ให้ฝั่ง client เช็คความ relevant สดได้ (ดู Layout.tsx isAssignedTaskNotificationRelevant) แทนที่จะเชื่อแค่ userId ตอนสร้างแจ้งเตือนเฉยๆ
+describe('Pronista §PRD badge fix (2026-09-22) — GET /notifications join คืนสถานะ task ปัจจุบัน (taskAssigneeId/taskDispatchedAt)', () => {
+  it('task_commented ที่แจ้งไปถึง createdBy (ไม่ใช่ assignee) → แถวแจ้งเตือนต้อง join เห็นว่า taskAssigneeId เป็นคนอื่น ไม่ใช่ตัวเอง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์เทสต์', type: 'project' }), env)).json()) as { id: string }
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'Dev' }), env)).json()) as { id: string }
+    // owner คีย์งาน (createdBy=owner) แต่มอบหมายให้ปอนด์ แล้วจ่ายงานจริง — งานนี้จะไม่มีวันโผล่ใน /tasks/mine ของ owner เลย เพราะ assigneeId=ปอนด์เสมอ
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานของปอนด์', assigneeId: 'u_pond' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    // ปอนด์ (assignee) คอมเมนต์ในงานตัวเอง → recipients = createdBy (owner) เพราะ assigneeId ถูกตัดออก (เป็นคนคอมเมนต์เอง)
+    const commentRes = await app.request(`/api/tasks/${t.id}/comments`, json(pond, { body: 'ทำเสร็จแล้วครับ' }), env)
+    expect(commentRes.status).toBe(201)
+
+    const rows = (await (await app.request('/api/notifications', { headers: { cookie: owner } }, env)).json()) as {
+      type: string
+      taskId: string | null
+      taskAssigneeId: string | null
+      taskDispatchedAt: number | string | null
+    }[]
+    const row = rows.find((r) => r.type === 'task_commented' && r.taskId === t.id)
+    expect(row).toBeTruthy()
+    // งานนี้ assignee ปัจจุบันคือปอนด์ ไม่ใช่ owner (ผู้ได้รับแจ้งเตือน) — แยกออกจากกันชัดเจนให้ client กรองได้
+    expect(row!.taskAssigneeId).toBe('u_pond')
+    expect(row!.taskAssigneeId).not.toBe('u_owner')
+    expect(row!.taskDispatchedAt).not.toBeNull()
+  })
+
+  it('แจ้งเตือนที่ assignee ปัจจุบันตรงกับผู้รับ (เช่น task_dispatched) → taskAssigneeId ต้องตรงกับ userId ของแจ้งเตือนแถวนั้น', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'โปรเจกต์เทสต์2', type: 'project' }), env)).json()) as { id: string }
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'Dev' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานจ่ายให้ปอนด์', assigneeId: 'u_pond' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+
+    const rows = (await (await app.request('/api/notifications', { headers: { cookie: await loginAs(app, 'pond@example-co.test') } }, env)).json()) as {
+      type: string
+      taskId: string | null
+      taskAssigneeId: string | null
+    }[]
+    const row = rows.find((r) => r.type === 'task_dispatched' && r.taskId === t.id)
+    expect(row).toBeTruthy()
+    expect(row!.taskAssigneeId).toBe('u_pond')
+  })
+})
+
 // Pronista §Notification categories fix (2026-09-11) — vault_accessed เพิ่ม type ใหม่แล้วลืมใส่ NOTIFICATION_CATEGORIES ทำให้ filter ตามหมวด/หน้าตั้งค่าแจ้งเตือนมองไม่เห็นเลย
 // กันบั๊กคลาสเดียวกันเกิดซ้ำในอนาคต — บังคับให้ทุก type ใน NOTIFICATION_TYPES ต้องอยู่ในหมวดใดหมวดหนึ่งเสมอ
 describe('X3 — NOTIFICATION_CATEGORIES ต้องครอบคลุมทุก NOTIFICATION_TYPES', () => {
