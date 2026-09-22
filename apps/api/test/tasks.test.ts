@@ -397,6 +397,45 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บั�
   })
 })
 
+describe('§Daily Report activity logic (2026-09-22) — lastActivityAt stamp ตอนกดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล"', () => {
+  const lastActivityAtFor = async (taskId: string) =>
+    (await env.DB.prepare('SELECT last_activity_at AS v FROM tasks WHERE id = ?').bind(taskId).first<{ v: number | null }>())?.v ?? null
+
+  it('notifyOnUpdate:true → stamp lastActivityAt แม้ไม่ได้กรอกวันที่เริ่ม/กำหนดส่งเลย (ตรงกับ scenario ที่ระบุในสเปก)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานไม่ระบุวันที่' }), env)).json()) as { id: string }
+    expect(await lastActivityAtFor(t.id)).toBeNull()
+    const before = Date.now()
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { description: 'รายละเอียดงาน', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    const stamped = await lastActivityAtFor(t.id)
+    expect(stamped).not.toBeNull()
+    expect(stamped!).toBeGreaterThanOrEqual(before)
+  })
+
+  it('notifyOnUpdate ไม่ส่งมา (เช่น toggle subtask/ลากบอร์ด) → ไม่ stamp lastActivityAt', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+    expect(await lastActivityAtFor(t.id)).toBeNull()
+  })
+
+  it('กด บันทึกเพื่ออัปเดตข้อมูล ซ้ำหลายครั้ง → stamp ทับด้วยเวลาล่าสุดทุกครั้ง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    const first = await lastActivityAtFor(t.id)
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'low', notifyOnUpdate: true }), env)
+    const second = await lastActivityAtFor(t.id)
+    expect(second).not.toBeNull()
+    expect(second!).toBeGreaterThanOrEqual(first!)
+  })
+})
+
 // (2026-09-15) §createdBy status-transition loophole fix — เดิม createdBy === me.id ข้าม state machine ทั้งบล็อก
 // ทำให้คนคีย์งานขึ้นเอง (แม้จ่ายงาน→รับงาน→ส่งงานผ่าน flow จริงแล้ว) ปรับสถานะเป็นอะไรก็ได้ไม่จำกัด — ตรงกับ bug repro ที่พี่แบงค์เจอ
 describe('§createdBy status-transition loophole — คีย์งานเองยังต้องเดินตาม state machine, ปิดลัดได้แค่ → done', () => {

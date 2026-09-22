@@ -680,6 +680,8 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — expectedVersion ใช้แค่ตัดสินใจ WHERE guard ด้านล่าง ไม่ใช่คอลัมน์จริง (ตัดออกก่อนเขียน DB เหมือน notifyOnUpdate)
     delete patch.expectedVersion
     patch.version = sql`${tasks.version} + 1`
+    // Pronista §Daily Report activity logic (2026-09-22) — Stamp เฉพาะตอนกดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" จริงๆ (notifyOnUpdate = สัญญาณเฉพาะปุ่มนี้ ไม่ปนกับ action อื่นเช่น dispatch/accept/สถานะลาก board) ใช้เลือกว่างานไหนควรโผล่ใน Daily Report ของวันนั้น แทนการพึ่ง startDate/dueDate ที่อาจไม่ได้กรอก
+    if (body.data.notifyOnUpdate) patch.lastActivityAt = new Date()
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน

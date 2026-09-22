@@ -7,6 +7,9 @@ export interface NotificationRow extends NotificationLike {
   message: string
   isRead: boolean
   createdAt: number
+  // Pronista §PRD badge fix (2026-09-22) — สถานะปัจจุบันของ task ที่แจ้งเตือนอ้างถึง (join จาก backend) — null ถ้าแจ้งเตือนไม่ผูก task หรือ task ถูกลบไปแล้ว
+  taskAssigneeId: string | null
+  taskDispatchedAt: string | number | null
 }
 
 interface NotificationsValue {

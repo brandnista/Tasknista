@@ -577,6 +577,8 @@ export const tasks = sqliteTable(
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
     // Pronista §My Work UX — เวลาที่กด "ส่งงาน" ล่าสุด (status → waiting_for_test) ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
+    // Pronista §Daily Report activity logic (2026-09-22) — Stamp ทุกครั้งที่กดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ในหน้ารายละเอียด Task (ไม่ผูกกับ startDate/dueDate ที่ผู้ใช้อาจไม่ได้กรอก) ใช้เลือกว่างานไหนควรโผล่ใน Daily Report ของวันนั้น
+    lastActivityAt: integer('last_activity_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     index('tasks_project_idx').on(t.projectId),
