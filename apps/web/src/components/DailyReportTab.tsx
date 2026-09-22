@@ -16,6 +16,8 @@ import { TASK_STATUS_BADGE, TASK_STATUS_LABEL } from '../lib/task-status'
 import { useLoad } from '../lib/useLoad'
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
+// Pronista §Daily Report activity logic (2026-09-22) — แปลง timestamp (lastActivityAt) เป็นวันที่ไทย ใช้เทียบกับวันที่รายงานที่เลือก
+const bkkDay = (x: string | number) => new Date(new Date(x).getTime() + 7 * 3_600_000).toISOString().slice(0, 10)
 const MONTHS = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
 const MONTHS_SHORT = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const fmtDateTH = (d: string) => {
@@ -53,6 +55,8 @@ interface MyTask {
   assigneeId: string | null
   assignedBy: string | null
   assigneeName?: string | null
+  // Pronista §Daily Report activity logic (2026-09-22) — เวลากด "บันทึกเพื่ออัปเดตข้อมูล" ล่าสุด ใช้เลือกว่างานนี้ควรโผล่ใน Daily Report ของวันไหน (แทน dueDate ที่อาจไม่ได้กรอกเลย)
+  lastActivityAt: string | number | null
 }
 interface ReportItem {
   id: string
@@ -384,8 +388,9 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const receivedFromOthers = (myTasks ?? []).filter((t) => !dispatchedByMeIds.has(t.id) && t.status !== 'non_start')
   const combinedMyTasks = [...(dispatchedByMe ?? []), ...receivedFromOthers]
   const myTaskCount = combinedMyTasks.length
-  // Pronista §Daily Report (2026-09-16) — ตัดตัวกรอง "ทั้งหมด/วันนี้" ออก ให้ลิสต์นี้ดึงตามวันที่เลือกไว้บนสุดเสมอ (กำหนดส่งตรงกับวันที่รายงาน) ไม่มีโหมด "ทั้งหมด" แยกอีกต่อไป
-  const filteredMyTasks = combinedMyTasks.filter((t) => t.dueDate === date)
+  // Pronista §Daily Report activity logic (2026-09-22) — เดิมกรองด้วย dueDate ตรงกับวันที่รายงาน ทำให้งานที่ไม่ได้กรอกวันที่ครบกำหนด (หรือกรอกวันอื่น) ไม่โผล่เลยแม้จะเพิ่งอัปเดตวันนี้จริง
+  // เปลี่ยนเป็นจับจาก lastActivityAt (Stamp ตอนกดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ในหน้า Task Detail) แทน — ตรงกับ "วันไหนที่ฉันลงมือทำงานนี้จริง" มากกว่า ไม่ผูกกับฟิลด์วันที่ที่ผู้ใช้อาจไม่ได้กรอก
+  const filteredMyTasks = combinedMyTasks.filter((t) => t.lastActivityAt && bkkDay(t.lastActivityAt) === date)
 
   return (
     <div className="space-y-4">

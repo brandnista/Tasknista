@@ -57,6 +57,10 @@ export const CLASSIFICATION_TYPE_LABEL: Record<ClassificationType, string> = {
   extraordinary_individual: 'วิสามัญบุคคล',
   extraordinary_juristic: 'วิสามัญนิติบุคคล',
 }
+const CUSTOMER_CLASSIFICATION_OPTIONS: { value: ClassificationType; label: string }[] = [
+  { value: 'ordinary_individual', label: 'บุคคล' },
+  { value: 'ordinary_juristic', label: 'นิติบุคคล' },
+]
 type UserTab = 'staff' | 'outsource' | 'customer'
 
 function AddTeamForm({ onDone }: { onDone: () => void }) {
@@ -357,10 +361,10 @@ function AddCustomerForm({ projects, onClose, onCreated }: { projects: ProjectOp
       <div>
         <label className={fieldLabel}>ประเภท</label>
         <div className="grid grid-cols-2 gap-2 text-sm">
-          {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
-            <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-              <input type="radio" name="classificationType" checked={form.classificationType === t} onChange={() => setForm({ ...form, classificationType: t })} />
-              {CLASSIFICATION_TYPE_LABEL[t]}
+          {CUSTOMER_CLASSIFICATION_OPTIONS.map((option) => (
+            <label key={option.value} className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="classificationType" checked={form.classificationType === option.value} onChange={() => setForm({ ...form, classificationType: option.value })} />
+              {option.label}
             </label>
           ))}
         </div>

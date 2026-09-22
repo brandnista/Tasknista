@@ -38,6 +38,8 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
   { key: 'chat_message', label: 'มีข้อความใหม่ในแชท', types: ['chat_message'] },
   { key: 'meeting', label: 'ประชุม', types: ['meeting_scheduled', 'meeting_updated', 'meeting_cancelled', 'meeting_reminder'] },
   { key: 'daily_report', label: 'Daily Report', types: ['daily_report_submitted', 'daily_report_commented', 'daily_report_reviewed'] },
+  // Pronista §Leave Request (2026-09-22, Phase 1)
+  { key: 'leave', label: 'การลา', types: ['leave_requested', 'leave_approved', 'leave_rejected'] },
   // Pronista §Notification categories wording (2026-09-14) — เดิมยัดของหมดอายุ 4 อย่างรวมกันไว้ใน "ระบบ/อื่นๆ" กลุ่มเดียว มองไม่ออกว่าข้างในมีอะไรบ้าง
   // แยกออกมาให้เห็นชัดเจนทีละประเภท (เปิด/ปิดแยกกันได้ด้วย) เหลือ "อื่นๆ" ไว้เฉพาะของที่ไม่เข้าพวกจริงๆ
   { key: 'project_expiry', label: 'โปรเจกต์ใกล้หมดอายุบริการ', types: ['expiry_reminder'] },

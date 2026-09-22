@@ -1,5 +1,6 @@
 import { createDb, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
+import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
 import { loginAs, seedUsers } from './helpers'
@@ -394,6 +395,45 @@ describe('§Workspace/Task Jira-alignment (2026-09-04) — ปุ่ม "บั�
     const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
     expect(res.status).toBe(200)
     // แค่ยืนยันว่าไม่ throw/error — ไม่มี assigneeId ให้เช็ค notifCountFor ไม่มีความหมาย
+  })
+})
+
+describe('§Daily Report activity logic (2026-09-22) — lastActivityAt stamp ตอนกดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล"', () => {
+  const lastActivityAtFor = async (taskId: string) =>
+    (await env.DB.prepare('SELECT last_activity_at AS v FROM tasks WHERE id = ?').bind(taskId).first<{ v: number | null }>())?.v ?? null
+
+  it('notifyOnUpdate:true → stamp lastActivityAt แม้ไม่ได้กรอกวันที่เริ่ม/กำหนดส่งเลย (ตรงกับ scenario ที่ระบุในสเปก)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานไม่ระบุวันที่' }), env)).json()) as { id: string }
+    expect(await lastActivityAtFor(t.id)).toBeNull()
+    const before = Date.now()
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { description: 'รายละเอียดงาน', notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    const stamped = await lastActivityAtFor(t.id)
+    expect(stamped).not.toBeNull()
+    expect(stamped!).toBeGreaterThanOrEqual(before)
+  })
+
+  it('notifyOnUpdate ไม่ส่งมา (เช่น toggle subtask/ลากบอร์ด) → ไม่ stamp lastActivityAt', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { status: 'done' }), env)
+    expect(res.status).toBe(200)
+    expect(await lastActivityAtFor(t.id)).toBeNull()
+  })
+
+  it('กด บันทึกเพื่ออัปเดตข้อมูล ซ้ำหลายครั้ง → stamp ทับด้วยเวลาล่าสุดทุกครั้ง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'high', notifyOnUpdate: true }), env)
+    const first = await lastActivityAtFor(t.id)
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { priority: 'low', notifyOnUpdate: true }), env)
+    const second = await lastActivityAtFor(t.id)
+    expect(second).not.toBeNull()
+    expect(second!).toBeGreaterThanOrEqual(first!)
   })
 })
 
@@ -823,6 +863,7 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
   it('จ่ายงาน Backlog ที่คีย์ตรงในห้อง (ไม่ผูกโปรเจกต์) ให้คนอื่น กดรับงานแล้ว → โผล่ใน "งานของฉัน" ของคนรับ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const pond = await loginAs(app, 'pond@example-co.test')
+    await createDb(env.DB).update(users).set({ avatarUrl: 'https://example.com/dispatcher.png' }).where(eq(users.id, 'u_owner'))
     const ws = (await (
       await app.request('/api/workspaces', json(owner, { name: 'ห้องทดสอบ mine', type: 'business' }), env)
     ).json()) as { id: string; name: string }
@@ -836,7 +877,7 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
 
     const list = (await (
       await app.request('/api/tasks/mine', { headers: { cookie: pond } }, env)
-    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string; dispatcherName: string | null }[]
+    ).json()) as { id: string; status: string; projectId: string | null; projectName: string | null; myRole: string; dispatcherName: string | null; dispatcherAvatarUrl: string | null }[]
     const row = list.find((r) => r.id === t.id)
     expect(row).toBeTruthy()
     expect(row?.status).toBe('on_processing')
@@ -844,6 +885,7 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
     expect(row?.projectName).toBe(ws.name) // fallback เป็นชื่อ Workspace room เพราะไม่มีโปรเจกต์
     expect(row?.myRole).toBe('editor') // ไม่มี project role ให้ derive — ล้อ task-detail.ts
     expect(row?.dispatcherName).toBe('เมธ') // Pronista §My Tasks table (2026-09-18) — owner เป็นคนกด dispatch → ต้อง resolve ชื่อ assignedBy ออกมาด้วย
+    expect(row?.dispatcherAvatarUrl).toBe('https://example.com/dispatcher.png')
   })
 })
 
