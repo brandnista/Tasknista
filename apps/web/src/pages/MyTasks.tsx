@@ -93,36 +93,42 @@ function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTas
 
 /** Pronista §Task lifecycle accept step — งานที่จ่ายมาแล้วแต่ฉันยังไม่กดรับ (status ยังเป็น non_start) กดรับได้ตรงจากหน้านี้ ไม่ต้องเข้า Task Detail ก่อน
  * Pronista §My Tasks table redesign (2026-09-18) — เปลี่ยนเป็นตารางหัวคอลัมน์ชัดเจน (วันที่เวลา/รหัสงาน/ชื่องาน/ผู้จ่ายงาน/ปุ่มรับงาน) + เรียงงานที่จ่ายมาใหม่สุดไว้บนสุด (เดิมไม่เรียงเลย ใช้ลำดับดิบจาก API) */
-function NewlyDispatchedWidget({ tasks, taskTypes, loading, acceptingTaskId, onOpenTask, onAccept }: {
+type PendingWorkType = '' | 'task' | 'defect' | 'cr'
+const PENDING_WORK_TYPE_OPTIONS: { value: Exclude<PendingWorkType, ''>; label: string }[] = [
+  { value: 'task', label: 'Task' },
+  { value: 'defect', label: 'Defect' },
+  { value: 'cr', label: 'CR' },
+]
+
+function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, onAccept }: {
   tasks: MyTask[]
-  taskTypes?: TaskType[]
   loading: boolean
   acceptingTaskId: string | null
   onOpenTask: (id: string) => void
   onAccept: (id: string) => void
 }) {
-  const [taskTypeFilter, setTaskTypeFilter] = useState('')
+  const [workTypeFilter, setWorkTypeFilter] = useState<PendingWorkType>('')
   const pending = tasks
     .filter((t) => t.dispatchedAt && t.status === 'non_start')
     .sort((a, b) => new Date(b.dispatchedAt!).getTime() - new Date(a.dispatchedAt!).getTime())
-  const filtered = taskTypeFilter ? pending.filter((t) => t.taskType === taskTypeFilter) : pending
+  const filtered = workTypeFilter ? pending.filter((t) => t.kind === workTypeFilter) : pending
   return (
     <section className="overflow-hidden rounded-xl border border-info-100 bg-info-50/70 shadow-xs" aria-busy={loading}>
       <div className="flex flex-col gap-3 border-b border-info-100 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-bold text-info-700">
-            <Inbox className="h-4 w-4" /> งานใหม่ที่รอคุณกดรับ ({taskTypeFilter ? `${filtered.length}/${pending.length}` : pending.length})
+            <Inbox className="h-4 w-4" /> งานใหม่ที่รอคุณกดรับ ({workTypeFilter ? `${filtered.length}/${pending.length}` : pending.length})
           </div>
           <p className="mt-1 text-[11px] text-info-700/70">ตรวจรายละเอียดและกดรับงานเพื่อเริ่มล็อก Workload</p>
         </div>
         <select
-          value={taskTypeFilter}
-          onChange={(e) => setTaskTypeFilter(e.target.value)}
+          value={workTypeFilter}
+          onChange={(e) => setWorkTypeFilter(e.target.value as PendingWorkType)}
           aria-label="กรองประเภทงานใหม่ที่รอกดรับ"
           className="w-full sm:w-44 border border-info-200 bg-white text-soft px-2.5 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400"
         >
-          <option value="">ประเภทงานทั้งหมด</option>
-          {resolveTaskTypes(taskTypes).map((tt) => <option key={tt.id} value={tt.id}>{tt.name}</option>)}
+          <option value="">Work Type ทั้งหมด</option>
+          {PENDING_WORK_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </div>
       <div className="divide-y divide-info-100">
@@ -449,7 +455,7 @@ export function MyTasksPage() {
         <SummaryCards cards={summaryCards} selected={summarySelection} loading={loading} onSelect={selectSummary} />
 
         <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-2">
-          <NewlyDispatchedWidget tasks={tasks} taskTypes={cfg?.taskTypes} loading={loading} acceptingTaskId={acceptingTaskId} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
+          <NewlyDispatchedWidget tasks={tasks} loading={loading} acceptingTaskId={acceptingTaskId} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
           <AttentionWidget tasks={tasks} loading={loading} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
         </div>
 
