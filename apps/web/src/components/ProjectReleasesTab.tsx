@@ -51,6 +51,27 @@ const emptyDraft = (): DraftItem => ({ key: crypto.randomUUID(), section: '', te
 
 const LINKABLE_KINDS = new Set(['task', 'defect', 'cr'])
 
+/** Pronista §Version Release auto-bullet (2026-09-22) — เจอบรรทัดที่ขึ้นต้นด้วย "- " (เช่น วางข้อความหลายบรรทัดที่คัดลอกมา) แยกเป็นหลายรายการอัตโนมัติ แทนที่ต้องกด "เพิ่มบรรทัด" เองทีละอัน */
+function splitOnDashLines(text: string): string[] {
+  const lines = text.split('\n')
+  const segments: string[] = []
+  let current: string[] = []
+  for (const line of lines) {
+    const isDashStart = /^\s*-\s/.test(line)
+    if (isDashStart && current.length > 0) {
+      segments.push(current.join('\n').trim())
+      current = [line.replace(/^\s*-\s?/, '')]
+    } else if (isDashStart) {
+      current = [line.replace(/^\s*-\s?/, '')]
+    } else {
+      current.push(line)
+    }
+  }
+  const last = current.join('\n').trim()
+  if (last) segments.push(last)
+  return segments
+}
+
 /** ป้ายกำกับต่อท้ายชื่อ/รหัสในชิป — ตามคอนเวนชันเดิมที่ TaskDetail.tsx ใช้กับรายการที่เชื่อมโยง */
 function KindBadge({ kind }: { kind: string }) {
   if (kind === 'defect') return <span className="text-[9px] text-danger-600">🐛</span>
@@ -92,6 +113,21 @@ function ReleaseForm({
 
   const updateItem = (key: string, patch: Partial<DraftItem>) => setItems((prev) => prev.map((it) => (it.key === key ? { ...it, ...patch } : it)))
   const removeItem = (key: string) => setItems((prev) => (prev.length === 1 ? prev : prev.filter((it) => it.key !== key)))
+  // Pronista §Version Release auto-bullet — พิมพ์/วางข้อความที่มีบรรทัดขึ้นต้นด้วย "-" มากกว่า 1 บรรทัด → แตกเป็นหลายรายการให้อัตโนมัติ
+  const handleTextChange = (key: string, value: string) => {
+    const segments = splitOnDashLines(value)
+    if (segments.length <= 1) {
+      updateItem(key, { text: value })
+      return
+    }
+    setItems((prev) => {
+      const idx = prev.findIndex((it) => it.key === key)
+      if (idx === -1) return prev
+      const base = prev[idx]!
+      const expanded: DraftItem[] = segments.map((seg, i) => (i === 0 ? { ...base, text: seg } : { key: crypto.randomUUID(), section: '', text: seg, linkedTasks: [] }))
+      return [...prev.slice(0, idx), ...expanded, ...prev.slice(idx + 1)]
+    })
+  }
   const moveItem = (index: number, dir: -1 | 1) =>
     setItems((prev) => {
       const next = [...prev]
@@ -176,8 +212,8 @@ function ReleaseForm({
                     <div className="flex items-start gap-2">
                       <textarea
                         value={it.text}
-                        onChange={(e) => updateItem(it.key, { text: e.target.value })}
-                        placeholder="รายละเอียดของข้อนี้..."
+                        onChange={(e) => handleTextChange(it.key, e.target.value)}
+                        placeholder="รายละเอียดของข้อนี้... (วางข้อความหลายบรรทัดที่ขึ้นต้นด้วย '-' ได้ ระบบจะแยกเป็นหลายข้อให้เอง)"
                         rows={2}
                         className="flex-1 text-sm bg-hover rounded-lg px-2.5 py-1.5 focus:outline-hidden focus:bg-white focus:border focus:border-brand-400 resize-none"
                       />
@@ -264,7 +300,7 @@ function ReleaseNotesView({ items }: { items: ReleaseItem[] }) {
             {g.items.map((it) => (
               <li key={it.id} className="text-sm text-body flex items-start gap-1.5">
                 <span className="text-muted shrink-0">•</span>
-                <span>
+                <span className="break-words min-w-0">
                   {it.text}
                   {it.linkedTasks.length > 0 && (
                     <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">
@@ -331,8 +367,9 @@ export function ProjectReleasesTab({
         <div className="p-8 text-center text-sm text-muted">ยังไม่มีเวอร์ชันที่บันทึกไว้{canCreate ? ' — กด "เพิ่มเวอร์ชัน"' : ''}</div>
       ) : (
         // Pronista §Mobile horizontal-scroll fix (2026-09-02) — เดิมไม่มี overflow-x-auto เลย
+        // Pronista §Version Release text-wrap fix (2026-09-22) — เดิม min-w-max บังคับตารางกว้างเท่าเนื้อหาที่ไม่ตัดบรรทัดเลย ทำให้ข้อความยาว/ปุ่มแก้ไข-ลบ ไหลพ้นจอไปทางขวาแบบไม่รู้ตัว (ต้องเลื่อนขวาถึงจะเห็น) — เอา min-w-max ออก ให้คอลัมน์ "รายละเอียด" ตัดบรรทัดในพื้นที่ที่เหลือแทน overflow-x-auto ยังคงไว้เป็น safety net เผื่อจอแคบมากจริงๆ
         <div className="overflow-x-auto">
-        <table className="w-full min-w-max text-sm">
+        <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border-subtle text-xs text-muted">
               <th className="text-left font-medium px-4 py-2 w-14">ลำดับ</th>
