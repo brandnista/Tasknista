@@ -1,5 +1,5 @@
 import { DEFAULT_MEETING_REMINDER_MINUTES, NOTIFICATION_CATEGORIES } from '@seedoffice/core'
-import { createDb, notifications, users, NOTIFICATION_TYPES } from '@seedoffice/db'
+import { createDb, notifications, tasks, users, NOTIFICATION_TYPES } from '@seedoffice/db'
 import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -30,14 +30,35 @@ export const notificationRoutes = new Hono<AppEnv>()
       ? and(eq(notifications.userId, me.id), inArray(notifications.type, cat.types as (typeof NOTIFICATION_TYPES)[number][]))
       : eq(notifications.userId, me.id)
 
+    // Pronista §PRD badge fix (2026-09-22) — join tasks เอา assigneeId/dispatchedAt ปัจจุบันมาด้วย ให้ฝั่ง client เช็คได้ว่างาน
+    // ที่แจ้งเตือนอ้างถึงยังอยู่ในหน้า "งานของฉัน" ของ user จริงไหม (กันกรณี reassign ออกไปแล้ว/ได้แจ้งเตือนแบบ commenter ที่ไม่ใช่ assignee — ตัวเลข badge เคยไม่ตรงกับที่เห็นจริงในหน้า)
+    const selectCols = {
+      id: notifications.id,
+      userId: notifications.userId,
+      type: notifications.type,
+      taskId: notifications.taskId,
+      projectId: notifications.projectId,
+      dailyReportId: notifications.dailyReportId,
+      memberId: notifications.memberId,
+      meetingId: notifications.meetingId,
+      chatChannelId: notifications.chatChannelId,
+      domainId: notifications.domainId,
+      sellnistaSubscriptionId: notifications.sellnistaSubscriptionId,
+      message: notifications.message,
+      isRead: notifications.isRead,
+      createdAt: notifications.createdAt,
+      taskAssigneeId: tasks.assigneeId,
+      taskDispatchedAt: tasks.dispatchedAt,
+    }
+
     // ไม่ส่ง page มา = โหมดเดิม (dropdown) จำกัด 50 แถว ไม่มี total
     if (page === undefined) {
-      const rows = await db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt)).limit(50)
+      const rows = await db.select(selectCols).from(notifications).leftJoin(tasks, eq(notifications.taskId, tasks.id)).where(where).orderBy(desc(notifications.createdAt)).limit(50)
       return c.json(rows)
     }
     const size = pageSize ?? 20
     const [rows, totalRow] = await Promise.all([
-      db.select().from(notifications).where(where).orderBy(desc(notifications.createdAt)).limit(size).offset((page - 1) * size),
+      db.select(selectCols).from(notifications).leftJoin(tasks, eq(notifications.taskId, tasks.id)).where(where).orderBy(desc(notifications.createdAt)).limit(size).offset((page - 1) * size),
       db.select({ n: count() }).from(notifications).where(where),
     ])
     return c.json({ rows, total: totalRow[0]?.n ?? 0 })
