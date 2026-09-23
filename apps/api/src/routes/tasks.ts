@@ -691,8 +691,14 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — expectedVersion ใช้แค่ตัดสินใจ WHERE guard ด้านล่าง ไม่ใช่คอลัมน์จริง (ตัดออกก่อนเขียน DB เหมือน notifyOnUpdate)
     delete patch.expectedVersion
     patch.version = sql`${tasks.version} + 1`
+    // Pronista §Daily Report role/action mapping — ย้ายมาคำนวณก่อน .update() (เดิมคำนวณทีหลังจาก "after" อย่างเดียว) เพื่อใช้ตัดสินใจ stamp lastActivityAt ในคำสั่ง update เดียวกันได้เลย ไม่ต้องคำนวณซ้ำสองรอบ
+    const isAssigneeAtAction = before.assigneeId === me.id
+    const isAssignerOrReviewerAtAction = before.assignedBy === me.id || before.reviewerId === me.id
+    // Pronista §Daily Report PRO-DEF-0001 fix (2026-09-23) — ปุ่ม "ปิดงานเอง" (solo/self-dispatch) ไม่เคยส่ง notifyOnUpdate มาเลย เดิม lastActivityAt เลยไม่เคยถูก stamp ตอนปิดงานด้วยทางลัดนี้
+    // ทั้งที่เป็นกิจกรรมจริงของวันนั้นไม่ต่างจากกด "บันทึกเพื่ออัปเดตข้อมูล" — ถือเป็น activity เหมือนกัน stamp ด้วยเงื่อนไขเดียวกับที่ใช้ตัดสิน dailyReportAction='close_self' ด้านล่าง
+    const isSelfCloseNow = isAssigneeAtAction && isAssignerOrReviewerAtAction && before.status !== 'done' && body.data.status === 'done'
     // Pronista §Daily Report activity logic (2026-09-22) — Stamp เฉพาะตอนกดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" จริงๆ (notifyOnUpdate = สัญญาณเฉพาะปุ่มนี้ ไม่ปนกับ action อื่นเช่น dispatch/accept/สถานะลาก board) ใช้เลือกว่างานไหนควรโผล่ใน Daily Report ของวันนั้น แทนการพึ่ง startDate/dueDate ที่อาจไม่ได้กรอก
-    if (body.data.notifyOnUpdate) patch.lastActivityAt = new Date()
+    if (body.data.notifyOnUpdate || isSelfCloseNow) patch.lastActivityAt = new Date()
     if (body.data.status === 'done' && before.status !== 'done') patch.completedAt = new Date()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
@@ -776,12 +782,10 @@ export const taskRoutes = new Hono<AppEnv>()
           ? 'task.assign'
           : 'task.update'
     // Pronista §Daily Report role/action mapping — บันทึก eligibility ณ เวลากดจริงไว้ใน audit
-    // ไม่คำนวณย้อนหลังจาก task ปัจจุบัน เพราะ assignee/reviewer อาจถูกเปลี่ยนภายหลังได้
+    // ไม่คำนวณย้อนหลังจาก task ปัจจุบัน เพราะ assignee/reviewer อาจถูกเปลี่ยนภายหลังได้ (isAssigneeAtAction/isAssignerOrReviewerAtAction คำนวณไปแล้วด้านบนตอนตัดสิน lastActivityAt — reuse ตัวเดียวกัน)
     const after = updated[0]!
     const hasAnyDailyRole = after.assignedBy === me.id || after.assigneeId === me.id || after.reviewerId === me.id
-    const isAssigneeAtAction = before.assigneeId === me.id
-    const isAssignerOrReviewerAtAction = before.assignedBy === me.id || before.reviewerId === me.id
-    let dailyReportAction: 'save' | 'submit' | 'recall' | 'approve' | 'bounce' | undefined
+    let dailyReportAction: 'save' | 'submit' | 'recall' | 'approve' | 'bounce' | 'close_self' | undefined
     if (body.data.notifyOnUpdate && hasAnyDailyRole) {
       dailyReportAction = 'save'
     } else if (
@@ -812,6 +816,10 @@ export const taskRoutes = new Hono<AppEnv>()
       body.data.status === 'non_start'
     ) {
       dailyReportAction = 'bounce'
+    } else if (isSelfCloseNow) {
+      // Pronista §Daily Report PRO-DEF-0001 fix (2026-09-23) — ปุ่ม "ปิดงานเอง" (solo/self-dispatch) เรียก patchNow({status:'done'}) เฉยๆ ไม่เคยส่ง workflowAction เลย
+      // (ต่างจาก "อนุมัติ ปิดงาน" ที่ส่ง 'approve' ชัดเจน) เลยไม่เคย tag dailyReportAction สักครั้ง งานที่ปิดผ่านทางลัดนี้เลยไม่เคยโผล่ในรายงานประจำวันเลยแม้แต่ครั้งเดียว
+      dailyReportAction = 'close_self'
     }
     const auditAfter: Record<string, unknown> = { ...body.data }
     delete auditAfter.notifyOnUpdate

@@ -95,6 +95,24 @@ describe('§Daily Report — Role/Action mapping', () => {
     expect((await app.request(`/api/tasks/${task.id}`, json(pond, { status: 'on_processing' }, 'PATCH'), env)).status).toBe(200)
     expect(await suggestedTaskIds(pond)).not.toContain(task.id)
   })
+
+  // Pronista §Daily Report PRO-DEF-0001 fix (2026-09-23) — ปุ่ม "ปิดงานเอง" (solo/self-dispatch workflow) เรียก patchNow({status:'done'}) เฉยๆ ไม่เคยส่ง workflowAction
+  // เดิมเลยไม่เคย tag dailyReportAction หรือ stamp lastActivityAt เลย งานที่ปิดผ่านทางลัดนี้เลยไม่เคยโผล่ใน Daily Report แม้แต่ครั้งเดียว (พบจริงบน production กับ PRO-DEF-0001 และงานคล้ายกันอีก 6 งาน)
+  it('Solo workflow (ผู้จ่ายงาน=ผู้รับผิดชอบ=ผู้ตรวจ คนเดียวกัน) ปิดงานเองไม่ส่ง workflowAction → ยัง stamp lastActivityAt และปรากฏใน Daily Report', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const t = (await (await app.request('/api/tasks/backlog', json(pond, { title: 'งาน solo ปิดเอง daily report' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, json(pond, { assigneeId: 'u_pond' }, 'PATCH'), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+
+    // ปิดงานเอง — mirror ปุ่ม "ปิดงานเอง" ที่ frontend ไม่เคยส่ง workflowAction เลย (ต่างจาก "อนุมัติ ปิดงาน" ที่ส่ง 'approve')
+    const close = await app.request(`/api/tasks/${t.id}`, json(pond, { status: 'done' }, 'PATCH'), env)
+    expect(close.status).toBe(200)
+    const closeBody = (await close.json()) as { lastActivityAt: string | null }
+    expect(closeBody.lastActivityAt).not.toBeNull()
+
+    expect(await suggestedTaskIds(pond)).toContain(t.id)
+  })
 })
 
 describe('§Daily Report multi-recipient (2026-09-02)', () => {
