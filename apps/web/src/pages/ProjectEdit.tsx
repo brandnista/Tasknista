@@ -27,7 +27,7 @@ export function ProjectEditPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { data: project, loading } = useLoad<EditableProject>(() => api.get(`/api/projects/${id}`), [id])
-  const { data: clientsRes } = useLoad<{ rows: { id: string; name: string }[] }>(() => api.get('/api/clients'))
+  const { data: clientsRes, reload: reloadClients } = useLoad<{ rows: { id: string; name: string }[] }>(() => api.get('/api/clients'))
   const clientList = clientsRes?.rows ?? []
   // Pronista §Feedback batch 3 — ใช้ /api/config (ทุก role อ่านได้) แทน /api/admin/positions (owner เท่านั้น) ให้ editor ที่ไม่ใช่ owner เลือกตำแหน่งตอน assign สมาชิกได้ด้วย
   const { data: cfg } = useLoad<{ projectStatuses: StatusOpt[]; positions: PositionOpt[] }>(() => api.get('/api/config'))
@@ -39,6 +39,23 @@ export function ProjectEditPage() {
   const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
   const productTypes = productTypeData?.productTypes ?? []
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
+  // Pronista §PRO-DEF-0005 (2026-09-23) — "จัดการลูกค้า" (บัญชี guest) กับ clients (CRM) เป็นคนละระบบ ไม่มีอะไรเชื่อมกันเลย — รวมชื่อบัญชี guest เข้า dropdown นี้ด้วย (ตัดชื่อที่มี client row อยู่แล้วออก)
+  const guestClientOptions = allUsers
+    .filter((u) => u.role === 'guest' && !clientList.some((c) => c.name.trim().toLowerCase() === u.name.trim().toLowerCase()))
+    .map((u) => ({ id: u.id, name: u.name, isGuestUser: true as const }))
+  const clientPickerOptions = [...clientList, ...guestClientOptions]
+  // PATCH ไม่มี path "สร้างลูกค้าจากชื่อ" แบบตอนสร้างโปรเจกต์ (ต้องส่ง clientId จริงเสมอ) — เลือกบัญชี guest ต้อง find-or-create client ทันทีที่เลือกเลย ไม่ใช่รอตอน submit
+  const [linkingGuestClient, setLinkingGuestClient] = useState(false)
+  const selectGuestAsClient = async (name: string) => {
+    setLinkingGuestClient(true)
+    try {
+      const client = await api.post<{ id: string; name: string }>('/api/clients/find-or-create', { name })
+      setForm((f) => ({ ...f, clientId: client.id }))
+      await reloadClients()
+    } finally {
+      setLinkingGuestClient(false)
+    }
+  }
 
   const [form, setForm] = useState({
     name: '', description: '', url: '', status: 'dev' as ProjectRow['status'], clientId: '', code: '',
@@ -205,13 +222,14 @@ export function ProjectEditPage() {
           <div className="block">
             <div className="text-xs font-medium text-muted mb-1.5">ลูกค้า</div>
             <ClientCombobox
-              clients={clientList}
+              clients={clientPickerOptions}
               clientId={form.clientId}
               clientName=""
               onSelect={(id) => setForm({ ...form, clientId: id })}
+              onSelectGuest={(name) => void selectGuestAsClient(name)}
               onClear={() => setForm({ ...form, clientId: '' })}
               allowClear
-              placeholder="— ไม่ระบุ —"
+              placeholder={linkingGuestClient ? 'กำลังผูกลูกค้า…' : '— ไม่ระบุ —'}
             />
           </div>
 

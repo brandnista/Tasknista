@@ -484,6 +484,12 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const clients = clientData?.rows ?? []
   const serviceTypes = serviceTypeData?.serviceTypes ?? []
   const productTypes = productTypeData?.productTypes ?? []
+  // Pronista §PRO-DEF-0005 (2026-09-23) — "จัดการลูกค้า" (บัญชี guest) กับ clients (CRM) เป็นคนละระบบ ไม่มีอะไรเชื่อมกันเลย ทำให้ลูกค้าที่เพิ่งสร้างผ่านเมนูนั้นหาไม่เจอใน dropdown นี้
+  // รวมชื่อบัญชี guest เข้ามาด้วย (ตัดชื่อที่มี client row อยู่แล้วออก กันโชว์ซ้ำ) — เลือกแล้วเข้า path onCreate เดิม (find-or-create ด้วยชื่อตอน submit)
+  const guestClientOptions = (users ?? [])
+    .filter((u) => u.role === 'guest' && !clients.some((c) => c.name.trim().toLowerCase() === u.name.trim().toLowerCase()))
+    .map((u) => ({ id: u.id, name: u.name, isGuestUser: true as const }))
+  const clientPickerOptions = [...clients, ...guestClientOptions]
   // Pronista §Project members — open to all roles (2026-09-15) — เดิมกรองเหลือแค่ role='member' (เหตุผลเดิม: หน้าแก้ไขโปรเจกต์จัดการ owner/vendor ที่ถูกเพิ่มมาไม่ได้) ตอนนี้หน้าแก้ไขรองรับครบทุก role แล้ว เลยเปิดเลือกได้ทุกประเภทเหมือน Workspace (ผ่าน ProjectMembersPicker ด้านล่าง แทนลิสต์ team เดิม)
   // Project Lead เป็นแค่ฟิลด์ข้อมูล (ไม่ผ่านระบบตำแหน่ง) — owner เป็น Lead ได้ปกติ จึงใช้ลิสต์แยก ไม่ผูกกับสมาชิกโปรเจกต์
   const leadOptions = (users ?? []).filter((u) => u.role !== 'vendor')
@@ -645,10 +651,11 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
             <div>
               <label className={label}>ลูกค้า (ถ้ามี)</label>
               <ClientCombobox
-                clients={clients}
+                clients={clientPickerOptions}
                 clientId={form.clientId}
                 clientName={form.clientName}
                 onSelect={(id) => setForm({ ...form, clientId: id, clientName: '' })}
+                onSelectGuest={(name) => setForm({ ...form, clientId: '', clientName: name })}
                 onCreate={(name) => setForm({ ...form, clientId: '', clientName: name })}
                 onClear={() => setForm({ ...form, clientId: '', clientName: '' })}
                 allowClear

@@ -114,3 +114,32 @@ describe('C2 — clients API', () => {
     expect((await app.request(`/api/clients/${cl.id}/notes`, json(v, { body: 'x' }), env)).status).toBe(403)
   })
 })
+
+// Pronista §PRO-DEF-0005 (2026-09-23) — POST /api/clients/find-or-create: "จัดการลูกค้า" (บัญชี guest) กับ clients (CRM) เป็นคนละระบบ ไม่มี id เชื่อมกันได้ตรงๆ
+// endpoint นี้ให้หน้าแก้ไขโปรเจกต์ผูกบัญชี guest เข้ากับ client CRM ชื่อเดียวกัน (หาเจอก็ใช้ของเดิม ไม่เจอก็สร้างใหม่)
+describe('§PRO-DEF-0005 — POST /api/clients/find-or-create', () => {
+  it('ชื่อยังไม่มี client → สร้างใหม่ · เรียกซ้ำด้วยชื่อเดียวกัน → ได้ id เดิม ไม่สร้างซ้ำ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const first = await app.request('/api/clients/find-or-create', json(owner, { name: 'ลูกค้าทดสอบ ABC' }), env)
+    expect(first.status).toBe(200)
+    const firstBody = (await first.json()) as { id: string; name: string }
+    expect(firstBody.name).toBe('ลูกค้าทดสอบ ABC')
+
+    const second = await app.request('/api/clients/find-or-create', json(owner, { name: 'ลูกค้าทดสอบ ABC' }), env)
+    const secondBody = (await second.json()) as { id: string }
+    expect(secondBody.id).toBe(firstBody.id)
+
+    const list = (await (await app.request('/api/clients', { headers: { cookie: owner } }, env)).json()) as { rows: { name: string }[] }
+    expect(list.rows.filter((r) => r.name === 'ลูกค้าทดสอบ ABC')).toHaveLength(1)
+  })
+
+  it('vendor เรียกไม่ได้ (403) — endpoint นี้อยู่ใต้ /api/clients/* teamOnly เหมือนกันทั้งชุด', async () => {
+    const vendor = await loginAs(app, 'somchai@example.com')
+    expect((await app.request('/api/clients/find-or-create', json(vendor, { name: 'x' }), env)).status).toBe(403)
+  })
+
+  it('name ว่าง → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    expect((await app.request('/api/clients/find-or-create', json(owner, { name: '' }), env)).status).toBe(400)
+  })
+})

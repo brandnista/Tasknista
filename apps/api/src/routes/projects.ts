@@ -55,6 +55,7 @@ import {
   type Project,
 } from '@seedoffice/db'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm'
+import { findOrCreateClientByName } from './clients'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -425,13 +426,7 @@ export const projectRoutes = new Hono<AppEnv>()
 
     let clientId = d.clientId ?? null
     if (!clientId && d.clientName) {
-      const existing = (
-        await db.select().from(clients).where(eq(clients.name, d.clientName)).limit(1)
-      )[0]
-      clientId =
-        existing?.id ??
-        (await db.insert(clients).values({ name: d.clientName }).returning())[0]?.id ??
-        null
+      clientId = (await findOrCreateClientByName(db, d.clientName)).id
     }
 
     const inserted = await db

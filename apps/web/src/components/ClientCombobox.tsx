@@ -3,13 +3,18 @@
  *  - onCreate (ถ้ามี): พิมพ์ชื่อที่ยังไม่มี → แถว "➕ เพิ่ม «ชื่อ»" สร้างลูกค้าใหม่ตอน submit
  *  - allowClear/onClear: แถว "— ไม่ระบุ —"
  * ยุบ select + ช่องพิมพ์ชื่อใหม่เดิม (input เยอะไป) ให้เหลือชิ้นเดียว
+ *
+ * Pronista §PRO-DEF-0005 (2026-09-23) — รายการ clients (CRM) กับบัญชี guest จาก "จัดการลูกค้า" เป็นคนละระบบกัน ไม่มี id ผูกกันได้ตรงๆ
+ * รายการที่ isGuestUser=true คือชื่อจากบัญชี guest (ยังไม่มี client row จริง) — เลือกแล้วเรียก onSelectGuest(name) แทน onSelect(id) ให้แต่ละหน้าตัดสินใจเอง
+ * ว่าจะ find-or-create client ยังไง (หน้าสร้างโปรเจกต์ใช้ path onCreate เดิมได้เลย, หน้าแก้ไขต้องยิง API หา id จริงก่อน)
  */
-import { Check, ChevronDown, Plus } from 'lucide-react'
+import { Check, ChevronDown, Plus, UserCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 interface ClientLite {
   id: string
   name: string
+  isGuestUser?: boolean
 }
 
 export function ClientCombobox({
@@ -17,6 +22,7 @@ export function ClientCombobox({
   clientId,
   clientName,
   onSelect,
+  onSelectGuest,
   onCreate,
   onClear,
   allowClear = false,
@@ -26,6 +32,7 @@ export function ClientCombobox({
   clientId: string
   clientName: string
   onSelect: (id: string) => void
+  onSelectGuest?: (name: string) => void
   onCreate?: (name: string) => void
   onClear?: () => void
   allowClear?: boolean
@@ -52,8 +59,9 @@ export function ClientCombobox({
   const selectedName = clientId ? (clients.find((c) => c.id === clientId)?.name ?? '') : ''
   const label = selectedName || clientName || ''
 
-  const pick = (id: string) => {
-    onSelect(id)
+  const pick = (item: ClientLite) => {
+    if (item.isGuestUser) onSelectGuest?.(item.name)
+    else onSelect(item.id)
     setOpen(false)
     setQ('')
   }
@@ -88,7 +96,7 @@ export function ClientCombobox({
                 if (e.code === 'Escape') setOpen(false)
                 else if (e.code === 'Enter') {
                   e.preventDefault()
-                  if (filtered[0]) pick(filtered[0].id)
+                  if (filtered[0]) pick(filtered[0])
                   else if (canCreate) create()
                 }
               }}
@@ -111,11 +119,17 @@ export function ClientCombobox({
               <button
                 key={c.id}
                 type="button"
-                onClick={() => pick(c.id)}
+                onClick={() => pick(c)}
+                title={c.isGuestUser ? 'บัญชีลูกค้าจากเมนู "จัดการลูกค้า" — เลือกแล้วจะสร้าง/ผูกลูกค้า CRM ชื่อเดียวกันให้อัตโนมัติ' : undefined}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-body hover:bg-hover"
               >
                 {clientId === c.id ? <Check className="w-4 h-4 text-brand-600 shrink-0" /> : <span className="w-4 shrink-0" />}
                 <span className="flex-1 truncate text-left">{c.name}</span>
+                {c.isGuestUser && (
+                  <span className="flex items-center gap-1 text-[10px] text-info-700 bg-info-50 px-1.5 py-0.5 rounded shrink-0">
+                    <UserCheck className="w-3 h-3" /> จัดการลูกค้า
+                  </span>
+                )}
               </button>
             ))}
             {canCreate && (
