@@ -67,8 +67,7 @@ describe('§Leave Request Phase 2 — leave-admin (owner only)', () => {
 
     const fd = new FormData()
     fd.append('leaveTypeId', sickTypeId)
-    fd.append('startDate', `${year}-01-10`)
-    fd.append('endDate', `${year}-01-11`)
+    fd.append('ranges', JSON.stringify([{ startDate: `${year}-01-10`, endDate: `${year}-01-11` }]))
     fd.append('reason', 'ทดสอบ overview')
     const created = (await (await app.request('/api/leave-requests', { method: 'POST', headers: { cookie: pond }, body: fd }, env)).json()) as { id: string }
     await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)

@@ -1592,11 +1592,17 @@ export const leaveRequests = sqliteTable(
     attachmentFilename: text('attachment_filename'),
     attachmentMime: text('attachment_mime'),
     attachmentSizeBytes: integer('attachment_size_bytes'),
+    // Pronista §Leave Management Overhaul เฟส D (2026-09-23) — คำขอ 1 ครั้งมีได้หลายช่วงวันที่ (ติดวันหยุดคั่นกลาง) — sibling rows แชร์ groupId เดียวกัน (null = คำขอช่วงเดียว พฤติกรรมเดิมเป๊ะ)
+    groupId: text('group_id'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  (t) => [index('leave_requests_user_idx').on(t.userId), index('leave_requests_approver_idx').on(t.approverId, t.status)],
+  (t) => [
+    index('leave_requests_user_idx').on(t.userId),
+    index('leave_requests_approver_idx').on(t.approverId, t.status),
+    index('leave_requests_group_idx').on(t.groupId),
+  ],
 )
 
 /** Pronista §Leave Request Phase 2 (2026-09-22) — บันทึกปรับยอดวันลาที่ใช้ไปมือ (backfill ก่อนขึ้นระบบ/แก้ยอดผิด) — insert-only ledger mirror payAdjustments (บรรทัด ~1410) */

@@ -22,8 +22,7 @@ interface LeaveRequestRow {
   leaveTypeId: string
   leaveTypeName: string | null
   userName?: string | null
-  startDate: string
-  endDate: string
+  ranges: { id: string; startDate: string; endDate: string }[]
   reason: string | null
   status: 'pending' | 'approved' | 'rejected' | 'withdrawn'
   rejectReason: string | null
@@ -47,10 +46,19 @@ const STATUS_BADGE: Record<LeaveRequestRow['status'], string> = {
   rejected: 'bg-danger-50 text-danger-700',
   withdrawn: 'bg-hover text-muted',
 }
+const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
 const fmtDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
+const fmtDateShort = (d: string) => `${Number(d.slice(8, 10))} ${THAI_MONTHS_SHORT[Number(d.slice(5, 7)) - 1]}`
 const fmtDateTime = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const todayISO = () => new Date().toLocaleString('en-CA', { timeZone: 'Asia/Bangkok' }).slice(0, 10)
 const inputCls = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
+
+/** Pronista §Leave Management Overhaul เฟส D (2026-09-23) — แสดงหลายช่วงวันที่ของคำขอเดียวแบบย่อ เช่น "12-13 พ.ย., 16 พ.ย." */
+function formatRanges(ranges: { startDate: string; endDate: string }[]): string {
+  return ranges
+    .map((r) => (r.endDate !== r.startDate ? `${fmtDateShort(r.startDate)}-${fmtDateShort(r.endDate)}` : fmtDateShort(r.startDate)))
+    .join(', ')
+}
 
 function OnLeaveWidget() {
   const load = useLoad<{ rows: OnLeaveRow[] }>(() => api.get('/api/leave-requests/on-leave'))
@@ -107,11 +115,15 @@ function StatusTimeline({ r }: { r: LeaveRequestRow }) {
   )
 }
 
+interface DraftRange {
+  startDate: string
+  endDate: string
+}
+
 function NewLeaveModal({ types, onClose, onSaved }: { types: LeaveTypeRow[]; onClose: () => void; onSaved: () => void }) {
   const toast = useToast()
   const [leaveTypeId, setLeaveTypeId] = useState(types[0]?.id ?? '')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [ranges, setRanges] = useState<DraftRange[]>([{ startDate: '', endDate: '' }])
   const [reason, setReason] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
@@ -119,10 +131,18 @@ function NewLeaveModal({ types, onClose, onSaved }: { types: LeaveTypeRow[]; onC
   const fileRef = useRef<HTMLInputElement>(null)
   const selectedType = types.find((t) => t.id === leaveTypeId)
 
+  const setRange = (i: number, patch: Partial<DraftRange>) => setRanges((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const addRange = () => setRanges((rs) => [...rs, { startDate: '', endDate: '' }])
+  const removeRange = (i: number) => setRanges((rs) => rs.filter((_, idx) => idx !== i))
+
   const submit = async () => {
     if (!leaveTypeId) return setError('ต้องเลือกประเภทลา')
-    if (!startDate || !endDate) return setError('ต้องเลือกวันที่')
-    if (endDate < startDate) return setError('วันสิ้นสุดต้องไม่ก่อนวันเริ่ม')
+    if (ranges.some((r) => !r.startDate || !r.endDate)) return setError('ต้องเลือกวันที่ให้ครบทุกช่วง')
+    if (ranges.some((r) => r.endDate < r.startDate)) return setError('วันสิ้นสุดต้องไม่ก่อนวันเริ่มในแต่ละช่วง')
+    const sorted = [...ranges].sort((a, b) => a.startDate.localeCompare(b.startDate))
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i]!.startDate <= sorted[i - 1]!.endDate) return setError('ช่วงวันที่ห้ามซ้อนทับกัน')
+    }
     if (selectedType?.requiresReason && !reason.trim()) return setError('ต้องระบุเหตุผล')
     if (selectedType?.requiresAttachment && !file) return setError('ประเภทลานี้ต้องแนบไฟล์ (เช่น ใบรับรองแพทย์)')
     setSaving(true)
@@ -130,8 +150,7 @@ function NewLeaveModal({ types, onClose, onSaved }: { types: LeaveTypeRow[]; onC
     try {
       const fd = new FormData()
       fd.append('leaveTypeId', leaveTypeId)
-      fd.append('startDate', startDate)
-      fd.append('endDate', endDate)
+      fd.append('ranges', JSON.stringify(ranges))
       if (reason.trim()) fd.append('reason', reason.trim())
       if (file) fd.append('attachment', file)
       await api.post('/api/leave-requests', fd)
@@ -167,29 +186,41 @@ function NewLeaveModal({ types, onClose, onSaved }: { types: LeaveTypeRow[]; onC
                 ))}
               </select>
             </div>
-            <div className="flex gap-2">
-              <div className="flex-1 min-w-0">
-                <label className="text-xs font-medium text-muted mb-1 block">วันเริ่ม *</label>
-                <DateInputTH value={startDate} onChange={setStartDate} className={inputCls} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <label className="text-xs font-medium text-muted mb-1 block">วันสิ้นสุด *</label>
-                <DateInputTH value={endDate} onChange={setEndDate} className={inputCls} />
-              </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted block">ช่วงวันที่ลา *</label>
+              {ranges.map((r, i) => (
+                <div key={i} className="flex items-end gap-2">
+                  <div className="flex-1 min-w-0">
+                    {i === 0 && <span className="text-[11px] text-dim block mb-1">วันเริ่ม</span>}
+                    <DateInputTH value={r.startDate} onChange={(v) => setRange(i, { startDate: v })} className={inputCls} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    {i === 0 && <span className="text-[11px] text-dim block mb-1">วันสิ้นสุด</span>}
+                    <DateInputTH value={r.endDate} onChange={(v) => setRange(i, { endDate: v })} className={inputCls} />
+                  </div>
+                  {ranges.length > 1 && (
+                    <button onClick={() => removeRange(i)} className="p-2 rounded-lg hover:bg-hover text-dim shrink-0" title="ลบช่วงนี้">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button onClick={addRange} className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+                <Plus className="w-3.5 h-3.5" /> เพิ่มช่วงวันที่
+              </button>
             </div>
             <div>
               <label className="text-xs font-medium text-muted mb-1 block">เหตุผล{selectedType?.requiresReason ? ' *' : ''}</label>
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={inputCls} placeholder="สาเหตุ/รายละเอียดการลา" />
             </div>
-            {selectedType?.requiresAttachment && (
-              <div>
-                <label className="text-xs font-medium text-muted mb-1 block">แนบไฟล์ (เช่น ใบรับรองแพทย์) *</label>
-                <button onClick={() => fileRef.current?.click()} className="w-full text-sm border border-dashed border-border rounded-lg px-3 py-3 text-center hover:bg-hover text-dim">
-                  {file ? file.name : 'เลือกไฟล์…'}
-                  <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-                </button>
-              </div>
-            )}
+            {/* Pronista §Leave Management Overhaul เฟส C (2026-09-23) — เดิมโชว์ช่องแนบไฟล์เฉพาะ requiresAttachment=true เท่านั้น แนบเอกสารประกอบเองไม่ได้แม้ประเภทลานั้นไม่บังคับ — เปิดให้แนบได้เสมอ (optional) บังคับเฉพาะ type ที่ requiresAttachment เท่านั้น (validate ทั้ง client submit() ด้านบนและ server อยู่แล้ว ไม่ต้องแก้) */}
+            <div>
+              <label className="text-xs font-medium text-muted mb-1 block">แนบไฟล์ (เช่น ใบรับรองแพทย์){selectedType?.requiresAttachment ? ' *' : ''}</label>
+              <button onClick={() => fileRef.current?.click()} className="w-full text-sm border border-dashed border-border rounded-lg px-3 py-3 text-center hover:bg-hover text-dim">
+                {file ? file.name : 'เลือกไฟล์… (ไม่บังคับ)'}
+                <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </button>
+            </div>
             {error && <p className="text-xs text-danger-600">{error}</p>}
           </div>
           <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
@@ -326,15 +357,14 @@ export function LeaveRequestPage() {
           ) : (
             <div className="bg-white rounded-xl border border-border-subtle divide-y divide-divider">
               {mine.map((r) => {
-                const canCancel = r.status === 'pending' || (r.status === 'approved' && r.startDate > todayISO())
+                const today = todayISO()
+                const canCancel = r.status === 'pending' || (r.status === 'approved' && r.ranges.every((rg) => rg.startDate > today))
                 return (
                   <div key={r.id} className="p-4">
                     <div className="flex flex-wrap items-start gap-2">
                       <div className="flex-1 min-w-[180px]">
                         <div className="text-sm font-medium text-ink">{r.leaveTypeName ?? '—'}</div>
-                        <div className="text-xs text-muted mt-0.5">
-                          {fmtDate(r.startDate)} – {fmtDate(r.endDate)}
-                        </div>
+                        <div className="text-xs text-muted mt-0.5">{formatRanges(r.ranges)}</div>
                         {r.reason && <div className="text-xs text-dim mt-1">{r.reason}</div>}
                         {r.status === 'rejected' && r.rejectReason && <div className="text-xs text-danger-700 mt-1">เหตุผลที่ปฏิเสธ: {r.rejectReason}</div>}
                         {r.attachmentR2Key && (
@@ -370,9 +400,7 @@ export function LeaveRequestPage() {
                     <div className="text-sm font-medium text-ink">
                       {r.userName ?? '—'} · {r.leaveTypeName ?? '—'}
                     </div>
-                    <div className="text-xs text-muted mt-0.5">
-                      {fmtDate(r.startDate)} – {fmtDate(r.endDate)}
-                    </div>
+                    <div className="text-xs text-muted mt-0.5">{formatRanges(r.ranges)}</div>
                     {r.reason && <div className="text-xs text-dim mt-1">{r.reason}</div>}
                     {r.attachmentR2Key && (
                       <a href={`/api/leave-requests/${r.id}/attachment`} target="_blank" rel="noreferrer" className="text-xs text-brand-600 hover:underline mt-1 inline-flex items-center gap-1">
