@@ -9,6 +9,7 @@ import {
   recurringServices,
   SERVICE_CATEGORIES,
   users,
+  type Db,
 } from '@seedoffice/db'
 import { asc, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -17,6 +18,15 @@ import { writeAudit } from '../lib/audit'
 import type { AppEnv } from '../types'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+// Pronista §PRO-DEF-0005 (2026-09-23) — หา client (CRM) ที่ชื่อตรงเป๊ะ ถ้าไม่มีสร้างใหม่ — แยกออกมาใช้ร่วมกันทั้ง POST /api/projects (สร้างโปรเจกต์พร้อมพิมพ์ชื่อลูกค้าใหม่)
+// และ POST /api/clients/find-or-create (เลือก "ลูกค้า" จากบัญชี guest ใน dropdown รวม — คนละระบบกับ clients แต่ไม่มี id ที่ใช้ร่วมกันได้ ต้อง find-or-create ด้วยชื่อเหมือนกัน)
+export async function findOrCreateClientByName(db: Db, name: string): Promise<{ id: string; name: string }> {
+  const existing = (await db.select({ id: clients.id, name: clients.name }).from(clients).where(eq(clients.name, name)).limit(1))[0]
+  if (existing) return existing
+  const inserted = (await db.insert(clients).values({ name }).returning({ id: clients.id, name: clients.name }))[0]!
+  return inserted
+}
 
 /** ลูกค้า/CRM (SPEC §4.17) — mount ด้วย requireAuth + teamOnly (vendor 403 ทั้งชุด) */
 export const clientRoutes = new Hono<AppEnv>()
@@ -94,6 +104,16 @@ export const clientRoutes = new Hono<AppEnv>()
     const db = createDb(c.env.DB)
     const inserted = await db.insert(clients).values(body.data).returning()
     return c.json(inserted[0], 201)
+  })
+
+  // Pronista §PRO-DEF-0005 (2026-09-23) — เลือก "ลูกค้า" จาก dropdown รวม (clients CRM + บัญชี guest จาก "จัดการลูกค้า") ตอนแก้ไขโปรเจกต์
+  // บัญชี guest ไม่มี client row จริงให้ผูก (คนละระบบ ไม่มี FK เชื่อมกัน) — find-or-create ด้วยชื่อเดียวกันแทน แล้วคืน id จริงให้ frontend ใช้เป็น clientId ปกติ
+  .post('/find-or-create', async (c) => {
+    const body = z.object({ name: z.string().min(1) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const client = await findOrCreateClientByName(db, body.data.name)
+    return c.json(client, 200)
   })
 
   // detail: ติดต่อ + เงิน + โปรเจกต์ + payments + recurring + notes
