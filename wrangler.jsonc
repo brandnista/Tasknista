@@ -44,8 +44,8 @@
     "DEV_AUTH": "0",
     // (2026-08-14) ซ่อนปุ่ม Import Data เฉพาะ production ตามคำขอเจ้าของ — ยังเปิดอยู่บน staging ให้ทดสอบต่อ
     "IMPORT_DATA_ENABLED": "0",
-    // Release หลังผ่าน Staging: เปิดระบบการลาเฟส B–F บน PRD แล้ว
-    "LEAVE_ENABLED": "1"
+    // ปิดบน PRD ตามคำขอเจ้าของ; Staging คงเปิดไว้ให้ทดสอบ
+    "LEAVE_ENABLED": "0"
   },
 
   // DO: PRESENCE = timer realtime (SPEC §4.15) · INBOX_HUB = collision อีเมลกลางราย thread (SPEC §4.12) · BOARD_HUB = ใครดู Sprint Board อยู่ราย sprint
