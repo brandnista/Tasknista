@@ -21,6 +21,7 @@ import { DocumentHistoryPage } from './pages/DocumentHistory'
 import { DocViewerPage } from './pages/DocViewer'
 import { EmployeeDetailPage } from './pages/EmployeeDetail'
 import { LeaveOverviewPage } from './pages/LeaveOverview'
+import { LeaveTypesSettingsPage } from './pages/LeaveTypesSettings'
 import { LeaveRequestPage } from './pages/LeaveRequest'
 import { Login } from './pages/Login'
 import { MemberDetailPage } from './pages/MemberDetail'
@@ -299,6 +300,15 @@ const router = createBrowserRouter([
         element: (
           <Protected roles={['owner']}>
             <AdminCostPage />
+          </Protected>
+        ),
+      },
+      {
+        // Pronista §Leave Management Overhaul เฟส E (2026-09-23) — ตั้งใจไม่ใส่ requireLeave (ต่างจาก /leave, /leave/overview) เพราะเป็นหน้าตั้งค่า admin ควรแก้ได้แม้ตอน LEAVE_ENABLED=0
+        path: 'admin/leave-types',
+        element: (
+          <Protected roles={['owner']}>
+            <LeaveTypesSettingsPage />
           </Protected>
         ),
       },

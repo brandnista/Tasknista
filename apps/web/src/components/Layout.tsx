@@ -166,6 +166,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
       { to: '/admin/permissions', label: 'ตั้งค่าสิทธิ์ผู้ใช้งาน' },
       { to: '/admin/notifications', label: 'ตั้งค่าการแจ้งเตือน' },
       { to: '/admin/cost', label: 'กำหนดต้นทุน' },
+      // Pronista §Leave Management Overhaul เฟส E (2026-09-23) — ย้ายมาจากแท็บใน "ภาพรวมการลา" — ตั้งใจไม่กรองด้วย leaveEnabled (ต่างจาก /leave, /leave/overview) เพราะเป็นหน้าตั้งค่า admin ควรแก้ได้แม้ตอน LEAVE_ENABLED=0
+      { to: '/admin/leave-types', label: 'ตั้งค่าประเภทการลา' },
     ],
   },
   // Pronista §Menu Restructure — แยกออกจาก "ตั้งค่าผู้ใช้งาน" เดิม (เคยเป็น 3 แท็บในหน้าเดียว) เป็นเมนูหลักคนละอันตามสเปก
