@@ -315,20 +315,30 @@ describe('§Task ID URL Slug — GET /tasks/:id/detail รองรับทั�
     expect(bodyCode.id).toBe(t.id)
   })
 
-  it('code เปลี่ยนหลัง convert (Task→Defect) แล้ว — code เดิมเปิดไม่ได้ (404) แต่ UUID เดิมยังเปิดได้เสมอ', async () => {
+  it('เปลี่ยนชนิดงาน (Task→Defect) แล้ว display code เดิมยังเปิดได้ ส่วน canonical slug เปลี่ยนตามชนิดงาน', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const t = (await makeTask(owner)) as { id: string; code: string | null }
     const oldCode = t.code
+    expect(oldCode).toMatch(/^[A-Z0-9]{3}-\d{4}$/)
+    const beforeDetail = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    const oldSlug = ((await beforeDetail.json()) as { slug: string | null }).slug
+    expect(oldSlug).toMatch(/^[A-Z0-9]{3}-TSK-\d{8}-\d{4}$/)
 
     const converted = await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'defect' }), env)
     expect(converted.status).toBe(200)
     const after = (await converted.json()) as { code: string | null }
-    expect(after.code).not.toBe(oldCode)
+    expect(after.code).toBe(oldCode)
 
-    expect((await app.request(`/api/tasks/${oldCode}/detail`, { headers: { cookie: owner } }, env)).status).toBe(404)
+    // รหัสที่เห็นใน UI เป็น identity ถาวร แม้ย้ายชนิดงาน
+    expect((await app.request(`/api/tasks/${oldCode}/detail`, { headers: { cookie: owner } }, env)).status).toBe(200)
     const stillByUuid = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
     expect(stillByUuid.status).toBe(200)
-    expect(((await stillByUuid.json()) as { code: string | null }).code).toBe(after.code)
+    const afterDetail = (await stillByUuid.json()) as { code: string | null; slug: string | null }
+    expect(afterDetail.code).toBe(after.code)
+    expect(afterDetail.slug).toMatch(/^[A-Z0-9]{3}-DEF-\d{8}-\d{4}$/)
+    // slug เก่าชนิด TSK ต้องไม่พาไปยัง Defect โดยไม่ตั้งใจ
+    expect((await app.request(`/api/tasks/${oldSlug}/detail`, { headers: { cookie: owner } }, env)).status).toBe(404)
+    expect((await app.request(`/api/tasks/${afterDetail.slug}/detail`, { headers: { cookie: owner } }, env)).status).toBe(200)
   })
 
   it('เปิดด้วย code แล้วเห็น comments/attachments/checklist/subtasks ครบเหมือนเปิดด้วย UUID (กัน regression: sub-query เดิมอิง URL param ตรงๆ ไม่ใช่ UUID จริง)', async () => {

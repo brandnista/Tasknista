@@ -727,7 +727,8 @@ export const taskRoutes = new Hono<AppEnv>()
     } else if (body.data.projectId && before.projectId === null) {
       // Pronista §2.5 — ย้าย backlog (BL-N) เข้าโปรเจกต์ → ออกโค้ดใหม่ตามคำนำหน้าโปรเจกต์
       const project = (await db.select().from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
-      patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
+      // รหัสที่แสดงเป็นตัวตนถาวรของงาน: งานเก่าหรือ task ใหม่ที่มีรหัสแล้วต้องไม่เปลี่ยนเมื่อย้าย project
+      if (!before.code) patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
       // Pronista §5 (2026-07-03) — ย้ายจาก Company Backlog เข้าโปรเจกต์ → ลง "Backlog ของโปรเจกต์" (groupId ยังว่าง ไม่ขึ้นกระดานทันที)
       // แทนที่พฤติกรรมเดิมที่ auto-หา/สร้างกลุ่มแรกให้ (ทำให้โผล่ Non Start บนกระดานทันที) — ผู้ใช้ต้อง "ย้ายเข้ากระดาน" เองอีกที
     }
@@ -1125,8 +1126,8 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.projectId = effectiveProjectId
       patch.epicId = newEpic!.id
       patch.parentId = null
-      // ตัว task เดิมกลายเป็น Story ตัวแรกใต้ Epic ใหม่นี้ — regenerate code ให้ตรง
-      patch.code = await nextTypedTaskCode(db, prefix, 'Story')
+      // ตัว task เดิมกลายเป็น Story ตัวแรกใต้ Epic ใหม่ แต่รหัสแสดงผลต้องคงเดิม
+      if (!before.code) patch.code = await nextTypedTaskCode(db, prefix, 'Story')
     } else if (body.data.to === 'story' || body.data.to === 'cr' || body.data.to === 'defect') {
       // Pronista §Back to Basic (ต่อยอด) — Defect ผูกกับ Epic/Story/Task แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ เหมือน CR จึงไม่บังคับเลือก parent (เดิมพลาดไปรวมกับ task/subtask ที่ต้องมี parent จริง)
       patch.parentId = null
@@ -1136,7 +1137,7 @@ export const taskRoutes = new Hono<AppEnv>()
       if (body.data.to === 'defect' && before.kind !== 'defect') patch.defectStatus = 'reported'
       // Pronista §Defect field cleanup — แปลง Defect ออกไปเป็นประเภทอื่น ต้องล้าง defectStatus เดิมทิ้งด้วย กันค่าค้าง (โผล่กลับมาถ้ามีคนแปลงกลับเป็น Defect อีกครั้ง)
       if (body.data.to !== 'defect' && before.kind === 'defect') patch.defectStatus = null
-      patch.code = await nextTypedTaskCode(db, prefix, body.data.to === 'cr' ? 'CR' : body.data.to === 'defect' ? 'Defect' : 'Story')
+      if (!before.code) patch.code = await nextTypedTaskCode(db, prefix, body.data.to === 'cr' ? 'CR' : body.data.to === 'defect' ? 'Defect' : 'Story')
     } else if (body.data.to === 'subtask') {
       // subtask — ต้องเลือก parent (Task) จาก picker เสมอ (โครงสร้างข้อมูลกำหนด subtask ด้วยความลึกของ parent chain ไม่มี kind แยกต่างหาก จึงไม่มีทาง "ลอย" เป็น subtask ได้จริง)
       if (!body.data.targetParentId) return c.json({ error: 'target_parent_required' }, 400)
@@ -1151,7 +1152,7 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.groupId = parent.groupId
       patch.epicId = parent.epicId
       patch.isStandaloneTask = false
-      patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
+      if (!before.code) patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
     } else {
       // task — Pronista §Feedback batch 4: ไม่บังคับเลือก parent (Story) ทันทีอีกต่อไป ผูกทีหลังได้ผ่าน PATCH /tasks/:id
       if (body.data.targetParentId) {
@@ -1166,7 +1167,7 @@ export const taskRoutes = new Hono<AppEnv>()
         patch.groupId = parent.groupId
         patch.epicId = parent.epicId
         patch.isStandaloneTask = false
-        patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
+        if (!before.code) patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
       } else {
         patch.parentId = null
         patch.projectId = effectiveProjectId
@@ -1174,7 +1175,7 @@ export const taskRoutes = new Hono<AppEnv>()
         patch.epicId = null
         patch.isStandaloneTask = true
         const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
-        patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
+        if (!before.code) patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
       }
     }
 
