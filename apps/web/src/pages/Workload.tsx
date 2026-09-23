@@ -1,6 +1,6 @@
 /**
  * Pronista §Workload (Phase 2, 2026-09-04) — ภาพรวมภาระงานทีม: แถว=คน คอลัมน์=วันที่ (จัดกลุ่มเป็นแถบสัปดาห์)
- * ช่อง = ใช้ไป/เต็ม (ชม.) ไฮไลต์แดงเมื่อเกิน — ไม่มีการยกยอดตัวเลขไปวันถัดไป
+ * ช่อง = เวลาที่ใช้จริง/กำลังการทำงาน (ชม.) ไฮไลต์แดงเมื่อเกิน
  * Pronista §Calendar/Workload (2026-09-18) — เปิดให้ owner+member+vendor เห็นได้ (เดิม owner-only) — guest (ลูกค้า) ไม่เห็น
  */
 import { addDaysISO, bkkDateOf, minutesToHoursLabel, WEEKDAYS, weekdayOfISO, type Weekday } from '@seedoffice/core'
@@ -25,7 +25,7 @@ interface WorkloadResponse {
   people: { id: string; name: string; role: string; avatarUrl: string | null }[]
   days: string[]
   grid: Record<string, Record<string, WorkloadCell>>
-  unscheduled: { id: string; code: string | null; title: string; assigneeId: string; estimateMinutes: number }[]
+  unscheduled: { id: string; code: string | null; title: string; assigneeId: string }[]
 }
 interface SprintOption { id: string; name: string | null; projectName: string | null; startDate: string; endDate: string; status: string }
 
@@ -216,7 +216,7 @@ export function WorkloadPage() {
                               className={`px-2 py-2 text-center tabular-nums ${d === today ? 'bg-brand-50/40' : ''} ${hasTasks ? 'cursor-pointer hover:bg-hover' : ''}`}
                               title={
                                 cell && (cell.taskMinutes > 0 || cell.meetingMinutes > 0)
-                                  ? `Task: ${minutesToHoursLabel(cell.taskMinutes)} · ประชุม: ${minutesToHoursLabel(cell.meetingMinutes)}`
+                                  ? `เวลางานที่บันทึก: ${minutesToHoursLabel(cell.taskMinutes)} · ประชุม: ${minutesToHoursLabel(cell.meetingMinutes)}`
                                   : hasTasks
                                     ? `ดูงานของ ${p.name} วันที่ ${d}`
                                     : undefined
@@ -257,7 +257,7 @@ export function WorkloadPage() {
                         {t.code ? `${t.code} ` : ''}
                         {t.title}
                       </span>
-                      <span className="text-muted tabular-nums shrink-0">{minutesToHoursLabel(t.estimateMinutes)} ชม.</span>
+                      <span className="text-muted text-xs shrink-0">ยังไม่มีวันที่กำหนด</span>
                     </div>
                   )
                 })}

@@ -12,12 +12,12 @@ export function formatSatang(satang: number): string {
   return st === 0 ? `${sign}฿${baht}` : `${sign}฿${baht}.${String(st).padStart(2, '0')}`
 }
 
-/** แสดงชั่วโมงจากนาที (ทศนิยม 1 ตำแหน่ง) เช่น 5760 → "96.0" · 5310 → "88.5" */
+/** แสดงชั่วโมงจากนาทีแบบแม่นยำถึง 2 ตำแหน่ง เช่น 15 นาที → "0.25" ไม่ปัดเป็น "0.3" */
 export function minutesToHoursLabel(minutes: number): string {
   if (!Number.isInteger(minutes)) throw new TypeError(`minutes ต้องเป็น integer ได้ ${minutes}`)
   const sign = minutes < 0 ? '-' : ''
-  const tenths = Math.round((Math.abs(minutes) * 10) / 60)
-  return `${sign}${Math.floor(tenths / 10)}.${tenths % 10}`
+  const hundredths = Math.round((Math.abs(minutes) * 100) / 60)
+  return `${sign}${Math.floor(hundredths / 100)}.${String(hundredths % 100).padStart(2, '0')}`
 }
 
 /** วินาที → 'H:MM:SS' (ชั่วโมงหลักเดียวตาม SPEC §4.5) เช่น 13338 → "3:42:18" */

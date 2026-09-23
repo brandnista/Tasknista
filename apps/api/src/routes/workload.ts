@@ -1,17 +1,16 @@
 /**
  * Pronista §Workload (Phase 2) — ภาพรวมภาระงานทีม: ใคร ทำอะไร วันไหน เหลือ Manhour เท่าไหร่
- * นับ task ที่ assignee เคยกดรับงานแล้ว โดยไม่ผูกกับสถานะปัจจุบัน ยกเว้น cancelled/deleted
+ * ใช้เวลาที่บันทึกจริงของแต่ละคนต่อวัน เทียบกับ Manhour ของประเภทผู้ใช้
  */
 import {
   addDaysISO,
   meetingMinutesByDate,
   resolveManhourMinutesPerDay,
-  spreadTaskMinutes,
   weekdayOfISO,
   type ManhourUserType,
 } from '@seedoffice/core'
-import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, users } from '@seedoffice/db'
-import { and, asc, eq, gte, inArray, isNotNull, lte, ne } from 'drizzle-orm'
+import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, timeEntries, users } from '@seedoffice/db'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { checklistCountsFor } from '../lib/workspace-query'
@@ -39,6 +38,7 @@ export const workloadRoutes = new Hono<AppEnv>()
     const rosterIds = roster.map((u) => u.id)
     if (rosterIds.length === 0) return c.json({ people: [], days: [], grid: {}, unscheduled: [] })
 
+    // คงรายการงานที่ยังไม่กำหนดวันไว้ให้ตามงานได้ แต่ไม่เอา estimate มาคิดเป็นภาระงานอีกแล้ว
     const taskRows = await db
       .select({
         id: tasks.id, code: tasks.code, title: tasks.title, assigneeId: tasks.assigneeId,
@@ -56,7 +56,7 @@ export const workloadRoutes = new Hono<AppEnv>()
 
     const unscheduled = taskRows
       .filter((t) => !t.dueDate)
-      .map((t) => ({ id: t.id, code: t.code, title: t.title, assigneeId: t.assigneeId!, estimateMinutes: t.estimateMinutes ?? 0 }))
+      .map((t) => ({ id: t.id, code: t.code, title: t.title, assigneeId: t.assigneeId! }))
 
     // Pronista §Calendar/Workload (2026-09-18) — แยก taskMinutes/meetingMinutes ให้ frontend โชว์ breakdown แหล่งที่มาได้ (usedMinutes รวมยังคงมีไว้เหมือนเดิม)
     type Cell = { usedMinutes: number; taskMinutes: number; meetingMinutes: number; capacityMinutes: number; onLeave: boolean; taskIds: string[] }
@@ -65,16 +65,27 @@ export const workloadRoutes = new Hono<AppEnv>()
     const cellOf = (userId: string, date: string): Cell =>
       (grid[userId]![date] ??= { usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, capacityMinutes: 0, onLeave: false, taskIds: [] })
 
-    for (const t of taskRows) {
-      if (!t.dueDate || !t.assigneeId) continue
-      const spread = spreadTaskMinutes({ startDate: t.startDate, dueDate: t.dueDate, estimateMinutes: t.estimateMinutes ?? 0 })
-      for (const [date, minutes] of Object.entries(spread)) {
-        if (date < from || date > to) continue
-        const cell = cellOf(t.assigneeId, date)
-        cell.usedMinutes += minutes
-        cell.taskMinutes += minutes
-        cell.taskIds.push(t.id)
-      }
+    // Workload คือ utilisation จริง: รวม time_entries ตามวันทำงานของคนที่บันทึกเวลา
+    // ไม่ใช้ estimate/start/due date ในการเติมเวลาสมมติอีกต่อไป
+    const loggedRows = await db
+      .select({ taskId: timeEntries.taskId, userId: timeEntries.userId, workDate: timeEntries.workDate, minutes: timeEntries.minutes })
+      .from(timeEntries)
+      .innerJoin(tasks, eq(timeEntries.taskId, tasks.id))
+      .where(
+        and(
+          gte(timeEntries.workDate, from),
+          lte(timeEntries.workDate, to),
+          isNull(timeEntries.deletedAt),
+          inArray(timeEntries.userId, rosterIds),
+          ne(tasks.status, 'cancelled'),
+          sprintId ? eq(tasks.sprintId, sprintId) : undefined,
+        ),
+      )
+    for (const row of loggedRows) {
+      const cell = cellOf(row.userId, row.workDate)
+      cell.usedMinutes += row.minutes
+      cell.taskMinutes += row.minutes
+      if (!cell.taskIds.includes(row.taskId)) cell.taskIds.push(row.taskId)
     }
 
     // ประชุมจาก Google Calendar (source='gcal') — เฉพาะที่มีเวลาจริง (ไม่ใช่ all-day) และ busy=true (transparent = ว่าง ไม่หัก) — declined ไม่ถูก sync เข้ามาอยู่แล้วตั้งแต่ gcal-sync.ts
