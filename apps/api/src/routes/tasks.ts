@@ -626,6 +626,10 @@ export const taskRoutes = new Hono<AppEnv>()
         // §ดึงงานกลับ — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ต่อเองได้
         // isSelfDispatched เพิ่ม → done ได้ด้วย (self-approve งานที่จ่ายให้ตัวเอง ไม่ต้องรอผู้จ่ายงานคนอื่นอนุมัติ)
         waiting_for_test: isSelfDispatched ? ['on_processing', 'done'] : ['on_processing'],
+        // Pronista §Solo Workflow Reopen fix (2026-09-23) — เดิมไม่มี key 'done' เลย = ปิดงานแล้วดึงกลับไม่ได้อีกเลยไม่ว่ากรณีไหน
+        // กระทบหนักสุดกับ solo workflow (ผู้จ่ายงาน/ผู้รับผิดชอบ/ผู้ตรวจ เป็นคนเดียวกันหมด) เพราะไม่มีใครอื่นที่จะเป็นคน "ตีกลับ" ให้ได้เลย
+        // จำกัดเฉพาะ isSelfDispatched เท่านั้น (เหมือน done ที่ปิดเองได้ตอน waiting_for_test/on_processing) — งานที่มีคนอื่นเกี่ยวข้องจริง (ผู้จ่ายงาน/ผู้ตรวจคนละคนกับ assignee) ยังต้องให้อีกฝ่ายจัดการแทนเหมือนเดิม
+        done: isSelfDispatched ? ['on_processing'] : [],
       }
       if (!assigneeAllowedNext[before.status]?.includes(nextStatus))
         return c.json({ error: 'forbidden', message: 'เปลี่ยนสถานะนี้เองไม่ได้ ต้องให้ผู้จ่ายงาน/หัวหน้าเป็นคนอนุมัติหรือตีกลับ' }, 403)

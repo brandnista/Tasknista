@@ -1616,7 +1616,14 @@ export function TaskDetailPage() {
                         <XCircle className="w-4 h-4" /> ปฏิเสธงาน
                       </button>
                     </>
-                  ) : done ? null : t.status === 'waiting_for_test' ? (
+                  ) : done ? (
+                    // Pronista §Solo Workflow Reopen fix (2026-09-23) — ผู้จ่ายงาน/ผู้รับผิดชอบ/ผู้ตรวจเป็นคนเดียวกันหมด (isSelfDispatched) ไม่มีใครอื่นตีกลับให้ได้เลย เดิมปิดงานแล้วดึงกลับไม่ได้อีกต่อไปเลย (ไม่มีปุ่มขึ้นเลย)
+                    isSelfDispatched && (
+                      <button onClick={() => void patchNow({ status: 'on_processing' }, 'recall')} className="w-full flex items-center justify-center gap-1.5 text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg font-medium">
+                        <RotateCcw className="w-4 h-4" /> ดึงงานกลับ
+                      </button>
+                    )
+                  ) : t.status === 'waiting_for_test' ? (
                     // Pronista §ดึงงานกลับ (2026-08-26) — ส่งไปแล้วแต่ยังไม่ถูกอนุมัติ/ตีกลับ ดึงกลับมาแก้ไขต่อเองได้
                     <>
                       <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2 mb-1">ส่งงานแล้ว รอผู้จ่ายงานตรวจ</div>
