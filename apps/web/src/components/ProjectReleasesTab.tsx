@@ -51,18 +51,30 @@ const emptyDraft = (): DraftItem => ({ key: crypto.randomUUID(), section: '', te
 
 const LINKABLE_KINDS = new Set(['task', 'defect', 'cr'])
 
-/** Pronista §Version Release auto-bullet (2026-09-22) — เจอบรรทัดที่ขึ้นต้นด้วย "- " (เช่น วางข้อความหลายบรรทัดที่คัดลอกมา) แยกเป็นหลายรายการอัตโนมัติ แทนที่ต้องกด "เพิ่มบรรทัด" เองทีละอัน */
+/** Pronista §Version Release auto-bullet (2026-09-22) — เจอบรรทัดที่ขึ้นต้นด้วย "- " (เช่น วางข้อความหลายบรรทัดที่คัดลอกมา) แยกเป็นหลายรายการอัตโนมัติ แทนที่ต้องกด "เพิ่มบรรทัด" เองทีละอัน
+ * Pronista §Version Release header-glom fix (2026-09-23) — เดิมบรรทัดหัวข้อกลุ่ม (ไม่ขึ้นต้นด้วย "-") ที่อยู่ระหว่าง 2 บรรทัด "-" จะถูกต่อท้ายข้อความ bullet ก่อนหน้าเงียบๆ (มองไม่เห็นเพราะ textarea แสดงแค่ 2 บรรทัด)
+ * ใช้บรรทัดว่างเป็นตัวคั่น: ถ้าเจอบรรทัดว่างมาก่อน แล้วตามด้วยบรรทัดข้อความ (ไม่ใช่ "-") ให้ถือว่าเป็นหัวข้อกลุ่มใหม่ แยกเป็นคนละ segment แทนที่จะเกาะท้าย bullet เดิม — บรรทัดต่อเนื่องแบบไม่มีบรรทัดว่างคั่น (เช่น em dash "—" อธิบายต่อ) ยังเกาะท้าย bullet เดิมเหมือนเดิม */
 function splitOnDashLines(text: string): string[] {
   const lines = text.split('\n')
   const segments: string[] = []
   let current: string[] = []
+  let blankSincePush = false
   for (const line of lines) {
     const isDashStart = /^\s*-\s/.test(line)
-    if (isDashStart && current.length > 0) {
+    const isBlank = line.trim() === ''
+    if (isDashStart) {
+      if (current.length > 0) segments.push(current.join('\n').trim())
+      current = [line.replace(/^\s*-\s?/, '')]
+      blankSincePush = false
+    } else if (isBlank) {
+      if (current.length > 0) {
+        current.push(line)
+        blankSincePush = true
+      }
+    } else if (blankSincePush) {
       segments.push(current.join('\n').trim())
-      current = [line.replace(/^\s*-\s?/, '')]
-    } else if (isDashStart) {
-      current = [line.replace(/^\s*-\s?/, '')]
+      current = [line]
+      blankSincePush = false
     } else {
       current.push(line)
     }

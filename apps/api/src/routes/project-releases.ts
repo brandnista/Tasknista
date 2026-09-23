@@ -49,22 +49,36 @@ async function replaceItems(
   const allLinkIds = [...new Set(items.flatMap((it) => it.linkedTaskIds))]
   const validIds = await filterValidLinkTargets(db, projectId, allLinkIds)
 
-  const insertedItems = await db
-    .insert(releaseNoteItems)
-    .values(
-      items.map((it, i) => ({
-        releaseId,
-        section: it.section || null,
-        text: it.text.trim(),
-        sortOrder: i,
-      })),
-    )
-    .returning()
+  // Pronista §Version Release payload fix (2026-09-23) — D1 จำกัด bound parameter ที่ 100/query
+  // แถวนึงของ releaseNoteItems ผูก 6 param (id,releaseId,section,text,sortOrder,createdAt — id/createdAt มาจาก $defaultFn ผูกทุกแถวแม้ไม่ได้ระบุ)
+  // insert ทีเดียวหมดตอน release มี item ≥17 (17*6=102>100) → D1 throw ทั้ง statement, ถ้าเป็น PATCH ที่ลบของเก่าไปแล้วก่อนหน้า = ข้อมูลหายหมดเหลือ "—" ตามที่พี่รายงาน
+  // แก้ด้วยการแบ่ง insert เป็นชุดละ 15 แถว (15*6=90 เผื่อ margin) — mirror pattern CHUNK_SIZE เดิมที่ workspace-query.ts ใช้กับ inArray
+  const CHUNK_SIZE = 15
+  const insertedItems: (typeof releaseNoteItems.$inferSelect)[] = []
+  for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+    const chunk = items.slice(i, i + CHUNK_SIZE)
+    const rows = await db
+      .insert(releaseNoteItems)
+      .values(
+        chunk.map((it, j) => ({
+          releaseId,
+          section: it.section || null,
+          text: it.text.trim(),
+          sortOrder: i + j,
+        })),
+      )
+      .returning()
+    insertedItems.push(...rows)
+  }
 
   const linkRows = items.flatMap((it, i) =>
     it.linkedTaskIds.filter((tid) => validIds.has(tid)).map((taskId) => ({ itemId: insertedItems[i]!.id, taskId })),
   )
-  if (linkRows.length > 0) await db.insert(releaseNoteItemLinks).values(linkRows)
+  // release_note_item_links แถวนึงผูก 4 param (id,itemId,taskId,createdAt) — เผื่อ item ผูกลิงก์เยอะรวมกันหลายสิบแถว ก็แบ่ง insert เหมือนกัน กันปัญหาเดียวกัน
+  const LINK_CHUNK_SIZE = 20
+  for (let i = 0; i < linkRows.length; i += LINK_CHUNK_SIZE) {
+    await db.insert(releaseNoteItemLinks).values(linkRows.slice(i, i + LINK_CHUNK_SIZE))
+  }
 }
 
 /** โหลด items+linkedTasks ของหลาย release พร้อมกัน (แทน N+1 query) */
@@ -180,13 +194,17 @@ projectReleaseRoutes
     if (!permissions.actions.release.edit) return c.json({ error: 'forbidden' }, 403)
 
     const d = body.data
-    const updated = (
-      await db
-        .update(projectReleases)
-        .set({ ...(d.version !== undefined ? { version: d.version.trim() } : {}) })
-        .where(eq(projectReleases.id, release.id))
-        .returning()
-    )[0]!
+    // Pronista §Version Release payload fix (2026-09-23) — แก้เฉพาะ items ไม่แตะ version (ปกติของ flow แก้ไขจริง) ทำให้ .set({}) พังด้วย "No values to set" (Drizzle ไม่ยอม update แบบไม่มีค่าเลย) ข้าม update แถว projectReleases ไปเลยถ้าไม่มี version ส่งมา
+    const updated =
+      d.version !== undefined
+        ? (
+            await db
+              .update(projectReleases)
+              .set({ version: d.version.trim() })
+              .where(eq(projectReleases.id, release.id))
+              .returning()
+          )[0]!
+        : release
     if (d.items !== undefined) await replaceItems(db, release.projectId, release.id, d.items)
     await writeAudit(c.env, {
       actorId: me.id,
