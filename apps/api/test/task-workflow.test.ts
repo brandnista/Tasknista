@@ -179,4 +179,50 @@ describe('Pronista §Task Workflow — kanban drag / self-assign status transiti
     expect(save.status).toBe(200)
     expect(((await save.json()) as { assigneeNotes: string | null }).assigneeNotes).toBe('ทำไปถึงไหนแล้ว')
   })
+
+  // Pronista §Solo Workflow Reopen fix (2026-09-23) — เดิม assigneeAllowedNext ไม่มี key 'done' เลย ปิดงานแล้วดึงกลับไม่ได้อีกต่อไป
+  // กระทบหนักสุดกับ solo workflow (ผู้จ่ายงาน/ผู้รับผิดชอบ/ผู้ตรวจเป็นคนเดียวกันหมด) เพราะไม่มีใครอื่นเป็นคน "ตีกลับ"/อนุมัติแทนได้เลย
+  it('solo workflow (ผู้จ่ายงาน=ผู้รับผิดชอบ=ผู้ตรวจ คนเดียวกันหมด) ปิดงานแล้วดึงกลับ (done → on_processing) ได้เอง', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    // pond คีย์งานเอง + มอบหมายให้ตัวเอง (ไม่ระบุ reviewer → fallback เป็นผู้จ่ายงานเอง ตรงตาม isSelfDispatched)
+    const t = (await (await app.request('/api/tasks/backlog', json(pond, { title: 'งาน solo ปิดแล้วดึงกลับ' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patch(pond, { assigneeId: 'u_pond' }), env)
+    const close = await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'done' }), env)
+    expect(close.status).toBe(200)
+
+    const reopen = await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'on_processing' }), env)
+    expect(reopen.status).toBe(200)
+    const body = (await reopen.json()) as { status: string; completedAt: string | null }
+    expect(body.status).toBe('on_processing')
+    expect(body.completedAt).toBeNull()
+  })
+
+  it('solo workflow ที่ระบุ reviewer เป็นตัวเองตรงๆ (ไม่ใช่แค่ fallback) ก็ดึงงานกลับจาก done ได้เหมือนกัน', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const t = (await (await app.request('/api/tasks/backlog', json(pond, { title: 'งาน solo ระบุ reviewer เอง' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patch(pond, { assigneeId: 'u_pond', reviewerId: 'u_pond' }), env)
+    expect((await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'done' }), env)).status).toBe(200)
+
+    const reopen = await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'on_processing' }), env)
+    expect(reopen.status).toBe(200)
+  })
+
+  it('ไม่ใช่ solo workflow (ผู้จ่ายงานเป็นคนอื่น) — assignee ดึงงานกลับจาก done เองไม่ได้ ต้องให้ผู้จ่ายงานจัดการแทน', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g } = await setupProject(owner, 'u_pond')
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานที่ owner จ่ายให้ pond' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patch(owner, { assigneeId: 'u_pond' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'waiting_for_test' }), env)
+    await app.request(`/api/tasks/${t.id}`, patch(owner, { status: 'done' }), env)
+
+    const reopen = await app.request(`/api/tasks/${t.id}`, patch(pond, { status: 'on_processing' }), env)
+    expect(reopen.status).toBe(403)
+
+    // owner (ผู้จ่ายงานจริง ไม่ใช่ assignee) ดึงกลับได้ปกติผ่าน dropdown แก้ไขอิสระ — ไม่โดนเช็คนี้เลยเพราะไม่ใช่ assignee
+    const ownerReopen = await app.request(`/api/tasks/${t.id}`, patch(owner, { status: 'on_processing' }), env)
+    expect(ownerReopen.status).toBe(200)
+  })
 })
