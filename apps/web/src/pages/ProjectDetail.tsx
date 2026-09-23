@@ -1472,7 +1472,10 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
     const isOpen = expandedIds.has(t.id)
     return (
       <div key={t.id}>
-        <div className={`flex items-center gap-3 flex-wrap py-2.5 px-2 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+        <div
+          // Pronista §Defect grid column alignment fix (2026-09-23) — เดิม flex-wrap + ชื่อ flex-1 basis-full ทำให้แถวตกบรรทัดไม่เท่ากันตามความยาวชื่อ แถมไม่มี status badge เลย (ขาดหายไปจาก renderRow นี้) ต่างจากแท็บ Task/CR (ProjectHierarchyTab) — ปรับให้ตรงกันเป๊ะ
+          className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+        >
           {hasChildren ? (
             <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
               <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
@@ -1484,11 +1487,12 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
             <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
           )}
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-          <button onClick={() => onOpenTask(t.id)} className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
           {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
           {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
           {canEdit && (
             <div className="relative shrink-0">
               <button onClick={() => setMenuFor((v) => (v === t.id ? null : t.id))} title="จัดการ" className="text-muted hover:text-body p-0.5 rounded hover:bg-hover">
@@ -1588,7 +1592,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       {sel.filtered.length === 0 ? (
         <div className="text-center text-xs text-muted py-6">{defects.length === 0 ? 'ยังไม่มี Defect ในโปรเจกต์นี้' : 'ไม่มี Defect ตรงตัวกรองที่เลือก'}</div>
       ) : (
-        <div className="divide-y divide-divider">
+        <div className="divide-y divide-divider overflow-x-auto">
           {topLevel.map((t) => renderRow(t))}
         </div>
       )}
