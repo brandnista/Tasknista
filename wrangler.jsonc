@@ -43,7 +43,9 @@
     // การสลับ user ทดสอบยังทำได้ตามเดิมตอนรัน local ผ่าน .dev.vars (DEV_AUTH=1 อยู่แล้ว, override ค่านี้เฉพาะตอน `wrangler dev`, ไม่ถูก deploy)
     "DEV_AUTH": "0",
     // (2026-08-14) ซ่อนปุ่ม Import Data เฉพาะ production ตามคำขอเจ้าของ — ยังเปิดอยู่บน staging ให้ทดสอบต่อ
-    "IMPORT_DATA_ENABLED": "0"
+    "IMPORT_DATA_ENABLED": "0",
+    // (2026-09-23) Rollback ชั่วคราว — พนักงานกดส่งคำขอลาไม่ได้จริงบน PRD ปิดฟีเจอร์นี้เฉพาะ production ไว้ก่อนจนกว่าจะแก้เสร็จ+ทดสอบผ่านบน staging (ดู wobbly-mixing-ember.md)
+    "LEAVE_ENABLED": "0"
   },
 
   // DO: PRESENCE = timer realtime (SPEC §4.15) · INBOX_HUB = collision อีเมลกลางราย thread (SPEC §4.12) · BOARD_HUB = ใครดู Sprint Board อยู่ราย sprint
@@ -93,7 +95,9 @@
         // (2026-09-16) เปิดตามคำขออาร์มอีกครั้ง (ยืนยันแล้วหลังแจ้งว่าเคยมี session อื่นปิดไปก่อนหน้าด้วยเหตุผลด้านความปลอดภัย) — DEV_AUTH=1 ให้สลับ login เป็น user ที่ seed ไว้ได้จาก dropdown โดยไม่ต้องผ่าน Google จริง
         // เฉพาะ env นี้เท่านั้น (base config ด้านบน — ที่ deploy ขึ้น production จริง — ต้องคง "0" เสมอตาม security review เดิม) — staging.pronista.com เป็นโดเมนจริงที่เข้าถึงได้จากอินเทอร์เน็ต ใครรู้ลิงก์นี้จะ login เป็นใครก็ได้รวมถึง owner โดยไม่ต้องมี credential เลย
         "DEV_AUTH": "1",
-        "IMPORT_DATA_ENABLED": "1"
+        "IMPORT_DATA_ENABLED": "1",
+        // (2026-09-23) ยังเปิดอยู่บน staging เสมอ — ไปแก้บั๊ก/ทดสอบต่อที่นี่ก่อน ปิดเฉพาะ production ชั่วคราว (ดู base config ด้านบน)
+        "LEAVE_ENABLED": "1"
       },
       "durable_objects": {
         "bindings": [

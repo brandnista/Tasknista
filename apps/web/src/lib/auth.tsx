@@ -32,6 +32,8 @@ export interface Me {
   menuVisibility: Record<MenuKey, boolean>
   // Pronista §Import Data — ซ่อนปุ่ม Import Data เฉพาะ production ผ่าน env var (ยังเปิดบน staging/local)
   importDataEnabled: boolean
+  // Pronista §Leave Feature Rollback (2026-09-23) — ปิดเมนู "ขอลา"/"ภาพรวมการลา" ชั่วคราวเฉพาะ production (บั๊กส่งคำขอลาไม่ได้จริง) ยังเปิดอยู่บน staging
+  leaveEnabled: boolean
 }
 
 interface AuthState {

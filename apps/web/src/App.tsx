@@ -56,7 +56,8 @@ import { WorkspaceBoardPage } from './pages/WorkspaceBoard'
 import { WorkspaceRoomsPage } from './pages/WorkspaceRooms'
 
 // Pronista §System Requirements Update — menuKey = เช็คเพดานเมนูของหมวดผู้ใช้งาน (owner bypass เสมอ) เพิ่มจาก roles เดิม (สิทธิ์ระบบ)
-function Protected({ children, roles, menuKey }: { children: ReactNode; roles?: Me['role'][]; menuKey?: MenuKey }) {
+// Pronista §Leave Feature Rollback (2026-09-23) — requireLeave = กันเข้าตรงผ่าน URL ตอนปิดฟีเจอร์ชั่วคราว (เมนูซ่อนไปแล้ว แต่ยังพิมพ์ URL ตรงได้ถ้าไม่กันที่ route ด้วย)
+function Protected({ children, roles, menuKey, requireLeave }: { children: ReactNode; roles?: Me['role'][]; menuKey?: MenuKey; requireLeave?: boolean }) {
   const { user, loading } = useAuth()
   if (loading)
     return (
@@ -65,6 +66,7 @@ function Protected({ children, roles, menuKey }: { children: ReactNode; roles?: 
   if (!user) return <Navigate to="/login" replace />
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />
   if (menuKey && user.role !== 'owner' && !user.menuVisibility[menuKey]) return <Navigate to="/" replace />
+  if (requireLeave && !user.leaveEnabled) return <Navigate to="/" replace />
   return children
 }
 
@@ -102,9 +104,10 @@ const router = createBrowserRouter([
       { path: 'my-tasks/review', element: <Protected menuKey="myTasks"><MyTasksReviewPage /></Protected> },
       { path: 'daily-reports', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
       // Pronista §Leave Request (2026-09-22, Phase 1) — ไม่มี menuKey เหมือนเมนู "บริการ"
-      { path: 'leave', element: <Protected roles={['owner', 'member', 'vendor']}><LeaveRequestPage /></Protected> },
+      // Pronista §Leave Feature Rollback (2026-09-23) — requireLeave กันเข้าตรงผ่าน URL ตอนปิดชั่วคราวบน production
+      { path: 'leave', element: <Protected roles={['owner', 'member', 'vendor']} requireLeave><LeaveRequestPage /></Protected> },
       // Pronista §Leave Request Phase 2 (2026-09-22) — owner เท่านั้น
-      { path: 'leave/overview', element: <Protected roles={['owner']}><LeaveOverviewPage /></Protected> },
+      { path: 'leave/overview', element: <Protected roles={['owner']} requireLeave><LeaveOverviewPage /></Protected> },
       // คง route เดิมไว้ให้ notification / bookmark เก่าเปิด report query เดิมได้
       { path: 'my-tasks/daily-report', element: <Protected menuKey="dailyReports"><MyTasksDailyReportPage /></Protected> },
       { path: 'my-tasks/notes', element: <Protected menuKey="myTasks"><MyTasksNotesPage /></Protected> },
