@@ -151,7 +151,7 @@ function NewLeaveModal({ types, onClose, onSaved }: { types: LeaveTypeRow[]; onC
       <div className="absolute inset-x-0 top-10 sm:top-20 mx-auto w-full max-w-md px-4">
         <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl max-h-[85vh] flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
-            <span className="font-semibold text-ink text-sm">ขอลา</span>
+            <span className="font-semibold text-ink text-sm">เพิ่มการลา</span>
             <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim">
               <X className="w-4 h-4" />
             </button>
@@ -257,11 +257,11 @@ export function LeaveRequestPage() {
   return (
     <>
       <PageHeader
-        title="ขอลา"
+        title="การลา"
         action={
           types.length > 0 && (
             <button onClick={() => setModalOpen(true)} className="flex items-center gap-1.5 text-sm bg-brand-600 text-white px-3 py-2 rounded-lg hover:bg-brand-700">
-              <Plus className="w-4 h-4" /> ขอลา
+              <Plus className="w-4 h-4" /> เพิ่มการลา
             </button>
           )
         }
@@ -269,7 +269,7 @@ export function LeaveRequestPage() {
       <div className="p-4 sm:p-6 space-y-4">
         <div className="flex items-center gap-1 mb-1 border-b border-border-subtle overflow-x-auto">
           <button onClick={() => setTab('apply')} className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px whitespace-nowrap ${tab === 'apply' ? 'border-brand-600 text-brand-700' : 'border-transparent text-dim'}`}>
-            ขอลา
+            การลา
           </button>
           <button onClick={() => setTab('mine')} className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px whitespace-nowrap ${tab === 'mine' ? 'border-brand-600 text-brand-700' : 'border-transparent text-dim'}`}>
             ประวัติของฉัน
