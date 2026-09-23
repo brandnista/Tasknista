@@ -589,6 +589,8 @@ export const tasks = sqliteTable(
     index('tasks_srs_ref_idx').on(t.srsRefCode),
     index('tasks_origin_ref_idx').on(t.originRefCode),
     index('tasks_origin_code_idx').on(t.projectId, t.originCode),
+    // Pronista §Task ID URL Slug (2026-09-23) — GET /tasks/:id/detail lookup โดย code เพิ่มขึ้นเป็นเส้นทางหลัก ต้องมี index รองรับ
+    index('tasks_code_idx').on(t.code),
   ],
 )
 

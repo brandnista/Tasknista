@@ -48,7 +48,7 @@ describe('X1 — External Document Version Logging', () => {
   it('เพิ่ม log + ผูก SOW task → GET เห็นครบ (ชื่อผู้ทำ/ผู้รีวิว + badge SOW) · append-only: เพิ่มเวอร์ชันใหม่เห็นประวัติ 2 แถว', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const { project, sowTaskId } = await makeProjectWithSowTask(owner, m, 'EXT001')
+    const { project, sowTaskId } = await makeProjectWithSowTask(owner, m, 'E01')
 
     const create = await app.request(
       `/api/projects/${project.id}/external-doc-logs`,
@@ -91,7 +91,7 @@ describe('X1 — External Document Version Logging', () => {
   it('ผูก task ที่ไม่ใช่ SOW = 400 · vendor = 403 ทั้งอ่านและเขียน · ลบได้เฉพาะ editor', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const { project } = await makeProjectWithSowTask(owner, m, 'EXT002')
+    const { project } = await makeProjectWithSowTask(owner, m, 'E02')
 
     // task ทั่วไป (ไม่ได้มาจาก SOW) ผูกไม่ได้
     const plainTask = (await (
@@ -135,7 +135,7 @@ describe('X2 — GET /api/document-history เช็ค visibility ของเ�
     const other = await loginAs(app, 'korn@example-co.test') // auto-provision ตอน login — id จริงเป็น uuid ไม่ใช่ 'u_korn'
     const otherMe = (await (await app.request('/api/me', { headers: { cookie: other } }, env)).json()) as { id: string }
     const project = (await (
-      await app.request('/api/projects', json(owner, { name: 'โปรเจกต์ประวัติเอกสาร', type: 'project', code: 'DOCHIST' }), env)
+      await app.request('/api/projects', json(owner, { name: 'โปรเจกต์ประวัติเอกสาร', type: 'project', code: 'D01' }), env)
     ).json()) as { id: string }
     await app.request(`/api/projects/${project.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
     await app.request(`/api/projects/${project.id}/members`, json(owner, { userId: otherMe.id, positionId: 'pos_full_access' }), env)

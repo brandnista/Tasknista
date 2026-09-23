@@ -298,3 +298,49 @@ describe('Pronista §Notification overhaul (2026-08-27) — คอมเมน�
     expect(ownerNotifs.some((n) => n.type === 'task_commented' && n.message.startsWith('🚩'))).toBe(true)
   })
 })
+
+// Pronista §Task ID URL Slug (2026-09-23) — GET /tasks/:id/detail รองรับทั้ง UUID เดิมและรหัสงาน (code) — ลิงก์เก่ายังใช้ได้ตลอดไป ลิงก์ใหม่อ่านง่ายขึ้น
+describe('§Task ID URL Slug — GET /tasks/:id/detail รองรับทั้ง UUID และ code', () => {
+  it('เปิดด้วย UUID และเปิดด้วย code ได้งานเดียวกัน', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = (await makeTask(owner)) as { id: string; code: string | null }
+    expect(t.code).toBeTruthy()
+
+    const byUuid = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    const byCode = await app.request(`/api/tasks/${t.code}/detail`, { headers: { cookie: owner } }, env)
+    expect(byUuid.status).toBe(200)
+    expect(byCode.status).toBe(200)
+    const [bodyUuid, bodyCode] = [(await byUuid.json()) as { id: string }, (await byCode.json()) as { id: string }]
+    expect(bodyUuid.id).toBe(t.id)
+    expect(bodyCode.id).toBe(t.id)
+  })
+
+  it('code เปลี่ยนหลัง convert (Task→Defect) แล้ว — code เดิมเปิดไม่ได้ (404) แต่ UUID เดิมยังเปิดได้เสมอ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = (await makeTask(owner)) as { id: string; code: string | null }
+    const oldCode = t.code
+
+    const converted = await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'defect' }), env)
+    expect(converted.status).toBe(200)
+    const after = (await converted.json()) as { code: string | null }
+    expect(after.code).not.toBe(oldCode)
+
+    expect((await app.request(`/api/tasks/${oldCode}/detail`, { headers: { cookie: owner } }, env)).status).toBe(404)
+    const stillByUuid = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)
+    expect(stillByUuid.status).toBe(200)
+    expect(((await stillByUuid.json()) as { code: string | null }).code).toBe(after.code)
+  })
+
+  it('เปิดด้วย code แล้วเห็น comments/attachments/checklist/subtasks ครบเหมือนเปิดด้วย UUID (กัน regression: sub-query เดิมอิง URL param ตรงๆ ไม่ใช่ UUID จริง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = (await makeTask(owner)) as { id: string; code: string | null }
+    await app.request(`/api/tasks/${t.id}/comments`, json(owner, { body: 'คอมเมนต์ทดสอบ' }), env)
+    await app.request(`/api/tasks/${t.id}/checklist`, json(owner, { text: 'เช็คข้อ 1' }), env)
+
+    const byCode = await app.request(`/api/tasks/${t.code}/detail`, { headers: { cookie: owner } }, env)
+    expect(byCode.status).toBe(200)
+    const body = (await byCode.json()) as { comments: unknown[]; checklist: unknown[] }
+    expect(body.comments).toHaveLength(1)
+    expect(body.checklist).toHaveLength(1)
+  })
+})

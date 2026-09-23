@@ -79,7 +79,7 @@ function PendingSubtasksWidget({ tasks, onOpenTask, onComplete }: { tasks: MyTas
             >
               ✓
             </button>
-            <button onClick={() => onOpenTask(t.id)} className="min-w-0 flex-1 text-left">
+            <button onClick={() => onOpenTask(t.code || t.id)} className="min-w-0 flex-1 text-left">
               <div className="text-sm text-body truncate">{t.title}</div>
               <div className="text-[11px] text-muted">{t.projectName}</div>
             </button>
@@ -147,7 +147,7 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
             )}
             {!loading && filtered.slice(0, 5).map((t) => (
               <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-white/60 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-                <button onClick={() => onOpenTask(t.id)} className="min-w-0 text-left focus-visible:outline-2 focus-visible:outline-brand-500">
+                <button onClick={() => onOpenTask(t.code || t.id)} className="min-w-0 text-left focus-visible:outline-2 focus-visible:outline-brand-500">
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 font-mono text-[10px] text-info-700">{t.code ?? '—'}</span>
                     <span className="truncate text-sm font-semibold text-body">{t.title}</span>
@@ -228,7 +228,7 @@ function AttentionWidget({ tasks, loading, onOpenTask, soonDays = 3 }: { tasks: 
       <div className="divide-y divide-danger-100">
         {loading && Array.from({ length: 3 }, (_, index) => <div key={index} className="mx-4 my-3 h-9 animate-pulse rounded-md bg-white/75" aria-hidden="true" />)}
         {!loading && visible.slice(0, 5).map((t) => (
-          <button key={t.id} type="button" onClick={() => onOpenTask(t.id)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left hover:bg-white/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-danger-500">
+          <button key={t.id} type="button" onClick={() => onOpenTask(t.code || t.id)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left hover:bg-white/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-danger-500">
             <span className="min-w-0"><span className="flex items-center gap-2"><span className="shrink-0 font-mono text-[10px] text-danger-700">{t.code ?? '—'}</span><span className="truncate text-sm font-semibold text-body">{t.title}</span></span><span className="mt-1 block truncate text-[11px] text-muted">{t.projectName ?? 'ไม่ผูกโปรเจกต์'} · กำหนด {new Date(`${t.dueDate}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span></span>
             <span className={`whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold ${t.days < 0 ? 'bg-danger-100 text-danger-700' : t.days === 0 ? 'bg-warning-100 text-warning-700' : 'bg-white text-danger-700'}`}>{t.days < 0 ? `เกิน ${-t.days} วัน` : t.days === 0 ? 'ครบกำหนดวันนี้' : `อีก ${t.days} วัน`}</span>
           </button>

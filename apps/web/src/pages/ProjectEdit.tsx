@@ -223,7 +223,8 @@ export function ProjectEditPage() {
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">รหัสโปรเจกต์ (code)</div>
-                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={input} placeholder="ไม่บังคับ" maxLength={12} />
+                {/* Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัว A-Z0-9 เป๊ะๆ ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400/409 ตอนบันทึก */}
+                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} className={input} placeholder="ไม่บังคับ" maxLength={3} />
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">เริ่ม</div>
@@ -245,7 +246,8 @@ export function ProjectEditPage() {
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">รหัสโปรเจกต์ (code)</div>
-                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} className={input} placeholder="ไม่บังคับ" maxLength={12} />
+                {/* Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัว A-Z0-9 เป๊ะๆ ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400/409 ตอนบันทึก */}
+                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} className={input} placeholder="ไม่บังคับ" maxLength={3} />
               </label>
             </>
           )}

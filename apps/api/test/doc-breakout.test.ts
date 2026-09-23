@@ -74,7 +74,7 @@ describe('U1 — generic breakout: ปุ่ม "แตกเป็น Task" ใ
   it('MOM decisions → Task พร้อม originDocType/originCode/originRefCode · BRD อ้างอิงกลับ MOM ได้ผ่าน task_references', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK001')
+    const project = await makeProject(owner, 'M01')
 
     const momDoc = await makeTemplateDoc(m, 'mom', project.id, 'MOM ทดสอบ')
     const momResult = await seedBreakoutTask(project.id, momDoc.id, 'MOM', [
@@ -83,7 +83,7 @@ describe('U1 — generic breakout: ปุ่ม "แตกเป็น Task" ใ
     expect(momResult.tasks).toHaveLength(1)
     expect(momResult.tasks[0]!.originDocType).toBe('MOM')
     expect(momResult.tasks[0]!.originCode).toBe('MOM-20260101-D01')
-    expect(momResult.tasks[0]!.originRefCode).toBe('MAK001-MOM-v1.0-001')
+    expect(momResult.tasks[0]!.originRefCode).toBe('M01-MOM-v1.0-001')
     const momTaskId = momResult.tasks[0]!.id
 
     const brdDoc = await makeTemplateDoc(m, 'brd', project.id, 'BRD ทดสอบ')
@@ -112,7 +112,7 @@ describe('U1 — generic breakout: ปุ่ม "แตกเป็น Task" ใ
   it('อ้างอิงรหัสที่ไม่มีจริง → สร้าง Task สำเร็จแต่คืน unresolvedReferences (ไม่ block)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK002')
+    const project = await makeProject(owner, 'M02')
     const brdDoc = await makeTemplateDoc(m, 'brd', project.id, 'BRD ทดสอบ 2')
     const result = await seedBreakoutTask(project.id, brdDoc.id, 'BRD', [
       { sourceCode: 'BR-F99', title: 'x', description: '', priority: null, referenceCodes: ['MOM-ไม่มีจริง-D99'] },
@@ -125,7 +125,7 @@ describe('U1 — generic breakout: ปุ่ม "แตกเป็น Task" ใ
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
     const v = await loginAs(app, 'somchai@example.com')
-    const project = await makeProject(owner, 'MAK003')
+    const project = await makeProject(owner, 'M03')
     const sowDoc = await makeTemplateDoc(m, 'sow', project.id, 'SOW vendor test')
     await setTemplateValues(m, sowDoc.id, 'sow', (data) => {
       data.tables.scope_items = [{ sow_id: 'MAK003-SOW-001', item_name: 'x', category: '', ref_brd: '', ticket_ref: '', effort: '' }]
@@ -137,7 +137,7 @@ describe('U1 — generic breakout: ปุ่ม "แตกเป็น Task" ใ
   it('MOM/BRD/SRS/PEP/UIR แตกเป็น Task ผ่าน POST /docs/:id/breakout ไม่ได้แล้ว → 400 breakout_disabled', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK003B')
+    const project = await makeProject(owner, 'M3B')
     const momDoc = await makeTemplateDoc(m, 'mom', project.id, 'MOM ปิดใช้งาน')
     await setTemplateValues(m, momDoc.id, 'mom', (data) => {
       data.tables.decisions = [{ decision_id: 'MOM-X-01', issue: 'x', decision: 'y' }]
@@ -170,7 +170,7 @@ describe('U1b — PEP: อ้างอิงกลับ SOW เท่านั�
   it('รหัสชนกันข้าม docType (BRD กับ SOW ใช้รหัสเดียวกัน) → PEP resolve ไปหา SOW เท่านั้น ไม่ผูกกับ BRD', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK006')
+    const project = await makeProject(owner, 'M06')
 
     // SOW กับ BRD ใช้รหัสเดียวกันโดยตั้งใจ (COLLIDE-01) — ทดสอบว่า PEP ต้อง resolve ไปที่ SOW เท่านั้นตาม EXPECTED_UPSTREAM
     // SOW ยังผ่าน route ปกติได้ (เฉพาะ SOW เท่านั้นที่ไม่ถูกบล็อก)
@@ -208,7 +208,7 @@ describe('U1b — PEP: อ้างอิงกลับ SOW เท่านั�
   it('UIR (ชั้นที่ 6) resolve ไปหา SRS เท่านั้น', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK007')
+    const project = await makeProject(owner, 'M07')
 
     const srsDoc = await makeTemplateDoc(m, 'srs', project.id, 'SRS ทดสอบ')
     const srsResult = await seedBreakoutTask(project.id, srsDoc.id, 'SRS', [
@@ -236,7 +236,7 @@ describe('U2 — อัปโหลดไฟล์ Word จริง → แต�
   it('อัปโหลดประเภทอื่นที่ไม่ใช่ SOW (เช่น MOM) → 400 invalid_doc_type', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    await makeProject(owner, 'MAK004')
+    await makeProject(owner, 'M04')
 
     const bytes = buildMinimalDocx([
       ['รหัสมติ (Decision ID)', 'วาระ', 'ประเด็น / รายละเอียดการหารือ', 'มติ / ข้อสรุป'],
@@ -253,7 +253,7 @@ describe('U2 — อัปโหลดไฟล์ Word จริง → แต�
   it('ไฟล์ไม่ใช่ .docx จริง → 400 invalid_docx', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    await makeProject(owner, 'MAK005')
+    await makeProject(owner, 'M05')
     const fd = new FormData()
     fd.append('file', new File([new Uint8Array([1, 2, 3])], 'bad.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }))
     fd.append('docType', 'sow')
@@ -265,7 +265,7 @@ describe('U2 — อัปโหลดไฟล์ Word จริง → แต�
   it('อัปโหลด SOW .docx โครงสร้างจริง (heading 4.1 + ย่อหน้าโมดูล + ตาราง 4.4) → parse ได้ Task พ่อ + Subtask ลูก → confirm สร้างจริงเป็น tree', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK008')
+    const project = await makeProject(owner, 'M08')
 
     const bytes = buildSowModuleDocx(
       '4.1 Test Module (MAK002-SOW-006)',
@@ -337,7 +337,7 @@ describe('U2 — อัปโหลดไฟล์ Word จริง → แต�
   it('Pronista §Project Refactor — SOW Parser Mode V1 (ค่าเริ่มต้น, ไม่ระบุ mode): แตกเป็น Task แบนราบทั้งหมด ไม่มี Epic ไม่มี parent/child', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK010')
+    const project = await makeProject(owner, 'M10')
 
     const bytes = buildSowModuleDocx(
       '4.1 Test Module (MAK002-SOW-007)',
@@ -411,7 +411,7 @@ describe('U3 — Sprint guard: เฉพาะ Subtask ของ SOW เท่�
   it('Task ทั่วไป (ไม่มีต้นทาง) ลาก Sprint ได้ตามปกติ — ไม่กระทบ workflow เดิม', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK009')
+    const project = await makeProject(owner, 'M09')
     const sprint = await makeSprint(m, project.id)
     const task = (await (await app.request(`/api/projects/${project.id}/backlog`, json(m, { title: 'งานทั่วไป' }), env)).json()) as { id: string }
     const res = await addToSprint(m, sprint.id, task.id)
@@ -421,7 +421,7 @@ describe('U3 — Sprint guard: เฉพาะ Subtask ของ SOW เท่�
   it('Task พ่อของ SOW ที่ไม่มี Subtask เหลือใน Backlog ลาก Sprint ไม่ได้ (400 no_subtasks_available)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK010')
+    const project = await makeProject(owner, 'M1A')
     const sprint = await makeSprint(m, project.id)
     const sowDoc = await makeTemplateDoc(m, 'sow', project.id, 'SOW guard test')
     const sowResult = await seedBreakoutTask(project.id, sowDoc.id, 'SOW', [
@@ -435,7 +435,7 @@ describe('U3 — Sprint guard: เฉพาะ Subtask ของ SOW เท่�
   it('ลาก Task พ่อของ SOW ที่มี Subtask เข้า Sprint = ดึง Subtask ทั้งหมดที่ยังอยู่ Backlog เข้าไปแทน (Task พ่อเองไม่เข้า sprint)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK013')
+    const project = await makeProject(owner, 'M13')
     const sprint = await makeSprint(m, project.id)
     const sowDoc = await makeTemplateDoc(m, 'sow', project.id, 'SOW guard test 3')
     const sowResult = await seedBreakoutTask(project.id, sowDoc.id, 'SOW', [
@@ -460,7 +460,7 @@ describe('U3 — Sprint guard: เฉพาะ Subtask ของ SOW เท่�
   it('Subtask ของ SOW ลาก Sprint ได้ (200) — รวมถึง Subtask ที่เพิ่มเองด้วยมือ (สืบ originDocType จาก parent)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK011')
+    const project = await makeProject(owner, 'M11')
     const sprint = await makeSprint(m, project.id)
     const sowDoc = await makeTemplateDoc(m, 'sow', project.id, 'SOW guard test 2')
     const sowResult = await seedBreakoutTask(project.id, sowDoc.id, 'SOW', [
@@ -477,7 +477,7 @@ describe('U3 — Sprint guard: เฉพาะ Subtask ของ SOW เท่�
   it('Subtask ทั่วไป (ไม่ใช่ของ SOW) ยังลาก Sprint ไม่ได้เหมือนเดิม (พฤติกรรมเดิมไม่เปลี่ยน)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'MAK012')
+    const project = await makeProject(owner, 'M12')
     const sprint = await makeSprint(m, project.id)
     const parent = (await (await app.request(`/api/projects/${project.id}/backlog`, json(m, { title: 'Parent ทั่วไป' }), env)).json()) as { id: string }
     const sub = (await (await app.request(`/api/tasks/${parent.id}/subtasks`, json(m, { title: 'Subtask ทั่วไป' }), env)).json()) as { id: string }

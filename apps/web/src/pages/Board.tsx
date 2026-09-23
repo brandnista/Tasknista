@@ -9,6 +9,7 @@ import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, STATUS_SWATCH, statusChip } from '../lib/project-ui'
+import { taskHref } from '../lib/task-href'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
 
@@ -382,7 +383,8 @@ export function BoardPage() {
       key={t.id}
       draggable={t.canEdit}
       onDragStart={() => setDragId(t.id)}
-      onClick={() => openTask(t.id)}
+      // Pronista §Task ID URL Slug (2026-09-23) — เปิดด้วยรหัสงานที่อ่านง่ายถ้ามี (t มี .code ติดมาอยู่แล้ว) ไม่มีก็ fallback UUID เหมือนเดิม
+      onClick={() => navigate(taskHref(t))}
       className={`group rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[urgency]}`}
     >
       <div className="flex items-start gap-1.5">
@@ -522,7 +524,8 @@ export function BoardPage() {
                           return (
                             <div
                               key={parentId}
-                              onClick={() => openTask(parentId)}
+                              // Pronista §Task ID URL Slug (2026-09-23) — parent มี .code ติดมาอยู่แล้ว (โชว์บรรทัดข้างล่าง) เปิดด้วย code ได้เลยถ้ามี
+                              onClick={() => navigate(taskHref(parent ?? { id: parentId }))}
                               className="bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm"
                             >
                               <div className="flex items-start gap-1.5">

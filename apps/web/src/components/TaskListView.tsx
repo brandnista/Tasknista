@@ -33,7 +33,8 @@ export function TaskListView({ tasks, onOpenTask, soonDays }: { tasks: KanbanTas
           {tasks.map((t) => (
             <tr
               key={t.id}
-              onClick={() => onOpenTask(t.id)}
+              // Pronista §Task ID URL Slug (2026-09-23) — เปิดด้วยรหัสงานที่อ่านง่ายถ้ามี ไม่มีก็ fallback UUID เหมือนเดิม (onOpenTask รับแค่ string ระบุงาน ไม่สนว่าเป็น code หรือ id)
+              onClick={() => onOpenTask(t.code || t.id)}
               className={`cursor-pointer ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
             >
               <td className="px-3 py-2.5 text-[11px] text-muted truncate">
@@ -62,7 +63,7 @@ export function TaskListView({ tasks, onOpenTask, soonDays }: { tasks: KanbanTas
         {tasks.map((t) => (
           <button
             key={t.id}
-            onClick={() => onOpenTask(t.id)}
+            onClick={() => onOpenTask(t.code || t.id)}
             className={`w-full text-left px-4 py-3 ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]}`}
           >
             <div className="flex items-center gap-2">

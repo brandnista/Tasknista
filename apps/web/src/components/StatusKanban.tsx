@@ -126,7 +126,8 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
                     key={t.id}
                     draggable={draggable}
                     onDragStart={() => setDragId(t.id)}
-                    onClick={() => onOpenTask(t.id)}
+                    // Pronista §Task ID URL Slug (2026-09-23) — เปิดด้วยรหัสงานที่อ่านง่ายถ้ามี ไม่มีก็ fallback UUID เหมือนเดิม
+                    onClick={() => onOpenTask(t.code || t.id)}
                     title={dragTitle}
                     className={`rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, t.status === 'done', soonDays)]} ${editable ? '' : 'opacity-80'}`}
                   >
