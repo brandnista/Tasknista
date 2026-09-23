@@ -464,8 +464,10 @@ interface ClientOpt { id: string; name: string }
 interface ServiceTypeOpt { id: string; name: string }
 interface ProductTypeOpt { id: string; name: string }
 
-/** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK" */
-const autoProjectKey = (name: string) => name.replace(/[^a-zA-Zก-๙0-9]/g, '').slice(0, 3).toUpperCase()
+/** Pronista §Back to Basic (ต่อยอด) — ดึงตัวอักษร/ตัวเลขตัวแรกของชื่อมาเป็น Project Key อัตโนมัติ เช่น "MAKAN App Redesign" → "MAK"
+ * Pronista §Task ID Format (2026-09-23) — backend บังคับ A-Z0-9 3 ตัวเป๊ะแล้ว ตัดตัวอักษรไทยออกด้วย (เดิมเก็บไว้ทำให้ชื่อโปรเจกต์ภาษาไทยล้วนได้ code ที่ backend ปฏิเสธ) —
+ * ชื่อที่ไม่มีตัวอักษร/เลขละตินเลย (ภาษาไทยล้วน) จะได้ code ว่าง ให้ผู้ใช้กรอกเองแทน ดีกว่าเดาให้แล้วพังตอนกดสร้าง */
+const autoProjectKey = (name: string) => name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
 
 // Pronista §Project Creation data-loss fix (2026-09-17) — ค่าเริ่มต้นแยกเป็น const กลาง ใช้เทียบ "มีข้อมูลที่ยังไม่ได้บันทึกไหม" ก่อนปิด modal
 const NEW_PROJECT_FORM_DEFAULTS = {
@@ -694,9 +696,10 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 <input
                   placeholder="เช่น MAK"
                   value={form.code}
-                  onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: e.target.value.toUpperCase() }) }}
+                  // Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัว A-Z0-9 เป๊ะๆ (backend เช็คซ้ำ + ห้ามซ้ำกับโปรเจกต์อื่นด้วย) — ตัดอักขระที่ไม่ใช่ A-Z0-9 ทิ้งกันพิมพ์ผิดแล้วโดน 400 ตอนกดสร้าง
+                  onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }) }}
                   className={`${input} font-mono`}
-                  maxLength={12}
+                  maxLength={3}
                 />
               </div>
             </div>

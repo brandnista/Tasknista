@@ -80,7 +80,7 @@ function makeTaskXlsx(rows: (string | number)[][]): Uint8Array {
 describe('Import Data — Template', () => {
   it('โหลด Template ได้ .xlsx ที่มีสมาชิกจริง + owner เท่านั้นที่มีสิทธิ์เห็น (ใน "ตัวเลือก")', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP001')
+    const project = await makeProject(owner, 'I01')
     const res = await app.request(`/api/projects/${project.id}/import/template`, { headers: { cookie: owner } }, env)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-disposition')).toContain('.xlsx')
@@ -96,7 +96,7 @@ describe('Import Data — Template', () => {
   // ต้อง parse ไฟล์ Template จริงที่ดาวน์โหลดได้ตรงๆ ถึงจะจับบั๊กแบบนี้ได้ — เคยพลาดมาแล้วรอบนึงตอน verify ผ่าน browser จริง
   it('อ่าน Template จริงที่โหลดจากระบบ (มี self-closing cell ว่างๆ ปนอยู่) กลับมาได้ครบทุกแถวตัวอย่าง ไม่มีชื่องานหายไปเงียบๆ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP001B')
+    const project = await makeProject(owner, 'I1B')
     const res = await app.request(`/api/projects/${project.id}/import/template`, { headers: { cookie: owner } }, env)
     const bytes = new Uint8Array(await res.arrayBuffer())
     const fd = new FormData()
@@ -111,7 +111,7 @@ describe('Import Data — Template', () => {
   it('member ที่ไม่มีสิทธิ์สร้าง task ในโปรเจกต์ (ไม่มีตำแหน่งเลย) โหลด/parse/confirm ไม่ได้ → 403', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const m = await loginAs(app, 'pond@example-co.test')
-    const project = await makeProject(owner, 'IMP002')
+    const project = await makeProject(owner, 'I02')
     // ไม่ตั้ง position ให้ pond เลย — getProjectPermissions ต้องคืน all-false
     const tplRes = await app.request(`/api/projects/${project.id}/import/template`, { headers: { cookie: m } }, env)
     expect(tplRes.status).toBe(403)
@@ -126,7 +126,7 @@ describe('Import Data — Template', () => {
 describe('Import Data — parse', () => {
   it('อ่านแถวถูกต้อง: ประเภท/ผู้รับผิดชอบ(อีเมล)/สถานะ/ความสำคัญ/ประเมิน/วันที่ + งานย่อยจับคู่รหัสในไฟล์เดียวกัน', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP003')
+    const project = await makeProject(owner, 'I03')
     const xlsx = makeTaskXlsx([
       ['Task', 'SOW-001', '', 'งานแม่', 'รายละเอียดงานแม่', 'pond@example-co.test', 'On Processing', 'สูง', 8, '2026-08-10', '2026-08-20', ''],
       ['Task', 'SOW-001-1', 'SOW-001', 'งานลูก', '', '', '', '', 4, '', '', ''],
@@ -160,7 +160,7 @@ describe('Import Data — parse', () => {
 
   it('validate error ต่อแถว: ประเภทผิด, อีเมลไม่รู้จัก, อยู่ใต้รหัสหาไม่เจอ, ผู้แจ้งใช้กับ non-Defect', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP004')
+    const project = await makeProject(owner, 'I04')
     const xlsx = makeTaskXlsx([
       ['ไม่รู้จัก', '', '', 'แถวประเภทผิด', '', '', '', '', '', '', '', ''],
       ['Task', '', '', 'อีเมลไม่มีในระบบ', '', 'nobody@nowhere.test', '', '', '', '', '', ''],
@@ -180,7 +180,7 @@ describe('Import Data — parse', () => {
 
   it('รหัสซ้ำกับ task ที่มีอยู่แล้วในโปรเจกต์ → status=duplicate, resolution เริ่มต้น=skip', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP005')
+    const project = await makeProject(owner, 'I05')
     const db = createDb(env.DB)
     await db.insert(tasks).values({ projectId: project.id, groupId: null, sortOrder: 0, createdBy: 'u_owner', code: 'IMP005-Task-1', title: 'ของเดิม', originCode: 'DUP-1' })
 
@@ -195,7 +195,7 @@ describe('Import Data — parse', () => {
 
   it('ไฟล์ ZIP ที่มี tasks.xlsx + documents/<TYPE>/ไฟล์ → แกะเอกสารพร้อมเดา docType จากชื่อโฟลเดอร์', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP006')
+    const project = await makeProject(owner, 'I06')
     const xlsx = makeTaskXlsx([['Task', '', '', 'งาน', '', '', '', '', '', '', '', '']])
     const zip = zipSync({
       'tasks.xlsx': xlsx,
@@ -220,7 +220,7 @@ describe('Import Data — parse', () => {
 describe('Import Data — confirm', () => {
   it('สร้าง Task แม่-ลูก + Defect + CR + งานทั่วไป ครบ พร้อมแจ้งเตือนผู้รับผิดชอบ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP010')
+    const project = await makeProject(owner, 'I10')
     const xlsx = makeTaskXlsx([
       ['Task', 'P-1', '', 'พ่อ', 'desc', 'pond@example-co.test', 'On Processing', 'สูง', 8, '', '', ''],
       ['Task', 'P-1-1', 'P-1', 'ลูก', '', '', '', '', '', '', '', ''],
@@ -273,7 +273,7 @@ describe('Import Data — confirm', () => {
 
   it('resolution=skip ไม่สร้าง, resolution=overwrite อัปเดตของเดิมแทนสร้างใหม่', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP011')
+    const project = await makeProject(owner, 'I11')
     const db = createDb(env.DB)
     const existing = (await db.insert(tasks).values({ projectId: project.id, groupId: null, sortOrder: 0, createdBy: 'u_owner', code: 'IMP011-Task-1', title: 'ของเดิม', originCode: 'DUP-2', priority: 'low' }).returning())[0]!
 
@@ -302,7 +302,7 @@ describe('Import Data — confirm', () => {
 
   it('อัปโหลดเอกสารจริง (ZIP) → ผูก docLinks กับโปรเจกต์ + เลือก docType เองได้สำหรับไฟล์ที่วางนอกโฟลเดอร์ประเภท', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const project = await makeProject(owner, 'IMP012')
+    const project = await makeProject(owner, 'I12')
     const xlsx = makeTaskXlsx([['Task', '', '', 'งาน', '', '', '', '', '', '', '', '']])
     const zip = zipSync({
       'tasks.xlsx': xlsx,

@@ -54,7 +54,7 @@ import {
   type Db,
   type Project,
 } from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm'
 import { healthOf } from './finance'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -66,6 +66,20 @@ import type { AppEnv } from '../types'
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_LOGO_BYTES = 2 * 1024 * 1024 // โลโก้ลูกค้า ≤ 2MB
+// Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัวเป๊ะๆ เฉพาะตอนสร้าง/แก้ไขใหม่ (ของเก่าที่ไม่ตรงปล่อยผ่าน ไม่ migrate ย้อนหลัง)
+const PROJECT_CODE = z.string().regex(/^[A-Z0-9]{3}$/, 'รหัสโปรเจกต์ต้องเป็นตัวอักษร/ตัวเลข 3 ตัว')
+
+/** เช็ครหัสโปรเจกต์ซ้ำ (case-insensitive, ข้ามโปรเจกต์ที่ลบไปแล้ว) — กันโค้ดงานชนกันข้ามโปรเจกต์ (ไม่มี unique index ระดับ DB) */
+async function isProjectCodeTaken(db: Db, code: string, excludeId?: string): Promise<boolean> {
+  const row = (
+    await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(sql`lower(${projects.code}) = lower(${code})`, isNull(projects.deletedAt), excludeId ? ne(projects.id, excludeId) : sql`1=1`))
+      .limit(1)
+  )[0]
+  return !!row
+}
 
 /**
  * Pronista §Project Estimate v2 — ดึง+คำนวณ estimate ต่อ task ของ "ทุก" task ในโปรเจกต์ (ไม่กรอง estimateSelected อีกต่อไป)
@@ -366,7 +380,7 @@ export const projectRoutes = new Hono<AppEnv>()
         recurringPeriod: z.enum(['monthly', 'yearly']).optional(),
         startDate: isoDate.optional(),
         dueDate: isoDate.optional(),
-        code: z.string().max(12).optional(),
+        code: PROJECT_CODE.optional(),
         // Pronista §F1
         category: z.enum(['product', 'project']).optional(),
         tags: z.array(z.string().min(1).max(40)).max(20).optional(),
@@ -406,6 +420,8 @@ export const projectRoutes = new Hono<AppEnv>()
     }
     if (d.serviceEndDate && d.serviceStartDate && d.serviceStartDate > d.serviceEndDate)
       return c.json({ error: 'invalid_service_period', message: 'วันเริ่มต้นต้องอยู่ก่อนวันสิ้นสุด' }, 400)
+    if (d.code && (await isProjectCodeTaken(db, d.code)))
+      return c.json({ error: 'code_taken', message: 'รหัสโปรเจกต์นี้มีคนใช้แล้ว' }, 409)
 
     let clientId = d.clientId ?? null
     if (!clientId && d.clientName) {
@@ -485,7 +501,7 @@ export const projectRoutes = new Hono<AppEnv>()
         url: z.string().max(300).nullable().optional(),
         // ไอคอน: emoji | lucide:<name> | '' หรือ null = เคลียร์ — upload: ตั้งผ่าน POST /:id/logo เท่านั้น
         logo: z.string().refine(isPatchableLogo, 'invalid_logo').nullable().optional(),
-        code: z.string().max(12).nullable().optional(),
+        code: PROJECT_CODE.nullable().optional(),
         status: z.string().optional(), // ตรวจกับ config ด้านล่าง
         clientId: z.string().nullable().optional(),
         leadId: z.string().nullable().optional(),
@@ -537,6 +553,8 @@ export const projectRoutes = new Hono<AppEnv>()
       await db.select().from(projects).where(eq(projects.id, c.req.param('id'))).limit(1)
     )[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
+    if (body.data.code && (await isProjectCodeTaken(db, body.data.code, before.id)))
+      return c.json({ error: 'code_taken', message: 'รหัสโปรเจกต์นี้มีคนใช้แล้ว' }, 409)
     const me = c.get('user')
     const myRole = await getProjectRole(db, before.id, me.id, me.role)
     if (!canEditProject(myRole)) return c.json({ error: 'forbidden' }, 403)

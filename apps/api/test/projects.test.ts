@@ -309,3 +309,36 @@ describe('Pronista §Notification overhaul (2026-08-27) — เพิ่มเ�
     expect(byId.u_somchai?.positionId).toBeNull()
   })
 })
+
+// Pronista §Task ID Format (2026-09-23) — บังคับรหัสโปรเจกต์ 3 ตัว A-Z0-9 เป๊ะๆ + ห้ามซ้ำ (case-insensitive) เฉพาะตอนสร้าง/แก้ไขใหม่ ของเก่าไม่ migrate ย้อนหลัง
+describe('§Task ID Format — รหัสโปรเจกต์บังคับ 3 ตัว A-Z0-9 + ห้ามซ้ำ', () => {
+  const patch = (cookie: string, id: string, body: Record<string, unknown>) =>
+    app.request(
+      `/api/projects/${id}`,
+      { method: 'PATCH', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify(body) },
+      env,
+    )
+
+  it('สร้างโปรเจกต์: code สั้น/ยาวเกิน/มีอักขระแปลก → 400 · code ว่าง (ไม่กรอก) → 201 ผ่านปกติ (ยัง optional)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    expect((await createProject(owner, { name: 'สั้นไป', type: 'project', code: 'AB' })).status).toBe(400)
+    expect((await createProject(owner, { name: 'ยาวไป', type: 'project', code: 'ABCD' })).status).toBe(400)
+    expect((await createProject(owner, { name: 'มีขีด', type: 'project', code: 'AB-' })).status).toBe(400)
+    expect((await createProject(owner, { name: 'ไม่มี code', type: 'project' })).status).toBe(201)
+  })
+
+  it('code ซ้ำกัน → 409 ทั้งตอนสร้างและแก้ไข · ไม่ชนตัวเอง (แก้ไขคง code เดิม) ผ่านปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const first = (await (await createProject(owner, { name: 'โปรเจกต์แรก', type: 'project', code: 'ABC' })).json()) as { id: string }
+
+    // สร้างใหม่ด้วย code เดียวกันเป๊ะ → 409 (regex บังคับ A-Z ล้วนอยู่แล้ว ทำให้ "ตัวพิมพ์ต่าง" ชนกันไม่ได้ผ่าน API ปกติ — case-insensitive ในเช็คซ้ำมีไว้กันชนกับ code เก่าที่ grandfather ไว้ตั้งแต่ก่อนบังคับ uppercase เท่านั้น)
+    expect((await createProject(owner, { name: 'โปรเจกต์สอง', type: 'project', code: 'ABC' })).status).toBe(409)
+
+    // สร้างโปรเจกต์ที่สามแบบไม่มี code แล้วลอง PATCH ให้ชนกับตัวแรก → 409
+    const third = (await (await createProject(owner, { name: 'โปรเจกต์สาม', type: 'project' })).json()) as { id: string }
+    expect((await patch(owner, third.id, { code: 'ABC' })).status).toBe(409)
+
+    // แก้ไขตัวแรกด้วย code เดิมของตัวเอง → ไม่ชนตัวเอง ผ่านปกติ
+    expect((await patch(owner, first.id, { code: 'ABC' })).status).toBe(200)
+  })
+})

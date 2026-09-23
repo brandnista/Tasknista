@@ -1,0 +1,1 @@
+CREATE INDEX `tasks_code_idx` ON `tasks` (`code`);

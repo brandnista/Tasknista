@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { api } from '../lib/api'
 import { ROLE_LABEL } from '../lib/role-label'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { taskHref } from '../lib/task-href'
 import { useLoad } from '../lib/useLoad'
 
 interface SearchProject { id: string; name: string; code: string | null; status: string; type: string }
@@ -145,8 +146,9 @@ export function GlobalSearch() {
                   {result && result.tasks.length > 0 && (
                     <div className="py-2 border-t border-border-subtle">
                       <div className="px-4 pb-1 text-[11px] font-medium text-muted tracking-wide">งาน</div>
+                      {/* Pronista §Task ID URL Slug (2026-09-23) — เปิดด้วยรหัสงานที่อ่านง่ายถ้ามี ไม่มีก็ fallback UUID เหมือนเดิม */}
                       {result.tasks.map((t) => (
-                        <button key={t.id} onClick={() => goTo(`/tasks/${t.id}`)} className="w-full text-left px-4 py-2 flex items-start gap-2.5 hover:bg-hover">
+                        <button key={t.id} onClick={() => goTo(taskHref(t))} className="w-full text-left px-4 py-2 flex items-start gap-2.5 hover:bg-hover">
                           <ListChecks className="w-4 h-4 text-muted shrink-0 mt-0.5" />
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm text-body truncate">{t.title}</span>

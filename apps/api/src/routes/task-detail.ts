@@ -37,6 +37,9 @@ const manhourCategoryOfRole = (role: 'owner' | 'member' | 'vendor' | 'guest'): M
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024 // 15MB ต่อไฟล์
 
+// Pronista §Task ID URL Slug (2026-09-23) — เดารูปแบบ UUID เพื่อแยก lookup ระหว่าง id (ลิงก์เก่า) กับ code (ลิงก์ใหม่อ่านง่าย)
+const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
 /** task detail: meta + comments + attachments + activity (จาก audit_logs) */
 export const taskDetailRoutes = new Hono<AppEnv>()
 
@@ -73,30 +76,33 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
         .leftJoin(creator, eq(tasks.createdBy, creator.id))
         .leftJoin(reviewer, eq(tasks.reviewerId, reviewer.id))
-        .where(eq(tasks.id, taskId))
+        // Pronista §Task ID URL Slug (2026-09-23) — รองรับทั้ง UUID เดิม (ลิงก์เก่ายังใช้ได้ตลอด) และรหัสงาน (PRO-TSK-0001 ฯลฯ) — รหัสงานไม่มีทางตรงรูป UUID เลย แยกกันปลอดภัย ไม่ต้อง query ซ้ำสองรอบ
+        .where(isUuid(taskId) ? eq(tasks.id, taskId) : eq(tasks.code, taskId))
         .limit(1)
     )[0]
     if (!row) return c.json({ error: 'not_found' }, 404)
     // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์อะไรเลยนอกจาก login (ยืนยันแล้วว่า guest/vendor ที่ไม่มีสิทธิ์ในโปรเจกต์ดึง detail งานได้เต็มๆ) — ใช้ helper เดียวกับที่ GET /projects/:id ใช้อยู่แล้ว
     const me = c.get('user')
     if (row.task.projectId && !(await isProjectVisibleToUser(db, row.task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
+    // Pronista §Task ID URL Slug (2026-09-23) — taskId (URL param) อาจเป็น code ไม่ใช่ UUID จริง — query ย่อยด้านล่างทั้งหมด (comments/attachments/audit/subtasks/checklist/custom fields/doc links) ต้องใช้ UUID จริงจาก row เท่านั้น ไม่งั้นได้ผลลัพธ์ว่างเปล่าหมดตอนเปิดผ่าน URL code
+    const realTaskId = row.task.id
 
     const comments = await db
       .select({ comment: taskComments, userName: users.name, userAvatarUrl: users.avatarUrl })
       .from(taskComments)
       .innerJoin(users, eq(taskComments.userId, users.id))
-      .where(and(eq(taskComments.taskId, taskId), isNull(taskComments.deletedAt)))
+      .where(and(eq(taskComments.taskId, realTaskId), isNull(taskComments.deletedAt)))
       .orderBy(asc(taskComments.createdAt))
     const attachments = await db
       .select()
       .from(taskAttachments)
-      .where(eq(taskAttachments.taskId, taskId))
+      .where(eq(taskAttachments.taskId, realTaskId))
       .orderBy(asc(taskAttachments.createdAt))
     const activity = await db
       .select({ log: auditLogs, actorName: users.name, actorAvatarUrl: users.avatarUrl })
       .from(auditLogs)
       .innerJoin(users, eq(auditLogs.actorId, users.id))
-      .where(eq(auditLogs.entityId, taskId))
+      .where(eq(auditLogs.entityId, realTaskId))
       .orderBy(desc(auditLogs.at))
       .limit(50)
     // Pronista §2.12 — งานย่อยของ task นี้ (ไม่รวมของ sub-task ตัวเอง — ไม่ทำ nested ลึกกว่า 1 ชั้น)
@@ -104,7 +110,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .select({ task: tasks, assigneeName: users.name })
       .from(tasks)
       .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(eq(tasks.parentId, taskId))
+      .where(eq(tasks.parentId, realTaskId))
       .orderBy(asc(tasks.createdAt))
     const parent = row.task.parentId
       ? (await db.select({ id: tasks.id, title: tasks.title, code: tasks.code }).from(tasks).where(eq(tasks.id, row.task.parentId)).limit(1))[0]
@@ -118,24 +124,24 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       ? await db
           .select({ id: tasks.id, code: tasks.code, title: tasks.title, status: tasks.status })
           .from(tasks)
-          .where(and(eq(tasks.parentId, row.task.parentId), ne(tasks.id, taskId)))
+          .where(and(eq(tasks.parentId, row.task.parentId), ne(tasks.id, realTaskId)))
       : []
     const checklist = await db
       .select()
       .from(taskChecklistItems)
-      .where(eq(taskChecklistItems.taskId, taskId))
+      .where(eq(taskChecklistItems.taskId, realTaskId))
       .orderBy(asc(taskChecklistItems.sortOrder))
     const customFields = await db
       .select()
       .from(taskCustomFields)
-      .where(eq(taskCustomFields.taskId, taskId))
+      .where(eq(taskCustomFields.taskId, realTaskId))
       .orderBy(asc(taskCustomFields.sortOrder))
     // Pronista §merge (2026-07-03) — เอกสาร (ทุก kind รวมหน้าวิกิ) ที่ผูกไว้กับ task นี้
     const linkedDocuments = await db
       .select({ linkId: docLinks.id, doc: docs })
       .from(docLinks)
       .innerJoin(docs, eq(docLinks.docId, docs.id))
-      .where(and(eq(docLinks.taskId, taskId), isNull(docs.deletedAt)))
+      .where(and(eq(docLinks.taskId, realTaskId), isNull(docs.deletedAt)))
       .orderBy(asc(docLinks.createdAt))
 
     // Pronista §permission (Jira-style project role) — สิทธิ์ของฉันในโปรเจกต์ของ task นี้ ให้ FE คุม UI โดยไม่ต้อง fetch แยก
