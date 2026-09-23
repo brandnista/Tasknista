@@ -1,6 +1,7 @@
 import { chatChannels, createDb } from '@seedoffice/db'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { createMiddleware } from 'hono/factory'
 import { requireAuth, requireAuthOrToken } from './middleware/auth'
 import { ceilingMenu, ownerOnly, requireRole, requireScope, teamOnly, teamOrMenu, tokenScope } from './middleware/roles'
 import { adminRoutes } from './routes/admin'
@@ -211,13 +212,18 @@ app.route('/api', meetingRoutes)
 app.use('/api/expenses', requireAuth, teamOnly)
 app.use('/api/expenses/*', requireAuth, teamOnly)
 app.route('/api/expenses', expenseRoutes)
+// Pronista §Leave Feature Rollback (2026-09-23) — ปิดชั่วคราวเฉพาะ production ผ่าน env var (พนักงานส่งคำขอลาไม่ได้จริงบน PRD) ยังเปิดอยู่บน staging — ตอบเหมือน route ไม่มีอยู่จริง (404) กันคนยิง API ตรงๆ ทั้งที่ UI ซ่อนปุ่มแล้ว
+const leaveFeatureGate = createMiddleware<AppEnv>(async (c, next) => {
+  if (c.env.LEAVE_ENABLED !== '1') return c.notFound()
+  await next()
+})
 // Pronista §Leave Request (2026-09-22, Phase 1): owner+member+vendor (ไม่รวม guest)
-app.use('/api/leave-requests', requireAuth, requireRole('owner', 'member', 'vendor'))
-app.use('/api/leave-requests/*', requireAuth, requireRole('owner', 'member', 'vendor'))
+app.use('/api/leave-requests', leaveFeatureGate, requireAuth, requireRole('owner', 'member', 'vendor'))
+app.use('/api/leave-requests/*', leaveFeatureGate, requireAuth, requireRole('owner', 'member', 'vendor'))
 app.route('/api/leave-requests', leaveRoutes)
 // Pronista §Leave Request Phase 2 (2026-09-22): ภาพรวมทั้งทีม + ตั้งค่าประเภทลา + ปรับยอด — owner เท่านั้น
-app.use('/api/leave-admin', requireAuth, ownerOnly)
-app.use('/api/leave-admin/*', requireAuth, ownerOnly)
+app.use('/api/leave-admin', leaveFeatureGate, requireAuth, ownerOnly)
+app.use('/api/leave-admin/*', leaveFeatureGate, requireAuth, ownerOnly)
 app.route('/api/leave-admin', leaveAdminRoutes)
 // ปฏิทินทีม + team activity: owner+member (vendor ไม่เห็น team hub — SPEC §4.10)
 app.use('/api/calendar', requireAuth, teamOnly)

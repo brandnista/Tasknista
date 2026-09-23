@@ -334,10 +334,13 @@ export function Layout() {
   }, [navOpen])
 
   // Pronista §System Requirements Update — ซ่อนเมนูตามเพดานสิทธิ์เมนูของหมวดผู้ใช้งาน (owner bypass เสมอ ไม่ผ่านเพดาน)
+  // Pronista §Leave Feature Rollback (2026-09-23) — ซ่อนเมนู "ขอลา" (ทั้ง top-level และ submenu "ภาพรวมการลา" ใต้ "ภาพรวม") เมื่อ leaveEnabled=false (production ชั่วคราว)
   const items = useMemo(
     () =>
       user
         ? NAV.filter((n) => n.roles.includes(user.role) && (!n.menuKey || user.role === 'owner' || user.menuVisibility[n.menuKey]))
+            .filter((n) => user.leaveEnabled || n.to !== '/leave')
+            .map((n) => (n.children ? { ...n, children: n.children.filter((c) => user.leaveEnabled || c.to !== '/leave/overview') } : n))
         : [],
     [user],
   )

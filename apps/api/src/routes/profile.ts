@@ -54,7 +54,8 @@ export const profileRoutes = new Hono<AppEnv>()
       const cfg = (await db.select({ permissionCeilings: companyConfig.permissionCeilings }).from(companyConfig).limit(1))[0]
       menuVisibility = resolvePermissionCeilings(cfg?.permissionCeilings)[category].menus
     }
-    return c.json({ ...meShape(me), menuVisibility, importDataEnabled: c.env.IMPORT_DATA_ENABLED === '1' })
+    // Pronista §Leave Feature Rollback (2026-09-23) — ปิดชั่วคราวเฉพาะ production (พนักงานส่งคำขอลาไม่ได้จริง) mirror pattern importDataEnabled เดิม
+    return c.json({ ...meShape(me), menuVisibility, importDataEnabled: c.env.IMPORT_DATA_ENABLED === '1', leaveEnabled: c.env.LEAVE_ENABLED === '1' })
   })
 
   .patch('/me', async (c) => {

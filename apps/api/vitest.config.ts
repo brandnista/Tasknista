@@ -13,6 +13,8 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRATIONS: migrations,
             DEV_AUTH: '1',
+            // Pronista §Leave Feature Rollback (2026-09-23) — base wrangler.jsonc ปิดไว้ (production) ต้องเปิดในเทสต์เอง ไม่งั้น leave.test.ts/leave-admin.test.ts โดน 404 ทั้งหมดจาก leaveFeatureGate
+            LEAVE_ENABLED: '1',
             APP_URL: 'http://localhost:5173',
             GOOGLE_CLIENT_ID: 'test-client-id',
             GOOGLE_CLIENT_SECRET: 'test-client-secret',
