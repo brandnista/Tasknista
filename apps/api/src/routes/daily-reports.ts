@@ -43,7 +43,8 @@ function nextDateStr(date: string): string {
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`
 }
 
-const DAILY_REPORT_TASK_ACTIONS = new Set(['save', 'accept', 'submit', 'recall', 'approve', 'bounce'])
+// Pronista §Daily Report PRO-DEF-0001 fix (2026-09-23) — เพิ่ม 'close_self' (ปุ่ม "ปิดงานเอง" ของ solo/self-dispatch workflow ที่ไม่เคยส่ง workflowAction มาก่อน)
+const DAILY_REPORT_TASK_ACTIONS = new Set(['save', 'accept', 'submit', 'recall', 'approve', 'bounce', 'close_self'])
 
 // Pronista §Daily Report multi-recipient — เข้าถึงได้ = เจ้าของ หรือ "หนึ่งในผู้รับ" ผ่าน daily_report_recipients เท่านั้น
 async function canAccessReport(db: ReturnType<typeof createDb>, report: { id: string; userId: string }, me: { id: string }) {
