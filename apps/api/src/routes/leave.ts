@@ -18,6 +18,36 @@ async function ownerUserIds(db: Db): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
+type LeaveRequestRow = typeof leaveRequests.$inferSelect
+
+/** Pronista §Leave Management Overhaul เฟส D (2026-09-23) — 1 คำขอหลายช่วงวันที่ = หลายแถวใน leave_requests แชร์ groupId เดียวกัน
+ * approve/reject/withdraw ต้องทำทั้งกลุ่มพร้อมกันเสมอ (atomic) กันเกิด partial state (บางช่วง approved บางช่วง pending) — หาพี่น้องทั้งกลุ่มจาก groupId (ไม่มี groupId = คำขอช่วงเดียว คืนแค่ตัวเอง พฤติกรรมเดิมเป๊ะ) */
+async function siblingsOf(db: Db, row: LeaveRequestRow): Promise<LeaveRequestRow[]> {
+  if (!row.groupId) return [row]
+  return db.select().from(leaveRequests).where(eq(leaveRequests.groupId, row.groupId))
+}
+
+/** Pronista §Leave Management Overhaul เฟส D (2026-09-23) — ใช้กับ GET /mine, GET /pending: รวมแถวที่ groupId เดียวกันเป็น 1 รายการ พร้อม ranges[]
+ * rows ต้องเรียงตาม desc(createdAt) มาก่อนแล้ว (จาก query) — ลำดับผลลัพธ์คงตามนั้น (Map เก็บ insertion order ของ key แรกที่เจอ) */
+function groupLeaveRows<T extends { req: LeaveRequestRow }>(rows: T[]) {
+  const groups = new Map<string, T[]>()
+  for (const r of rows) {
+    const key = r.req.groupId ?? r.req.id
+    const arr = groups.get(key) ?? []
+    arr.push(r)
+    groups.set(key, arr)
+  }
+  return [...groups.values()].map((group) => {
+    const sorted = [...group].sort((a, b) => a.req.startDate.localeCompare(b.req.startDate))
+    const { req, ...joined } = sorted[0]! // แยก req ออกก่อน กัน key "req" ค้างซ้อนอยู่ใน response (อยากได้ field แบนราบ ไม่ใช่ nested)
+    return {
+      ...joined,
+      ...req,
+      ranges: sorted.map((g) => ({ id: g.req.id, startDate: g.req.startDate, endDate: g.req.endDate })),
+    }
+  })
+}
+
 /** Pronista §Leave Request (2026-09-22, Phase 1) — mount ด้วย requireAuth + teamOnly (vendor/guest ❌ เหมือน expenses) */
 export const leaveRoutes = new Hono<AppEnv>()
 
@@ -50,24 +80,35 @@ export const leaveRoutes = new Hono<AppEnv>()
     })
   })
 
-  // ยื่นคำขอลา (multipart ถ้ามีไฟล์แนบ)
+  // ยื่นคำขอลา (multipart ถ้ามีไฟล์แนบ) — Pronista §Leave Management Overhaul เฟส D (2026-09-23) รองรับหลายช่วงวันที่ในคำขอเดียว (ranges array แทน startDate/endDate เดี่ยว)
   .post('/', async (c) => {
     const form = await c.req.formData()
+    let rangesRaw: unknown
+    try {
+      rangesRaw = JSON.parse(String(form.get('ranges') ?? '[]'))
+    } catch {
+      return c.json({ error: 'invalid_ranges' }, 400)
+    }
     const parsed = z
       .object({
         leaveTypeId: z.string().min(1),
-        startDate: isoDate,
-        endDate: isoDate,
+        ranges: z.array(z.object({ startDate: isoDate, endDate: isoDate })).min(1).max(10),
         reason: z.string().max(2000).optional(),
       })
       .safeParse({
         leaveTypeId: form.get('leaveTypeId'),
-        startDate: form.get('startDate'),
-        endDate: form.get('endDate'),
+        ranges: rangesRaw,
         reason: form.get('reason') || undefined,
       })
     if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message ?? 'invalid' }, 400)
-    if (parsed.data.endDate < parsed.data.startDate) return c.json({ error: 'invalid_range' }, 400)
+    for (const r of parsed.data.ranges) {
+      if (r.endDate < r.startDate) return c.json({ error: 'invalid_range' }, 400)
+    }
+    // ช่วงในคำขอเดียวกันห้ามทับกัน (ไม่เช็คกับคำขออื่นที่มีอยู่แล้ว — พฤติกรรมเดิมไม่เคยเช็คแบบนั้น)
+    const sortedRanges = [...parsed.data.ranges].sort((a, b) => a.startDate.localeCompare(b.startDate))
+    for (let i = 1; i < sortedRanges.length; i++) {
+      if (sortedRanges[i]!.startDate <= sortedRanges[i - 1]!.endDate) return c.json({ error: 'ranges_overlap' }, 400)
+    }
 
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -88,42 +129,51 @@ export const leaveRoutes = new Hono<AppEnv>()
 
     const meRow = (await db.select({ managerId: users.managerId }).from(users).where(eq(users.id, me.id)).limit(1))[0]
     const approverId = meRow?.managerId ?? null
+    // groupId เฉพาะตอนมีมากกว่า 1 ช่วง (ช่วงเดียว = null ไม่เพิ่ม overhead, พฤติกรรมแสดงผล/query เดิมเป๊ะ)
+    const groupId = parsed.data.ranges.length > 1 ? crypto.randomUUID() : null
 
-    const inserted = (
-      await db
-        .insert(leaveRequests)
-        .values({
-          userId: me.id,
-          leaveTypeId: leaveType.id,
-          startDate: parsed.data.startDate,
-          endDate: parsed.data.endDate,
-          reason: parsed.data.reason?.trim() || null,
-          approverId,
-          attachmentR2Key: attachment?.r2Key ?? null,
-          attachmentFilename: attachment?.filename ?? null,
-          attachmentMime: attachment?.mime ?? null,
-          attachmentSizeBytes: attachment?.sizeBytes ?? null,
-        })
-        .returning()
-    )[0]!
-
-    await writeAudit(c.env, {
-      actorId: me.id,
-      action: 'leave_request.create',
-      entity: 'leave_request',
-      entityId: inserted.id,
-      meta: { leaveTypeId: leaveType.id, startDate: inserted.startDate, endDate: inserted.endDate },
-    })
-
-    const recipients = approverId ? [approverId] : await ownerUserIds(db)
-    for (const userId of recipients) {
-      await notifyUser(db, { userId, type: 'leave_requested', message: `${me.name} ยื่นขอ${leaveType.name}`, taskId: null })
+    const insertedRows: LeaveRequestRow[] = []
+    for (const range of parsed.data.ranges) {
+      const inserted = (
+        await db
+          .insert(leaveRequests)
+          .values({
+            userId: me.id,
+            leaveTypeId: leaveType.id,
+            startDate: range.startDate,
+            endDate: range.endDate,
+            reason: parsed.data.reason?.trim() || null,
+            approverId,
+            groupId,
+            attachmentR2Key: attachment?.r2Key ?? null,
+            attachmentFilename: attachment?.filename ?? null,
+            attachmentMime: attachment?.mime ?? null,
+            attachmentSizeBytes: attachment?.sizeBytes ?? null,
+          })
+          .returning()
+      )[0]!
+      insertedRows.push(inserted)
+      await writeAudit(c.env, {
+        actorId: me.id,
+        action: 'leave_request.create',
+        entity: 'leave_request',
+        entityId: inserted.id,
+        meta: { leaveTypeId: leaveType.id, startDate: inserted.startDate, endDate: inserted.endDate, groupId },
+      })
     }
 
-    return c.json(inserted, 201)
+    // แจ้งเตือนครั้งเดียวต่อคำขอ (ไม่สแปมทีละช่วง) — สรุปจำนวนช่วงถ้ามากกว่า 1
+    const rangeNote = insertedRows.length > 1 ? ` (${insertedRows.length} ช่วง)` : ''
+    const recipients = approverId ? [approverId] : await ownerUserIds(db)
+    for (const userId of recipients) {
+      await notifyUser(db, { userId, type: 'leave_requested', message: `${me.name} ยื่นขอ${leaveType.name}${rangeNote}`, taskId: null })
+    }
+
+    return c.json(insertedRows.length > 1 ? insertedRows : insertedRows[0], 201)
   })
 
   // ประวัติของฉัน ทุกสถานะ (รวมชื่อผู้อนุมัติ/ปฏิเสธ ใช้แสดงไทม์ไลน์สถานะ)
+  // Pronista §Leave Management Overhaul เฟส D (2026-09-23) — จัดกลุ่มตาม groupId ก่อนส่งกลับ (คำขอหลายช่วง = 1 รายการ พร้อม ranges[] แทนที่จะโชว์แยกเป็นหลายแถว)
   .get('/mine', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
@@ -134,7 +184,7 @@ export const leaveRoutes = new Hono<AppEnv>()
       .leftJoin(decider, eq(leaveRequests.decidedBy, decider.id))
       .where(eq(leaveRequests.userId, me.id))
       .orderBy(desc(leaveRequests.createdAt))
-    return c.json({ rows: rows.map((r) => ({ ...r.req, leaveTypeName: r.leaveTypeName, decidedByName: r.decidedByName })) })
+    return c.json({ rows: groupLeaveRows(rows) })
   })
 
   // คำขอที่รอฉันอนุมัติ (approverId ตรง หรือ owner เห็นทุกคำขอ)
@@ -149,36 +199,42 @@ export const leaveRoutes = new Hono<AppEnv>()
       .leftJoin(users, eq(leaveRequests.userId, users.id))
       .where(cond)
       .orderBy(desc(leaveRequests.createdAt))
-    return c.json({ rows: rows.map((r) => ({ ...r.req, leaveTypeName: r.leaveTypeName, userName: r.userName })) })
+    return c.json({ rows: groupLeaveRows(rows) })
   })
 
+  // Pronista §Leave Management Overhaul เฟส D (2026-09-23) — approve/reject/withdraw ทำทั้งกลุ่ม (siblingsOf) พร้อมกันเสมอ กันเกิด partial state ระหว่างช่วงในคำขอเดียวกัน
   .post('/:id/approve', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const before = (await db.select().from(leaveRequests).where(eq(leaveRequests.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
-    if (before.status !== 'pending') return c.json({ error: 'not_pending' }, 409)
+    const group = await siblingsOf(db, before)
+    if (group.some((r) => r.status !== 'pending')) return c.json({ error: 'not_pending' }, 409)
     if (me.role !== 'owner' && before.approverId !== me.id) return c.json({ error: 'forbidden' }, 403)
 
     const leaveType = (await db.select().from(leaveTypes).where(eq(leaveTypes.id, before.leaveTypeId)).limit(1))[0]
-    const event = (
-      await db
-        .insert(calendarEvents)
-        .values({ type: 'leave', userId: before.userId, startDate: before.startDate, endDate: before.endDate, title: `ลา: ${leaveType?.name ?? ''}`, createdBy: me.id })
-        .returning()
-    )[0]!
+    const decidedAt = new Date()
+    const updatedRows: LeaveRequestRow[] = []
+    for (const r of group) {
+      const event = (
+        await db
+          .insert(calendarEvents)
+          .values({ type: 'leave', userId: r.userId, startDate: r.startDate, endDate: r.endDate, title: `ลา: ${leaveType?.name ?? ''}`, createdBy: me.id })
+          .returning()
+      )[0]!
+      const updated = (
+        await db
+          .update(leaveRequests)
+          .set({ status: 'approved', decidedBy: me.id, decidedAt, calendarEventId: event.id })
+          .where(eq(leaveRequests.id, r.id))
+          .returning()
+      )[0]!
+      updatedRows.push(updated)
+    }
 
-    const updated = (
-      await db
-        .update(leaveRequests)
-        .set({ status: 'approved', decidedBy: me.id, decidedAt: new Date(), calendarEventId: event.id })
-        .where(eq(leaveRequests.id, before.id))
-        .returning()
-    )[0]!
-
-    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.approve', entity: 'leave_request', entityId: before.id, meta: {} })
+    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.approve', entity: 'leave_request', entityId: before.id, meta: { groupSize: group.length } })
     await notifyUser(db, { userId: before.userId, type: 'leave_approved', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณได้รับการอนุมัติแล้ว`, taskId: null })
-    return c.json(updated)
+    return c.json(updatedRows.length > 1 ? updatedRows : updatedRows[0])
   })
 
   .post('/:id/reject', async (c) => {
@@ -188,38 +244,51 @@ export const leaveRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     const before = (await db.select().from(leaveRequests).where(eq(leaveRequests.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
-    if (before.status !== 'pending') return c.json({ error: 'not_pending' }, 409)
+    const group = await siblingsOf(db, before)
+    if (group.some((r) => r.status !== 'pending')) return c.json({ error: 'not_pending' }, 409)
     if (me.role !== 'owner' && before.approverId !== me.id) return c.json({ error: 'forbidden' }, 403)
 
     const leaveType = (await db.select().from(leaveTypes).where(eq(leaveTypes.id, before.leaveTypeId)).limit(1))[0]
-    const updated = (
-      await db
-        .update(leaveRequests)
-        .set({ status: 'rejected', decidedBy: me.id, decidedAt: new Date(), rejectReason: body.data.reason })
-        .where(eq(leaveRequests.id, before.id))
-        .returning()
-    )[0]!
+    const decidedAt = new Date()
+    const updatedRows: LeaveRequestRow[] = []
+    for (const r of group) {
+      const updated = (
+        await db
+          .update(leaveRequests)
+          .set({ status: 'rejected', decidedBy: me.id, decidedAt, rejectReason: body.data.reason })
+          .where(eq(leaveRequests.id, r.id))
+          .returning()
+      )[0]!
+      updatedRows.push(updated)
+    }
 
-    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.reject', entity: 'leave_request', entityId: before.id, meta: { reason: body.data.reason } })
+    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.reject', entity: 'leave_request', entityId: before.id, meta: { reason: body.data.reason, groupSize: group.length } })
     await notifyUser(db, { userId: before.userId, type: 'leave_rejected', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณถูกปฏิเสธ: ${body.data.reason}`, taskId: null })
-    return c.json(updated)
+    return c.json(updatedRows.length > 1 ? updatedRows : updatedRows[0])
   })
 
   // Pronista §Leave Request Phase 2 — ถอนคำขอ (pending) หรือยกเลิกเอง (approved แต่ยังไม่ถึงวันเริ่มลา) รวมไว้ endpoint เดียว ใช้ status 'withdrawn' เหมือนกันทั้งคู่
+  // Pronista §Leave Management Overhaul เฟส D — กฎระดับกลุ่ม: บล็อกทั้งกลุ่มถ้ามีช่วงไหนช่วงหนึ่งเริ่มไปแล้ว (ทุกแถวในกลุ่มสถานะเดียวกันเสมอ เพราะ approve/reject/withdraw ทำทั้งกลุ่มพร้อมกัน ไม่มี partial state ให้ต้องจัดการเพิ่ม)
   .post('/:id/withdraw', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
     const before = (await db.select().from(leaveRequests).where(eq(leaveRequests.id, c.req.param('id'))).limit(1))[0]
     if (!before) return c.json({ error: 'not_found' }, 404)
     if (before.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    const group = await siblingsOf(db, before)
     const today = bkkDateOf(Date.now())
-    const canWithdraw = before.status === 'pending' || (before.status === 'approved' && before.startDate > today)
+    const canWithdraw = group.every((r) => r.status === 'pending') || group.every((r) => r.status === 'approved' && r.startDate > today)
     if (!canWithdraw) return c.json({ error: 'not_pending' }, 409)
-    // เคลียร์ FK ที่ leave_requests อ้าง calendarEventId ก่อน แล้วค่อยลบ event เดิม (ลบก่อนจะชน FOREIGN KEY constraint)
-    const updated = (await db.update(leaveRequests).set({ status: 'withdrawn', calendarEventId: null }).where(eq(leaveRequests.id, before.id)).returning())[0]!
-    if (before.calendarEventId) await db.delete(calendarEvents).where(eq(calendarEvents.id, before.calendarEventId))
-    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.withdraw', entity: 'leave_request', entityId: before.id, meta: { from: before.status } })
-    return c.json(updated)
+
+    const updatedRows: LeaveRequestRow[] = []
+    for (const r of group) {
+      // เคลียร์ FK ที่ leave_requests อ้าง calendarEventId ก่อน แล้วค่อยลบ event เดิม (ลบก่อนจะชน FOREIGN KEY constraint)
+      const updated = (await db.update(leaveRequests).set({ status: 'withdrawn', calendarEventId: null }).where(eq(leaveRequests.id, r.id)).returning())[0]!
+      if (r.calendarEventId) await db.delete(calendarEvents).where(eq(calendarEvents.id, r.calendarEventId))
+      updatedRows.push(updated)
+    }
+    await writeAudit(c.env, { actorId: me.id, action: 'leave_request.withdraw', entity: 'leave_request', entityId: before.id, meta: { from: before.status, groupSize: group.length } })
+    return c.json(updatedRows.length > 1 ? updatedRows : updatedRows[0])
   })
 
   // ทีมลาวันนี้/สัปดาห์นี้ (widget หน้า "ขอลา") — เฉพาะ approved ช่วงวันที่ทับซ้อนกับ from..to (default วันนี้..+6 วัน)

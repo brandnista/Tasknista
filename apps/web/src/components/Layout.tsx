@@ -117,7 +117,7 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
     menuKey: 'dailyReports',
   },
   // Pronista §Leave Request (2026-09-22, Phase 1) — ไม่มี menuKey เหมือน "บริการ" (ไม่ผ่านเพดานเมนู) เห็นได้ทุกคน ยกเว้น guest
-  { to: '/leave', label: 'ขอลา', icon: Plane, roles: ['owner', 'member', 'vendor'] },
+  { to: '/leave', label: 'การลา', icon: Plane, roles: ['owner', 'member', 'vendor'] },
   // Pronista §Menu Restructure (2026-09-02) — แยก "ไฟล์ของฉัน" ออกจาก "งานของฉัน" เป็นเมนูหลักของตัวเอง "แชร์กับฉัน" ย้ายมาเป็นเมนูย่อยของมันแทน (เดิมเป็นพี่น้องกันใต้งานของฉัน)
   // owner/member/vendor เท่านั้น (ไม่รวม guest — ตกลงกับพี่แบงค์แล้ว)
   {
@@ -166,6 +166,8 @@ const NAV: { to: string; label: string; icon: typeof LayoutDashboard; roles: Rol
       { to: '/admin/permissions', label: 'ตั้งค่าสิทธิ์ผู้ใช้งาน' },
       { to: '/admin/notifications', label: 'ตั้งค่าการแจ้งเตือน' },
       { to: '/admin/cost', label: 'กำหนดต้นทุน' },
+      // Pronista §Leave Management Overhaul เฟส E (2026-09-23) — ย้ายมาจากแท็บใน "ภาพรวมการลา" — ตั้งใจไม่กรองด้วย leaveEnabled (ต่างจาก /leave, /leave/overview) เพราะเป็นหน้าตั้งค่า admin ควรแก้ได้แม้ตอน LEAVE_ENABLED=0
+      { to: '/admin/leave-types', label: 'ตั้งค่าประเภทการลา' },
     ],
   },
   // Pronista §Menu Restructure — แยกออกจาก "ตั้งค่าผู้ใช้งาน" เดิม (เคยเป็น 3 แท็บในหน้าเดียว) เป็นเมนูหลักคนละอันตามสเปก

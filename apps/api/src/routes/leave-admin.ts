@@ -80,7 +80,7 @@ export const leaveAdminRoutes = new Hono<AppEnv>()
 
     return c.json({
       year,
-      users: teamUsers.map((u) => ({ id: u.id, name: u.name })),
+      users: teamUsers.map((u) => ({ id: u.id, name: u.name, role: u.role })),
       types: types.map((t) => ({ id: t.id, name: t.name })),
       cells,
     })

@@ -11,9 +11,13 @@ const json = (cookie: string, body: unknown, method = 'POST') => ({
   body: JSON.stringify(body),
 })
 
+// Pronista §Leave Management Overhaul เฟส D (2026-09-23) — POST /api/leave-requests เปลี่ยนจาก startDate/endDate เดี่ยว เป็น ranges: [{startDate,endDate}][]
+// แปลง startDate/endDate ให้อัตโนมัติที่นี่ที่เดียว กัน test call site เดิมทั้งหมดต้องแก้ (ยังส่งช่วงเดียวเหมือนเดิม แค่ wrap เป็น ranges array ให้)
 function leaveForm(cookie: string, fields: Record<string, string>, attachment?: File) {
   const fd = new FormData()
-  for (const [k, v] of Object.entries(fields)) fd.append(k, v)
+  const { startDate, endDate, ...rest } = fields
+  for (const [k, v] of Object.entries(rest)) fd.append(k, v)
+  if (startDate && endDate) fd.append('ranges', JSON.stringify([{ startDate, endDate }]))
   if (attachment) fd.append('attachment', attachment)
   return { method: 'POST', headers: { cookie }, body: fd }
 }
@@ -275,5 +279,184 @@ describe('§Leave Request — Phase 2', () => {
 
     const mine = (await (await app.request('/api/leave-requests/mine', { headers: { cookie: pond } }, env)).json()) as { rows: { id: string; decidedByName: string | null }[] }
     expect(mine.rows.find((r) => r.id === created.id)?.decidedByName).toBe('เมธ')
+  })
+})
+
+// Pronista §Leave Management Overhaul เฟส D (2026-09-23) — ลาหลายช่วงวันที่ในคำขอเดียว (ติดวันหยุดคั่นกลาง) — sibling rows แชร์ groupId เดียวกัน approve/reject/withdraw ทำทั้งกลุ่มพร้อมกันเสมอ
+describe('§Leave Management Overhaul เฟส D — ลาหลายช่วงวันที่ในคำขอเดียว (multi-range)', () => {
+  function leaveFormRanges(cookie: string, leaveTypeId: string, ranges: { startDate: string; endDate: string }[], reason = 'ลาหลายช่วง') {
+    const fd = new FormData()
+    fd.append('leaveTypeId', leaveTypeId)
+    fd.append('reason', reason)
+    fd.append('ranges', JSON.stringify(ranges))
+    return { method: 'POST', headers: { cookie }, body: fd }
+  }
+
+  it('ส่งคำขอ 2 ช่วง (12-13, 16 พ.ย.) → ได้ผลลัพธ์เป็น array 2 แถว groupId เดียวกัน · GET /mine เห็นเป็น 1 รายการ พร้อม ranges ครบ', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = await app.request(
+      '/api/leave-requests',
+      leaveFormRanges(pond, sickTypeId, [
+        { startDate: '2026-11-12', endDate: '2026-11-13' },
+        { startDate: '2026-11-16', endDate: '2026-11-16' },
+      ]),
+      env,
+    )
+    expect(res.status).toBe(201)
+    const rows = (await res.json()) as { id: string; groupId: string | null }[]
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.groupId).toBeTruthy()
+    expect(rows[0]!.groupId).toBe(rows[1]!.groupId)
+
+    const mine = (await (await app.request('/api/leave-requests/mine', { headers: { cookie: pond } }, env)).json()) as {
+      rows: { groupId: string | null; ranges: { startDate: string; endDate: string }[] }[]
+    }
+    const grouped = mine.rows.filter((r) => r.groupId === rows[0]!.groupId)
+    expect(grouped).toHaveLength(1)
+    expect(grouped[0]!.ranges).toHaveLength(2)
+    expect(grouped[0]!.ranges.map((r) => r.startDate)).toEqual(['2026-11-12', '2026-11-16'])
+  })
+
+  it('ช่วงทับกันในคำขอเดียวกัน → 400', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = await app.request(
+      '/api/leave-requests',
+      leaveFormRanges(pond, sickTypeId, [
+        { startDate: '2026-11-12', endDate: '2026-11-14' },
+        { startDate: '2026-11-13', endDate: '2026-11-15' },
+      ]),
+      env,
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('อนุมัติกลุ่ม → เกิด calendarEvents แยกกันตามจำนวนช่วง ทุกแถวในกลุ่ม approved decidedBy/decidedAt เดียวกัน', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request(
+        '/api/leave-requests',
+        leaveFormRanges(pond, sickTypeId, [
+          { startDate: '2026-11-12', endDate: '2026-11-13' },
+          { startDate: '2026-11-16', endDate: '2026-11-16' },
+        ]),
+        env,
+      )
+    ).json()) as { id: string }[]
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const approveRes = await app.request(`/api/leave-requests/${created[0]!.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)
+    expect(approveRes.status).toBe(200)
+    const approved = (await approveRes.json()) as { id: string; status: string; decidedBy: string; decidedAt: number; calendarEventId: string | null }[]
+    expect(approved).toHaveLength(2)
+    expect(approved.every((r) => r.status === 'approved')).toBe(true)
+    expect(approved[0]!.decidedBy).toBe(approved[1]!.decidedBy)
+    expect(approved[0]!.decidedAt).toBe(approved[1]!.decidedAt)
+    expect(approved[0]!.calendarEventId).not.toBe(approved[1]!.calendarEventId) // คนละ event กัน (2 ช่วง = 2 event)
+    expect(approved[0]!.calendarEventId).toBeTruthy()
+    expect(approved[1]!.calendarEventId).toBeTruthy()
+
+    // ยอดใช้ไปรวม 3 วัน (2+1) ถูกนับครบทั้งกลุ่ม
+    const types = (await (await app.request('/api/leave-requests/types', { headers: { cookie: pond } }, env)).json()) as { types: { id: string; balance: { remain: number } }[] }
+    expect(types.types.find((t) => t.id === sickTypeId)!.balance.remain).toBe(27) // quota 30 - 3
+  })
+
+  it('ปฏิเสธกลุ่ม → ทุกแถวในกลุ่ม rejected เหตุผลเดียวกัน', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request(
+        '/api/leave-requests',
+        leaveFormRanges(pond, sickTypeId, [
+          { startDate: '2026-11-12', endDate: '2026-11-13' },
+          { startDate: '2026-11-16', endDate: '2026-11-16' },
+        ]),
+        env,
+      )
+    ).json()) as { id: string }[]
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request(
+      `/api/leave-requests/${created[0]!.id}/reject`,
+      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ reason: 'ช่วงนี้งานเยอะ' }) },
+      env,
+    )
+    expect(res.status).toBe(200)
+    const rejected = (await res.json()) as { status: string; rejectReason: string }[]
+    expect(rejected).toHaveLength(2)
+    expect(rejected.every((r) => r.status === 'rejected' && r.rejectReason === 'ช่วงนี้งานเยอะ')).toBe(true)
+  })
+
+  it('ยกเลิก: ช่วงหนึ่งเริ่มไปแล้ว → บล็อกทั้งกลุ่ม (409) · ทั้งคู่ยังไม่ถึงวัน → ยกเลิกได้ ลบ calendar event ทั้งคู่', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const owner = await loginAs(app, 'owner@example-co.test')
+
+    // กรณีที่ 1: ช่วงหนึ่งเป็นอดีตไปแล้ว (สร้าง+อนุมัติตรงๆ ผ่าน DB ไม่ผ่าน validation อดีต เพราะ POST ไม่ได้ห้ามวันที่อดีต)
+    const pastGroup = (await (
+      await app.request(
+        '/api/leave-requests',
+        leaveFormRanges(pond, sickTypeId, [
+          { startDate: '2020-01-01', endDate: '2020-01-01' },
+          { startDate: '2099-01-01', endDate: '2099-01-01' },
+        ]),
+        env,
+      )
+    ).json()) as { id: string }[]
+    await app.request(`/api/leave-requests/${pastGroup[0]!.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)
+    const blockedWithdraw = await app.request(`/api/leave-requests/${pastGroup[0]!.id}/withdraw`, { method: 'POST', headers: { cookie: pond } }, env)
+    expect(blockedWithdraw.status).toBe(409)
+
+    // กรณีที่ 2: ทั้งคู่ยังไม่ถึงวัน → ยกเลิกได้ ลบ calendar event ทั้งคู่
+    const futureGroup = (await (
+      await app.request(
+        '/api/leave-requests',
+        leaveFormRanges(pond, sickTypeId, [
+          { startDate: '2099-02-01', endDate: '2099-02-02' },
+          { startDate: '2099-02-05', endDate: '2099-02-05' },
+        ]),
+        env,
+      )
+    ).json()) as { id: string }[]
+    const approvedFuture = (await (
+      await app.request(`/api/leave-requests/${futureGroup[0]!.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)
+    ).json()) as { id: string; calendarEventId: string }[]
+    const okWithdraw = await app.request(`/api/leave-requests/${futureGroup[0]!.id}/withdraw`, { method: 'POST', headers: { cookie: pond } }, env)
+    expect(okWithdraw.status).toBe(200)
+    const withdrawn = (await okWithdraw.json()) as { status: string; calendarEventId: string | null }[]
+    expect(withdrawn.every((r) => r.status === 'withdrawn' && r.calendarEventId === null)).toBe(true)
+
+    const remainingEvents = await env.DB.prepare('SELECT COUNT(*) AS n FROM calendar_events WHERE id IN (?, ?)')
+      .bind(approvedFuture[0]!.calendarEventId, approvedFuture[1]!.calendarEventId)
+      .first<{ n: number }>()
+    expect(remainingEvents!.n).toBe(0)
+  })
+
+  it('GET /pending แสดง 1 การ์ดต่อ 1 คำขอหลายช่วง ไม่ใช่ 2 แถวแยก', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request(
+        '/api/leave-requests',
+        leaveFormRanges(pond, sickTypeId, [
+          { startDate: '2026-11-12', endDate: '2026-11-13' },
+          { startDate: '2026-11-16', endDate: '2026-11-16' },
+        ]),
+        env,
+      )
+    ).json()) as { id: string; groupId: string }[]
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pending = (await (await app.request('/api/leave-requests/pending', { headers: { cookie: owner } }, env)).json()) as {
+      rows: { groupId: string | null; ranges: unknown[] }[]
+    }
+    const matches = pending.rows.filter((r) => r.groupId === created[0]!.groupId)
+    expect(matches).toHaveLength(1)
+    expect(matches[0]!.ranges).toHaveLength(2)
+  })
+
+  it('คำขอช่วงเดียว (ปกติเดิม) — groupId เป็น null, response เป็น object เดี่ยวไม่ใช่ array', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2026-09-22', endDate: '2026-09-22', reason: 'ปกติ' }), env)
+    expect(res.status).toBe(201)
+    const body = (await res.json()) as { id: string; groupId: string | null }
+    expect(Array.isArray(body)).toBe(false)
+    expect(body.groupId).toBeNull()
   })
 })
