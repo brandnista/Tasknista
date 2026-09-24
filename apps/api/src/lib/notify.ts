@@ -17,6 +17,8 @@ export interface NotifyInput {
   chatChannelId?: string | null
   domainId?: string | null
   sellnistaSubscriptionId?: string | null
+  // Pronista §Notification Badge Audit เฟส 6b (2026-09-24) — ผูกแจ้งเตือนการลากับคำขอที่เกี่ยวข้อง ให้เช็ค relevance ได้ (เดิม leave_requested/approved/rejected ไม่มี FK ผูกเลย)
+  leaveRequestId?: string | null
 }
 
 /**

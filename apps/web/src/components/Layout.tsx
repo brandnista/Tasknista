@@ -71,6 +71,50 @@ function isAssignedTaskNotificationRelevant(row: { type: string; taskId: string 
   if (!row.taskId) return true // ไม่ผูก task เฉพาะ (ไม่ควรเกิดกับ type กลุ่มนี้ แต่กันไว้)
   return row.taskAssigneeId === meId && !!row.taskDispatchedAt
 }
+// Pronista §Notification Badge Audit เฟส 6b (2026-09-24) — ต่อยอด pattern เดียวกับ isAssignedTaskNotificationRelevant ให้ครบอีก 3 กลุ่ม (งานรอตรวจ/งานที่จ่ายให้คนอื่น/การประชุม) + การลา (คนละ badge ไม่ใช่ my-tasks submenu)
+function isReviewNotificationRelevant(row: { type: string; taskId: string | null; taskStatus: string | null; taskReviewerId: string | null }, meId?: string): boolean {
+  if (!(MY_TASKS_REVIEW_TYPES as readonly string[]).includes(row.type)) return true
+  if (!row.taskId) return true
+  return row.taskReviewerId === meId && row.taskStatus === 'waiting_for_test'
+}
+function isDispatchedNotificationRelevant(row: { type: string; taskId: string | null; taskAssignedBy: string | null; taskAssigneeId: string | null }, meId?: string): boolean {
+  if (!(MY_TASKS_DISPATCHED_TYPES as readonly string[]).includes(row.type)) return true
+  if (!row.taskId) return true
+  return row.taskAssignedBy === meId && row.taskAssigneeId !== meId
+}
+// meeting_cancelled ลบแจ้งเตือนที่ผูก meetingId เดิมทิ้งเองอยู่แล้วตอนยกเลิก (ดู DELETE /api/meetings/:id) — meetingId ว่าง/meetingStartAt ว่างถือเป็น one-time informational เสมอ relevant ไม่ต้องเช็คเพิ่ม
+function isMeetingNotificationRelevant(row: { type: string; meetingId: string | null; meetingStartAt: string | number | null }): boolean {
+  if (!(MY_TASKS_MEETINGS_TYPES as readonly string[]).includes(row.type)) return true
+  if (!row.meetingId || row.meetingStartAt == null) return true
+  return new Date(row.meetingStartAt).getTime() >= Date.now()
+}
+// leave_approved/leave_rejected เป็น one-time event ฝั่งผู้ขอ ไม่มีแท็บให้ต้อง "ยังค้างอยู่" — เช็คเฉพาะ leave_requested (ฝั่งผู้อนุมัติ) ว่าคำขอยัง pending จริงไหม (กันถอนคำขอไปแล้วแต่ badge ยังค้าง)
+function isLeaveNotificationRelevant(row: { type: string; leaveRequestStatus: 'pending' | 'approved' | 'rejected' | 'withdrawn' | null }): boolean {
+  if (row.type !== 'leave_requested') return true
+  return row.leaveRequestStatus === 'pending'
+}
+// เมนูแม่ "งานของฉัน" (MY_TASKS_ALL_TYPES) ต้องเช็ค relevance ของทุกกลุ่มย่อยรวมกัน ไม่งั้นเลข badge แม่กับลูกไม่ตรงกันอีกรอบ (บั๊กแบบเดียวกับ comment ด้านบน MY_TASKS_ALL_TYPES ที่เคยเจอมาก่อน) — filter แต่ละตัว pass-through (คืน true) ให้ type นอกกลุ่มตัวเองอยู่แล้ว จึง AND กันได้ตรงๆ
+function isMyTasksNotificationRelevant(
+  row: {
+    type: string
+    taskId: string | null
+    taskAssigneeId: string | null
+    taskDispatchedAt: string | number | null
+    taskStatus: string | null
+    taskReviewerId: string | null
+    taskAssignedBy: string | null
+    meetingId: string | null
+    meetingStartAt: string | number | null
+  },
+  meId?: string,
+): boolean {
+  return (
+    isAssignedTaskNotificationRelevant(row, meId) &&
+    isReviewNotificationRelevant(row, meId) &&
+    isDispatchedNotificationRelevant(row, meId) &&
+    isMeetingNotificationRelevant(row)
+  )
+}
 // Pronista §Pin เมนู — ซ่อนปุ่ม pin/เลื่อนลำดับไว้ก่อน โผล่ตอน hover แถว (เมาส์) เท่านั้น
 // อุปกรณ์ที่ไม่มี hover จริง (มือถือ/แตะ) ให้โชว์ค้างเสมอ เพราะแตะแล้วไม่มีทาง "hover ก่อนกด" ได้
 const PIN_ROW_ACTION_VISIBILITY = 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
@@ -422,10 +466,10 @@ export function Layout() {
           >
             <Icon className="w-[18px] h-[18px] shrink-0" />
             <span className="flex-1 min-w-0 truncate">{label}</span>
-            {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ALL_TYPES} filter={(r) => isAssignedTaskNotificationRelevant(r, user?.id)} />}
+            {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ALL_TYPES} filter={(r) => isMyTasksNotificationRelevant(r, user?.id)} />}
             {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
             {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
-            {to === '/leave' && <NotificationBell types={LEAVE_NOTIFICATION_TYPES} />}
+            {to === '/leave' && <NotificationBell types={LEAVE_NOTIFICATION_TYPES} filter={isLeaveNotificationRelevant} />}
             {children && <ChevronDown className={`w-3.5 h-3.5 ml-auto shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
           </NavLink>
           <button
@@ -456,10 +500,10 @@ export function Layout() {
                     <span className="flex-1 min-w-0 truncate">{c.label}</span>
                     {/* Pronista §My Tasks menu badges (2026-09-18) — ทุก sub-menu ใต้ "งานของฉัน" มีตัวเลขแจ้งเตือนแดงของตัวเอง เหมือนที่ My Note มีอยู่แล้ว */}
                     {c.to === '/my-tasks' && <NotificationBell types={MY_TASKS_ASSIGNED_TYPES} filter={(r) => isAssignedTaskNotificationRelevant(r, user?.id)} />}
-                    {c.to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} />}
-                    {c.to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} />}
+                    {c.to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} filter={(r) => isDispatchedNotificationRelevant(r, user?.id)} />}
+                    {c.to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} filter={(r) => isReviewNotificationRelevant(r, user?.id)} />}
                     {c.to === '/my-tasks/notes' && <NotificationBell types={MY_TASKS_NOTES_TYPES} />}
-                    {c.to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} />}
+                    {c.to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} filter={isMeetingNotificationRelevant} />}
                   </NavLink>
                   <button
                     type="button"
@@ -499,10 +543,10 @@ export function Layout() {
             <span className="block truncate text-[10px] text-muted font-normal leading-tight">{parentLabel}</span>
           </span>
           {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ASSIGNED_TYPES} filter={(r) => isAssignedTaskNotificationRelevant(r, user?.id)} />}
-          {to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} />}
-          {to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} />}
+          {to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} filter={(r) => isDispatchedNotificationRelevant(r, user?.id)} />}
+          {to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} filter={(r) => isReviewNotificationRelevant(r, user?.id)} />}
           {to === '/my-tasks/notes' && <NotificationBell types={MY_TASKS_NOTES_TYPES} />}
-          {to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} />}
+          {to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} filter={isMeetingNotificationRelevant} />}
         </NavLink>
         <button
           type="button"

@@ -29,6 +29,8 @@ beforeEach(async () => {
   await seedUsers()
   const db = createDb(env.DB)
   // ลำดับสำคัญ — leave_balance_adjustments/leave_requests อ้าง leave_types (FK) ต้องลบก่อน ไม่งั้น DELETE leave_types ชน constraint
+  // Pronista §Notification Badge Audit เฟส 6b (2026-09-24) — notifications.leave_request_id อ้าง leave_requests แล้ว ต้องลบ notifications ก่อนด้วย ไม่งั้น DELETE leave_requests ชน FK จากแจ้งเตือนที่ test ก่อนหน้าสร้างค้างไว้
+  await env.DB.prepare('DELETE FROM notifications').run()
   await env.DB.prepare('DELETE FROM leave_balance_adjustments').run()
   await env.DB.prepare('DELETE FROM leave_requests').run()
   await env.DB.prepare('DELETE FROM leave_types').run()

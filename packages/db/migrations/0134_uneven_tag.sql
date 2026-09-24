@@ -1,0 +1,1 @@
+ALTER TABLE `notifications` ADD `leave_request_id` text REFERENCES leave_requests(id);

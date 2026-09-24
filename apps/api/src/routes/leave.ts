@@ -166,7 +166,7 @@ export const leaveRoutes = new Hono<AppEnv>()
     const rangeNote = insertedRows.length > 1 ? ` (${insertedRows.length} ช่วง)` : ''
     const recipients = approverId ? [approverId] : await ownerUserIds(db)
     for (const userId of recipients) {
-      await notifyUser(db, { userId, type: 'leave_requested', message: `${me.name} ยื่นขอ${leaveType.name}${rangeNote}`, taskId: null })
+      await notifyUser(db, { userId, type: 'leave_requested', message: `${me.name} ยื่นขอ${leaveType.name}${rangeNote}`, taskId: null, leaveRequestId: insertedRows[0]!.id })
     }
 
     return c.json(insertedRows.length > 1 ? insertedRows : insertedRows[0], 201)
@@ -233,7 +233,7 @@ export const leaveRoutes = new Hono<AppEnv>()
     }
 
     await writeAudit(c.env, { actorId: me.id, action: 'leave_request.approve', entity: 'leave_request', entityId: before.id, meta: { groupSize: group.length } })
-    await notifyUser(db, { userId: before.userId, type: 'leave_approved', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณได้รับการอนุมัติแล้ว`, taskId: null })
+    await notifyUser(db, { userId: before.userId, type: 'leave_approved', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณได้รับการอนุมัติแล้ว`, taskId: null, leaveRequestId: before.id })
     return c.json(updatedRows.length > 1 ? updatedRows : updatedRows[0])
   })
 
@@ -263,7 +263,7 @@ export const leaveRoutes = new Hono<AppEnv>()
     }
 
     await writeAudit(c.env, { actorId: me.id, action: 'leave_request.reject', entity: 'leave_request', entityId: before.id, meta: { reason: body.data.reason, groupSize: group.length } })
-    await notifyUser(db, { userId: before.userId, type: 'leave_rejected', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณถูกปฏิเสธ: ${body.data.reason}`, taskId: null })
+    await notifyUser(db, { userId: before.userId, type: 'leave_rejected', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณถูกปฏิเสธ: ${body.data.reason}`, taskId: null, leaveRequestId: before.id })
     return c.json(updatedRows.length > 1 ? updatedRows : updatedRows[0])
   })
 
