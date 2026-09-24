@@ -18,7 +18,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
@@ -108,6 +108,7 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
   onAccept: (id: string) => void
 }) {
   const [workTypeFilter, setWorkTypeFilter] = useState<PendingWorkType>('')
+  const [expanded, setExpanded] = useState(false)
   const pending = tasks
     .filter((t) => t.dispatchedAt && t.status === 'non_start')
     .sort((a, b) => new Date(b.dispatchedAt!).getTime() - new Date(a.dispatchedAt!).getTime())
@@ -145,7 +146,7 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
                 <p className="mt-1 text-xs text-info-700/70">งานที่มีคนจ่ายให้คุณจะมาแสดงตรงนี้</p>
               </div>
             )}
-            {!loading && filtered.slice(0, 5).map((t) => (
+            {!loading && filtered.slice(0, expanded ? undefined : 5).map((t) => (
               <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-white/60 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <button onClick={() => onOpenTask(t.code || t.id)} className="min-w-0 text-left focus-visible:outline-2 focus-visible:outline-brand-500">
                   <div className="flex items-center gap-2">
@@ -171,7 +172,16 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
             {!loading && pending.length > 0 && filtered.length === 0 && (
               <div className="py-8 text-center text-xs text-muted">ไม่มีงานใหม่ในประเภทที่เลือก</div>
             )}
-            {filtered.length > 5 && <div className="px-4 py-2 text-right text-[11px] font-medium text-info-700">ยังมีอีก {filtered.length - 5} งาน</div>}
+            {!expanded && filtered.length > 5 && (
+              <button onClick={() => setExpanded(true)} className="block w-full px-4 py-2 text-right text-[11px] font-medium text-info-700 hover:underline">
+                ยังมีอีก {filtered.length - 5} งาน · แสดงทั้งหมด
+              </button>
+            )}
+            {expanded && filtered.length > 5 && (
+              <button onClick={() => setExpanded(false)} className="block w-full px-4 py-2 text-right text-[11px] font-medium text-info-700 hover:underline">
+                ย่อกลับ
+              </button>
+            )}
       </div>
     </section>
   )
@@ -198,42 +208,35 @@ function SummaryCards({ cards, selected, loading, onSelect }: {
   )
 }
 
-type AttentionFilter = 'all' | 'overdue' | 'today' | 'soon'
-
-function AttentionWidget({ tasks, loading, onOpenTask, soonDays = 3 }: { tasks: MyTask[]; loading: boolean; onOpenTask: (id: string) => void; soonDays?: number }) {
-  const [filter, setFilter] = useState<AttentionFilter>('all')
-  const today = bkkToday()
-  const rows = tasks
-    .filter((t) => !isInactiveStatus(t.status) && t.dueDate)
-    .map((t) => ({ ...t, days: daysBetween(today, t.dueDate!) }))
-    .filter((t) => t.days <= soonDays)
-    .sort((a, b) => a.days - b.days)
-  const counts = {
-    all: rows.length,
-    overdue: rows.filter((t) => t.days < 0).length,
-    today: rows.filter((t) => t.days === 0).length,
-    soon: rows.filter((t) => t.days > 0).length,
-  }
-  const visible = rows.filter((t) => filter === 'all' || (filter === 'overdue' ? t.days < 0 : filter === 'today' ? t.days === 0 : t.days > 0))
+/** Pronista §My Tasks Polish เฟส 3b (2026-09-24) — เดิมชื่อ "งานที่ต้องให้ความสนใจ" กรองตามวันครบกำหนด เปลี่ยนเป็นแสดงเฉพาะงานที่ส่งตรวจแล้วโดนผู้ตรวจ "ตีกลับ" ให้แก้ไข (task_bounced ที่ยังไม่อ่าน + สถานะกลับไปเป็น non_start) — สัญญาณ bouncedTaskIds มีอยู่แล้วจาก notifications ไม่ต้องเรียก backend เพิ่ม พองานถูกส่งใหม่สถานะขยับออกจาก non_start วิดเจ็ตก็หลุดจาก list เองแม้ notification จะยังไม่ถูกอ่านก็ตาม */
+function BouncedTasksWidget({ tasks, bouncedTaskIds, loading, onOpenTask }: { tasks: MyTask[]; bouncedTaskIds: Set<string>; loading: boolean; onOpenTask: (id: string) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const rows = tasks.filter((t) => t.status === 'non_start' && bouncedTaskIds.has(t.id))
   return (
     <section className="overflow-hidden rounded-xl border border-danger-100 bg-danger-50/55 shadow-xs" aria-busy={loading}>
       <div className="border-b border-danger-100 px-4 py-3.5">
-        <div className="flex items-center gap-2 text-sm font-bold text-danger-700"><AlertTriangle className="h-4 w-4" /> งานที่ต้องให้ความสนใจ ({rows.length})</div>
-        <div className="mt-2 flex gap-1 overflow-x-auto" role="tablist" aria-label="กรองงานที่ต้องให้ความสนใจ">
-          {([['all', 'ทั้งหมด'], ['overdue', 'เกินกำหนด'], ['today', 'วันนี้'], ['soon', 'ใกล้ครบกำหนด']] as const).map(([key, label]) => (
-            <button key={key} type="button" role="tab" aria-selected={filter === key} onClick={() => setFilter(key)} className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-semibold focus-visible:outline-2 focus-visible:outline-danger-500 ${filter === key ? 'bg-white text-danger-700 shadow-xs' : 'text-danger-700/70 hover:bg-white/60'}`}>{label} {counts[key]}</button>
-          ))}
-        </div>
+        <div className="flex items-center gap-2 text-sm font-bold text-danger-700"><AlertTriangle className="h-4 w-4" /> งานที่ถูกตีกลับ ({rows.length})</div>
+        <p className="mt-1 text-[11px] text-danger-700/70">งานที่ส่งตรวจแล้วแต่ผู้ตรวจส่งกลับมาให้แก้ไข</p>
       </div>
       <div className="divide-y divide-danger-100">
         {loading && Array.from({ length: 3 }, (_, index) => <div key={index} className="mx-4 my-3 h-9 animate-pulse rounded-md bg-white/75" aria-hidden="true" />)}
-        {!loading && visible.slice(0, 5).map((t) => (
+        {!loading && rows.slice(0, expanded ? undefined : 5).map((t) => (
           <button key={t.id} type="button" onClick={() => onOpenTask(t.code || t.id)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left hover:bg-white/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-danger-500">
-            <span className="min-w-0"><span className="flex items-center gap-2"><span className="shrink-0 font-mono text-[10px] text-danger-700">{t.code ?? '—'}</span><span className="truncate text-sm font-semibold text-body">{t.title}</span></span><span className="mt-1 block truncate text-[11px] text-muted">{t.projectName ?? 'ไม่ผูกโปรเจกต์'} · กำหนด {new Date(`${t.dueDate}T00:00:00+07:00`).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span></span>
-            <span className={`whitespace-nowrap rounded-full px-2 py-1 text-[10px] font-semibold ${t.days < 0 ? 'bg-danger-100 text-danger-700' : t.days === 0 ? 'bg-warning-100 text-warning-700' : 'bg-white text-danger-700'}`}>{t.days < 0 ? `เกิน ${-t.days} วัน` : t.days === 0 ? 'ครบกำหนดวันนี้' : `อีก ${t.days} วัน`}</span>
+            <span className="min-w-0"><span className="flex items-center gap-2"><span className="shrink-0 font-mono text-[10px] text-danger-700">{t.code ?? '—'}</span><span className="truncate text-sm font-semibold text-body">{t.title}</span></span><span className="mt-1 block truncate text-[11px] text-muted">{t.projectName ?? 'ไม่ผูกโปรเจกต์'}</span></span>
+            <span className="whitespace-nowrap rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-danger-700">↩️ ตีกลับ</span>
           </button>
         ))}
-        {!loading && visible.length === 0 && <div className="px-4 py-8 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-danger-400" /><p className="mt-2 text-sm font-semibold text-danger-700">ไม่มีงานที่ต้องกังวลในกลุ่มนี้</p><p className="mt-1 text-xs text-danger-700/65">เมื่อมีงานใกล้ครบกำหนด ระบบจะแจ้งเตือนที่นี่</p></div>}
+        {!loading && rows.length === 0 && <div className="px-4 py-8 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-danger-400" /><p className="mt-2 text-sm font-semibold text-danger-700">ไม่มีงานที่ถูกตีกลับ</p><p className="mt-1 text-xs text-danger-700/65">เมื่อผู้ตรวจส่งงานกลับมาให้แก้ไข ระบบจะแจ้งเตือนที่นี่</p></div>}
+        {!expanded && rows.length > 5 && (
+          <button onClick={() => setExpanded(true)} className="block w-full px-4 py-2 text-right text-[11px] font-medium text-danger-700 hover:underline">
+            ยังมีอีก {rows.length - 5} งาน · แสดงทั้งหมด
+          </button>
+        )}
+        {expanded && rows.length > 5 && (
+          <button onClick={() => setExpanded(false)} className="block w-full px-4 py-2 text-right text-[11px] font-medium text-danger-700 hover:underline">
+            ย่อกลับ
+          </button>
+        )}
       </div>
     </section>
   )
@@ -323,7 +326,11 @@ export function MyTasksPage() {
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
   const { data: cfg } = useLoad<{ dueSoonDays: number; taskTypes: TaskType[] }>(() => api.get('/api/config'))
   // Pronista §Notification overhaul (2026-08-27) — ย้ายมาอ่านจาก NotificationsProvider กลาง (แท็บ "แจ้งเตือน" ในหน้านี้ถูกถอดออกแล้ว เพราะมีกระดิ่งที่ Navbar เป็นจุดเข้าถึงหลักแทน)
-  const { rows: notifRows } = useNotifications()
+  const { rows: notifRows, markTypeRead } = useNotifications()
+  // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานของฉัน" แล้วเคลียร์ badge กลุ่ม assigned ทันที (เดิมไม่เคยเคลียร์เลย ทั้งที่หน้านี้ import useNotifications อยู่แล้ว)
+  useEffect(() => {
+    for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const) void markTypeRead(t)
+  }, [markTypeRead])
   const tasks = data ?? []
   const notifications = notifRows ?? []
 
@@ -456,7 +463,7 @@ export function MyTasksPage() {
 
         <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-2">
           <NewlyDispatchedWidget tasks={tasks} loading={loading} acceptingTaskId={acceptingTaskId} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
-          <AttentionWidget tasks={tasks} loading={loading} onOpenTask={openTask} soonDays={cfg?.dueSoonDays} />
+          <BouncedTasksWidget tasks={tasks} bouncedTaskIds={bouncedTaskIds} loading={loading} onOpenTask={openTask} />
         </div>
 
         <PendingSubtasksWidget tasks={tasks} onOpenTask={openTask} onComplete={(id) => void changeStatus(id, 'done')} />

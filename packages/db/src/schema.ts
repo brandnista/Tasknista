@@ -1943,6 +1943,8 @@ export const notifications = sqliteTable(
     domainId: text('domain_id').references((): AnySQLiteColumn => domains.id),
     // Pronista §System Enhancements — deep-link ตรงไปยัง Sellnista subscription ที่ใกล้/หมดอายุ
     sellnistaSubscriptionId: text('sellnista_subscription_id').references((): AnySQLiteColumn => sellnistaSubscriptions.id),
+    // Pronista §Notification Badge Audit เฟส 6b (2026-09-24) — deep-link ไปยังคำขอลาที่เกี่ยวข้อง (เดิม leave_requested/approved/rejected ทั้ง 3 type ไม่มี FK ผูกเลย taskId เป็น null เสมอ ทำให้เช็ค relevance ไม่ได้)
+    leaveRequestId: text('leave_request_id').references((): AnySQLiteColumn => leaveRequests.id),
     message: text('message').notNull(),
     isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })

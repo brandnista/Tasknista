@@ -13,7 +13,7 @@ import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, time
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { checklistCountsFor } from '../lib/workspace-query'
+import { actualMinutesFor, checklistCountsFor } from '../lib/workspace-query'
 import type { AppEnv } from '../types'
 
 // owner ถือเป็นหมวด 'staff' เหมือน categoryOfUserRole() ใน admin.ts — Workload คนละแกนกับเพดานสิทธิ์ (permissionCategoryOfRole คืน null ให้ owner เพราะ owner bypass เพดานเสมอ)
@@ -173,7 +173,9 @@ export const workloadRoutes = new Hono<AppEnv>()
       const cc = checklistCounts.get(taskId)
       return { checklistDone: cc?.done ?? 0, checklistTotal: cc?.total ?? 0 }
     }
-    return c.json({ user, tasks: rows.map((r) => ({ ...r.task, projectName: r.projectName, ...checklistOf(r.task.id) })) })
+    // Pronista §Workload Restructuring เฟส 5b (2026-09-24) — "เวลาทำจริง" บนการ์ด Kanban ของหน้า Workload รายบุคคล
+    const actualMinutes = await actualMinutesFor(db, rows.map((r) => r.task.id))
+    return c.json({ user, tasks: rows.map((r) => ({ ...r.task, projectName: r.projectName, ...checklistOf(r.task.id), actualMinutes: actualMinutes.get(r.task.id) ?? null })) })
   })
 
   // sprint ที่ยังไม่ปิด ทุกโปรเจกต์ — ให้ dropdown เลือกตอน view=Sprint

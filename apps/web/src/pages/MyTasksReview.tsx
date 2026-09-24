@@ -1,8 +1,10 @@
 /** Pronista §Menu Restructure (2026-09-18) — แยกจากแท็บ "งานรอตรวจของฉัน" เดิมใน MyTasks.tsx ออกมาเป็น sub-menu ของ "งานของฉัน" (ดู Layout.tsx NAV) */
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { TaskTrackingView, type TrackingTask } from '../components/TaskTrackingView'
 import { api } from '../lib/api'
+import { useNotifications } from '../lib/notifications-context'
 import { useLoad } from '../lib/useLoad'
 
 interface ReviewRow extends TrackingTask {
@@ -15,6 +17,9 @@ export function MyTasksReviewPage() {
   const { data, loading, error } = useLoad<ReviewRow[]>(() => api.get('/api/tasks/pending-review'))
   const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
   const tasks = data ?? []
+  // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานรอตรวจ" แล้วเคลียร์ badge ทันที
+  const { markTypeRead } = useNotifications()
+  useEffect(() => { void markTypeRead('task_review_requested') }, [markTypeRead])
 
   return (
     <>

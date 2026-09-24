@@ -1,10 +1,14 @@
 import { bkkDateOf, computeLeaveBalance, leaveDaysInclusive, LEAVE_ICON_NAMES } from '@seedoffice/core'
 import { createDb, leaveBalanceAdjustments, leaveRequests, leaveTypes, users } from '@seedoffice/db'
 import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
+import { groupLeaveRows } from './leave'
 import type { AppEnv } from '../types'
+
+const decider = alias(users, 'decider') // Pronista §Leave Detail Drill-Down เฟส 4 (2026-09-24) — mirror leave.ts's GET /mine ชื่อผู้อนุมัติ/ปฏิเสธ
 
 const leaveTypeBody = z.object({
   name: z.string().min(1).max(100),
@@ -84,6 +88,19 @@ export const leaveAdminRoutes = new Hono<AppEnv>()
       types: types.map((t) => ({ id: t.id, name: t.name })),
       cells,
     })
+  })
+
+  // Pronista §Leave Detail Drill-Down เฟส 4 (2026-09-24) — ประวัติการลาทั้งหมดของพนักงานคนที่ระบุ (mirror GET /mine ใน leave.ts แต่พารามิเตอร์ userId แทน me.id) ใช้กับ modal drill-down ตอนคลิกชื่อพนักงานในหน้า "ภาพรวมการลา"
+  .get('/users/:id/requests', async (c) => {
+    const db = createDb(c.env.DB)
+    const rows = await db
+      .select({ req: leaveRequests, leaveTypeName: leaveTypes.name, decidedByName: decider.name })
+      .from(leaveRequests)
+      .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+      .leftJoin(decider, eq(leaveRequests.decidedBy, decider.id))
+      .where(eq(leaveRequests.userId, c.req.param('id')))
+      .orderBy(desc(leaveRequests.createdAt))
+    return c.json({ rows: groupLeaveRows(rows) })
   })
 
   // ปรับยอดวันลา (backfill ก่อนขึ้นระบบ/แก้ยอดผิด) — insert-only, แก้ผิดด้วยการลบแถว (ดู DELETE ด้านล่าง) หรือ insert แถวหักล้าง

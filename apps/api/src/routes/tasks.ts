@@ -30,7 +30,7 @@ import { notifyProjectPmAndBa, notifyUser } from '../lib/notify'
 import { notifyBoard } from '../lib/presence-notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
-import { checklistCountsFor, loadProjectBacklog } from '../lib/workspace-query'
+import { actualMinutesFor, checklistCountsFor, loadProjectBacklog } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -494,6 +494,8 @@ export const taskRoutes = new Hono<AppEnv>()
       const c = checklistCounts.get(taskId)
       return { checklistDone: c?.done ?? 0, checklistTotal: c?.total ?? 0 }
     }
+    // Pronista §Workload Restructuring เฟส 5b (2026-09-24) — "เวลาทำจริง" บนการ์ด Kanban ของหน้า "งานของฉัน"
+    const actualMinutes = await actualMinutesFor(db, rows.map((r) => r.task.id))
     return c.json(
       rows.map((r) => ({
         ...r.task,
@@ -502,6 +504,7 @@ export const taskRoutes = new Hono<AppEnv>()
         dispatcherAvatarUrl: r.dispatcherAvatarUrl,
         myRole: roleOf(r.task.projectId),
         ...checklistOf(r.task.id),
+        actualMinutes: actualMinutes.get(r.task.id) ?? null,
       })),
     )
   })

@@ -10,6 +10,12 @@ export interface NotificationRow extends NotificationLike {
   // Pronista §PRD badge fix (2026-09-22) — สถานะปัจจุบันของ task ที่แจ้งเตือนอ้างถึง (join จาก backend) — null ถ้าแจ้งเตือนไม่ผูก task หรือ task ถูกลบไปแล้ว
   taskAssigneeId: string | null
   taskDispatchedAt: string | number | null
+  // Pronista §Notification Badge Audit เฟส 6b (2026-09-24) — ข้อมูลสด join เพิ่มให้เช็ค relevance ของแจ้งเตือนกลุ่มงานรอตรวจ/งานที่จ่ายให้คนอื่น/การประชุม/การลา (กัน ghost badge — badge ค้างทั้งที่หน้าจริงไม่มีข้อมูล)
+  taskStatus: string | null
+  taskReviewerId: string | null
+  taskAssignedBy: string | null
+  meetingStartAt: string | number | null
+  leaveRequestStatus: 'pending' | 'approved' | 'rejected' | 'withdrawn' | null
 }
 
 interface NotificationsValue {

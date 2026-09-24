@@ -26,6 +26,8 @@ export interface KanbanTask {
   kind?: 'task' | 'defect' | 'cr' | 'backlog'
   parentId?: string | null
   estimateMinutes?: number | null
+  // Pronista §Workload Restructuring เฟส 5b (2026-09-24) — เวลาทำจริง (sum timeEntries) ให้การ์ดโชว์คู่กับเวลาประเมิน
+  actualMinutes?: number | null
   checklistDone?: number
   checklistTotal?: number
   // Pronista §Kanban drag constraints (2026-08-26) — ใช้เช็คข้อยกเว้น "งานที่คีย์เอง" (ดูฟังก์ชัน allowedDragTargets)
@@ -64,6 +66,16 @@ const STATUS_COUNT_CLASS: Partial<Record<TaskStatus, string>> = {
 }
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
+
+/** Pronista §Workload Restructuring เฟส 5b (2026-09-24) — ชิปเวลารวม "⏱ ทำจริง / ประเมิน ชม." บนการ์ด มีแค่อันเดียวก็โชว์แค่อันนั้นพร้อมป้ายกำกับกันงง ไม่มีทั้งคู่ไม่โชว์อะไรเลย (เหมือน guard เดิมของ estimate) */
+function timeChipLabel(actualMinutes: number | null | undefined, estimateMinutes: number | null | undefined): string | null {
+  const hasActual = actualMinutes != null && actualMinutes > 0
+  const hasEstimate = estimateMinutes != null
+  if (hasActual && hasEstimate) return `⏱ ${minutesToHoursLabel(actualMinutes)} / ${minutesToHoursLabel(estimateMinutes)} ชม.`
+  if (hasActual) return `⏱ ${minutesToHoursLabel(actualMinutes)} ชม. ทำจริง`
+  if (hasEstimate) return `⏱ ${minutesToHoursLabel(estimateMinutes)} ชม. ประเมิน`
+  return null
+}
 
 function dueBadge(dueDate: string | null, status: TaskStatus, soonDays = 3) {
   if (!dueDate || status === 'done') return null
@@ -136,15 +148,19 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
                     {t.description && (
                       <div className="text-[11px] text-dim bg-black/[0.03] rounded px-2 py-1.5 mb-1.5 line-clamp-2">{t.description}</div>
                     )}
+                    {/* Pronista §Workload Restructuring เฟส 5b (2026-09-24) — แถวหลัก: รหัสงาน → เวลาทำจริง/ประเมิน → เลยกำหนด (ตามลำดับที่สเปกขอ) */}
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {t.code && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-divider text-dim">{t.code}</span>}
+                      {timeChipLabel(t.actualMinutes, t.estimateMinutes) && <span className="text-[11px] text-dim">{timeChipLabel(t.actualMinutes, t.estimateMinutes)}</span>}
+                      {badge && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>}
+                    </div>
+                    {/* แถวรอง — badge เดิมที่ยังต้องใช้อยู่ (ประเภทงาน/priority/checklist/ตีกลับ/SRS/ผู้รับผิดชอบ) ลดความเด่นลง ไม่ลบทิ้ง */}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5 opacity-80">
                       {t.kind !== undefined && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-info-50 text-info-700">{taskTypeLabel(t)}</span>}
                       <span className="flex items-center gap-1 text-[11px] text-dim">
                         <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[t.priority]}`} /> {PRIORITY_LABEL[t.priority]}
                       </span>
-                      {t.estimateMinutes != null && <span className="text-[11px] text-dim">⏱ {minutesToHoursLabel(t.estimateMinutes)} ชม.</span>}
                       {!!t.checklistTotal && <span className="text-[11px] text-dim">☑ {t.checklistDone}/{t.checklistTotal}</span>}
-                      {badge && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>}
                       {bouncedTaskIds?.has(t.id) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning-100 text-warning-700">↩️ ตีกลับ</span>}
                       {t.srsRefCode && t.srsDocId && (
                         <a

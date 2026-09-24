@@ -33,12 +33,13 @@ import {
   Warehouse,
   X,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { useDialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { useNotifications } from '../lib/notifications-context'
 import { useLoad } from '../lib/useLoad'
 
 // Pronista §Secret Vault Type (2026-09-08) — แม็ป VaultItemType → ไอคอนจริง (VAULT_TYPE_ICON ใน core เป็นแค่ชื่อ string ไว้อ้างอิง)
@@ -816,6 +817,9 @@ function VaultMain({ token, onLocked }: { token: string; onLocked: () => void })
 export function VaultPage() {
   const { data: status, reload } = useLoad<VaultStatus>(() => api.get('/api/vault/status'))
   const [token, setToken] = useState<string | null>(null)
+  // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนูนี้แล้วเคลียร์ badge vault_accessed ทันที (เดิมไม่เคยเคลียร์เลย ต้องพึ่งกระดิ่ง/mark-all-read เท่านั้น)
+  const { markTypeRead } = useNotifications()
+  useEffect(() => { void markTypeRead('vault_accessed') }, [markTypeRead])
 
   if (!status) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
   if (!status.hasPin) return <VaultSetup onDone={() => void reload()} />
