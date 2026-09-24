@@ -462,3 +462,113 @@ describe('§Leave Management Overhaul เฟส D — ลาหลายช่�
     expect(body.groupId).toBeNull()
   })
 })
+
+// Pronista §Leave Enhancements เฟส C+D (2026-09-24) — จำกัดสิทธิ์อนุมัติเฉพาะหัวหน้าโดยตรง (ตัด Owner bypass เมื่อมีหัวหน้าตั้งไว้แล้ว) + ระบบโอนสิทธิ์อนุมัติ
+describe('§Leave Enhancements — จำกัดสิทธิ์อนุมัติเฉพาะหัวหน้าโดยตรง + โอนสิทธิ์', () => {
+  async function addSecondOwner() {
+    const db = createDb(env.DB)
+    await db.insert(users).values({ id: 'u_owner2', email: 'owner2@example-co.test', name: 'บอส2', role: 'owner' }).onConflictDoNothing()
+  }
+
+  it('Owner ที่ไม่ใช่หัวหน้าที่ระบุไว้ → โดน 403 (ตัด bypass เดิม)', async () => {
+    await addSecondOwner()
+    const pond = await loginAs(app, 'pond@example-co.test') // manager = u_owner (จาก beforeEach)
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2026-09-22', endDate: '2026-09-22', reason: 'ไม่สบาย' }), env)
+    ).json()) as { id: string }
+
+    const owner2 = await loginAs(app, 'owner2@example-co.test')
+    expect((await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner2 } }, env)).status).toBe(403)
+    expect((await app.request(`/api/leave-requests/${created.id}/reject`, json(owner2, { reason: 'x' }), env)).status).toBe(403)
+
+    // owner2 ไม่เห็นคำขอนี้ในแท็บรออนุมัติเลยด้วย (ไม่ใช่แค่กดไม่ได้)
+    const pending = (await (await app.request('/api/leave-requests/pending', { headers: { cookie: owner2 } }, env)).json()) as { rows: { id: string }[] }
+    expect(pending.rows.map((r) => r.id)).not.toContain(created.id)
+
+    // หัวหน้าตัวจริง (u_owner) ยังอนุมัติได้ปกติ
+    const owner = await loginAs(app, 'owner@example-co.test')
+    expect((await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)).status).toBe(200)
+  })
+
+  it('พนักงานไม่มีหัวหน้าเลย (managerId null) → Owner คนไหนก็ยังอนุมัติได้ (fallback เดิม)', async () => {
+    await addSecondOwner()
+    const db = createDb(env.DB)
+    await db.update(users).set({ managerId: null }).where(eq(users.id, 'u_pond'))
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2026-09-22', endDate: '2026-09-22', reason: 'ไม่สบาย' }), env)
+    ).json()) as { id: string }
+
+    const owner2 = await loginAs(app, 'owner2@example-co.test')
+    const pending = (await (await app.request('/api/leave-requests/pending', { headers: { cookie: owner2 } }, env)).json()) as { rows: { id: string }[] }
+    expect(pending.rows.map((r) => r.id)).toContain(created.id)
+    expect((await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner2 } }, env)).status).toBe(200)
+  })
+
+  it('โอนสิทธิ์อนุมัติสำเร็จ — เปลี่ยน approverId จริง คำขอย้ายไปโผล่ที่ Owner คนใหม่แทน', async () => {
+    await addSecondOwner()
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2026-09-22', endDate: '2026-09-22', reason: 'ไม่สบาย' }), env)
+    ).json()) as { id: string }
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request(`/api/leave-requests/${created.id}/delegate`, json(owner, { toUserId: 'u_owner2' }), env)
+    expect(res.status).toBe(200)
+
+    // หัวหน้าเดิม (owner) ไม่เห็น/อนุมัติไม่ได้อีกแล้ว — ผู้รับโอน (owner2) อนุมัติได้แทน
+    expect((await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner } }, env)).status).toBe(403)
+    const owner2 = await loginAs(app, 'owner2@example-co.test')
+    const pending = (await (await app.request('/api/leave-requests/pending', { headers: { cookie: owner2 } }, env)).json()) as { rows: { id: string }[] }
+    expect(pending.rows.map((r) => r.id)).toContain(created.id)
+    expect((await app.request(`/api/leave-requests/${created.id}/approve`, { method: 'POST', headers: { cookie: owner2 } }, env)).status).toBe(200)
+  })
+
+  it('คนที่ไม่ใช่หัวหน้าโดนบล็อกจากการโอนสิทธิ์ (403) · โอนไปหาคนที่ไม่ใช่ owner → 400', async () => {
+    await addSecondOwner()
+    const db = createDb(env.DB)
+    await db.insert(users).values({ id: 'u_nam', email: 'nam@example-co.test', name: 'น้ำ', role: 'member' }).onConflictDoNothing()
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (
+      await app.request('/api/leave-requests', leaveForm(pond, { leaveTypeId: sickTypeId, startDate: '2026-09-22', endDate: '2026-09-22', reason: 'ไม่สบาย' }), env)
+    ).json()) as { id: string }
+
+    const owner2 = await loginAs(app, 'owner2@example-co.test')
+    expect((await app.request(`/api/leave-requests/${created.id}/delegate`, json(owner2, { toUserId: 'u_owner2' }), env)).status).toBe(403)
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    expect((await app.request(`/api/leave-requests/${created.id}/delegate`, json(owner, { toUserId: 'u_nam' }), env)).status).toBe(400)
+  })
+
+  it('โอนสิทธิ์คำขอหลายช่วง (groupId) → ทั้งกลุ่มเปลี่ยน approverId พร้อมกัน', async () => {
+    await addSecondOwner()
+    const fd = new FormData()
+    fd.append('leaveTypeId', sickTypeId)
+    fd.append('reason', 'ลาหลายช่วง')
+    fd.append(
+      'ranges',
+      JSON.stringify([
+        { startDate: '2026-11-12', endDate: '2026-11-13' },
+        { startDate: '2026-11-16', endDate: '2026-11-16' },
+      ]),
+    )
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const created = (await (await app.request('/api/leave-requests', { method: 'POST', headers: { cookie: pond }, body: fd }, env)).json()) as { id: string; groupId: string }[]
+
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = await app.request(`/api/leave-requests/${created[0]!.id}/delegate`, json(owner, { toUserId: 'u_owner2' }), env)
+    expect(res.status).toBe(200)
+
+    const owner2 = await loginAs(app, 'owner2@example-co.test')
+    const pending = (await (await app.request('/api/leave-requests/pending', { headers: { cookie: owner2 } }, env)).json()) as { rows: { groupId: string | null; ranges: unknown[] }[] }
+    const match = pending.rows.find((r) => r.groupId === created[0]!.groupId)
+    expect(match?.ranges).toHaveLength(2)
+  })
+
+  it('GET /owners คืนรายชื่อ Owner ทั้งหมด', async () => {
+    await addSecondOwner()
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const res = (await (await app.request('/api/leave-requests/owners', { headers: { cookie: pond } }, env)).json()) as { owners: { id: string }[] }
+    expect(res.owners.map((o) => o.id).sort()).toEqual(['u_owner', 'u_owner2'])
+  })
+})

@@ -1,6 +1,6 @@
 import { bkkDateOf, computeLeaveBalance, leaveDaysInclusive } from '@seedoffice/core'
 import { calendarEvents, createDb, leaveBalanceAdjustments, leaveRequests, leaveTypes, users, type Db } from '@seedoffice/db'
-import { and, desc, eq, gte, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -187,11 +187,15 @@ export const leaveRoutes = new Hono<AppEnv>()
     return c.json({ rows: groupLeaveRows(rows) })
   })
 
-  // คำขอที่รอฉันอนุมัติ (approverId ตรง หรือ owner เห็นทุกคำขอ)
+  // คำขอที่รอฉันอนุมัติ — Pronista §Leave Enhancements เฟส C (2026-09-24): จำกัดสิทธิ์เฉพาะหัวหน้าโดยตรง (approverId ตรง)
+  // Owner เห็นเฉพาะคำขอที่ approverId ตรงกับตัวเอง หรือคำขอที่ไม่มีหัวหน้าเลย (approverId เป็น null — fallback เดิม)
   .get('/pending', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
-    const cond = me.role === 'owner' ? eq(leaveRequests.status, 'pending') : and(eq(leaveRequests.approverId, me.id), eq(leaveRequests.status, 'pending'))
+    const cond =
+      me.role === 'owner'
+        ? and(eq(leaveRequests.status, 'pending'), or(eq(leaveRequests.approverId, me.id), isNull(leaveRequests.approverId)))
+        : and(eq(leaveRequests.status, 'pending'), eq(leaveRequests.approverId, me.id))
     const rows = await db
       .select({ req: leaveRequests, leaveTypeName: leaveTypes.name, userName: users.name })
       .from(leaveRequests)
@@ -202,6 +206,13 @@ export const leaveRoutes = new Hono<AppEnv>()
     return c.json({ rows: groupLeaveRows(rows) })
   })
 
+  // Pronista §Leave Enhancements เฟส D (2026-09-24) — รายชื่อ Owner ทั้งหมด ให้ frontend ใช้เป็นตัวเลือกตอน "โอนสิทธิ์อนุมัติ"
+  .get('/owners', async (c) => {
+    const db = createDb(c.env.DB)
+    const rows = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, 'owner'))
+    return c.json({ owners: rows })
+  })
+
   // Pronista §Leave Management Overhaul เฟส D (2026-09-23) — approve/reject/withdraw ทำทั้งกลุ่ม (siblingsOf) พร้อมกันเสมอ กันเกิด partial state ระหว่างช่วงในคำขอเดียวกัน
   .post('/:id/approve', async (c) => {
     const db = createDb(c.env.DB)
@@ -210,7 +221,9 @@ export const leaveRoutes = new Hono<AppEnv>()
     if (!before) return c.json({ error: 'not_found' }, 404)
     const group = await siblingsOf(db, before)
     if (group.some((r) => r.status !== 'pending')) return c.json({ error: 'not_pending' }, 409)
-    if (me.role !== 'owner' && before.approverId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Leave Enhancements เฟส C (2026-09-24) — มีหัวหน้าที่ระบุไว้แล้ว ต้องเป็นคนนั้นเป๊ะเท่านั้น (ตัด Owner bypass) · ไม่มีหัวหน้าเลย → Owner คนไหนก็ได้ (fallback เดิม)
+    const allowed = before.approverId ? before.approverId === me.id : me.role === 'owner'
+    if (!allowed) return c.json({ error: 'forbidden' }, 403)
 
     const leaveType = (await db.select().from(leaveTypes).where(eq(leaveTypes.id, before.leaveTypeId)).limit(1))[0]
     const decidedAt = new Date()
@@ -246,7 +259,9 @@ export const leaveRoutes = new Hono<AppEnv>()
     if (!before) return c.json({ error: 'not_found' }, 404)
     const group = await siblingsOf(db, before)
     if (group.some((r) => r.status !== 'pending')) return c.json({ error: 'not_pending' }, 409)
-    if (me.role !== 'owner' && before.approverId !== me.id) return c.json({ error: 'forbidden' }, 403)
+    // Pronista §Leave Enhancements เฟส C (2026-09-24) — เหมือน gate ของ /approve เป๊ะ
+    const allowed = before.approverId ? before.approverId === me.id : me.role === 'owner'
+    if (!allowed) return c.json({ error: 'forbidden' }, 403)
 
     const leaveType = (await db.select().from(leaveTypes).where(eq(leaveTypes.id, before.leaveTypeId)).limit(1))[0]
     const decidedAt = new Date()
@@ -265,6 +280,44 @@ export const leaveRoutes = new Hono<AppEnv>()
     await writeAudit(c.env, { actorId: me.id, action: 'leave_request.reject', entity: 'leave_request', entityId: before.id, meta: { reason: body.data.reason, groupSize: group.length } })
     await notifyUser(db, { userId: before.userId, type: 'leave_rejected', message: `คำขอ${leaveType?.name ?? 'ลา'}ของคุณถูกปฏิเสธ: ${body.data.reason}`, taskId: null, leaveRequestId: before.id })
     return c.json(updatedRows.length > 1 ? updatedRows : updatedRows[0])
+  })
+
+  // Pronista §Leave Enhancements เฟส D (2026-09-24) — โอนสิทธิ์อนุมัติให้ Owner คนอื่นพิจารณาแทน (เช่น หัวหน้าติดภารกิจ) — ทำทั้งกลุ่มพร้อมกัน เหมือน approve/reject
+  .post('/:id/delegate', async (c) => {
+    const body = z.object({ toUserId: z.string().min(1) }).safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const before = (await db.select().from(leaveRequests).where(eq(leaveRequests.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    const group = await siblingsOf(db, before)
+    if (group.some((r) => r.status !== 'pending')) return c.json({ error: 'not_pending' }, 409)
+    const allowed = before.approverId ? before.approverId === me.id : me.role === 'owner'
+    if (!allowed) return c.json({ error: 'forbidden' }, 403)
+
+    const target = (await db.select({ id: users.id, role: users.role, name: users.name }).from(users).where(eq(users.id, body.data.toUserId)).limit(1))[0]
+    if (!target || target.role !== 'owner') return c.json({ error: 'invalid_delegate' }, 400)
+
+    await db
+      .update(leaveRequests)
+      .set({ approverId: target.id })
+      .where(
+        inArray(
+          leaveRequests.id,
+          group.map((r) => r.id),
+        ),
+      )
+
+    await writeAudit(c.env, {
+      actorId: me.id,
+      action: 'leave_request.delegate',
+      entity: 'leave_request',
+      entityId: before.id,
+      meta: { fromApproverId: before.approverId, toApproverId: target.id, groupSize: group.length },
+    })
+    const requester = (await db.select({ name: users.name }).from(users).where(eq(users.id, before.userId)).limit(1))[0]
+    await notifyUser(db, { userId: target.id, type: 'leave_requested', message: `${me.name} โอนคำขอลาของ ${requester?.name ?? 'พนักงาน'} มาให้คุณพิจารณาแทน`, taskId: null, leaveRequestId: before.id })
+    return c.json({ ok: true })
   })
 
   // Pronista §Leave Request Phase 2 — ถอนคำขอ (pending) หรือยกเลิกเอง (approved แต่ยังไม่ถึงวันเริ่มลา) รวมไว้ endpoint เดียว ใช้ status 'withdrawn' เหมือนกันทั้งคู่
