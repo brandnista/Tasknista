@@ -18,7 +18,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { useDialog } from '../components/Dialog'
@@ -326,7 +326,11 @@ export function MyTasksPage() {
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
   const { data: cfg } = useLoad<{ dueSoonDays: number; taskTypes: TaskType[] }>(() => api.get('/api/config'))
   // Pronista §Notification overhaul (2026-08-27) — ย้ายมาอ่านจาก NotificationsProvider กลาง (แท็บ "แจ้งเตือน" ในหน้านี้ถูกถอดออกแล้ว เพราะมีกระดิ่งที่ Navbar เป็นจุดเข้าถึงหลักแทน)
-  const { rows: notifRows } = useNotifications()
+  const { rows: notifRows, markTypeRead } = useNotifications()
+  // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานของฉัน" แล้วเคลียร์ badge กลุ่ม assigned ทันที (เดิมไม่เคยเคลียร์เลย ทั้งที่หน้านี้ import useNotifications อยู่แล้ว)
+  useEffect(() => {
+    for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const) void markTypeRead(t)
+  }, [markTypeRead])
   const tasks = data ?? []
   const notifications = notifRows ?? []
 

@@ -7,6 +7,7 @@ import { PageHeader } from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { leaveIconOf } from '../lib/leave-icons'
+import { useNotifications } from '../lib/notifications-context'
 import { useLoad } from '../lib/useLoad'
 import { ModalShell } from './LeaveOverview'
 
@@ -330,6 +331,13 @@ export function LeaveRequestPage() {
   const pendingLoad = useLoad<{ rows: LeaveRequestRow[] }>(() => api.get('/api/leave-requests/pending'))
   const { alertDialog, promptDialog, confirmDialog } = useDialog()
   const toast = useToast()
+  // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "การลา" แล้วเคลียร์ badge ทั้ง 3 type ทันที (เดิมไม่เคยเคลียร์เลย)
+  const { markTypeRead } = useNotifications()
+  useEffect(() => {
+    void markTypeRead('leave_requested')
+    void markTypeRead('leave_approved')
+    void markTypeRead('leave_rejected')
+  }, [markTypeRead])
 
   const reloadAll = async () => {
     await Promise.all([typesLoad.reload(), mineLoad.reload(), pendingLoad.reload()])
