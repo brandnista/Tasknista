@@ -39,10 +39,29 @@ interface Adjustment {
   createdByName: string | null
   createdAt: number
 }
+interface LeaveHistoryRow {
+  id: string
+  leaveTypeName: string | null
+  ranges: { id: string; startDate: string; endDate: string }[]
+  status: 'pending' | 'approved' | 'rejected' | 'withdrawn'
+  reason: string | null
+}
 
 export const inputCls = 'w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
 const toBE = (yearAD: string) => String(Number(yearAD) + 543)
 const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: '2-digit' })
+const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+const fmtDateShort = (d: string) => `${Number(d.slice(8, 10))} ${THAI_MONTHS_SHORT[Number(d.slice(5, 7)) - 1]}`
+/** Pronista §Leave Detail Drill-Down เฟส 4 (2026-09-24) — แสดงหลายช่วงวันที่แบบย่อ เหมือน formatRanges ใน LeaveRequest.tsx (duplicate เล็กๆ ไม่คุ้มแยกไฟล์ใช้ร่วม) */
+const formatRangesShort = (ranges: { startDate: string; endDate: string }[]) =>
+  ranges.map((r) => (r.endDate !== r.startDate ? `${fmtDateShort(r.startDate)}-${fmtDateShort(r.endDate)}` : fmtDateShort(r.startDate))).join(', ')
+const HISTORY_STATUS_LABEL: Record<LeaveHistoryRow['status'], string> = { pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ถูกปฏิเสธ', withdrawn: 'ถอนคำขอแล้ว' }
+const HISTORY_STATUS_BADGE: Record<LeaveHistoryRow['status'], string> = {
+  pending: 'bg-warning-50 text-warning-700',
+  approved: 'bg-success-50 text-success-700',
+  rejected: 'bg-danger-50 text-danger-700',
+  withdrawn: 'bg-hover text-muted',
+}
 
 export function ModalShell({ title, subtitle, onClose, children, footer }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
   return (
@@ -172,10 +191,82 @@ function AdjustmentModal({
 
 const ROLE_LABEL: Record<'owner' | 'member' | 'vendor', string> = { owner: 'Admin', member: 'พนักงาน', vendor: 'พาร์ทเนอร์' }
 
+/** Pronista §Leave Detail Drill-Down เฟส 4 (2026-09-24) — คลิกชื่อพนักงานในตารางภาพรวม เปิดดูประวัติการลาแต่ละวัน + สรุปโควตา (คนละปุ่มจากคลิกตัวเลข cell ที่เปิด AdjustmentModal) */
+function EmployeeLeaveHistoryModal({
+  userId,
+  userName,
+  year,
+  types,
+  cells,
+  onClose,
+}: {
+  userId: string
+  userName: string
+  year: string
+  types: { id: string; name: string }[]
+  cells: OverviewCell[]
+  onClose: () => void
+}) {
+  const load = useLoad<{ rows: LeaveHistoryRow[] }>(() => api.get(`/api/leave-admin/users/${userId}/requests`))
+  const rows = load.data?.rows ?? []
+
+  return (
+    <ModalShell
+      title={userName}
+      subtitle={`ประวัติการลา · ปี พ.ศ. ${toBE(year)}`}
+      onClose={onClose}
+      footer={
+        <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">
+          ปิด
+        </button>
+      }
+    >
+      <div>
+        <div className="text-xs font-medium text-muted mb-1.5">สรุปโควตา</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {types.map((t) => {
+            const cell = cells.find((c) => c.leaveTypeId === t.id)
+            const used = cell?.quota != null && cell.remain != null ? cell.quota - cell.remain : null
+            return (
+              <div key={t.id} className="bg-hover rounded-lg px-2.5 py-1.5 text-xs">
+                <div className="text-dim">{t.name}</div>
+                <div className="text-body font-medium tabular-nums">{cell?.quota == null ? 'ไม่จำกัด' : `${used} / ${cell.quota} วัน`}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="pt-2 border-t border-border-subtle">
+        <div className="text-xs font-medium text-muted mb-1.5">ประวัติการลารายวัน</div>
+        {load.loading ? (
+          <p className="text-xs text-muted">กำลังโหลด…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-xs text-muted">ยังไม่มีประวัติการลาในปีนี้</p>
+        ) : (
+          <div className="space-y-1.5">
+            {rows.map((r) => (
+              <div key={r.id} className="text-xs bg-hover rounded-lg px-2.5 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-body">{r.leaveTypeName ?? '—'}</span>
+                  <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${HISTORY_STATUS_BADGE[r.status]}`}>{HISTORY_STATUS_LABEL[r.status]}</span>
+                </div>
+                <div className="text-dim mt-0.5">{formatRangesShort(r.ranges)}</div>
+                {r.reason && <div className="text-muted mt-0.5 truncate">{r.reason}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </ModalShell>
+  )
+}
+
 function OverviewTab() {
   const [year, setYear] = useState(() => new Date().toLocaleString('en-CA', { timeZone: 'Asia/Bangkok' }).slice(0, 4))
   const load = useLoad<OverviewResponse>(() => api.get(`/api/leave-admin/overview?year=${year}`), [year])
   const [modal, setModal] = useState<{ userId: string; userName: string; leaveTypeId: string; typeName: string } | null>(null)
+  const [historyModal, setHistoryModal] = useState<{ userId: string; userName: string } | null>(null)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'owner' | 'member' | 'vendor'>('all')
 
@@ -232,7 +323,12 @@ function OverviewTab() {
             <tbody>
               {filteredUsers.map((u) => (
                 <tr key={u.id} className="border-t border-divider">
-                  <td className="px-4 py-2.5 font-medium text-ink whitespace-nowrap sticky left-0 bg-white">{u.name}</td>
+                  <td
+                    onClick={() => setHistoryModal({ userId: u.id, userName: u.name })}
+                    className="px-4 py-2.5 font-medium text-ink whitespace-nowrap sticky left-0 bg-white cursor-pointer hover:underline"
+                  >
+                    {u.name}
+                  </td>
                   {load.data!.types.map((t) => {
                     const cell = cellOf(u.id, t.id)
                     const used = cell?.quota != null && cell.remain != null ? cell.quota - cell.remain : null
@@ -262,6 +358,16 @@ function OverviewTab() {
           year={year}
           onClose={() => setModal(null)}
           onSaved={load.reload}
+        />
+      )}
+      {historyModal && load.data && (
+        <EmployeeLeaveHistoryModal
+          userId={historyModal.userId}
+          userName={historyModal.userName}
+          year={year}
+          types={load.data.types}
+          cells={load.data.cells.filter((c) => c.userId === historyModal.userId)}
+          onClose={() => setHistoryModal(null)}
         />
       )}
     </div>

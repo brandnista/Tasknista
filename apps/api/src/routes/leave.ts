@@ -18,7 +18,7 @@ async function ownerUserIds(db: Db): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
-type LeaveRequestRow = typeof leaveRequests.$inferSelect
+export type LeaveRequestRow = typeof leaveRequests.$inferSelect
 
 /** Pronista §Leave Management Overhaul เฟส D (2026-09-23) — 1 คำขอหลายช่วงวันที่ = หลายแถวใน leave_requests แชร์ groupId เดียวกัน
  * approve/reject/withdraw ต้องทำทั้งกลุ่มพร้อมกันเสมอ (atomic) กันเกิด partial state (บางช่วง approved บางช่วง pending) — หาพี่น้องทั้งกลุ่มจาก groupId (ไม่มี groupId = คำขอช่วงเดียว คืนแค่ตัวเอง พฤติกรรมเดิมเป๊ะ) */
@@ -29,7 +29,7 @@ async function siblingsOf(db: Db, row: LeaveRequestRow): Promise<LeaveRequestRow
 
 /** Pronista §Leave Management Overhaul เฟส D (2026-09-23) — ใช้กับ GET /mine, GET /pending: รวมแถวที่ groupId เดียวกันเป็น 1 รายการ พร้อม ranges[]
  * rows ต้องเรียงตาม desc(createdAt) มาก่อนแล้ว (จาก query) — ลำดับผลลัพธ์คงตามนั้น (Map เก็บ insertion order ของ key แรกที่เจอ) */
-function groupLeaveRows<T extends { req: LeaveRequestRow }>(rows: T[]) {
+export function groupLeaveRows<T extends { req: LeaveRequestRow }>(rows: T[]) {
   const groups = new Map<string, T[]>()
   for (const r of rows) {
     const key = r.req.groupId ?? r.req.id

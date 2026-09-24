@@ -5,7 +5,7 @@
  * pure extraction — พฤติกรรมของ endpoint เดิมต้องเหมือนเดิม 100%
  */
 import { presetById, resolvePresets } from '@seedoffice/core'
-import { companyConfig, createDb, epics, sprints, taskChecklistItems, tasks, users, workspaceMembers, workspaceProjects } from '@seedoffice/db'
+import { companyConfig, createDb, epics, sprints, taskChecklistItems, tasks, timeEntries, users, workspaceMembers, workspaceProjects } from '@seedoffice/db'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm'
 import { canEditProject, type EffectiveProjectRole } from './project-role'
@@ -25,6 +25,22 @@ export async function checklistCountsFor(db: ReturnType<typeof createDb>, taskId
       if (r.done) cur.done += 1
       map.set(r.taskId, cur)
     }
+  }
+  return map
+}
+
+// Pronista §Workload Restructuring เฟส 5b (2026-09-24) — "เวลาทำจริง" บนการ์ด Kanban (⏱ ทำจริง/ประเมิน) sibling ของ checklistCountsFor ข้างบน pattern เดียวกัน (chunk 90 กัน D1 bound-param limit, sum ใน memory ไม่ใช้ SQL aggregate เพราะไม่มี precedent ในไฟล์นี้)
+export async function actualMinutesFor(db: ReturnType<typeof createDb>, taskIds: string[]) {
+  const map = new Map<string, number>()
+  if (taskIds.length === 0) return map
+  const CHUNK_SIZE = 90
+  for (let i = 0; i < taskIds.length; i += CHUNK_SIZE) {
+    const chunk = taskIds.slice(i, i + CHUNK_SIZE)
+    const rows = await db
+      .select({ taskId: timeEntries.taskId, minutes: timeEntries.minutes })
+      .from(timeEntries)
+      .where(and(inArray(timeEntries.taskId, chunk), isNull(timeEntries.deletedAt)))
+    for (const r of rows) map.set(r.taskId, (map.get(r.taskId) ?? 0) + r.minutes)
   }
   return map
 }

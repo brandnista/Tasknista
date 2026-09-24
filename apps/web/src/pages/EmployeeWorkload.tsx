@@ -105,7 +105,8 @@ export function EmployeeWorkloadPage() {
           </div>
         )}
 
-        <div className="flex justify-end mb-3">
+        {/* Pronista §Workload Restructuring เฟส 5a (2026-09-24) — แยกกลุ่มมุมมองของงาน (Board/List) ออกจากปุ่ม Calendar อย่างชัดเจน เดิมอยู่ segmented control เดียวกันทั้ง 3 ปุ่ม */}
+        <div className="flex justify-end items-center gap-2 mb-3">
           <div className="border border-border rounded-lg overflow-hidden h-9 inline-flex">
             <button onClick={() => setView('board')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full ${view === 'board' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
               <LayoutGrid className="w-3.5 h-3.5" /> Board
@@ -113,10 +114,10 @@ export function EmployeeWorkloadPage() {
             <button onClick={() => setView('list')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full border-l border-border ${view === 'list' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
               <Rows3 className="w-3.5 h-3.5" /> List
             </button>
-            <button onClick={() => setView('calendar')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-full border-l border-border ${view === 'calendar' ? 'bg-brand-600 text-white' : 'bg-white text-dim'}`}>
-              <CalendarDays className="w-3.5 h-3.5" /> Calendar
-            </button>
           </div>
+          <button onClick={() => setView('calendar')} className={`flex items-center gap-1.5 text-xs font-medium px-3 h-9 rounded-lg border border-border ${view === 'calendar' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-dim'}`}>
+            <CalendarDays className="w-3.5 h-3.5" /> Calendar
+          </button>
         </div>
 
         {view !== 'calendar' && loading && <div className="py-10 text-center text-sm text-muted">กำลังโหลด…</div>}

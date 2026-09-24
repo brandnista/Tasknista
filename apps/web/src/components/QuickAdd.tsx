@@ -1,3 +1,4 @@
+import { parseProjectLogo } from '@seedoffice/core'
 import { Star, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useToastAction } from './Toast'
@@ -99,9 +100,14 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-2 gap-2 mb-3">
               <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={input} aria-label="โปรเจกต์">
                 <option value="">โปรเจกต์...</option>
-                {active.map((p) => (
-                  <option key={p.id} value={p.id}>{p.logo ?? ''} {p.name}</option>
-                ))}
+                {active.map((p) => {
+                  const logo = parseProjectLogo(p.logo)
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {logo.kind === 'emoji' ? `${logo.value} ` : ''}{p.name}
+                    </option>
+                  )
+                })}
               </select>
               <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={input} aria-label="กลุ่ม" disabled={!projectId}>
                 {groups.length === 0 && <option value="">กลุ่ม...</option>}

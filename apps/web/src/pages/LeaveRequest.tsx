@@ -1,6 +1,6 @@
 /** Pronista §Leave Request (2026-09-22, Phase 1+2) — เมนู "ขอลา": การ์ดโควตา (ไอคอน+progress bar) + ทีมลาวันนี้ + ประวัติของฉัน (ไทม์ไลน์สถานะ) + คำขอรออนุมัติ */
 import { Check, Paperclip, Plus, Users, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { PageHeader } from '../components/PageHeader'
@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { leaveIconOf } from '../lib/leave-icons'
 import { useLoad } from '../lib/useLoad'
+import { ModalShell } from './LeaveOverview'
 
 interface LeaveTypeRow {
   id: string
@@ -27,6 +28,8 @@ interface LeaveRequestRow {
   status: 'pending' | 'approved' | 'rejected' | 'withdrawn'
   rejectReason: string | null
   attachmentR2Key: string | null
+  attachmentFilename?: string | null
+  attachmentMime?: string | null
   createdAt: number
   decidedByName?: string | null
   decidedAt: number | null
@@ -237,9 +240,91 @@ function NewLeaveModal({ types, onClose, onSaved }: { types: LeaveTypeRow[]; onC
   )
 }
 
+/** Pronista §Leave Detail Drill-Down เฟส 2 (2026-09-24) — modal รายละเอียดคำขอลาเต็มสำหรับผู้อนุมัติ กดจากแถว "รออนุมัติ" */
+function LeaveDetailModal({ request, onClose, onApprove, onReject }: { request: LeaveRequestRow; onClose: () => void; onApprove: () => void; onReject: () => void }) {
+  const [imgUrl, setImgUrl] = useState<string | null>(null)
+  const isImage = request.attachmentMime?.startsWith('image/') ?? false
+
+  useEffect(() => {
+    if (!request.attachmentR2Key || !isImage) return
+    let cancelled = false
+    let objectUrl: string | null = null
+    void fetch(`/api/leave-requests/${request.id}/attachment`)
+      .then((r) => r.blob())
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setImgUrl(objectUrl)
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [request.id, request.attachmentR2Key, isImage])
+
+  return (
+    <ModalShell
+      title={`${request.userName ?? '—'} · ${request.leaveTypeName ?? '—'}`}
+      subtitle={STATUS_LABEL[request.status]}
+      onClose={onClose}
+      footer={
+        request.status === 'pending' ? (
+          <>
+            <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">
+              ปิด
+            </button>
+            <button onClick={onReject} className="flex items-center gap-1 text-sm font-medium bg-danger-50 text-danger-700 px-3 py-2 rounded-lg hover:bg-danger-100">
+              <X className="w-4 h-4" /> ปฏิเสธ
+            </button>
+            <button onClick={onApprove} className="flex items-center gap-1 text-sm font-medium bg-success-600 text-white px-3 py-2 rounded-lg hover:bg-success-700">
+              <Check className="w-4 h-4" /> อนุมัติ
+            </button>
+          </>
+        ) : (
+          <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">
+            ปิด
+          </button>
+        )
+      }
+    >
+      <div>
+        <div className="text-xs font-medium text-muted mb-1">ช่วงวันที่ลา</div>
+        <div className="text-sm text-body">{formatRanges(request.ranges)}</div>
+      </div>
+      <div>
+        <div className="text-xs font-medium text-muted mb-1">เหตุผล</div>
+        <div className="text-sm text-body whitespace-pre-line">{request.reason || '—'}</div>
+      </div>
+      {request.status === 'rejected' && request.rejectReason && (
+        <div>
+          <div className="text-xs font-medium text-muted mb-1">เหตุผลที่ปฏิเสธ</div>
+          <div className="text-sm text-danger-700">{request.rejectReason}</div>
+        </div>
+      )}
+      {request.attachmentR2Key && (
+        <div>
+          <div className="text-xs font-medium text-muted mb-1">ไฟล์แนบ</div>
+          {isImage ? (
+            imgUrl ? (
+              <img src={imgUrl} alt={request.attachmentFilename ?? 'ไฟล์แนบ'} className="max-w-full rounded-lg border border-border-subtle" />
+            ) : (
+              <div className="text-xs text-muted">กำลังโหลดรูป…</div>
+            )
+          ) : (
+            <a href={`/api/leave-requests/${request.id}/attachment`} target="_blank" rel="noreferrer" className="text-sm text-brand-600 hover:underline inline-flex items-center gap-1">
+              <Paperclip className="w-4 h-4" /> {request.attachmentFilename ?? 'เปิดไฟล์แนบ'}
+            </a>
+          )}
+        </div>
+      )}
+    </ModalShell>
+  )
+}
+
 export function LeaveRequestPage() {
   const [tab, setTab] = useState<'apply' | 'mine' | 'pending'>('apply')
   const [modalOpen, setModalOpen] = useState(false)
+  const [detailRequest, setDetailRequest] = useState<LeaveRequestRow | null>(null)
   const typesLoad = useLoad<{ types: LeaveTypeRow[] }>(() => api.get('/api/leave-requests/types'))
   const mineLoad = useLoad<{ rows: LeaveRequestRow[] }>(() => api.get('/api/leave-requests/mine'))
   const pendingLoad = useLoad<{ rows: LeaveRequestRow[] }>(() => api.get('/api/leave-requests/pending'))
@@ -395,7 +480,7 @@ export function LeaveRequestPage() {
           ) : (
             <div className="bg-white rounded-xl border border-border-subtle divide-y divide-divider">
               {pending.map((r) => (
-                <div key={r.id} className="p-4 flex flex-wrap items-start gap-3">
+                <div key={r.id} onClick={() => setDetailRequest(r)} className="p-4 flex flex-wrap items-start gap-3 cursor-pointer hover:bg-hover">
                   <div className="flex-1 min-w-[180px]">
                     <div className="text-sm font-medium text-ink">
                       {r.userName ?? '—'} · {r.leaveTypeName ?? '—'}
@@ -403,16 +488,16 @@ export function LeaveRequestPage() {
                     <div className="text-xs text-muted mt-0.5">{formatRanges(r.ranges)}</div>
                     {r.reason && <div className="text-xs text-dim mt-1">{r.reason}</div>}
                     {r.attachmentR2Key && (
-                      <a href={`/api/leave-requests/${r.id}/attachment`} target="_blank" rel="noreferrer" className="text-xs text-brand-600 hover:underline mt-1 inline-flex items-center gap-1">
+                      <a href={`/api/leave-requests/${r.id}/attachment`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-xs text-brand-600 hover:underline mt-1 inline-flex items-center gap-1">
                         <Paperclip className="w-3 h-3" /> ไฟล์แนบ
                       </a>
                     )}
                   </div>
                   <div className="flex gap-1.5 shrink-0">
-                    <button onClick={() => approve(r.id)} className="flex items-center gap-1 text-xs font-medium bg-success-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-success-700">
+                    <button onClick={(e) => { e.stopPropagation(); void approve(r.id) }} className="flex items-center gap-1 text-xs font-medium bg-success-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-success-700">
                       <Check className="w-3.5 h-3.5" /> อนุมัติ
                     </button>
-                    <button onClick={() => reject(r.id)} className="flex items-center gap-1 text-xs font-medium bg-danger-50 text-danger-700 px-2.5 py-1.5 rounded-lg hover:bg-danger-100">
+                    <button onClick={(e) => { e.stopPropagation(); void reject(r.id) }} className="flex items-center gap-1 text-xs font-medium bg-danger-50 text-danger-700 px-2.5 py-1.5 rounded-lg hover:bg-danger-100">
                       <X className="w-3.5 h-3.5" /> ปฏิเสธ
                     </button>
                   </div>
@@ -423,6 +508,20 @@ export function LeaveRequestPage() {
       </div>
 
       {modalOpen && <NewLeaveModal types={types} onClose={() => setModalOpen(false)} onSaved={reloadAll} />}
+      {detailRequest && (
+        <LeaveDetailModal
+          request={detailRequest}
+          onClose={() => setDetailRequest(null)}
+          onApprove={() => {
+            void approve(detailRequest.id)
+            setDetailRequest(null)
+          }}
+          onReject={() => {
+            void reject(detailRequest.id)
+            setDetailRequest(null)
+          }}
+        />
+      )}
     </>
   )
 }
