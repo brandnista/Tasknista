@@ -15,7 +15,7 @@ interface EditableProject extends ProjectRow {
   type: 'project' | 'recurring'
 }
 interface StatusOpt { id: string; name: string; kind: string }
-interface TeamUser { id: string; name: string; role: 'owner' | 'member' | 'vendor' | 'guest' }
+interface TeamUser { id: string; name: string; businessName: string | null; role: 'owner' | 'member' | 'vendor' | 'guest' }
 interface PositionOpt { id: string; name: string }
 interface ServiceTypeOpt { id: string; name: string }
 interface ProductTypeOpt { id: string; name: string }
@@ -39,10 +39,10 @@ export function ProjectEditPage() {
   const { data: productTypeData } = useLoad<{ productTypes: ProductTypeOpt[] }>(() => api.get('/api/admin/product-types'))
   const productTypes = productTypeData?.productTypes ?? []
   const canEditProject = project?.myRole === 'owner' || project?.myRole === 'editor'
-  // Pronista §PRO-DEF-0005 (2026-09-23) — "จัดการลูกค้า" (บัญชี guest) กับ clients (CRM) เป็นคนละระบบ ไม่มีอะไรเชื่อมกันเลย — รวมชื่อบัญชี guest เข้า dropdown นี้ด้วย (ตัดชื่อที่มี client row อยู่แล้วออก)
+  // PRO-DEF-0005 — รายการจาก "จัดการลูกค้า" ต้องแสดงชื่อธุรกิจ ไม่ใช่ชื่อผู้ติดต่อ; ไม่มีชื่อธุรกิจจึง fallback ชื่อผู้ติดต่อ
   const guestClientOptions = allUsers
-    .filter((u) => u.role === 'guest' && !clientList.some((c) => c.name.trim().toLowerCase() === u.name.trim().toLowerCase()))
-    .map((u) => ({ id: u.id, name: u.name, isGuestUser: true as const }))
+    .filter((u) => u.role === 'guest' && !clientList.some((c) => c.name.trim().toLowerCase() === (u.businessName || u.name).trim().toLowerCase()))
+    .map((u) => ({ id: u.id, name: u.businessName || u.name, isGuestUser: true as const }))
   const clientPickerOptions = [...clientList, ...guestClientOptions]
   // PATCH ไม่มี path "สร้างลูกค้าจากชื่อ" แบบตอนสร้างโปรเจกต์ (ต้องส่ง clientId จริงเสมอ) — เลือกบัญชี guest ต้อง find-or-create client ทันทีที่เลือกเลย ไม่ใช่รอตอน submit
   const [linkingGuestClient, setLinkingGuestClient] = useState(false)

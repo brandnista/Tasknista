@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test'
-import { calendarConnections, calendarEvents, companyConfig, createDb, inboxGoogleClients, sprints, tasks } from '@seedoffice/db'
+import { calendarConnections, calendarEvents, companyConfig, createDb, inboxGoogleClients, projects, sprints, tasks, timeEntries } from '@seedoffice/db'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
@@ -28,13 +28,21 @@ beforeEach(async () => {
   // storage แชร์ข้าม test file ทั้ง suite (singleWorker) — เคลียร์ manhourMinutesPerDay ให้แน่ใจว่าใช้ค่า fallback 480 คงที่ ไม่ปนกับที่ manhour.test.ts เซ็ตทิ้งไว้
   await createDb(env.DB).update(companyConfig).set({ manhourMinutesPerDay: null }).where(eq(companyConfig.id, 1))
   await env.DB.prepare("DELETE FROM calendar_events WHERE source = 'gcal'").run()
+  await createDb(env.DB).insert(projects).values({ id: 'wl_project', name: 'Workload test', type: 'project' }).onConflictDoNothing()
 })
 
 async function makeTask(overrides: Partial<typeof tasks.$inferInsert> & { id: string }) {
   const db = createDb(env.DB)
   await db
     .insert(tasks)
-    .values({ title: 'งานทดสอบ', createdBy: 'u_owner', status: 'on_processing', assigneeId: 'u_pond', acceptedAt: new Date('2026-09-01T00:00:00Z'), ...overrides })
+    .values({ title: 'งานทดสอบ', projectId: 'wl_project', createdBy: 'u_owner', status: 'on_processing', assigneeId: 'u_pond', acceptedAt: new Date('2026-09-01T00:00:00Z'), ...overrides })
+    .onConflictDoNothing()
+}
+
+async function logTime(taskId: string, workDate: string, minutes: number, suffix: string) {
+  await createDb(env.DB)
+    .insert(timeEntries)
+    .values({ id: `wl_time_${suffix}`, userId: 'u_pond', taskId, projectId: 'wl_project', workDate, minutes, rateSnapshotSatang: 0, source: 'manual' })
     .onConflictDoNothing()
 }
 
@@ -59,8 +67,9 @@ describe('Pronista §Workload — GET /api/workload', () => {
     expect(ids).toEqual(['u_owner', 'u_pond', 'u_somchai'])
   })
 
-  it('งานมีแค่ dueDate (ไม่มี startDate) → กองทั้งหมดวันเดียว', async () => {
+  it('ใช้เวลาที่บันทึกจริงของวันนั้น ไม่ใช่ estimate ของ task', async () => {
     await makeTask({ id: 'wl_t1', dueDate: '2026-10-01', estimateMinutes: 120 })
+    await logTime('wl_t1', '2026-10-01', 120, '1')
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/workload?from=2026-10-01&to=2026-10-01', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { usedMinutes: number; taskIds: string[] }>>
@@ -69,11 +78,14 @@ describe('Pronista §Workload — GET /api/workload', () => {
     expect(res.grid.u_pond!['2026-10-01']!.taskIds).toContain('wl_t1')
   })
 
-  it('ล็อก Slot หลังเคยกดรับโดยไม่สนสถานะ · cancelled และงานที่ยังไม่รับไม่นับ', async () => {
+  it('นับเฉพาะ time log ของงานที่ไม่ถูกยกเลิก', async () => {
     await makeTask({ id: 'wl_accepted_waiting', status: 'waiting_for_test', dueDate: '2026-10-02', estimateMinutes: 60 })
     await makeTask({ id: 'wl_accepted_done', status: 'done', dueDate: '2026-10-02', estimateMinutes: 90 })
     await makeTask({ id: 'wl_cancelled', status: 'cancelled', dueDate: '2026-10-02', estimateMinutes: 120 })
     await makeTask({ id: 'wl_not_accepted', status: 'on_processing', acceptedAt: null, dueDate: '2026-10-02', estimateMinutes: 180 })
+    await logTime('wl_accepted_waiting', '2026-10-02', 60, '2a')
+    await logTime('wl_accepted_done', '2026-10-02', 90, '2b')
+    await logTime('wl_cancelled', '2026-10-02', 120, '2c')
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/workload?from=2026-10-02&to=2026-10-02', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { usedMinutes: number; taskIds: string[] }>>
@@ -83,18 +95,21 @@ describe('Pronista §Workload — GET /api/workload', () => {
     expect(cell.taskIds.sort()).toEqual(['wl_accepted_done', 'wl_accepted_waiting'])
   })
 
-  it('งานมี startDate+dueDate 2 วัน → เกลี่ยเท่ากันทั้งสองวัน', async () => {
+  it('ใช้วันที่ลงเวลาจริง แม้งานมีช่วงกำหนดการหลายวัน', async () => {
     await makeTask({ id: 'wl_t2', startDate: '2026-10-05', dueDate: '2026-10-06', estimateMinutes: 200 })
+    await logTime('wl_t2', '2026-10-05', 70, '3a')
+    await logTime('wl_t2', '2026-10-06', 130, '3b')
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/workload?from=2026-10-05&to=2026-10-06', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { usedMinutes: number }>>
     }
-    expect(res.grid.u_pond!['2026-10-05']!.usedMinutes).toBe(100)
-    expect(res.grid.u_pond!['2026-10-06']!.usedMinutes).toBe(100)
+    expect(res.grid.u_pond!['2026-10-05']!.usedMinutes).toBe(70)
+    expect(res.grid.u_pond!['2026-10-06']!.usedMinutes).toBe(130)
   })
 
   it('งานเกิน capacity → usedMinutes > capacityMinutes ของวันนั้น (ไม่มีการยกยอดไปวันอื่น)', async () => {
     await makeTask({ id: 'wl_t3', dueDate: '2026-10-12', estimateMinutes: 700 }) // 2026-10-12 = จันทร์ (วันทำงานปกติ)
+    await logTime('wl_t3', '2026-10-12', 700, '4')
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/workload?from=2026-10-12&to=2026-10-12', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { usedMinutes: number; capacityMinutes: number }>>
@@ -110,7 +125,7 @@ describe('Pronista §Workload — GET /api/workload', () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/workload?from=2026-10-13&to=2026-10-13', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { usedMinutes: number }>>
-      unscheduled: { id: string; assigneeId: string; estimateMinutes: number }[]
+      unscheduled: { id: string; assigneeId: string }[]
     }
     expect(res.unscheduled.some((u) => u.id === 'wl_t4')).toBe(true)
     expect(res.grid.u_pond!['2026-10-13']!.usedMinutes).toBe(0)
@@ -136,6 +151,8 @@ describe('Pronista §Workload — GET /api/workload', () => {
     await db.insert(sprints).values({ id: 'wl_sp1', name: 'Sprint ทดสอบ', startDate: '2026-10-01', endDate: '2026-10-31', status: 'active', createdBy: 'u_owner' }).onConflictDoNothing()
     await makeTask({ id: 'wl_t5', dueDate: '2026-10-25', estimateMinutes: 60, sprintId: 'wl_sp1' })
     await makeTask({ id: 'wl_t6', dueDate: '2026-10-25', estimateMinutes: 90 }) // ไม่อยู่ sprint ไหน
+    await logTime('wl_t5', '2026-10-25', 60, '5a')
+    await logTime('wl_t6', '2026-10-25', 90, '5b')
     const owner = await loginAs(app, 'owner@example-co.test')
     const withSprint = (await (await app.request('/api/workload?from=2026-10-25&to=2026-10-25&sprintId=wl_sp1', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { usedMinutes: number }>>
@@ -233,6 +250,7 @@ describe('Pronista §Calendar/Workload (2026-09-18) — ประชุมจา
 
   it('มีทั้ง Task และประชุมในวันเดียวกัน → รวมทั้งสองแหล่งเข้า usedMinutes, แยก breakdown ถูกต้อง', async () => {
     await makeTask({ id: 'wl_t_mix', dueDate: '2026-11-08', estimateMinutes: 60 })
+    await logTime('wl_t_mix', '2026-11-08', 60, 'mix')
     await seedGcalMeeting({ userId: 'u_pond', startAt: new Date('2026-11-08T14:00:00+07:00'), endAt: new Date('2026-11-08T15:00:00+07:00') })
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/workload?from=2026-11-08&to=2026-11-08', { headers: { cookie: owner } }, env)).json()) as {

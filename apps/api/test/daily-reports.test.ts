@@ -1,4 +1,4 @@
-import { createDb, users } from '@seedoffice/db'
+import { createDb, timeEntries, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
@@ -42,7 +42,7 @@ async function setupRoleMappedTask(options: { assigneeId: string; reviewerId?: s
     const reviewerRes = await app.request(`/api/tasks/${task.id}`, json(owner, { reviewerId: options.reviewerId }, 'PATCH'), env)
     if (reviewerRes.status !== 200) throw new Error(`ตั้ง Reviewer ไม่สำเร็จ (${reviewerRes.status})`)
   }
-  return { owner, task }
+  return { owner, project, task }
 }
 
 beforeEach(async () => {
@@ -316,5 +316,29 @@ describe('§Daily Report manual item edit — PATCH /daily-reports/:id/items/:it
     expect(res.status).toBe(400)
     const body = (await res.json()) as { error: string }
     expect(body.error).toBe('locked')
+  })
+})
+
+describe('§Daily Report time entry totals', () => {
+  it('ไม่นับ time entry ที่ถูก soft-delete รวมในเวลาของงาน', async () => {
+    const { project, task } = await setupRoleMappedTask({ assigneeId: 'u_pond' })
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const date = '2026-09-23'
+    const report = (await (await app.request('/api/daily-reports', json(pond, { date }), env)).json()) as { id: string }
+    expect((await app.request(`/api/daily-reports/${report.id}/items`, json(pond, { taskId: task.id }), env)).status).toBe(201)
+
+    const db = createDb(env.DB)
+    await db.insert(timeEntries).values([
+      { userId: 'u_pond', taskId: task.id, projectId: project.id, workDate: date, minutes: 15, rateSnapshotSatang: 0, source: 'manual' },
+      {
+        userId: 'u_pond', taskId: task.id, projectId: project.id, workDate: date, minutes: 126,
+        rateSnapshotSatang: 0, source: 'manual', deletedAt: new Date(),
+      },
+    ])
+
+    const detail = (await (await app.request(`/api/daily-reports/${report.id}`, { headers: { cookie: pond } }, env)).json()) as {
+      items: { taskId: string | null; minutes: number }[]
+    }
+    expect(detail.items.find((item) => item.taskId === task.id)?.minutes).toBe(15)
   })
 })

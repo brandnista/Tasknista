@@ -14,7 +14,8 @@ const TYPE_CODE: Record<TaskCodeTypeLabel, string> = {
   Backlog: 'BLG',
 }
 
-// Pronista §2.5 — Jira-style task code: BL-N ใน backlog → <projectCode>-N เมื่อผูกโปรเจกต์ (เลขไม่รียูส)
+// รหัสที่ผู้ใช้เห็น: <Project Code>-<Running Number> เช่น PRO-0001
+// แยกชนิดงานและวันที่ออกไปอยู่ใน URL slug เพื่อให้รหัสอ้างอิงสั้น คงที่ และไม่เปลี่ยนเมื่อแปลง Task ↔ Defect/CR
 export function sanitizeCodePrefix(raw: string | null | undefined, fallback: string): string {
   const clean = (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
   return clean.slice(0, 6) || fallback
@@ -25,30 +26,26 @@ export async function nextTaskCode(db: ReturnType<typeof createDb>, prefix: stri
   let max = 0
   for (const row of existing) {
     const suffix = row.code?.slice(prefix.length + 1)
-    // Pronista §Back to Basic (bugfix) — LIKE ยังจับ sub-task code ("<prefix>-N.M") ด้วย ต้องกรองออกก่อน ไม่งั้น Number("5.1") ผ่านเป็น 5.1 ทำให้เลขรหัสถัดไปเพี้ยน
-    if (suffix && /^\d+$/.test(suffix)) {
-      const n = Number(suffix)
+    // นับต่อจากรหัสใหม่ และรหัสเก่า TSK/DEF/CR/BLG เพื่อไม่ให้ running number วนกลับไปเริ่ม 0001 หลัง rollout
+    // ไม่รวม subtask ที่ลงท้าย .N และ Epic ซึ่งเป็นลำดับของอีกตารางหนึ่ง
+    const legacy = suffix?.match(/^(?:TSK|STR|DEF|CR|BLG)-(\d+)$/)
+    const running = suffix && /^\d+$/.test(suffix) ? suffix : legacy?.[1]
+    if (running) {
+      const n = Number(running)
       if (n > max) max = n
     }
   }
-  return `${prefix}-${max + 1}`
+  return `${prefix}-${String(max + 1).padStart(4, '0')}`
 }
 
-// เลขรหัสมาตรฐาน: <Project Code>-<Work Type Code>-<Running Number>
-// เช่น PRON-TSK-0001 / PRO-DEF-0002 — นับต่อเนื่องต่อโปรเจกต์+ประเภทและไม่ผูกกับวันที่
+/**
+ * Legacy callers ยังส่งชนิดงานเข้ามา แต่ตั้งแต่ Task ID Phase A ชนิดงานไม่อยู่ใน
+ * รหัสแสดงผลแล้ว: ทุกชนิดใช้ running number ชุดเดียวกันต่อ project.
+ */
 export async function nextTypedTaskCode(db: ReturnType<typeof createDb>, prefix: string, type: Exclude<TaskCodeTypeLabel, 'Epic'>): Promise<string> {
-  const scanPrefix = `${prefix}-${TYPE_CODE[type]}-`
-  const existing = await db.select({ code: tasks.code }).from(tasks).where(like(tasks.code, `${scanPrefix}%`))
-  let max = 0
-  for (const row of existing) {
-    const suffix = row.code?.slice(scanPrefix.length)
-    // LIKE ยังจับ sub-task code ที่ต่อท้ายด้วย ".N" ด้วย ต้องรับเฉพาะเลขล้วน
-    if (suffix && /^\d+$/.test(suffix)) {
-      const n = Number(suffix)
-      if (n > max) max = n
-    }
-  }
-  return `${scanPrefix}${String(max + 1).padStart(4, '0')}`
+  // คง parameter ไว้ให้ caller เดิมเรียกได้; ชนิดงานย้ายไปอยู่ใน URL slug แล้ว
+  void type
+  return nextTaskCode(db, prefix)
 }
 
 // Pronista §Back to Basic — เหมือน nextTypedTaskCode แต่สแกน epics.code (คนละตารางกับ tasks)

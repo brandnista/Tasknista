@@ -10,7 +10,7 @@ import {
   timeEntries,
   users,
 } from '@seedoffice/db'
-import { and, desc, eq, gte, inArray, lt, lte, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -89,7 +89,8 @@ async function loadReportDetail(db: ReturnType<typeof createDb>, reportId: strin
     ? await db
         .select({ taskId: timeEntries.taskId, minutes: sql<number>`sum(${timeEntries.minutes})` })
         .from(timeEntries)
-        .where(and(eq(timeEntries.userId, report.userId), eq(timeEntries.workDate, report.reportDate), inArray(timeEntries.taskId, taskIds)))
+        // time entry ใช้ soft-delete: รายการที่ผู้ใช้ลบ/แก้แทนต้องไม่ถูกนำมารวมใน Daily Report
+        .where(and(eq(timeEntries.userId, report.userId), eq(timeEntries.workDate, report.reportDate), inArray(timeEntries.taskId, taskIds), isNull(timeEntries.deletedAt)))
         .groupBy(timeEntries.taskId)
     : []
   const minutesByTask = new Map(minutesRows.map((r) => [r.taskId, r.minutes]))
@@ -150,7 +151,7 @@ dailyReportRoutes
       db
         .select({ taskId: timeEntries.taskId, minutes: sql<number>`sum(${timeEntries.minutes})` })
         .from(timeEntries)
-        .where(and(eq(timeEntries.userId, me.id), eq(timeEntries.workDate, date)))
+        .where(and(eq(timeEntries.userId, me.id), eq(timeEntries.workDate, date), isNull(timeEntries.deletedAt)))
         .groupBy(timeEntries.taskId),
       db.select({ id: dailyReports.id }).from(dailyReports).where(and(eq(dailyReports.userId, me.id), eq(dailyReports.reportDate, date))).limit(1),
     ])

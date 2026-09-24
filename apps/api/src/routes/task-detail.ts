@@ -28,6 +28,7 @@ import { copyR2DocFile } from '../lib/doc-file'
 import { notifyUser } from '../lib/notify'
 import { canEditTask, canEditTaskCollab, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
+import { parseTaskSlug, taskSlugFor } from '../lib/task-slug'
 import { teamOnly } from '../middleware/roles'
 import type { AppEnv } from '../types'
 
@@ -46,6 +47,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
   .get('/tasks/:id/detail', async (c) => {
     const db = createDb(c.env.DB)
     const taskId = c.req.param('id')
+    const requestedSlug = parseTaskSlug(taskId)
     // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ผู้จ่ายงาน (Reporter สไตล์ Jira) ต้อง join users อีกรอบแยกจาก assignee
     const dispatcher = alias(users, 'dispatcher')
     // Pronista §Workspace/Task Jira-alignment (2026-09-07) — Reporter แบบ Jira ต้องมีเสมอ (Jira ใช้ผู้สร้างเป็น Reporter ตายตัว) ต่างจาก "ผู้จ่ายงาน" (assignedBy) ที่ว่างได้ถ้ายังไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ ไม่ผ่าน dispatch) — join ผู้สร้างไว้ fallback
@@ -58,6 +60,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
           task: tasks,
           groupName: taskGroups.name,
           projectName: projects.name,
+          projectCode: projects.code,
           assigneeName: users.name,
           assigneeAvatarUrl: users.avatarUrl,
           assigneeRole: users.role,
@@ -76,11 +79,14 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
         .leftJoin(creator, eq(tasks.createdBy, creator.id))
         .leftJoin(reviewer, eq(tasks.reviewerId, reviewer.id))
-        // Pronista §Task ID URL Slug (2026-09-23) — รองรับทั้ง UUID เดิม (ลิงก์เก่ายังใช้ได้ตลอด) และรหัสงาน (PRO-TSK-0001 ฯลฯ) — รหัสงานไม่มีทางตรงรูป UUID เลย แยกกันปลอดภัย ไม่ต้อง query ซ้ำสองรอบ
-        .where(isUuid(taskId) ? eq(tasks.id, taskId) : eq(tasks.code, taskId))
+        // รองรับ UUID/รหัสเดิม และ canonical slug ใหม่ โดย slug ใช้รหัสแสดงผล PRO-0001 เป็น key lookup
+        .where(isUuid(taskId) ? eq(tasks.id, taskId) : eq(tasks.code, requestedSlug ? `${requestedSlug.projectCode}-${requestedSlug.running}` : taskId))
         .limit(1)
     )[0]
     if (!row) return c.json({ error: 'not_found' }, 404)
+    const slug = taskSlugFor(row.task, row.projectCode)
+    // กัน slug ที่ประกอบหน้าตาคล้ายกันแต่ชี้ไปงานผิด: ประเภทและวันสร้างต้องตรงกับ canonical slug
+    if (requestedSlug && slug !== taskId.toUpperCase()) return c.json({ error: 'not_found' }, 404)
     // §Security Recheck (2026-09-10) — เดิม endpoint นี้ไม่เช็คสิทธิ์อะไรเลยนอกจาก login (ยืนยันแล้วว่า guest/vendor ที่ไม่มีสิทธิ์ในโปรเจกต์ดึง detail งานได้เต็มๆ) — ใช้ helper เดียวกับที่ GET /projects/:id ใช้อยู่แล้ว
     const me = c.get('user')
     if (row.task.projectId && !(await isProjectVisibleToUser(db, row.task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
@@ -192,6 +198,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       sprintActive,
       sprint: sprintRow ?? null,
       ...taskFields,
+      slug,
       groupName: row.groupName,
       projectName: row.projectName,
       assigneeName: row.assigneeName,

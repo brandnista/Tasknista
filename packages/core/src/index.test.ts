@@ -21,14 +21,15 @@ describe('formatSatang', () => {
 })
 
 describe('minutesToHoursLabel', () => {
-  it('แปลงนาทีเป็นชั่วโมงทศนิยม 1 ตำแหน่ง (ตาม mockup)', () => {
-    expect(minutesToHoursLabel(5760)).toBe('96.0')
-    expect(minutesToHoursLabel(5310)).toBe('88.5')
-    expect(minutesToHoursLabel(0)).toBe('0.0')
+  it('แปลงนาทีเป็นชั่วโมงทศนิยม 2 ตำแหน่ง เพื่อไม่ให้ 15 นาทีถูกปัดเป็น 0.3', () => {
+    expect(minutesToHoursLabel(5760)).toBe('96.00')
+    expect(minutesToHoursLabel(5310)).toBe('88.50')
+    expect(minutesToHoursLabel(0)).toBe('0.00')
+    expect(minutesToHoursLabel(15)).toBe('0.25')
   })
-  it('ปัดครึ่งขึ้นที่ตำแหน่งทศนิยม', () => {
-    expect(minutesToHoursLabel(57)).toBe('1.0') // 0.95 ชม. → 1.0
-    expect(minutesToHoursLabel(33)).toBe('0.6') // 0.55 ชม. → 0.6
+  it('ปัดตามความละเอียดสองตำแหน่ง', () => {
+    expect(minutesToHoursLabel(57)).toBe('0.95')
+    expect(minutesToHoursLabel(33)).toBe('0.55')
   })
   it('ปฏิเสธนาทีที่ไม่ใช่ integer', () => {
     expect(() => minutesToHoursLabel(1.5)).toThrow(TypeError)

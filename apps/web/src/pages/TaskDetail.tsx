@@ -263,6 +263,8 @@ interface Detail {
   groupName: string | null
   projectName: string | null
   code: string | null
+  /** Canonical human-readable URL slug ของงานใหม่; null สำหรับรหัสเก่าหรือ task ที่ไม่ผูก project */
+  slug: string | null
   srsRefCode: string | null
   srsSourceCode: string | null
   srsDocId: string | null
@@ -377,12 +379,19 @@ const fmtAttSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n
  * แบ่ง 2 คอลัมน์ + จัดลำดับ/เน้นเนื้อหาต่างกันอัตโนมัติตาม "ใครเปิดดู": assignee ของงานนี้ (t.assigneeId === user.id) vs คนอื่นที่แก้ไขได้ (ถือเป็นฝั่งคนจ่ายงาน)
  * ไม่แตะระบบสิทธิ์เดิม (canEdit = owner/editor ของโปรเจกต์) — แค่จัดการมองเห็น/ปุ่มลัดให้คนที่มีสิทธิ์แก้ไขอยู่แล้ว */
 export function TaskDetailPage() {
-  const { id: taskId } = useParams<{ id: string }>()
+  const { id: routeTaskId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
   const { alertDialog, confirmDialog, promptDialog } = useDialog()
   const toast = useToast()
-  const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${taskId}/detail`), [taskId])
+  const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${routeTaskId}/detail`), [routeTaskId])
+  // URL เก่า (UUID/รหัสเก่า/รหัสแสดงผล) ยังเปิดได้ แต่พอ resolve งานใหม่สำเร็จให้แทนด้วย URL มาตรฐานทันที
+  useEffect(() => {
+    if (t?.slug && routeTaskId !== t.slug) navigate(`/tasks/${t.slug}`, { replace: true })
+  }, [navigate, routeTaskId, t?.slug])
+  // URL ใหม่เป็น slug สำหรับคนอ่าน แต่ API อื่น ๆ (trace, reference, time, presence) ยังใช้ UUID ภายใน
+  // จึง resolve รายละเอียดก่อน แล้วใช้ id จริงกับทุก endpoint เหล่านั้นเสมอ
+  const resolvedTaskId = t?.id
   // Pronista §Task Detail permission fix — คนที่ถูก assign งานนี้ แก้ไข "งานของตัวเอง" ได้เสมอ แม้ project role เป็นแค่ viewer/ไม่ได้เป็นสมาชิกโปรเจกต์เลย
   const canEdit = user?.role !== 'vendor' && user?.role !== 'guest' && (t?.myRole === 'owner' || t?.myRole === 'editor' || t?.assigneeId === user?.id)
   // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin (ทุกคนที่ไม่ใช่ vendor/guest) ที่มองเห็นงานนี้อยู่แล้ว แก้ "เกณฑ์ว่าเสร็จ/งานย่อย/รายการที่เชื่อมโยง" ได้เต็มที่ ไม่ต้องเป็น editor โปรเจกต์/assignee เหมือน canEdit — ล้อ backend canEditTaskCollab (มองเห็นงาน = แก้ 3 ส่วนนี้ได้ เพราะเดิมพนักงานทั่วไปต้องรอ Admin แก้ให้ตลอด)
@@ -395,15 +404,24 @@ export function TaskDetailPage() {
   // Pronista §System Requirements Update — สลับฟีด "ความเคลื่อนไหวทั้งหมด" (คอมเมนต์+ประวัติ) กับ "ประวัติการเปลี่ยนแปลง" (เฉพาะสถานะ/ผู้รับผิดชอบ ไม่มีคอมเมนต์)
   // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — รวม "ความเคลื่อนไหว" (comment+activity) กับ "ประวัติการเปลี่ยนแปลง" เป็นแท็บย่อยเดียวกันสไตล์ Jira Activity (All/Comments/History/Work log) แทนตัวสลับ 2 ทางเดิมที่ซ่อนทั้งหน้าไปเลย
   const [activityTab, setActivityTab] = useState<'all' | 'comments' | 'history' | 'worklog'>('all')
-  const { data: trace } = useLoad<TraceResponse>(() => api.get(`/api/tasks/${taskId}/trace`), [taskId])
+  const { data: trace } = useLoad<TraceResponse>(
+    () => (resolvedTaskId ? api.get(`/api/tasks/${resolvedTaskId}/trace`) : Promise.resolve(null as unknown as TraceResponse)),
+    [resolvedTaskId],
+  )
   // Pronista §Project Refactor — เชื่อมโยง EPIC/Story/Task/CR อิสระ
-  const { data: refs, reload: reloadRefs } = useLoad<RefRow[]>(() => api.get(`/api/tasks/${taskId}/references`), [taskId])
+  const { data: refs, reload: reloadRefs } = useLoad<RefRow[]>(
+    () => (resolvedTaskId ? api.get(`/api/tasks/${resolvedTaskId}/references`) : Promise.resolve([])),
+    [resolvedTaskId],
+  )
   const [linkPickerOpen, setLinkPickerOpen] = useState(false)
   const { data: linkPickerCandidates } = useLoad<PickableTask[]>(
     () => (linkPickerOpen && t?.projectId ? api.get(`/api/projects/${t.projectId}/tasks/all`) : Promise.resolve([])),
     [linkPickerOpen],
   )
-  const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(() => api.get(`/api/tasks/${taskId}/time`), [taskId])
+  const { data: timeRows, reload: reloadTime } = useLoad<TimeRow[]>(
+    () => (resolvedTaskId ? api.get(`/api/tasks/${resolvedTaskId}/time`) : Promise.resolve([])),
+    [resolvedTaskId],
+  )
   const [comment, setComment] = useState('')
   const [editingComment, setEditingComment] = useState<{ id: string; body: string; isBlocked: boolean } | null>(null)
   const [dispatching, setDispatching] = useState(false)
@@ -441,12 +459,12 @@ export function TaskDetailPage() {
   const [viewers, setViewers] = useState<{ userId: string; name: string }[]>([])
   const presenceWsRef = useRef<WebSocket | null>(null)
   useEffect(() => {
-    if (!taskId) return
+    if (!resolvedTaskId) return
     let stopped = false
     let retry: number | null = null
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      const ws = new WebSocket(`${proto}://${location.host}/api/tasks/${taskId}/presence/ws`)
+      const ws = new WebSocket(`${proto}://${location.host}/api/tasks/${resolvedTaskId}/presence/ws`)
       presenceWsRef.current = ws
       ws.onmessage = (e) => {
         if (e.data === 'pong') return
@@ -471,7 +489,7 @@ export function TaskDetailPage() {
       window.clearInterval(ping)
       presenceWsRef.current?.close()
     }
-  }, [taskId])
+  }, [resolvedTaskId])
 
   if (!t) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
