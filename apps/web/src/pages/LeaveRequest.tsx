@@ -283,6 +283,7 @@ function LeaveDetailModal({
   onApprove,
   onReject,
   onWithdraw,
+  onDelegated,
   delegateEnabled,
 }: {
   request: LeaveRequestRow
@@ -290,6 +291,7 @@ function LeaveDetailModal({
   onApprove?: () => void
   onReject?: () => void
   onWithdraw?: () => void
+  onDelegated?: () => void
   delegateEnabled?: boolean
 }) {
   const [imgUrl, setImgUrl] = useState<string | null>(null)
@@ -331,6 +333,7 @@ function LeaveDetailModal({
     setDelegateError('')
     try {
       await api.post(`/api/leave-requests/${request.id}/delegate`, { toUserId: delegateTo })
+      onDelegated?.()
       onClose()
     } catch (e) {
       setDelegateError(e instanceof ApiError ? e.message : 'โอนสิทธิ์ไม่สำเร็จ')
@@ -344,7 +347,7 @@ function LeaveDetailModal({
 
   return (
     <ModalShell
-      title={`${request.userName ?? '—'} · ${request.leaveTypeName ?? '—'}`}
+      title={request.userName ? `${request.userName} · ${request.leaveTypeName ?? '—'}` : (request.leaveTypeName ?? '—')}
       subtitle={STATUS_LABEL[request.status]}
       onClose={onClose}
       footer={
@@ -683,6 +686,7 @@ export function LeaveRequestPage() {
                 }
               : undefined
           }
+          onDelegated={() => void reloadAll()}
           delegateEnabled={detailSource === 'pending'}
         />
       )}

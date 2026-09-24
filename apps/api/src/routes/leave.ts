@@ -206,11 +206,12 @@ export const leaveRoutes = new Hono<AppEnv>()
     return c.json({ rows: groupLeaveRows(rows) })
   })
 
-  // Pronista §Leave Enhancements เฟส D (2026-09-24) — รายชื่อ Owner ทั้งหมด ให้ frontend ใช้เป็นตัวเลือกตอน "โอนสิทธิ์อนุมัติ"
+  // Pronista §Leave Enhancements เฟส D (2026-09-24) — รายชื่อ Owner ทั้งหมด (ไม่รวมตัวเอง) ให้ frontend ใช้เป็นตัวเลือกตอน "โอนสิทธิ์อนุมัติ"
   .get('/owners', async (c) => {
     const db = createDb(c.env.DB)
+    const me = c.get('user')
     const rows = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, 'owner'))
-    return c.json({ owners: rows })
+    return c.json({ owners: rows.filter((r) => r.id !== me.id) })
   })
 
   // Pronista §Leave Management Overhaul เฟส D (2026-09-23) — approve/reject/withdraw ทำทั้งกลุ่ม (siblingsOf) พร้อมกันเสมอ กันเกิด partial state ระหว่างช่วงในคำขอเดียวกัน
