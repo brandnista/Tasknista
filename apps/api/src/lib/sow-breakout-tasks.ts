@@ -48,7 +48,7 @@ export async function createSowTasksFromBreakoutItems(
   unresolvedReferences: string[]
 }> {
   const { project, docId, docVersion, epicId, flat, items, createdBy } = params
-  const codePrefix = sanitizeCodePrefix(project.code, 'TASK')
+  const codePrefix = sanitizeCodePrefix(project.code, 'TSK')
   const duplicateWarnings: string[] = []
   const unresolvedReferences: string[] = []
   const createdTasks: (typeof tasks.$inferSelect)[] = []

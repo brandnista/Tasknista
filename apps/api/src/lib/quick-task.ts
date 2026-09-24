@@ -16,7 +16,7 @@ export async function createQuickTask(
   let group = (await db.select().from(taskGroups).where(eq(taskGroups.projectId, project.id)).orderBy(asc(taskGroups.sortOrder)).limit(1))[0]
   if (!group) group = (await db.insert(taskGroups).values({ projectId: project.id, name: 'ทั่วไป', sortOrder: 0 }).returning())[0]!
   const siblings = await db.select().from(tasks).where(eq(tasks.groupId, group.id))
-  const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), 'Task')
+  const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TSK'), 'Task')
   return (
     await db
       .insert(tasks)

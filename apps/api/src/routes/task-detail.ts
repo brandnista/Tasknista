@@ -241,7 +241,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin ที่มองเห็นงานนี้เพิ่มงานย่อยได้แล้ว ไม่ต้องเป็น editor โปรเจกต์/assignee เหมือนเดิม
     if (!(await canEditTaskCollab(db, parent, me))) return c.json({ error: 'forbidden' }, 403)
-    const code = body.data.code || (await nextSubTaskCode(db, parent.id, parent.code ?? 'TASK'))
+    const code = body.data.code || (await nextSubTaskCode(db, parent.id, parent.code ?? 'TSK'))
     const created = await db
       .insert(tasks)
       .values({

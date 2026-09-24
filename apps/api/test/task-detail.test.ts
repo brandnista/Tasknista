@@ -317,7 +317,10 @@ describe('§Task ID URL Slug — GET /tasks/:id/detail รองรับทั�
 
   it('เปลี่ยนชนิดงาน (Task→Defect) แล้ว display code เดิมยังเปิดได้ ส่วน canonical slug เปลี่ยนตามชนิดงาน', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    const t = (await makeTask(owner)) as { id: string; code: string | null }
+    // ทดสอบ slug ต้องมี project.code จริง (ไม่ใช่ fallback 'TSK' เฉยๆ) — makeTask() เดิมไม่ตั้ง code ให้โปรเจกต์
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P', type: 'project', code: 'PRO' }), env)).json()) as { id: string }
+    const g = (await (await app.request(`/api/projects/${p.id}/groups`, json(owner, { name: 'G' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g.id}/tasks`, json(owner, { title: 'งานทดสอบ' }), env)).json()) as { id: string; code: string | null }
     const oldCode = t.code
     expect(oldCode).toMatch(/^[A-Z0-9]{3}-\d{4}$/)
     const beforeDetail = await app.request(`/api/tasks/${t.id}/detail`, { headers: { cookie: owner } }, env)

@@ -191,7 +191,7 @@ export const taskRoutes = new Hono<AppEnv>()
     if (!canEditProject(memberRole)) return c.json({ error: 'forbidden' }, 403)
     const siblings = await db.select().from(tasks).where(eq(tasks.groupId, group.id))
     const project = (await db.select().from(projects).where(eq(projects.id, group.projectId)).limit(1))[0]
-    const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
+    const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TSK'), 'Task')
     const t = await db
       .insert(tasks)
       .values({
@@ -244,7 +244,7 @@ export const taskRoutes = new Hono<AppEnv>()
       group = (await db.insert(taskGroups).values({ projectId, name: 'ทั่วไป', sortOrder: 0 }).returning())[0]!
     }
     const siblings = await db.select().from(tasks).where(eq(tasks.groupId, group.id))
-    const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), 'Task')
+    const code = await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TSK'), 'Task')
     const created = (
       await db
         .insert(tasks)
@@ -349,7 +349,7 @@ export const taskRoutes = new Hono<AppEnv>()
     if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
     const project = (await db.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0]
     if (!project) return c.json({ error: 'not_found' }, 404)
-    const code = await nextTypedEpicCode(db, sanitizeCodePrefix(project.code, 'TASK'))
+    const code = await nextTypedEpicCode(db, sanitizeCodePrefix(project.code, 'TSK'))
     const created = (await db.insert(epics).values({ projectId, title: body.data.title, code, sortOrder: 0 }).returning())[0]
     return c.json(created, 201)
   })
@@ -382,7 +382,7 @@ export const taskRoutes = new Hono<AppEnv>()
     const permissions = await getProjectPermissions(db, projectId, me.id, me.role)
     if (kind === 'defect' ? !permissions.actions.defect.create : !permissions.actions.task.create) return c.json({ error: 'forbidden' }, 403)
     const code =
-      body.data.code || (await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TASK'), kind === 'backlog' ? 'Backlog' : kind === 'defect' ? 'Defect' : 'Task'))
+      body.data.code || (await nextTypedTaskCode(db, sanitizeCodePrefix(project.code, 'TSK'), kind === 'backlog' ? 'Backlog' : kind === 'defect' ? 'Defect' : 'Task'))
     const created = (
       await db
         .insert(tasks)
@@ -723,12 +723,12 @@ export const taskRoutes = new Hono<AppEnv>()
       if (!parent) return c.json({ error: 'parent_not_found' }, 404)
       patch.projectId = parent.projectId
       patch.groupId = parent.groupId
-      patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? sanitizeCodePrefix(null, 'TASK'))
+      patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? sanitizeCodePrefix(null, 'TSK'))
     } else if (body.data.projectId && before.projectId === null) {
       // Pronista §2.5 — ย้าย backlog (BL-N) เข้าโปรเจกต์ → ออกโค้ดใหม่ตามคำนำหน้าโปรเจกต์
       const project = (await db.select().from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
       // รหัสที่แสดงเป็นตัวตนถาวรของงาน: งานเก่าหรือ task ใหม่ที่มีรหัสแล้วต้องไม่เปลี่ยนเมื่อย้าย project
-      if (!before.code) patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
+      if (!before.code) patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TSK'), 'Task')
       // Pronista §5 (2026-07-03) — ย้ายจาก Company Backlog เข้าโปรเจกต์ → ลง "Backlog ของโปรเจกต์" (groupId ยังว่าง ไม่ขึ้นกระดานทันที)
       // แทนที่พฤติกรรมเดิมที่ auto-หา/สร้างกลุ่มแรกให้ (ทำให้โผล่ Non Start บนกระดานทันที) — ผู้ใช้ต้อง "ย้ายเข้ากระดาน" เองอีกที
     }
@@ -1113,13 +1113,13 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
     const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', version: sql`${tasks.version} + 1` }
     // Pronista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
-    const codePrefix = sanitizeCodePrefix(null, 'TASK')
+    const codePrefix = sanitizeCodePrefix(null, 'TSK')
     // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
     const effectiveProjectId = body.data.targetProjectId ?? before.projectId
     if (body.data.to === 'epic') {
       if (!effectiveProjectId) return c.json({ error: 'project_required', message: 'ต้องผูกโปรเจกต์ก่อนถึงจะยกระดับเป็น Epic ได้' }, 400)
       const project = (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0]
-      const prefix = sanitizeCodePrefix(project?.code, 'TASK')
+      const prefix = sanitizeCodePrefix(project?.code, 'TSK')
       const newEpic = (
         await db.insert(epics).values({ projectId: effectiveProjectId, title: before.title, code: await nextTypedEpicCode(db, prefix), sortOrder: 0 }).returning()
       )[0]
@@ -1133,7 +1133,7 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.parentId = null
       patch.projectId = effectiveProjectId
       const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
-      const prefix = sanitizeCodePrefix(project?.code, 'TASK')
+      const prefix = sanitizeCodePrefix(project?.code, 'TSK')
       if (body.data.to === 'defect' && before.kind !== 'defect') patch.defectStatus = 'reported'
       // Pronista §Defect field cleanup — แปลง Defect ออกไปเป็นประเภทอื่น ต้องล้าง defectStatus เดิมทิ้งด้วย กันค่าค้าง (โผล่กลับมาถ้ามีคนแปลงกลับเป็น Defect อีกครั้ง)
       if (body.data.to !== 'defect' && before.kind === 'defect') patch.defectStatus = null
@@ -1175,7 +1175,7 @@ export const taskRoutes = new Hono<AppEnv>()
         patch.epicId = null
         patch.isStandaloneTask = true
         const project = effectiveProjectId ? (await db.select().from(projects).where(eq(projects.id, effectiveProjectId)).limit(1))[0] : null
-        if (!before.code) patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TASK'), 'Task')
+        if (!before.code) patch.code = await nextTypedTaskCode(db, sanitizeCodePrefix(project?.code, 'TSK'), 'Task')
       }
     }
 

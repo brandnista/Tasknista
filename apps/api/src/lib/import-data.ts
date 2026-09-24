@@ -278,7 +278,7 @@ export async function createImportedItems(
   },
 ): Promise<ImportConfirmResult> {
   const { project, items, documents, createdBy } = params
-  const codePrefix = sanitizeCodePrefix(project.code, 'TASK')
+  const codePrefix = sanitizeCodePrefix(project.code, 'TSK')
   const result: ImportConfirmResult = { createdTaskIds: [], updatedTaskIds: [], skippedRowNumbers: [], createdDocIds: [], warnings: [] }
   const rowToTaskId = new Map<number, string>()
 

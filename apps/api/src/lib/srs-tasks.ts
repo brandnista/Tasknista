@@ -29,7 +29,7 @@ export async function createTasksFromSrsItems(
   },
 ): Promise<{ tasks: (typeof tasks.$inferSelect)[]; duplicateWarnings: string[] }> {
   const { project, docId, srsVersion, items, createdBy } = params
-  const codePrefix = sanitizeCodePrefix(project.code, 'TASK')
+  const codePrefix = sanitizeCodePrefix(project.code, 'TSK')
   const duplicateWarnings: string[] = []
   const createdTasks: (typeof tasks.$inferSelect)[] = []
   for (let i = 0; i < items.length; i++) {

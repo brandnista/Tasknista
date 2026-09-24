@@ -46,7 +46,7 @@ export async function createTasksFromBreakoutItems(
   },
 ): Promise<{ tasks: (typeof tasks.$inferSelect)[]; duplicateWarnings: string[]; unresolvedReferences: string[] }> {
   const { project, docId, docType, docVersion, items, createdBy } = params
-  const codePrefix = sanitizeCodePrefix(project.code, 'TASK')
+  const codePrefix = sanitizeCodePrefix(project.code, 'TSK')
   const duplicateWarnings: string[] = []
   const unresolvedReferences: string[] = []
   const createdTasks: (typeof tasks.$inferSelect)[] = []
