@@ -5,7 +5,7 @@
  * แล้ว PATCH ลิงก์กลับมาไว้ที่ตัว note (linkedKind/linkedTaskId/...) ให้ Post-it โชว์ badge ได้โดยไม่ต้อง join
  * ฝั่งซ้าย = ฟอร์มเขียน + รายการเดิม, ฝั่งขวา = "บอร์ด" — บันทึกเดียวกันแปะเป็น Post-it ให้ดูสนุกขึ้น (ดีไซน์: hallmark)
  */
-import { Check, Download, Link2, ListTodo, Paperclip, Pencil, Pin, Plus, Repeat, Share2, Trash2, Type, Upload, X } from 'lucide-react'
+import { Check, Download, Eye, Link2, ListTodo, Paperclip, Pencil, Pin, Plus, Repeat, Share2, Trash2, Type, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router'
 import { useDialog } from './Dialog'
@@ -381,7 +381,7 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
     <div className="bg-white rounded-lg shadow-xs p-4 space-y-3">
       {editing && (
         <div className="flex items-center justify-between text-xs font-medium text-brand-700 bg-brand-50 -mx-4 -mt-4 px-4 py-2 rounded-t-lg">
-          <span className="flex items-center gap-1.5"><Pencil className="w-3 h-3" /> {readOnly ? 'กำลังดูบันทึก' : 'กำลังแก้ไขบันทึก'}{editing.ownerName ? ` — ของ ${editing.ownerName}` : ''}</span>
+          <span className="flex items-center gap-1.5">{readOnly ? <Eye className="w-3 h-3" /> : <Pencil className="w-3 h-3" />} {readOnly ? 'กำลังดูบันทึก' : 'กำลังแก้ไขบันทึก'}{editing.ownerName ? ` — ของ ${editing.ownerName}` : ''}</span>
           <div className="flex items-center gap-2">
             {isNoteOwner(editing, meId) && (
               <button onClick={() => setShareOpen(true)} title="แชร์" className="text-brand-700/70 hover:text-brand-800 flex items-center gap-1"><Share2 className="w-3.5 h-3.5" /></button>
