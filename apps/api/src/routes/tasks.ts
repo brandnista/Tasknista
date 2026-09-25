@@ -454,6 +454,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ต้องรู้ว่าใครจ่ายงานมา (assignedBy) โชว์เป็นคอลัมน์ในตารางได้
     const dispatcher = alias(users, 'dispatcher')
+    // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ต้องรู้ว่าใครตีกลับ (bouncedBy) โชว์ avatar/ชื่อในวิดเจ็ต "งานที่ถูกตีกลับ"
+    const bouncer = alias(users, 'bouncer')
     // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
     // แม้จะจ่ายมาแล้ว/กดรับงานแล้วจริง (status ขยับเป็น on_processing) ก็ไม่โผล่ใน "งานของฉัน" — ล้อ fix เดียวกับ /tasks/dispatched-by-me ด้านล่าง: leftJoin ทั้งคู่ (projects/workspaces) + fallback ชื่อที่โชว์
     const rows = await db
@@ -463,11 +465,14 @@ export const taskRoutes = new Hono<AppEnv>()
         workspaceName: workspaces.name,
         dispatcherName: dispatcher.name,
         dispatcherAvatarUrl: dispatcher.avatarUrl,
+        bouncedByName: bouncer.name,
+        bouncedByAvatarUrl: bouncer.avatarUrl,
       })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
+      .leftJoin(bouncer, eq(tasks.bouncedBy, bouncer.id))
       // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
       .where(and(eq(tasks.assigneeId, me.id), isNotNull(tasks.dispatchedAt)))
       .orderBy(asc(tasks.dueDate))
@@ -502,6 +507,8 @@ export const taskRoutes = new Hono<AppEnv>()
         projectName: r.projectName ?? r.workspaceName,
         dispatcherName: r.dispatcherName,
         dispatcherAvatarUrl: r.dispatcherAvatarUrl,
+        bouncedByName: r.bouncedByName,
+        bouncedByAvatarUrl: r.bouncedByAvatarUrl,
         myRole: roleOf(r.task.projectId),
         ...checklistOf(r.task.id),
         actualMinutes: actualMinutes.get(r.task.id) ?? null,
@@ -707,8 +714,14 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test') patch.submittedAt = new Date()
     // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification task_bounced ที่ "ยังไม่อ่าน" เป็นสัญญาณเดียว แต่การเข้าเมนู "งานของฉัน" (หน้าที่วิดเจ็ตนี้อยู่) มาร์ค type นี้อ่านอัตโนมัติทันที (เฟส 6a) ทำให้วิดเจ็ตหลุดจาก list เองทั้งที่งานยังค้างไม่ได้แก้ไขจริง — ย้ายมาเก็บเป็นสถานะถาวรของ task เอง ไม่ผูกกับ read/unread ของแจ้งเตือนอีกต่อไป เคลียร์ทุกครั้งที่สถานะขยับออกจากตรงนี้ (ไม่ว่าจะไปทางไหน)
-    if (body.data.status === 'non_start' && before.status === 'waiting_for_test') patch.bouncedAt = new Date()
-    else if (body.data.status && body.data.status !== before.status) patch.bouncedAt = null
+    if (body.data.status === 'non_start' && before.status === 'waiting_for_test') {
+      patch.bouncedAt = new Date()
+      // Pronista §Bounced Tasks Widget redesign (2026-09-25) — เก็บว่าใครตีกลับ ใช้โชว์ avatar/ชื่อในวิดเจ็ต
+      patch.bouncedBy = me.id
+    } else if (body.data.status && body.data.status !== before.status) {
+      patch.bouncedAt = null
+      patch.bouncedBy = null
+    }
     // Pronista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
     // Pronista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
@@ -717,6 +730,7 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.dispatchedAt = null
       patch.acceptedAt = null
       patch.bouncedAt = null // เปลี่ยนตัวคนรับผิดชอบ = คนใหม่เริ่มนับหนึ่งใหม่ ไม่ควรเห็นค้างว่า "ถูกตีกลับ" จากรอบของคนเก่า
+      patch.bouncedBy = null
       if (before.status !== 'non_start') {
         patch.status = 'non_start'
         patch.completedAt = null

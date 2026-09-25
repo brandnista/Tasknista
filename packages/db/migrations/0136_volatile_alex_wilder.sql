@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `bounced_by` text REFERENCES users(id);

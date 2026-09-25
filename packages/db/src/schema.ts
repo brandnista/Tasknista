@@ -579,6 +579,8 @@ export const tasks = sqliteTable(
     submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
     // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เวลาที่ถูกตีกลับล่าสุด (waiting_for_test → non_start) — สัญญาณถาวรแยกจาก read/unread ของ notification task_bounced (เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification ยังไม่อ่าน แต่การเข้าเมนู "งานของฉัน" มาร์คอ่านทันที ทำให้วิดเจ็ตหลุดจาก list ทั้งที่งานยังค้างจริง) — null = ไม่ได้ถูกตีกลับค้างอยู่ตอนนี้ (เคลียร์ทุกครั้งที่สถานะขยับ/เปลี่ยนผู้รับผิดชอบ)
     bouncedAt: integer('bounced_at', { mode: 'timestamp_ms' }),
+    // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ใครเป็นคนตีกลับล่าสุด ใช้โชว์ avatar/ชื่อในวิดเจ็ต "งานที่ถูกตีกลับ" (mirror assignedBy ที่โชว์ในวิดเจ็ต "งานใหม่ที่รอกดรับ")
+    bouncedBy: text('bounced_by').references((): AnySQLiteColumn => users.id),
     // Pronista §Daily Report activity logic (2026-09-22) — Stamp ทุกครั้งที่กดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ในหน้ารายละเอียด Task (ไม่ผูกกับ startDate/dueDate ที่ผู้ใช้อาจไม่ได้กรอก) ใช้เลือกว่างานไหนควรโผล่ใน Daily Report ของวันนั้น
     lastActivityAt: integer('last_activity_at', { mode: 'timestamp_ms' }),
   },

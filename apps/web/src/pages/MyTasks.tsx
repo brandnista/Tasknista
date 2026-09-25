@@ -46,6 +46,9 @@ interface MyTask extends KanbanTask {
   submittedAt: string | number | null
   // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — สัญญาณถาวรว่าตอนนี้ค้างอยู่เพราะถูกตีกลับ (ไม่ผูกกับ read/unread ของแจ้งเตือนอีกต่อไป — ดู BouncedTasksWidget)
   bouncedAt: string | number | null
+  // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ใครเป็นคนตีกลับล่าสุด โชว์ avatar/ชื่อในวิดเจ็ต (mirror dispatcherName ด้านล่าง)
+  bouncedByName: string | null
+  bouncedByAvatarUrl: string | null
   sprintId: string | null
   // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ใครเป็นคนกดจ่ายงานนี้มา (tasks.assignedBy resolve เป็นชื่อ)
   dispatcherName: string | null
@@ -211,8 +214,15 @@ function SummaryCards({ cards, selected, loading, onSelect }: {
 }
 
 /** Pronista §My Tasks Polish เฟส 3b (2026-09-24) — เดิมชื่อ "งานที่ต้องให้ความสนใจ" กรองตามวันครบกำหนด เปลี่ยนเป็นแสดงเฉพาะงานที่ส่งตรวจแล้วโดนผู้ตรวจ "ตีกลับ" ให้แก้ไข
- * Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เดิมกรองจาก notification task_bounced ที่ "ยังไม่อ่าน" (bouncedTaskIds) แต่หน้านี้เองมีปุ่มเคลียร์ badge อัตโนมัติตอน mount (เฟส 6a) ทำให้ notification ถูกมาร์คอ่านทันทีที่เปิดหน้า วิดเจ็ตเลยว่างเปล่าทั้งที่งานยังค้างจริง — เปลี่ยนมาอ่านจาก tasks.bouncedAt (สถานะถาวรของงานเอง) ตรงๆ แทน */
-function BouncedTasksWidget({ tasks, loading, onOpenTask }: { tasks: MyTask[]; loading: boolean; onOpenTask: (id: string) => void }) {
+ * Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เดิมกรองจาก notification task_bounced ที่ "ยังไม่อ่าน" (bouncedTaskIds) แต่หน้านี้เองมีปุ่มเคลียร์ badge อัตโนมัติตอน mount (เฟส 6a) ทำให้ notification ถูกมาร์คอ่านทันทีที่เปิดหน้า วิดเจ็ตเลยว่างเปล่าทั้งที่งานยังค้างจริง — เปลี่ยนมาอ่านจาก tasks.bouncedAt (สถานะถาวรของงานเอง) ตรงๆ แทน
+ * Pronista §Bounced Tasks Widget redesign (2026-09-25) — เลย์เอาต์เดิม (แถวเดียว badge "↩️ ตีกลับ" ปิดท้าย) ปรับให้ตรงกับ NewlyDispatchedWidget: คอลัมน์ชื่องาน/avatar คนตีกลับ/ปุ่มรับงาน แบบเดียวกัน — ปุ่ม "รับงาน" เรียก endpoint accept เดิม (งานที่ถูกตีกลับสถานะเป็น non_start อยู่แล้ว accept ได้ตรงๆ เหมือนงานที่เพิ่งจ่ายมาใหม่ ย้ายไป on_processing ให้พร้อมแก้ไขต่อทันที) */
+function BouncedTasksWidget({ tasks, loading, acceptingTaskId, onOpenTask, onAccept }: {
+  tasks: MyTask[]
+  loading: boolean
+  acceptingTaskId: string | null
+  onOpenTask: (id: string) => void
+  onAccept: (id: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const rows = tasks.filter((t) => t.status === 'non_start' && t.bouncedAt != null)
   return (
@@ -222,12 +232,34 @@ function BouncedTasksWidget({ tasks, loading, onOpenTask }: { tasks: MyTask[]; l
         <p className="mt-1 text-[11px] text-danger-700/70">งานที่ส่งตรวจแล้วแต่ผู้ตรวจส่งกลับมาให้แก้ไข</p>
       </div>
       <div className="divide-y divide-danger-100">
-        {loading && Array.from({ length: 3 }, (_, index) => <div key={index} className="mx-4 my-3 h-9 animate-pulse rounded-md bg-white/75" aria-hidden="true" />)}
+        {loading && Array.from({ length: 3 }, (_, index) => (
+          <div key={index} className="flex items-center gap-3 px-4 py-3" aria-hidden="true">
+            <div className="h-9 flex-1 animate-pulse rounded-md bg-white/75" />
+            <div className="h-8 w-20 animate-pulse rounded-lg bg-danger-100" />
+          </div>
+        ))}
         {!loading && rows.slice(0, expanded ? undefined : 5).map((t) => (
-          <button key={t.id} type="button" onClick={() => onOpenTask(t.code || t.id)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left hover:bg-white/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-danger-500">
-            <span className="min-w-0"><span className="flex items-center gap-2"><span className="shrink-0 font-mono text-[10px] text-danger-700">{t.code ?? '—'}</span><span className="truncate text-sm font-semibold text-body">{t.title}</span></span><span className="mt-1 block truncate text-[11px] text-muted">{t.projectName ?? 'ไม่ผูกโปรเจกต์'}</span></span>
-            <span className="whitespace-nowrap rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-danger-700">↩️ ตีกลับ</span>
-          </button>
+          <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-white/60 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <button onClick={() => onOpenTask(t.code || t.id)} className="min-w-0 text-left focus-visible:outline-2 focus-visible:outline-danger-500">
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 font-mono text-[10px] text-danger-700">{t.code ?? '—'}</span>
+                <span className="truncate text-sm font-semibold text-body">{t.title}</span>
+              </div>
+              <div className="mt-1 truncate text-[11px] text-muted">{t.projectName ?? 'ไม่ผูกโปรเจกต์'}</div>
+            </button>
+            <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-2 sm:col-start-2 sm:row-start-1" title={`ผู้ตีกลับ: ${t.bouncedByName ?? '—'}`}>
+              <Avatar name={t.bouncedByName ?? '—'} avatarUrl={t.bouncedByAvatarUrl} className="h-7 w-7 shrink-0 text-[10px] ring-2 ring-white" colorClass={avatarColor(t.bouncedByName ?? '—')} />
+              <span className="max-w-28 truncate text-xs font-medium text-soft">{t.bouncedByName ?? '—'}</span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onAccept(t.id) }}
+              disabled={acceptingTaskId === t.id}
+              className="col-start-2 row-span-2 row-start-1 inline-flex min-h-11 min-w-20 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-danger-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-danger-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger-500 disabled:cursor-wait disabled:bg-danger-400 sm:col-start-3 sm:row-span-1"
+            >
+              {acceptingTaskId === t.id ? <RotateCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {acceptingTaskId === t.id ? 'กำลังรับ' : 'รับงาน'}
+            </button>
+          </div>
         ))}
         {!loading && rows.length === 0 && <div className="px-4 py-8 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-danger-400" /><p className="mt-2 text-sm font-semibold text-danger-700">ไม่มีงานที่ถูกตีกลับ</p><p className="mt-1 text-xs text-danger-700/65">เมื่อผู้ตรวจส่งงานกลับมาให้แก้ไข ระบบจะแจ้งเตือนที่นี่</p></div>}
         {!expanded && rows.length > 5 && (
@@ -466,7 +498,7 @@ export function MyTasksPage() {
 
         <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-2">
           <NewlyDispatchedWidget tasks={tasks} loading={loading} acceptingTaskId={acceptingTaskId} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
-          <BouncedTasksWidget tasks={tasks} loading={loading} onOpenTask={openTask} />
+          <BouncedTasksWidget tasks={tasks} loading={loading} acceptingTaskId={acceptingTaskId} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
         </div>
 
         <PendingSubtasksWidget tasks={tasks} onOpenTask={openTask} onComplete={(id) => void changeStatus(id, 'done')} />
