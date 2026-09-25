@@ -1,4 +1,4 @@
-import { createDb, users } from '@seedoffice/db'
+import { createDb, tasks, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -645,6 +645,77 @@ describe('§Business Rules Workflow — Reviewer', () => {
   })
 })
 
+// (2026-09-25) §PRO-Defect-16092026-0004 — กด "บันทึกเพื่ออัปเดตข้อมูล" (notifyOnUpdate) แล้ว Reviewer ว่าง ต้อง default เป็นผู้จ่ายงาน
+describe('§PRO-Defect-16092026-0004 — Reviewer default เป็นผู้จ่ายงานตอน Save', () => {
+  const patchJson = (cookie: string, body: unknown) => ({
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('Save (notifyOnUpdate) ไม่ได้เลือก Reviewer แต่มีผู้จ่ายงานแล้ว → reviewerId = ผู้จ่ายงาน (assignedBy)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string; assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_owner')
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { reviewerId: string | null }).reviewerId).toBe('u_owner')
+  })
+
+  it('งานใหม่ (ยังไม่เคยมีผู้จ่ายงาน/ผู้รับผิดชอบเลย) กด Save (notifyOnUpdate) → reviewerId = คนที่กดบันทึกเอง', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const t = (await (
+      await app.request('/api/tasks/backlog', json(pond, { title: 'งานที่ยังไม่จ่าย' }), env)
+    ).json()) as { id: string; assignedBy: string | null; assigneeId: string | null }
+    expect(t.assignedBy).toBeNull()
+    expect(t.assigneeId).toBeNull()
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { reviewerId: string | null }).reviewerId).toBe('u_pond')
+  })
+
+  it('มี Reviewer อยู่แล้ว → Save (notifyOnUpdate) ไม่ทับด้วยผู้จ่ายงาน (แก้ไขแค่ค่าอื่นพร้อมกัน)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_test', email: 'reviewtest@example-co.test', name: 'รีวิว', role: 'member' }).onConflictDoNothing()
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { reviewerId: 'u_reviewer_test' }), env)
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { notifyOnUpdate: true, title: 'งาน (แก้ชื่อ)' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { reviewerId: string | null }).reviewerId).toBe('u_reviewer_test')
+  })
+
+  it('PATCH ที่ไม่ได้มาจากปุ่ม Save (ไม่มี notifyOnUpdate เช่น เปลี่ยนสถานะ/ลาก Kanban) → ไม่ default reviewer ให้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string }
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(owner, { status: 'on_processing' }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { reviewerId: string | null }).reviewerId).toBeNull()
+  })
+
+  it('คนที่กดบันทึกเป็น assignee เอง และไม่มีผู้จ่ายงานจริงๆ → reviewer ยังว่างต่อไป (กันตรวจงานตัวเอง)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { g1 } = await setupProject(pond, 'u_pond')
+    const t = (await (
+      await app.request(`/api/groups/${g1.id}/tasks`, json(pond, { title: 'งานคีย์เอง', assigneeId: 'u_pond' }), env)
+    ).json()) as { id: string; assignedBy: string | null }
+    expect(t.assignedBy).toBe('u_pond')
+    // จำลอง edge case ที่ไม่มีผู้จ่ายงานจริงๆ (สร้างพร้อม assigneeId ปกติจะเซ็ต assignedBy ให้เสมอ — ตรงนี้เคลียร์ตรงๆ เพื่อเทสต์กรณีไม่มีผู้จ่ายงานเลย)
+    await createDb(env.DB).update(tasks).set({ assignedBy: null }).where(eq(tasks.id, t.id))
+    const res = await app.request(`/api/tasks/${t.id}`, patchJson(pond, { notifyOnUpdate: true }), env)
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { reviewerId: string | null }).reviewerId).toBeNull()
+  })
+})
+
 // (2026-09-15) §Business Rules Workflow เฟส B — สถานะ Rejected/Cancelled
 describe('§Business Rules Workflow — Rejected/Cancelled status', () => {
   const patchJson3 = (cookie: string, body: unknown) => ({
@@ -778,6 +849,46 @@ describe('§Business Rules Workflow — Sub-task completion gate', () => {
     const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานเดี่ยว' }), env)).json()) as { id: string }
     const res = await app.request(`/api/tasks/${t.id}`, patchJson4(owner, { status: 'done' }), env)
     expect(res.status).toBe(200)
+  })
+})
+
+describe('§PRO-DEF-0006 (2026-09-25) — isSubtask แยกงานย่อยออกจาก Task ที่ผูกใต้ Story', () => {
+  it('POST /tasks/:id/subtasks สร้างงานย่อย → isSubtask=true', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    const sub = (await (
+      await app.request(`/api/tasks/${parent.id}/subtasks`, json(owner, { title: 'งานย่อย 1' }), env)
+    ).json()) as { isSubtask: boolean }
+    expect(sub.isSubtask).toBe(true)
+  })
+
+  it('convert to subtask → isSubtask=true · convert กลับเป็น task → isSubtask=false', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parentTask = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'Task พ่อ' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'จะแปลงเป็นงานย่อย' }), env)).json()) as { id: string }
+
+    const asSubtask = (await (
+      await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'subtask', targetParentId: parentTask.id }), env)
+    ).json()) as { isSubtask: boolean }
+    expect(asSubtask.isSubtask).toBe(true)
+
+    const backToTask = (await (await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'task' }), env)).json()) as { isSubtask: boolean }
+    expect(backToTask.isSubtask).toBe(false)
+  })
+
+  it('convert to task โดยเลือก Story เป็น targetParentId → isSubtask ยังเป็น false (Task จริงที่ผูกใต้ Story ไม่ใช่งานย่อย)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p, g1 } = await setupProject(owner)
+    const story = (await (await app.request(`/api/projects/${p.id}/backlog`, json(owner, { title: 'Story แม่' }), env)).json()) as { id: string }
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'จะผูกใต้ Story' }), env)).json()) as { id: string }
+
+    const linked = (await (
+      await app.request(`/api/tasks/${t.id}/convert`, json(owner, { to: 'task', targetParentId: story.id }), env)
+    ).json()) as { isSubtask: boolean; parentId: string | null }
+    expect(linked.isSubtask).toBe(false)
+    expect(linked.parentId).toBe(story.id)
   })
 })
 

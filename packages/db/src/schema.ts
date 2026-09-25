@@ -509,6 +509,8 @@ export const tasks = sqliteTable(
     // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยๆ ได้โดยไม่ต้องมี Story แม่ก่อน (parentId ยังว่างได้)
     // ต้องมี flag แยกเพราะ kind='task'+parentId=null ปกติแปลว่า Story (โครงสร้างเดิม) — flag นี้บอกว่า "ตั้งใจให้เป็น Task ลอย" ไปโผล่แท็บ Task ไม่ใช่แท็บ Story
     isStandaloneTask: integer('is_standalone_task', { mode: 'boolean' }).notNull().default(false),
+    // Pronista §PRO-DEF-0006 (2026-09-25) — flag แยก "งานย่อย" (สร้างจากส่วนงานย่อยในหน้า Task Detail) ออกจาก Task จริงที่ผูกใต้ Story ผ่าน "🔗 เชื่อมกับ Task" (เดิมสองอย่างนี้แยกไม่ออกเพราะดูแค่ parentId)
+    isSubtask: integer('is_subtask', { mode: 'boolean' }).notNull().default(false),
     // Pronista §2.6 — ย้าย backlog เป็น Defect: kind แยกประเภทงาน · reporterType = ผู้แจ้ง
     // Pronista §Project Refactor — เพิ่ม 'cr' (Change Request ระดับ task แยกจาก doc type 'CR') สำหรับแท็บ CR ในหน้าโปรเจกต์
     // Pronista §Back to Basic (ต่อยอด) — เพิ่ม 'backlog' แยกงานที่คีย์จากแท็บ "ทั่วไป" ออกจาก Story (kind='task' ระดับบนสุดเหมือนกันแต่คนละความหมาย) ให้เด็ดขาด

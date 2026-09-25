@@ -22,7 +22,7 @@ import { ProjectDocumentsTab } from '../components/ProjectDocumentsTab'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
-import { useToastAction } from '../components/Toast'
+import { useToast, useToastAction } from '../components/Toast'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
@@ -225,6 +225,13 @@ const BACKLOG_TAB_LABEL: Record<BacklogTab, string> = {
 const KIND_BADGE_LABEL: Record<'task' | 'defect' | 'cr' | 'backlog', string> = { task: 'Task', defect: 'Defect', cr: 'CR', backlog: 'ยังไม่ระบุ' }
 const KIND_BADGE_CLASS: Record<'task' | 'defect' | 'cr' | 'backlog', string> = {
   task: 'bg-info-50 text-info-700', defect: 'bg-danger-50 text-danger-600', cr: 'bg-warning-50 text-warning-700', backlog: 'bg-divider text-dim',
+}
+// Pronista §PRO-0023 (2026-09-25) — Story ก็ kind='task' เหมือน Task ธรรมดา แยกกันแค่ตำแหน่ง (parentId ว่าง + ไม่ใช่ Task ลอย, กฎเดียวกับ ProjectHierarchyTab) badge เดิมเลย KIND_BADGE_LABEL['task'] มาตรงๆ ทำให้ Story ขึ้น "Task" ผิด — สีให้ตรงกับ Story chip ที่ Workspace.tsx (WORKTYPE_BADGE.story)
+function taskRowKindBadge(t: Pick<ProjectAllTask, 'kind' | 'parentId' | 'isStandaloneTask'>): { label: string; className: string } {
+  if (t.kind === 'task' && t.parentId === null && !t.isStandaloneTask) {
+    return { label: 'Story', className: 'bg-violet-50 text-violet-700' }
+  }
+  return { label: KIND_BADGE_LABEL[t.kind], className: KIND_BADGE_CLASS[t.kind] }
 }
 
 /** Pronista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
@@ -800,7 +807,7 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
           ) : (
             <span className="w-3 shrink-0" />
           )}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${taskRowKindBadge(t).className}`}>{taskRowKindBadge(t).label}</span>
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
           <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
           {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
@@ -1290,6 +1297,8 @@ interface ProjectAllTask {
   epicId: string | null
   // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยได้โดยไม่ต้องมี Story แม่ (แยกจาก Story ที่ parentId=null เหมือนกันแต่ flag นี้เป็น false)
   isStandaloneTask?: boolean
+  // Pronista §PRO-DEF-0006 (2026-09-25) — งานย่อยจริง (สร้างจากส่วน "งานย่อย") ต่างจาก Task ที่ผูกใต้ Story ผ่าน convert — ใช้กรองแท็บ Task
+  isSubtask?: boolean
   status: TaskStatus
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   assigneeName: string | null
@@ -1745,7 +1754,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
   const [addBusy, setAddBusy] = useState(false)
-  const toastAction = useToastAction()
+  // Pronista §PRO-0010 (2026-09-25) — Epic ไม่มี /tasks/<id> จริง ปุ่ม View ของ toastAction เลยพาไปหน้าโหลดค้าง ใช้ toast ธรรมดาแทน (ไม่มีปุ่ม View)
+  const toast = useToast()
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkingEpic, setLinkingEpic] = useState<ProjectEpic | null>(null)
   const { data: allTasks } = useLoad<ProjectAllTask[]>(
@@ -1761,8 +1771,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Epic เบิ้ลจากกด Enter รัวๆ
     setAddBusy(true)
     try {
-      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/epics`, { title: title.trim() })
-      toastAction(taskCreatedMessage('epic', title.trim()), created.id)
+      await api.post<{ id: string }>(`/api/projects/${projectId}/epics`, { title: title.trim() })
+      toast(taskCreatedMessage('epic', title.trim()))
       setTitle('')
       void reload()
     } finally {
@@ -1878,7 +1888,10 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         // Pronista §Back to Basic (ต่อยอด) — Story ตัวจริง = parentId ว่าง "และ" ไม่ใช่ Task ลอย (isStandaloneTask)
         ? all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask)
         // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
-        : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
+        // Pronista §PRO-DEF-0006 (2026-09-25) — เดิมมีพ่อ "อะไรก็ได้" ก็ติดแท็บ Task ทำให้งานย่อยของ Defect/CR (subtask default kind='task') หลุดมาโผล่ที่นี่ด้วย
+        // ต้องเช็คว่าพ่อตัวจริงเป็น kind='task' (Story หรือ Task) เท่านั้น — ลูกของ Story ยังไม่แตะ (เจ้าของยังไม่ตัดสินใจ) ส่วนลูกของ Defect/CR ยังโชว์ซ้อนอยู่ใต้พ่อจริงในแท็บนั้นๆ ได้ปกติ เพราะ childrenOf ของแท็บนั้นอ่านจาก `all`/`data` เต็ม ไม่ผ่าน filter นี้
+        // ต่อมา: !t.isSubtask กัน "งานย่อย" ของ Story (สร้างจากหน้า Task Detail) ไม่ให้ปนกับ Task จริงที่ผูกใต้ Story — ยังโผล่ซ้อนใต้พ่อในแท็บ Story ได้ปกติ เพราะ childrenOf อ่านจาก `all` เต็มเหมือนกัน
+        : all.filter((t) => t.kind === 'task' && !t.isSubtask && (t.isStandaloneTask || (t.parentId !== null && all.find((p) => p.id === t.parentId)?.kind === 'task')))
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
   const toastAction = useToastAction()

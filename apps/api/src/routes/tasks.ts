@@ -282,6 +282,8 @@ export const taskRoutes = new Hono<AppEnv>()
         parentId: tasks.parentId,
         epicId: tasks.epicId,
         isStandaloneTask: tasks.isStandaloneTask,
+        // Pronista §PRO-DEF-0006 (2026-09-25) — ให้ ProjectHierarchyTab กรองงานย่อยของ Story ออกจากแท็บ Task ได้
+        isSubtask: tasks.isSubtask,
         status: tasks.status,
         defectStatus: tasks.defectStatus,
         assigneeName: users.name,
@@ -736,6 +738,17 @@ export const taskRoutes = new Hono<AppEnv>()
         patch.completedAt = null
       }
     }
+    // Pronista §Defect PRO-Defect-16092026-0004 (2026-09-25) — กด "บันทึกเพื่ออัปเดตข้อมูล" (notifyOnUpdate) แล้วผู้ตรวจงานว่าง → default เป็นผู้จ่ายงาน (หรือคนที่กำลังบันทึกเอง ถ้ายังไม่เคยมีผู้จ่ายงาน)
+    // เฉพาะ caller ที่มีสิทธิ์ตั้ง reviewerId เองอยู่แล้วเท่านั้น (isAssigneeOnly = allowedKeys ไม่มี reviewerId อยู่แล้ว ข้ามไปเงียบๆ ไม่ใช่ error) · ห้าม default ให้ reviewer ซ้ำกับ assignee ผลลัพธ์ (กันตรวจงานตัวเอง)
+    if (body.data.notifyOnUpdate && !isAssigneeOnly) {
+      const nextReviewerId = 'reviewerId' in body.data ? body.data.reviewerId : before.reviewerId
+      if (!nextReviewerId) {
+        const nextAssigneeId = 'assigneeId' in body.data ? body.data.assigneeId : before.assigneeId
+        const effectiveAssignerId = (patch.assignedBy as string | undefined) ?? before.assignedBy
+        const defaultReviewerId = effectiveAssignerId ?? me.id
+        if (defaultReviewerId !== nextAssigneeId) patch.reviewerId = defaultReviewerId
+      }
+    }
     // Pronista §Notification overhaul (2026-08-27) — แก้กำหนดส่งใหม่ → เคลียร์เกตกันเตือนซ้ำ ให้นับรอบเลยกำหนดใหม่ตามวันที่แก้ (mirror expiryNotifiedAt reset ใน routes/projects.ts)
     if ('dueDate' in body.data && body.data.dueDate !== before.dueDate) patch.dueNotifiedAt = null
     // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N
@@ -745,6 +758,8 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.projectId = parent.projectId
       patch.groupId = parent.groupId
       patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? sanitizeCodePrefix(null, 'TSK'))
+      // Pronista §PRO-DEF-0006 (2026-09-25) — ทางนี้คือย้าย backlog เข้าเป็นงานย่อยของ task ที่มีอยู่ (ไม่ใช่ convert) ต้องติด flag เหมือนกัน
+      patch.isSubtask = true
     } else if (body.data.projectId && before.projectId === null) {
       // Pronista §2.5 — ย้าย backlog (BL-N) เข้าโปรเจกต์ → ออกโค้ดใหม่ตามคำนำหน้าโปรเจกต์
       const project = (await db.select().from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
@@ -1132,7 +1147,8 @@ export const taskRoutes = new Hono<AppEnv>()
     }
 
     // Pronista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
-    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', version: sql`${tasks.version} + 1` }
+    // Pronista §PRO-DEF-0006 (2026-09-25) — convert ไปทางไหนก็ตาม ถือว่าไม่ใช่ "งานย่อย" แล้ว ยกเว้น to:'subtask' เท่านั้นที่ตั้งกลับเป็น true (เขียนทับด้านล่าง)
+    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', isSubtask: false, version: sql`${tasks.version} + 1` }
     // Pronista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
     const codePrefix = sanitizeCodePrefix(null, 'TSK')
     // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
@@ -1173,6 +1189,7 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.groupId = parent.groupId
       patch.epicId = parent.epicId
       patch.isStandaloneTask = false
+      patch.isSubtask = true
       if (!before.code) patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
     } else {
       // task — Pronista §Feedback batch 4: ไม่บังคับเลือก parent (Story) ทันทีอีกต่อไป ผูกทีหลังได้ผ่าน PATCH /tasks/:id

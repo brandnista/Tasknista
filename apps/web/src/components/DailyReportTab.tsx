@@ -737,7 +737,9 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                     <div className="mt-3 bg-danger-50 border border-danger-100 rounded-xl px-4 py-3.5 space-y-2.5">
                       <div>
                         <div className="text-[11.5px] font-semibold text-danger-700 uppercase tracking-wide mb-1">รายละเอียด</div>
+                        {/* Pronista §PRO-0009 (2026-09-25) — defaultValue = uncontrolled ไม่รีอ่านตอน report เปลี่ยน (เช่นสลับวันที่) ใส่ key ผูกกับ report.id ให้ remount แล้วอ่าน defaultValue ใหม่ กันข้อความวันเก่าค้าง/หลุดไปบันทึกทับ report วันใหม่ */}
                         <textarea
+                          key={report.id}
                           defaultValue={report.blockerDetail ?? ''}
                           onBlur={(e) => void saveMeta({ blockerDetail: e.target.value })}
                           rows={2}
@@ -747,6 +749,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                       <div>
                         <div className="text-[11.5px] font-semibold text-danger-700 uppercase tracking-wide mb-1">ต้องการความช่วยเหลือจาก</div>
                         <input
+                          key={report.id}
                           defaultValue={report.blockerNeedHelpFrom ?? ''}
                           onBlur={(e) => void saveMeta({ blockerNeedHelpFrom: e.target.value })}
                           placeholder="เช่น PM / หัวหน้า / ทีม Backend"
@@ -764,7 +767,9 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                     <h2 className="text-[15px] font-bold text-ink">หมายเหตุเพิ่มเติม</h2>
                   </div>
                   <p className="text-[12.5px] text-muted ml-[32px] mb-3">ไม่บังคับ</p>
+                  {/* Pronista §PRO-0009 (2026-09-25) — เดิมไม่มี key: สลับวันที่แล้ว report เปลี่ยนแต่กล่องนี้เป็น uncontrolled (defaultValue อ่านครั้งเดียวตอน mount) ข้อความวันเก่าเลยค้างในจอ แล้วถ้า blur มาเผลอเซฟทับ report วันใหม่ (data corruption) — ใส่ key ผูกกับ report.id (หรือ "new-<date>" ตอนยังไม่มี report) ให้ React remount อ่านค่าใหม่ทุกครั้งที่วันที่/report เปลี่ยน */}
                   <textarea
+                    key={report?.id ?? `new-${date}`}
                     defaultValue={report?.notes ?? ''}
                     onBlur={(e) => void saveMeta({ notes: e.target.value || null })}
                     rows={3}

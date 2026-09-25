@@ -254,6 +254,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         createdBy: me.id,
         code,
         title: body.data.title,
+        // Pronista §PRO-DEF-0006 (2026-09-25) — สร้างจากส่วน "งานย่อย" เสมอ = งานย่อยจริง ต่างจาก Task ที่ผูกใต้ Story ผ่าน convert
+        isSubtask: true,
         // Pronista §SOW Task/Subtask — สืบ originDocType/originDocId จาก parent เสมอ ไม่งั้น subtask ที่เพิ่มเองใต้ Task SOW (เช่นตอน auto-parse ไม่เจออะไรเลย) จะติด guard sprint ใหม่ ลาก sprint ไม่ได้ตลอดกาล
         originDocType: parent.originDocType,
         originDocId: parent.originDocId,

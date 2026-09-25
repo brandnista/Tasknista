@@ -200,6 +200,10 @@ function NoteShareModal({ note, onClose }: { note: { id: string; title: string |
             </div>
           ))}
         </div>
+        {/* Pronista §My Note share (2026-09-25) — QA: กด "เพิ่ม" แล้วไม่มีทางจบชัดเจนนอกจาก X เพิ่มปุ่มปิดที่ตั้งใจกดเมื่อแชร์เสร็จ */}
+        <div className="flex justify-end pt-1">
+          <button onClick={onClose} className="text-sm text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg font-medium">เสร็จสิ้น</button>
+        </div>
       </div>
     </div>
   )
@@ -313,8 +317,9 @@ function NoteAttachments({ noteId, canEdit, ensureNoteId }: { noteId: string | n
  * Pronista §My Note Edit (2026-08-27) — ฟอร์มเดียวใช้ทั้งสร้างใหม่และแก้ไขของเดิม
  * ตัดสินใจ POST/PATCH จาก `editing` — parent ใส่ key={editing?.id ?? 'new'} กำกับไว้ให้ remount สดใหม่ทุกครั้งที่สลับเป้าหมาย (เหมือน resetKey เดิมของ RichTextEditor)
  */
-function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { editing?: Note | null; meId: string; onSaved: () => void; onCancel?: () => void; onDraftCreated?: () => void }) {
+function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { editing?: Note | null; meId: string; onSaved: () => void; onCancel?: () => void; onDraftCreated?: (id: string) => void }) {
   const toast = useToast()
+  const { alertDialog } = useDialog()
   const initialBody = editing ? parseBody(editing.body) : null
   const readOnly = !!editing && !canEditNoteRow(editing, meId)
   const [shareOpen, setShareOpen] = useState(false)
@@ -338,7 +343,7 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
     const body: NoteBody = mode === 'text' ? { mode: 'text', text } : { mode: 'checklist', items }
     const created = await api.post<Note>('/api/my-notes', { title: title.trim() || null, body })
     setDraftId(created.id)
-    onDraftCreated?.()
+    onDraftCreated?.(created.id)
     return created.id
   }
   // Pronista §My Note share-before-save fix (2026-09-01) — เดิมแชร์ได้แค่บันทึกที่บันทึกไปแล้ว (editing เท่านั้น) — สร้าง draft เงียบๆ ก่อนเปิดแชร์ เหมือน pattern การแนบไฟล์/ลิงก์
@@ -349,10 +354,16 @@ function NoteEditor({ editing, meId, onSaved, onCancel, onDraftCreated }: { edit
   const save = async () => {
     const body: NoteBody = mode === 'text' ? { mode: 'text', text } : { mode: 'checklist', items }
     if (mode === 'text' ? !text.trim() : items.length === 0) return
-    if (activeNoteId) {
-      await api.patch(`/api/my-notes/${activeNoteId}`, { title: title.trim() || null, body })
-    } else {
-      await api.post('/api/my-notes', { title: title.trim() || null, body })
+    try {
+      if (activeNoteId) {
+        await api.patch(`/api/my-notes/${activeNoteId}`, { title: title.trim() || null, body })
+      } else {
+        await api.post('/api/my-notes', { title: title.trim() || null, body })
+      }
+    } catch (e) {
+      // Pronista §My Note delete-draft fix (2026-09-25) — เดิม save() ไม่มี try/catch ถ้า note ถูกลบไปแล้ว (เช่น draft ที่ถูกลบจากบอร์ด) PATCH จะพังเงียบๆ ไม่มีอะไรขึ้น
+      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
+      return
     }
     if (!editing) {
       // เคลียร์ฟอร์มไว้เขียนบันทึกใหม่ต่อได้เลย (เฉพาะโหมดสร้างใหม่ — โหมดแก้ไข parent จะปิดฟอร์มนี้ทิ้งหลัง onSaved)
@@ -477,9 +488,10 @@ function PostIt({ note, meId, isNew, onOpenConvert, onEdit, onDelete }: { note: 
       <span className={`absolute -top-2 left-1/2 -translate-x-1/2 w-10 h-4 rounded-xs rotate-1 ${palette.tape}`} />
       {/* ปุ่ม Convert/ลบ — โชว์ตลอดบนมือถือ (ไม่มี hover) ซ่อนไว้จนโฮเวอร์เฉพาะจอที่มีเมาส์จริง (sm ขึ้นไป) — บันทึกที่ถูกแชร์มาแบบดูอย่างเดียวเห็นแค่ไอคอนเปิดดู */}
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-        <button onClick={(e) => { e.stopPropagation(); onEdit() }} title={canEdit ? 'แก้ไข' : 'ดูบันทึก'} className="text-ink/35 hover:text-brand-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
+        {/* Pronista §My Note share (2026-09-25) — view-only เปิดบันทึกได้จากการคลิกการ์ดอยู่แล้ว ไอคอนแก้ไข/convert/ลบซ่อนทั้งหมด ไม่ใช่แค่ disable */}
         {canEdit && (
           <>
+            <button onClick={(e) => { e.stopPropagation(); onEdit() }} title="แก้ไข" className="text-ink/35 hover:text-brand-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
             <button onClick={(e) => { e.stopPropagation(); onOpenConvert() }} title="Convert เป็นงาน" className="text-ink/35 hover:text-brand-700 p-0.5"><Repeat className="w-3.5 h-3.5" /></button>
             <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="ลบ" className="text-ink/35 hover:text-danger-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
           </>
@@ -605,16 +617,30 @@ export function MyNoteTab() {
   const [convertingNote, setConvertingNote] = useState<Note | null>(null)
   // Pronista §My Note Edit (2026-08-27) — note ที่กำลังแก้ไขอยู่ (null = ฟอร์มบนสุดอยู่ในโหมด "สร้างใหม่")
   const [editingNote, setEditingNote] = useState<Note | null>(null)
+  // Pronista §My Note delete-draft fix (2026-09-25) — แทร็ก id ของ draft ที่ NoteEditor สร้างเงียบๆ ตอนแชร์/แนบไฟล์ก่อนกด "บันทึก" (editingNote ยังเป็น null อยู่) เพื่อให้ remove() รู้ว่าต้องเคลียร์ editor ด้วยถ้า draft นี้ถูกลบ
+  const [draftId, setDraftId] = useState<string | null>(null)
+  // บังคับ remount NoteEditor เมื่อลบ draft ที่ไม่มี editingNote กำกับ (key เดิมคำนวณจาก editingNote?.id เฉยๆ จะไม่เปลี่ยนในเคสนี้)
+  const [resetCounter, setResetCounter] = useState(0)
   // Pronista §Mobile My Note redesign (2026-09-02) — จอมือถือ (< lg) เดิม flex-col ซ้อนกันยาว บอร์ดหล่นไปอยู่ล่างสุด ต้องเลื่อนผ่านฟอร์ม+รายการทั้งหมดก่อนถึงจะเห็น
   // สลับเป็นแท็บ "เขียน/รายการ" กับ "บอร์ด" เฉพาะจอมือถือแทน (lg ขึ้นไปยังเห็นคู่กันข้างๆ เหมือนเดิมทุกอย่าง ไม่กระทบ desktop)
   const [mobileView, setMobileView] = useState<'write' | 'board'>('write')
 
   const reloadAll = () => { void reload(); void reloadShared() }
 
+  // เปิดโน้ตอื่นในฟอร์ม (จากลิสต์/บอร์ด) ถือเป็นการสลับออกจาก draft เดิม (ถ้ามี) — เคลียร์ draftId กันของค้าง
+  const openNote = (n: Note) => {
+    setEditingNote(n)
+    setDraftId(null)
+  }
+
   const remove = async (n: Note) => {
     const ok = await confirmDialog({ title: 'ลบบันทึกนี้?', message: n.title || notePreview(parseBody(n.body)), confirmLabel: 'ลบ', danger: true })
     if (!ok) return
-    if (editingNote?.id === n.id) setEditingNote(null)
+    if (editingNote?.id === n.id || draftId === n.id) {
+      setEditingNote(null)
+      setDraftId(null)
+      setResetCounter((c) => c + 1)
+    }
     await api.delete(`/api/my-notes/${n.id}`)
     reloadAll()
   }
@@ -629,15 +655,16 @@ export function MyNoteTab() {
       </div>
       <div className={`${mobileView === 'write' ? 'block' : 'hidden'} lg:block w-full lg:w-[45%] lg:shrink-0 space-y-4`}>
         <NoteEditor
-          key={editingNote?.id ?? 'new'}
+          key={`${editingNote?.id ?? 'new'}-${resetCounter}`}
           editing={editingNote}
           meId={meId}
           onCancel={() => setEditingNote(null)}
           onSaved={() => {
             setEditingNote(null)
+            setDraftId(null)
             reloadAll()
           }}
-          onDraftCreated={reloadAll}
+          onDraftCreated={(id) => { setDraftId(id); reloadAll() }}
         />
 
         {!notesList ? (
@@ -652,7 +679,7 @@ export function MyNoteTab() {
               return (
                 <div
                   key={n.id}
-                  onClick={() => setEditingNote(n)}
+                  onClick={() => openNote(n)}
                   className={`bg-white rounded-lg shadow-xs px-4 py-3 cursor-pointer hover:shadow-sm ${editingNote?.id === n.id ? 'ring-2 ring-brand-400' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -678,9 +705,10 @@ export function MyNoteTab() {
                       <div className="text-[10px] text-muted mt-1">{new Date(n.updatedAt).toLocaleString('th-TH')}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <button onClick={(e) => { e.stopPropagation(); setEditingNote(n) }} title={canEdit ? 'แก้ไข' : 'ดูบันทึก'} className="text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>
+                      {/* Pronista §My Note share (2026-09-25) — view-only เปิดบันทึกได้จากคลิกการ์ดอยู่แล้ว ซ่อนดินสอ/convert/ลบทั้งหมดแทนที่จะโชว์ไว้เฉยๆ */}
                       {canEdit && (
                         <>
+                          <button onClick={(e) => { e.stopPropagation(); openNote(n) }} title="แก้ไข" className="text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>
                           <button onClick={(e) => { e.stopPropagation(); setConvertingNote(n) }} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
                             <Repeat className="w-3 h-3" /> Convert
                           </button>
@@ -703,7 +731,7 @@ export function MyNoteTab() {
           notes={(boardTab === 'own' ? notesList : sharedNotesList) ?? []}
           meId={meId}
           onOpenConvert={setConvertingNote}
-          onEdit={setEditingNote}
+          onEdit={openNote}
           onDelete={(n) => void remove(n)}
         />
       </div>
