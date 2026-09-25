@@ -706,6 +706,9 @@ export const taskRoutes = new Hono<AppEnv>()
     if (body.data.status && body.data.status !== 'done') patch.completedAt = null
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test') patch.submittedAt = new Date()
+    // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification task_bounced ที่ "ยังไม่อ่าน" เป็นสัญญาณเดียว แต่การเข้าเมนู "งานของฉัน" (หน้าที่วิดเจ็ตนี้อยู่) มาร์ค type นี้อ่านอัตโนมัติทันที (เฟส 6a) ทำให้วิดเจ็ตหลุดจาก list เองทั้งที่งานยังค้างไม่ได้แก้ไขจริง — ย้ายมาเก็บเป็นสถานะถาวรของ task เอง ไม่ผูกกับ read/unread ของแจ้งเตือนอีกต่อไป เคลียร์ทุกครั้งที่สถานะขยับออกจากตรงนี้ (ไม่ว่าจะไปทางไหน)
+    if (body.data.status === 'non_start' && before.status === 'waiting_for_test') patch.bouncedAt = new Date()
+    else if (body.data.status && body.data.status !== before.status) patch.bouncedAt = null
     // Pronista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
     // Pronista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
@@ -713,6 +716,7 @@ export const taskRoutes = new Hono<AppEnv>()
     if ('assigneeId' in body.data && body.data.assigneeId !== before.assigneeId) {
       patch.dispatchedAt = null
       patch.acceptedAt = null
+      patch.bouncedAt = null // เปลี่ยนตัวคนรับผิดชอบ = คนใหม่เริ่มนับหนึ่งใหม่ ไม่ควรเห็นค้างว่า "ถูกตีกลับ" จากรอบของคนเก่า
       if (before.status !== 'non_start') {
         patch.status = 'non_start'
         patch.completedAt = null

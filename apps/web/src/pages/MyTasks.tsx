@@ -44,6 +44,8 @@ interface MyTask extends KanbanTask {
   // Pronista §My Work UX — ใช้คำนวณ "เสร็จวันนี้"/"ส่งตรวจวันนี้" + ตัวกรอง Sprint/Backlog
   completedAt: string | number | null
   submittedAt: string | number | null
+  // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — สัญญาณถาวรว่าตอนนี้ค้างอยู่เพราะถูกตีกลับ (ไม่ผูกกับ read/unread ของแจ้งเตือนอีกต่อไป — ดู BouncedTasksWidget)
+  bouncedAt: string | number | null
   sprintId: string | null
   // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ใครเป็นคนกดจ่ายงานนี้มา (tasks.assignedBy resolve เป็นชื่อ)
   dispatcherName: string | null
@@ -208,10 +210,11 @@ function SummaryCards({ cards, selected, loading, onSelect }: {
   )
 }
 
-/** Pronista §My Tasks Polish เฟส 3b (2026-09-24) — เดิมชื่อ "งานที่ต้องให้ความสนใจ" กรองตามวันครบกำหนด เปลี่ยนเป็นแสดงเฉพาะงานที่ส่งตรวจแล้วโดนผู้ตรวจ "ตีกลับ" ให้แก้ไข (task_bounced ที่ยังไม่อ่าน + สถานะกลับไปเป็น non_start) — สัญญาณ bouncedTaskIds มีอยู่แล้วจาก notifications ไม่ต้องเรียก backend เพิ่ม พองานถูกส่งใหม่สถานะขยับออกจาก non_start วิดเจ็ตก็หลุดจาก list เองแม้ notification จะยังไม่ถูกอ่านก็ตาม */
-function BouncedTasksWidget({ tasks, bouncedTaskIds, loading, onOpenTask }: { tasks: MyTask[]; bouncedTaskIds: Set<string>; loading: boolean; onOpenTask: (id: string) => void }) {
+/** Pronista §My Tasks Polish เฟส 3b (2026-09-24) — เดิมชื่อ "งานที่ต้องให้ความสนใจ" กรองตามวันครบกำหนด เปลี่ยนเป็นแสดงเฉพาะงานที่ส่งตรวจแล้วโดนผู้ตรวจ "ตีกลับ" ให้แก้ไข
+ * Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เดิมกรองจาก notification task_bounced ที่ "ยังไม่อ่าน" (bouncedTaskIds) แต่หน้านี้เองมีปุ่มเคลียร์ badge อัตโนมัติตอน mount (เฟส 6a) ทำให้ notification ถูกมาร์คอ่านทันทีที่เปิดหน้า วิดเจ็ตเลยว่างเปล่าทั้งที่งานยังค้างจริง — เปลี่ยนมาอ่านจาก tasks.bouncedAt (สถานะถาวรของงานเอง) ตรงๆ แทน */
+function BouncedTasksWidget({ tasks, loading, onOpenTask }: { tasks: MyTask[]; loading: boolean; onOpenTask: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false)
-  const rows = tasks.filter((t) => t.status === 'non_start' && bouncedTaskIds.has(t.id))
+  const rows = tasks.filter((t) => t.status === 'non_start' && t.bouncedAt != null)
   return (
     <section className="overflow-hidden rounded-xl border border-danger-100 bg-danger-50/55 shadow-xs" aria-busy={loading}>
       <div className="border-b border-danger-100 px-4 py-3.5">
@@ -326,13 +329,13 @@ export function MyTasksPage() {
   // Pronista §Card glance-at-a-glance — จำนวนวันก่อนถึงกำหนดส่งที่เริ่มเตือนสีเหลือง (ตั้งค่าทั่วไป)
   const { data: cfg } = useLoad<{ dueSoonDays: number; taskTypes: TaskType[] }>(() => api.get('/api/config'))
   // Pronista §Notification overhaul (2026-08-27) — ย้ายมาอ่านจาก NotificationsProvider กลาง (แท็บ "แจ้งเตือน" ในหน้านี้ถูกถอดออกแล้ว เพราะมีกระดิ่งที่ Navbar เป็นจุดเข้าถึงหลักแทน)
-  const { rows: notifRows, markTypeRead } = useNotifications()
+  // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — ใช้แค่ markTypeRead ล้วนๆ แล้ว (ไม่อ่าน rows/notifications จาก context นี้อีกต่อไป — สัญญาณ "ตีกลับ" ย้ายไป tasks.bouncedAt แล้ว ดู bouncedTaskIds ด้านล่าง)
+  const { markTypeRead } = useNotifications()
   // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานของฉัน" แล้วเคลียร์ badge กลุ่ม assigned ทันที (เดิมไม่เคยเคลียร์เลย ทั้งที่หน้านี้ import useNotifications อยู่แล้ว)
   useEffect(() => {
     for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const) void markTypeRead(t)
   }, [markTypeRead])
   const tasks = data ?? []
-  const notifications = notifRows ?? []
 
   // Pronista §My Work UX — ตัวกรอง/มุมมองใหม่ (ค้นหา, โปรเจกต์, Sprint/Priority, ช่วงเวลา, เสร็จ/ส่งตรวจวันนี้, Board/List)
   const [search, setSearch] = useState('')
@@ -373,8 +376,8 @@ export function MyTasksPage() {
   const isSubmittedToday = (t: MyTask) => !!t.submittedAt && bkkDay(t.submittedAt) === today
   const isOverdue = (t: MyTask) => !!t.dueDate && t.dueDate < today && !isInactiveStatus(t.status)
 
-  // Pronista §Task lifecycle notifications — งานที่ถูกตีกลับล่าสุด (แจ้งเตือนยังไม่อ่าน) โชว์ป้าย "ตีกลับ" ในบอร์ด
-  const bouncedTaskIds = new Set(notifications.filter((n) => n.type === 'task_bounced' && !n.isRead && n.taskId).map((n) => n.taskId!))
+  // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — โชว์ป้าย "ตีกลับ" ในบอร์ด — เดิมอิงจากแจ้งเตือนยังไม่อ่าน (หลุดง่ายทันทีที่เข้าเมนูนี้เพราะ badge auto-clear เฟส 6a) เปลี่ยนมาอิงจาก tasks.bouncedAt ตรงๆ เหมือน BouncedTasksWidget ด้านบน
+  const bouncedTaskIds = new Set(tasks.filter((t) => t.bouncedAt != null).map((t) => t.id))
 
   const projectOptions = useMemo(() => {
     const seen = new Map<string, string>()
@@ -463,7 +466,7 @@ export function MyTasksPage() {
 
         <div className="grid grid-cols-1 gap-3 min-[900px]:grid-cols-2">
           <NewlyDispatchedWidget tasks={tasks} loading={loading} acceptingTaskId={acceptingTaskId} onOpenTask={openTask} onAccept={(id) => void acceptTask(id)} />
-          <BouncedTasksWidget tasks={tasks} bouncedTaskIds={bouncedTaskIds} loading={loading} onOpenTask={openTask} />
+          <BouncedTasksWidget tasks={tasks} loading={loading} onOpenTask={openTask} />
         </div>
 
         <PendingSubtasksWidget tasks={tasks} onOpenTask={openTask} onComplete={(id) => void changeStatus(id, 'done')} />

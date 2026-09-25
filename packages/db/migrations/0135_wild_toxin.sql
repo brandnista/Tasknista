@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `bounced_at` integer;
