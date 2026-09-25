@@ -32,6 +32,8 @@ interface NotificationsValue {
   /** Pronista §PRO-DEF-0002 (2026-09-25) — จำนวน task จริงใน GET /api/tasks/pending-review (เหมือนที่หน้า "งานรอตรวจ" list ใช้) แยกจาก unread notification เพราะเข้าเพจแล้ว mark อ่านทันที + reviewer=assigner เดียวกันไม่มีแจ้งเตือนส่งเลย ทำให้ badge เดิมนับแจ้งเตือนไม่ตรงกับจำนวนงานจริง */
   reviewCount: number
   reloadReviewCount: () => void
+  /** (2026-09-25) เข้าเมนู "งานรอตรวจ" → ถือว่าเห็นงานรอตรวจทั้งหมดแล้ว badge เป็น 0 ทันที */
+  markReviewSeen: () => Promise<void>
 }
 
 const NotificationsContext = createContext<NotificationsValue>({
@@ -44,6 +46,7 @@ const NotificationsContext = createContext<NotificationsValue>({
   markTypeRead: async () => {},
   reviewCount: 0,
   reloadReviewCount: () => {},
+  markReviewSeen: async () => {},
 })
 
 const POLL_MS = 30_000
@@ -68,12 +71,26 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Pronista §PRO-DEF-0002 (2026-09-25) — ดึงจาก endpoint เดียวกับ list หน้า "งานรอตรวจ" ตรงๆ (ไม่ใช่นับ unread notification) กันเลข badge เพี้ยนจาก list จริง
+  // (2026-09-25 follow-up) นับเฉพาะงานที่ยังไม่เคยเห็นในเมนู "งานรอตรวจ" หรือถูกส่งตรวจใหม่หลังเห็นครั้งล่าสุด — เข้าเมนูแล้ว (markReviewSeen) เลขลดทันที
   const reloadReviewCount = useCallback(() => {
     api
-      .get<unknown[]>('/api/tasks/pending-review')
-      .then((data) => setReviewCount(data.length))
+      .get<{ submittedAt: string | null; reviewSeenAt: string | null }[]>('/api/tasks/pending-review')
+      .then((data) =>
+        setReviewCount(
+          data.filter((t) => !t.reviewSeenAt || (t.submittedAt != null && Date.parse(t.submittedAt) > Date.parse(t.reviewSeenAt))).length,
+        ),
+      )
       .catch(() => {})
   }, [])
+
+  const markReviewSeen = useCallback(async () => {
+    setReviewCount(0)
+    try {
+      await api.post('/api/tasks/pending-review/seen')
+    } finally {
+      reloadReviewCount()
+    }
+  }, [reloadReviewCount])
 
   useEffect(() => {
     reload()
@@ -114,7 +131,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <NotificationsContext.Provider value={{ rows, loadError, reload, markRead, markAllRead, markChannelRead, markTypeRead, reviewCount, reloadReviewCount }}>
+    <NotificationsContext.Provider value={{ rows, loadError, reload, markRead, markAllRead, markChannelRead, markTypeRead, reviewCount, reloadReviewCount, markReviewSeen }}>
       {children}
     </NotificationsContext.Provider>
   )

@@ -703,6 +703,18 @@ export function TaskDetailPage() {
     void reload()
     return `/api/attachments/${att.id}`
   }
+  // (2026-09-25) รูป/วิดีโอในคอมเมนต์ — endpoint แยก สิทธิ์เดียวกับคอมเมนต์ (คนที่คอมเมนต์ได้แต่แก้งานไม่ได้ก็แนบได้)
+  const uploadCommentMedia = async (file: File): Promise<string | null> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/tasks/${t.id}/comment-media`, { method: 'POST', body: fd })
+    if (!res.ok) {
+      await alertDialog({ title: res.status === 413 ? 'ไฟล์ใหญ่เกิน 15MB' : res.status === 415 ? 'แนบได้เฉพาะรูปหรือวิดีโอ' : 'แนบไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง' })
+      return null
+    }
+    const att = (await res.json()) as { id: string }
+    return `/api/attachments/${att.id}`
+  }
   const uploadMany = async (files: FileList | File[]) => {
     for (const f of Array.from(files)) await upload(f)
     await reload()
@@ -995,7 +1007,7 @@ export function TaskDetailPage() {
                         </div>
                         {editingComment?.id === f.id ? (
                           <div className="space-y-2">
-                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" onUploadMedia={uploadDescriptionMedia} />
+                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" onUploadMedia={uploadCommentMedia} />
                             <div className="flex justify-end gap-2">
                               <button onClick={() => setEditingComment(null)} className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
                               <button onClick={() => void saveComment()} disabled={!editingComment.body.trim()} className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 text-white disabled:opacity-40">บันทึก</button>
@@ -1043,7 +1055,7 @@ export function TaskDetailPage() {
             <div className="mt-3 space-y-2">
               {/* Pronista §CR PRO-CR-17092026-0010 (2026-09-25) — onUploadMedia เปิดปุ่มแทรกรูป/วิดีโอ + วาง/ลากไฟล์ในคอมเมนต์ เหมือนฟิลด์ "รายละเอียดจากผู้จ่ายงาน"
                   reuse uploadDescriptionMedia เดิม (ไป endpoint attachments เดียวกัน + reload()) — ปลอดภัยกับ key ที่ผูกกับ t.comments.length เพราะอัปโหลดสื่อไม่ได้เพิ่มจำนวนคอมเมนต์ ไม่ทำให้ editor remount ทับข้อความที่พิมพ์ค้างไว้ */}
-              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" onUploadMedia={uploadDescriptionMedia} />
+              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" onUploadMedia={uploadCommentMedia} />
               <div className="flex justify-end gap-2">
                 {isAssignee && (
                   <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 py-2 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">

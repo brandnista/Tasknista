@@ -579,6 +579,9 @@ export const tasks = sqliteTable(
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
     // Pronista §My Work UX — เวลาที่กด "ส่งงาน" ล่าสุด (status → waiting_for_test) ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
+    // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — เวลาที่ผู้ตรวจงานกดเข้าเมนู "งานรอตรวจ" ล่าสุด (เห็นงานนี้แล้ว) — badge นับเฉพาะงานที่ยังไม่เคยเห็น
+    // หรือถูกส่งตรวจใหม่หลังเห็นครั้งล่าสุด (submittedAt > reviewSeenAt) · ล้างเป็น null เมื่อเปลี่ยนผู้ตรวจงาน (คนใหม่ยังไม่เคยเห็น)
+    reviewSeenAt: integer('review_seen_at', { mode: 'timestamp_ms' }),
     // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เวลาที่ถูกตีกลับล่าสุด (waiting_for_test → non_start) — สัญญาณถาวรแยกจาก read/unread ของ notification task_bounced (เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification ยังไม่อ่าน แต่การเข้าเมนู "งานของฉัน" มาร์คอ่านทันที ทำให้วิดเจ็ตหลุดจาก list ทั้งที่งานยังค้างจริง) — null = ไม่ได้ถูกตีกลับค้างอยู่ตอนนี้ (เคลียร์ทุกครั้งที่สถานะขยับ/เปลี่ยนผู้รับผิดชอบ)
     bouncedAt: integer('bounced_at', { mode: 'timestamp_ms' }),
     // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ใครเป็นคนตีกลับล่าสุด ใช้โชว์ avatar/ชื่อในวิดเจ็ต "งานที่ถูกตีกลับ" (mirror assignedBy ที่โชว์ในวิดเจ็ต "งานใหม่ที่รอกดรับ")

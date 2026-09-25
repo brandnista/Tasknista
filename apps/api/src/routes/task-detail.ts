@@ -451,6 +451,31 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     return c.json(inserted[0], 201)
   })
 
+  // Pronista §PRO-CR-17092026-0010 follow-up (2026-09-25) — แนบรูป/วิดีโอในคอมเมนต์: สิทธิ์เดียวกับ "คอมเมนต์ได้" (เห็นโปรเจกต์) ไม่ใช่ canEditTask
+  // ตามที่อาร์มสั่งให้เปิดทุกคนที่คอมเมนต์ได้ (รวม vendor/guest) — จำกัดเฉพาะ image/video กันใช้ช่องนี้เป็นทางลัดแนบไฟล์ทั่วไปแทนช่อง "ไฟล์แนบ" ที่ยังต้องแก้ไขงานได้
+  .post('/tasks/:id/comment-media', async (c) => {
+    const db = createDb(c.env.DB)
+    const task = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!task) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    if (task.projectId && !(await isProjectVisibleToUser(db, task.projectId, me.id, me.role))) return c.json({ error: 'not_found' }, 404)
+    const form = await c.req.formData()
+    const file = form.get('file')
+    if (!(file instanceof File)) return c.json({ error: 'file_required' }, 400)
+    if (!/^(image|video)\//.test(file.type)) return c.json({ error: 'media_only' }, 415)
+    if (file.size === 0 || file.size > MAX_FILE_BYTES) return c.json({ error: 'file_too_large' }, 413)
+
+    const safeName = file.name.replaceAll('/', '_').slice(0, 120)
+    const r2Key = `tasks/${task.id}/${crypto.randomUUID()}-${safeName}`
+    await c.env.FILES.put(r2Key, file.stream(), { httpMetadata: { contentType: file.type } })
+    const inserted = await db
+      .insert(taskAttachments)
+      .values({ taskId: task.id, r2Key, filename: safeName, mime: file.type, sizeBytes: file.size, uploadedBy: me.id })
+      .returning()
+    await writeAudit(c.env, { actorId: me.id, action: 'task.attach', entity: 'task', entityId: task.id, meta: { filename: safeName, via: 'comment' } })
+    return c.json(inserted[0], 201)
+  })
+
   // แนบลิงก์ภายนอก (Google Docs/Figma/Canva/อื่นๆ) — auto-detect ประเภทจาก hostname ไม่ต้องให้เลือกเอง
   .post('/tasks/:id/attachment-links', teamOnly, async (c) => {
     const body = z.object({ url: z.string().url().max(2000), label: z.string().max(200).optional() }).safeParse(await c.req.json())

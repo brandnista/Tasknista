@@ -543,6 +543,18 @@ export const taskRoutes = new Hono<AppEnv>()
     )
   })
 
+  // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — ผู้ตรวจงานกดเข้าเมนู "งานรอตรวจ" = เห็นงานที่รอตรวจทั้งหมดแล้ว → badge ลดทันที
+  // (งานยังอยู่ใน list จนกว่าจะอนุมัติ/ตีกลับ — แค่ไม่นับเป็น "ใหม่" แล้ว; ส่งตรวจรอบใหม่หลังจากนี้จะนับใหม่อีกครั้งผ่าน submittedAt > reviewSeenAt)
+  .post('/tasks/pending-review/seen', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    await db
+      .update(tasks)
+      .set({ reviewSeenAt: new Date() })
+      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+    return c.json({ ok: true })
+  })
+
   // Pronista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
   // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
   // ทั้งที่จ่ายไปจริง (assignedBy ตรง) เปลี่ยนเป็น leftJoin ทั้งคู่ (projects/workspaces) แล้ว fallback ชื่อที่โชว์เป็นชื่อ Workspace room แทนตอนไม่มีโปรเจกต์
@@ -749,6 +761,8 @@ export const taskRoutes = new Hono<AppEnv>()
         if (defaultReviewerId !== nextAssigneeId) patch.reviewerId = defaultReviewerId
       }
     }
+    // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — เปลี่ยนผู้ตรวจงาน = คนใหม่ยังไม่เคยเห็นงานนี้ในเมนู "งานรอตรวจ" → นับเป็นงานใหม่ใน badge ของเขา
+    if (patch.reviewerId !== undefined && patch.reviewerId !== before.reviewerId) patch.reviewSeenAt = null
     // Pronista §Notification overhaul (2026-08-27) — แก้กำหนดส่งใหม่ → เคลียร์เกตกันเตือนซ้ำ ให้นับรอบเลยกำหนดใหม่ตามวันที่แก้ (mirror expiryNotifiedAt reset ใน routes/projects.ts)
     if ('dueDate' in body.data && body.data.dueDate !== before.dueDate) patch.dueNotifiedAt = null
     // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N

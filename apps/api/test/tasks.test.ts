@@ -1033,6 +1033,42 @@ describe('§My Tasks reviewer queue — GET /tasks/pending-review', () => {
     ).json()) as { id: string }[]
     expect(afterApprove.some((row) => row.id === t.id)).toBe(false)
   })
+
+  // (2026-09-25) badge งานรอตรวจลดทันทีที่เข้าเมนู — POST /tasks/pending-review/seen stamp reviewSeenAt · ส่งตรวจรอบใหม่ (submittedAt ใหม่กว่า) ต้องนับใหม่
+  it('POST /tasks/pending-review/seen → stamp reviewSeenAt เฉพาะงานของตัวเอง · ตีกลับแล้วส่งใหม่ submittedAt > reviewSeenAt', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    await createDb(env.DB).insert(users).values({ id: 'u_reviewer_seen', email: 'reviewseen@example-co.test', name: 'ผู้ตรวจ2', role: 'member' }).onConflictDoNothing()
+    const reviewer = await loginAs(app, 'reviewseen@example-co.test')
+    const { p, g1 } = await setupProject(owner)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_reviewer_seen', positionId: 'pos_full_access' }), env)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานเช็ค seen', assigneeId: 'u_pond' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { reviewerId: 'u_reviewer_seen' }), env)
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test', workflowAction: 'submit' }), env)
+
+    type Row = { id: string; reviewSeenAt: string | null; submittedAt: string | null }
+    const list = async () => (await (await app.request('/api/tasks/pending-review', { headers: { cookie: reviewer } }, env)).json()) as Row[]
+    expect((await list()).find((r) => r.id === t.id)?.reviewSeenAt).toBeNull()
+
+    expect((await app.request('/api/tasks/pending-review/seen', { method: 'POST', headers: { cookie: reviewer } }, env)).status).toBe(200)
+    const seen = (await list()).find((r) => r.id === t.id)!
+    expect(seen.reviewSeenAt).not.toBeNull()
+
+    // ตีกลับ → ส่งใหม่ → submittedAt ใหม่กว่า reviewSeenAt (badge นับเป็นงานใหม่อีกรอบ)
+    await app.request(`/api/tasks/${t.id}`, patchJson(reviewer, { status: 'non_start', workflowAction: 'bounce' }), env)
+    await new Promise((r) => setTimeout(r, 5))
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'on_processing' }), env)
+    await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test', workflowAction: 'submit' }), env)
+    const resubmitted = (await list()).find((r) => r.id === t.id)!
+    expect(Date.parse(resubmitted.submittedAt!)).toBeGreaterThan(Date.parse(resubmitted.reviewSeenAt!))
+
+    // เปลี่ยนผู้ตรวจงาน → reviewSeenAt ล้าง (คนใหม่ยังไม่เคยเห็น)
+    await app.request(`/api/tasks/${t.id}`, patchJson(owner, { reviewerId: 'u_owner' }), env)
+    const row = (await (await app.request('/api/tasks/pending-review', { headers: { cookie: owner } }, env)).json()) as Row[]
+    expect(row.find((r) => r.id === t.id)?.reviewSeenAt).toBeNull()
+  })
 })
 
 // (2026-09-16) §Assign to me fix — เจอบั๊กจริง: ปุ่ม "Assign to me" ไม่โผล่ให้พนักงานทั่วไป (ไม่ใช่ owner/editor โปรเจกต์) เลย

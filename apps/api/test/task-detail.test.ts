@@ -104,6 +104,16 @@ describe('§Security Recheck (2026-09-10) — guest ที่ไม่มีส�
     expect(res.status).toBe(404)
   })
 
+  it('POST /tasks/:id/comment-media — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const guest = await makeUnrelatedGuest()
+    const fd = new FormData()
+    fd.append('file', new File([new Uint8Array([1, 2, 3])], 'x.png', { type: 'image/png' }))
+    const res = await app.request(`/api/tasks/${t.id}/comment-media`, { method: 'POST', headers: { cookie: guest }, body: fd }, env)
+    expect(res.status).toBe(404)
+  })
+
   it('GET /attachments/:id — คืน 404 ให้ guest ที่ไม่ได้ผูกกับโปรเจกต์ของ task นี้ (เดิมดาวน์โหลดได้เฉยๆ)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const t = await makeTask(owner)
@@ -148,6 +158,24 @@ describe('T10 — task detail: comments + attachments + activity', () => {
     expect(detail.comments.map((c) => c.userName)).toEqual(['ปอนด์', 'สมชาย'])
     expect(detail.activity.some((a) => a.action === 'task.comment')).toBe(true)
     expect(detail.activity.some((a) => a.action === 'task.create')).toBe(true)
+  })
+
+  // (2026-09-25) PRO-CR-0010 follow-up — แนบรูป/วิดีโอในคอมเมนต์ได้ทุกคนที่คอมเมนต์ได้ (รวม vendor) · เฉพาะ image/video · guest นอกโปรเจกต์ 404
+  it('POST /tasks/:id/comment-media — vendor แนบรูปในคอมเมนต์ได้ · ไฟล์ไม่ใช่รูป/วิดีโอ 415 · guest นอกโปรเจกต์ 404', async () => {
+    const m = await loginAs(app, 'pond@example-co.test')
+    const t = await makeTask(m, 'u_pond')
+    const v = await loginAs(app, 'somchai@example.com')
+
+    const img = new FormData()
+    img.append('file', new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' }))
+    const up = await app.request(`/api/tasks/${t.id}/comment-media`, { method: 'POST', headers: { cookie: v }, body: img }, env)
+    expect(up.status).toBe(201)
+    const att = (await up.json()) as { id: string }
+    expect((await app.request(`/api/attachments/${att.id}`, { headers: { cookie: m } }, env)).status).toBe(200)
+
+    const txt = new FormData()
+    txt.append('file', new File(['x'], 'note.txt', { type: 'text/plain' }))
+    expect((await app.request(`/api/tasks/${t.id}/comment-media`, { method: 'POST', headers: { cookie: v }, body: txt }, env)).status).toBe(415)
   })
 
   it('อัปโหลดไฟล์ → R2 → ดาวน์โหลดได้ byte ตรง · ไฟล์ inline เฉพาะรูป · vendor อัปไม่ได้', async () => {

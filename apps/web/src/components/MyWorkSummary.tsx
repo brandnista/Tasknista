@@ -14,6 +14,9 @@ export interface MyWorkTask {
   code?: string | null
   kind?: 'task' | 'defect' | 'cr' | 'backlog'
   parentId?: string | null
+  // (2026-09-25) Task ที่สร้างเดี่ยวๆ ไม่มี Story แม่ (isStandaloneTask) / งานย่อยจริง (isSubtask) — ใช้แยกป้ายประเภทให้ถูก
+  isStandaloneTask?: boolean
+  isSubtask?: boolean
   startDate?: string | null
   estimateMinutes?: number | null
   checklistDone?: number
@@ -22,12 +25,14 @@ export interface MyWorkTask {
 
 const bkkToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
 
-// Pronista §Back to Basic (ต่อยอด) — ป้ายประเภทงาน: Story = ยังไม่มีพ่อ (โครงสร้างเดิม) ไม่ใช่ field แยก
-export function taskTypeLabel(t: Pick<MyWorkTask, 'kind' | 'parentId'>): string {
+// Pronista §Back to Basic (ต่อยอด) — ป้ายประเภทงาน: Story = ไม่มีพ่อ และไม่ได้สร้างเป็น Task เดี่ยว (isStandaloneTask)
+// (2026-09-25) เดิมดูแค่ parentId ทำให้ Task เดี่ยวถูกติดป้าย "Story" ผิด + งานย่อยจริง (isSubtask) แยกเป็น "Subtask"
+export function taskTypeLabel(t: Pick<MyWorkTask, 'kind' | 'parentId' | 'isStandaloneTask' | 'isSubtask'>): string {
   if (t.kind === 'defect') return 'Defect'
   if (t.kind === 'cr') return 'CR'
   if (t.kind === 'backlog') return 'Backlog'
-  return t.parentId ? 'Task' : 'Story'
+  if (t.isSubtask) return 'Subtask'
+  return t.parentId || t.isStandaloneTask ? 'Task' : 'Story'
 }
 
 export function TaskMetaBadges({ t }: { t: MyWorkTask }) {
