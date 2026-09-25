@@ -1608,7 +1608,7 @@ export function TaskDetailPage() {
 
             {!isAssigneeOnly && t.estimateMinutes != null && (
               <div className="border-t border-border-subtle pt-4">
-                <div className="text-xs font-medium text-muted mb-2">ประเมิน vs เวลาที่ใช้จริง</div>
+                <div className="text-xs font-medium text-muted mb-2">เวลาที่ใช้จริง vs เวลาประเมิน</div>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 h-2 bg-divider rounded-full overflow-hidden">
                     <div className={`h-full rounded-full ${totalMinutes > t.estimateMinutes ? 'bg-danger-500' : 'bg-brand-500'}`} style={{ width: `${Math.min(100, (totalMinutes / t.estimateMinutes) * 100)}%` }} />
