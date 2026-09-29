@@ -114,8 +114,9 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
 }) {
   const [workTypeFilter, setWorkTypeFilter] = useState<PendingWorkType>('')
   const [expanded, setExpanded] = useState(false)
+  // Pronista §Bounced/New Tasks mutual exclusivity (2026-09-29) — งานที่ถูกตีกลับ (bouncedAt ไม่ว่าง) ก็มี dispatchedAt+status=non_start เหมือนกัน ต้องกันไม่ให้โผล่ซ้ำในนี้ด้วย — ให้ไปอยู่แค่ BouncedTasksWidget ฝั่งเดียว
   const pending = tasks
-    .filter((t) => t.dispatchedAt && t.status === 'non_start')
+    .filter((t) => t.dispatchedAt && t.status === 'non_start' && t.bouncedAt == null)
     .sort((a, b) => new Date(b.dispatchedAt!).getTime() - new Date(a.dispatchedAt!).getTime())
   const filtered = workTypeFilter ? pending.filter((t) => t.kind === workTypeFilter) : pending
   return (
@@ -224,12 +225,28 @@ function BouncedTasksWidget({ tasks, loading, acceptingTaskId, onOpenTask, onAcc
   onAccept: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const rows = tasks.filter((t) => t.status === 'non_start' && t.bouncedAt != null)
+  // Pronista §Bounced Tasks Widget parity (2026-09-29) — เพิ่มตัวกรอง Work Type ให้ครบเหมือน NewlyDispatchedWidget
+  const [workTypeFilter, setWorkTypeFilter] = useState<PendingWorkType>('')
+  const bounced = tasks.filter((t) => t.status === 'non_start' && t.bouncedAt != null)
+  const rows = workTypeFilter ? bounced.filter((t) => t.kind === workTypeFilter) : bounced
   return (
     <section className="overflow-hidden rounded-xl border border-danger-100 bg-danger-50/55 shadow-xs" aria-busy={loading}>
-      <div className="border-b border-danger-100 px-4 py-3.5">
-        <div className="flex items-center gap-2 text-sm font-bold text-danger-700"><AlertTriangle className="h-4 w-4" /> งานที่ถูกตีกลับ ({rows.length})</div>
-        <p className="mt-1 text-[11px] text-danger-700/70">งานที่ส่งตรวจแล้วแต่ผู้ตรวจส่งกลับมาให้แก้ไข</p>
+      <div className="flex flex-col gap-3 border-b border-danger-100 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-bold text-danger-700">
+            <AlertTriangle className="h-4 w-4" /> งานที่ถูกตีกลับ ({workTypeFilter ? `${rows.length}/${bounced.length}` : bounced.length})
+          </div>
+          <p className="mt-1 text-[11px] text-danger-700/70">งานที่ส่งตรวจแล้วแต่ผู้ตรวจส่งกลับมาให้แก้ไข</p>
+        </div>
+        <select
+          value={workTypeFilter}
+          onChange={(e) => setWorkTypeFilter(e.target.value as PendingWorkType)}
+          aria-label="กรองประเภทงานที่ถูกตีกลับ"
+          className="w-full sm:w-44 border border-danger-200 bg-white text-soft px-2.5 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400"
+        >
+          <option value="">Work Type ทั้งหมด</option>
+          {PENDING_WORK_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
       </div>
       <div className="divide-y divide-danger-100">
         {loading && Array.from({ length: 3 }, (_, index) => (
@@ -245,7 +262,7 @@ function BouncedTasksWidget({ tasks, loading, acceptingTaskId, onOpenTask, onAcc
                 <span className="shrink-0 font-mono text-[10px] text-danger-700">{t.code ?? '—'}</span>
                 <span className="truncate text-sm font-semibold text-body">{t.title}</span>
               </div>
-              <div className="mt-1 truncate text-[11px] text-muted">{t.projectName ?? 'ไม่ผูกโปรเจกต์'}</div>
+              <div className="mt-1 truncate text-[11px] text-muted">{fmtDateTime(t.bouncedAt!)} · {t.projectName ?? 'ไม่ผูกโปรเจกต์'}</div>
             </button>
             <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-2 sm:col-start-2 sm:row-start-1" title={`ผู้ตีกลับ: ${t.bouncedByName ?? '—'}`}>
               <Avatar name={t.bouncedByName ?? '—'} avatarUrl={t.bouncedByAvatarUrl} className="h-7 w-7 shrink-0 text-[10px] ring-2 ring-white" colorClass={avatarColor(t.bouncedByName ?? '—')} />
@@ -261,7 +278,10 @@ function BouncedTasksWidget({ tasks, loading, acceptingTaskId, onOpenTask, onAcc
             </button>
           </div>
         ))}
-        {!loading && rows.length === 0 && <div className="px-4 py-8 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-danger-400" /><p className="mt-2 text-sm font-semibold text-danger-700">ไม่มีงานที่ถูกตีกลับ</p><p className="mt-1 text-xs text-danger-700/65">เมื่อผู้ตรวจส่งงานกลับมาให้แก้ไข ระบบจะแจ้งเตือนที่นี่</p></div>}
+        {!loading && bounced.length === 0 && <div className="px-4 py-8 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-danger-400" /><p className="mt-2 text-sm font-semibold text-danger-700">ไม่มีงานที่ถูกตีกลับ</p><p className="mt-1 text-xs text-danger-700/65">เมื่อผู้ตรวจส่งงานกลับมาให้แก้ไข ระบบจะแจ้งเตือนที่นี่</p></div>}
+        {!loading && bounced.length > 0 && rows.length === 0 && (
+          <div className="py-8 text-center text-xs text-muted">ไม่มีงานที่ถูกตีกลับในประเภทที่เลือก</div>
+        )}
         {!expanded && rows.length > 5 && (
           <button onClick={() => setExpanded(true)} className="block w-full px-4 py-2 text-right text-[11px] font-medium text-danger-700 hover:underline">
             ยังมีอีก {rows.length - 5} งาน · แสดงทั้งหมด
