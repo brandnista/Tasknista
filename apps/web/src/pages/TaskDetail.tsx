@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ExternalLink,
   FileText,
@@ -273,6 +274,7 @@ interface Detail {
   originRefCode: string | null
   originDocId: string | null
   parent: { id: string; title: string; code: string | null } | null
+  isSubtask?: boolean
   // Pronista §Epic Layer — Epic ที่ task/subtask นี้สังกัด (null = ไม่ได้มาจากเอกสารที่มี Epic)
   epic: { id: string; title: string; code: string | null } | null
   // Pronista §Task Detail redesign — งานย่อยพี่น้องใน Task พ่อเดียวกัน ใช้ทำ progress pill
@@ -521,7 +523,10 @@ export function TaskDetailPage() {
       await reload()
       toast('บันทึกสำเร็จ')
       // (2026-09-17) — กด "ส่งงาน" แล้วเด้งกลับไปหน้าก่อนหน้าที่เข้ามาทันที (ปกติคือ "งานของฉัน") แทนที่จะค้างอยู่หน้า Task Detail ต่อ — เฉพาะ submit เท่านั้น action อื่น (อนุมัติ/ตีกลับ/ปิดงานเอง ฯลฯ) ยังอยู่หน้าเดิมเหมือนเดิม
-      if (workflowAction === 'submit') navigate(-1)
+      // (2026-09-30) PRO-0039 — หน้างานย่อย (Sub-task) ห้ามเด้งออกหลังกดปุ่ม: อยู่หน้าเดิมต่อเพื่อตรวจ/แก้ต่อได้ (เดิม navigate(-1) พากลับไป Task แม่ทุกครั้งที่กดส่งงาน) — Task ปกติคงพฤติกรรมเดิม
+      // งานย่อยเก่าที่ยังไม่มี flag isSubtask ใช้รูปแบบรหัส <รหัสแม่>.N (เช่น PRO-0025.1) ตัดสินแทน
+      const isSubtaskPage = !!t.isSubtask || /\.\d+$/.test(t.code ?? '')
+      if (workflowAction === 'submit' && !isSubtaskPage) navigate(-1)
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
     }
@@ -1385,10 +1390,14 @@ export function TaskDetailPage() {
                   <span className="text-dim">ผู้รับผิดชอบ</span>
                   {canEdit && !isAssigneeOnly ? (
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <select value={draftVal('assigneeId') ?? ''} onChange={(e) => setDraftField('assigneeId', e.target.value || null)} aria-label="ผู้รับผิดชอบ" className="flex-1 min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
-                        <option value="">— ไม่ระบุ —</option>
-                        {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                      </select>
+                      {/* (2026-09-30) PRO-0044 — dropdown ผู้รับผิดชอบ/ผู้ตรวจงานใช้สไตล์เดียวกัน: เต็มความกว้างคอลัมน์ + ลูกศร ▾ ชัดเจน (appearance-none + ไอคอนเอง) ไม่พึ่งลูกศรของเบราว์เซอร์ */}
+                      <div className="relative flex-1 min-w-24">
+                        <select value={draftVal('assigneeId') ?? ''} onChange={(e) => setDraftField('assigneeId', e.target.value || null)} aria-label="ผู้รับผิดชอบ" className="w-full appearance-none border border-border bg-white text-soft pl-2 pr-7 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                          <option value="">— ไม่ระบุ —</option>
+                          {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
+                      </div>
                       {/* โผล่เมื่อผู้รับผิดชอบใน draft ยังไม่ใช่ผู้ใช้ปัจจุบัน รวมกรณีเปลี่ยนจากตัวเองไปเป็นคนอื่น */}
                       {user && draftVal('assigneeId') !== user.id && (
                         <button type="button" onClick={assignToMe} className="text-[11px] text-brand-700 hover:text-brand-800 underline decoration-dotted shrink-0">
@@ -1423,10 +1432,13 @@ export function TaskDetailPage() {
                       (ทั้ง dropdown ตอนแก้ไข และตอนอ่านอย่างเดียว) — เปลี่ยนให้โชว์ชื่อผู้จ่ายงานเป็นค่า default ตรงๆ ให้ตรงกับพฤติกรรมจริง ไม่ใช่แค่วงเล็บกำกับ */}
                   <span className="text-dim">ผู้ตรวจงาน</span>
                   {canEdit && !isAssigneeOnly ? (
-                    <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-fit min-w-24 border border-border bg-white text-soft px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
-                      <option value="">{t.assignedByName ?? '— ไม่ระบุ —'}</option>
-                      {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
+                    <div className="relative min-w-24">
+                      <select value={draftVal('reviewerId') ?? ''} onChange={(e) => setDraftField('reviewerId', e.target.value || null)} aria-label="ผู้ตรวจงาน" className="w-full appearance-none border border-border bg-white text-soft pl-2 pr-7 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                        <option value="">{t.assignedByName ?? '— ไม่ระบุ —'}</option>
+                        {assigneeOpts.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
+                    </div>
                   ) : (
                     (t.reviewerName ?? t.assignedByName) ? (
                       <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">

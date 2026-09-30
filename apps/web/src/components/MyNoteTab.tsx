@@ -72,7 +72,7 @@ function ConvertModal({ note, onClose, onDone }: { note: Note; onClose: () => vo
   const { data: projectTasks } = useLoad<TaskOpt[]>(() => (projectId ? api.get(`/api/projects/${projectId}/tasks/all`) : Promise.resolve([])), [projectId])
 
   const submit = async () => {
-    if (!projectId || !title.trim()) return
+    if (busy || !projectId || !title.trim()) return
     setBusy(true)
     setError('')
     try {
@@ -492,7 +492,8 @@ function PostIt({ note, meId, isNew, onOpenConvert, onEdit, onDelete }: { note: 
         {canEdit && (
           <>
             <button onClick={(e) => { e.stopPropagation(); onEdit() }} title="แก้ไข" className="text-ink/35 hover:text-brand-700 p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
-            <button onClick={(e) => { e.stopPropagation(); onOpenConvert() }} title="Convert เป็นงาน" className="text-ink/35 hover:text-brand-700 p-0.5"><Repeat className="w-3.5 h-3.5" /></button>
+            {/* (2026-09-30) PRO-0038 — แปลงเป็นงานแล้ว (มี Task ID ผูกอยู่) ซ่อนปุ่ม Convert ทันที กันสร้างงานซ้ำจากโน้ตเดิม */}
+            {!note.linkedTaskId && <button onClick={(e) => { e.stopPropagation(); onOpenConvert() }} title="Convert เป็นงาน" className="text-ink/35 hover:text-brand-700 p-0.5"><Repeat className="w-3.5 h-3.5" /></button>}
             <button onClick={(e) => { e.stopPropagation(); onDelete() }} title="ลบ" className="text-ink/35 hover:text-danger-600 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
           </>
         )}
@@ -709,9 +710,11 @@ export function MyNoteTab() {
                       {canEdit && (
                         <>
                           <button onClick={(e) => { e.stopPropagation(); openNote(n) }} title="แก้ไข" className="text-dim hover:text-brand-700"><Pencil className="w-3.5 h-3.5" /></button>
-                          <button onClick={(e) => { e.stopPropagation(); setConvertingNote(n) }} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
-                            <Repeat className="w-3 h-3" /> Convert
-                          </button>
+                          {!n.linkedTaskId && (
+                            <button onClick={(e) => { e.stopPropagation(); setConvertingNote(n) }} className="inline-flex items-center gap-1 text-[11px] text-brand-700 hover:underline">
+                              <Repeat className="w-3 h-3" /> Convert
+                            </button>
+                          )}
                           <button onClick={(e) => { e.stopPropagation(); void remove(n) }} className="text-border hover:text-danger-600"><Trash2 className="w-3.5 h-3.5" /></button>
                         </>
                       )}

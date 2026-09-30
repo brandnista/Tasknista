@@ -121,7 +121,7 @@ export function RichTextToolbar({
   }
   return (
     // บั๊ก (2026-07-03): ปุ่มทูลบาร์กด "ตัวหนา/เอียง/ฯลฯ" แล้วไม่มีอะไรเกิดขึ้น — mousedown เดิมทำให้ ProseMirror เสียโฟกัส/selection ก่อน onClick จะรัน (ต้อง preventDefault ตอน mousedown เพื่อกันเบราว์เซอร์แย่งโฟกัสจาก editor)
-    <div onMouseDown={(e) => e.preventDefault()} className="flex items-center gap-0.5 border-b border-border-subtle px-2 sm:px-3 h-12 shrink-0 overflow-x-auto">
+    <div onMouseDown={(e) => e.preventDefault()} className="flex flex-wrap items-center gap-0.5 border-b border-border-subtle px-2 sm:px-3 py-1.5 min-h-12 shrink-0">
       {([1, 2, 3, 4] as const).map((lv) => (
         <button key={lv} title={`หัวข้อ h${lv}`} onClick={() => editor.chain().focus().toggleHeading({ level: lv }).run()} className={btn(editor.isActive('heading', { level: lv }))}>
           {lv === 1 ? <Heading1 className="w-4 h-4" /> : lv === 2 ? <Heading2 className="w-4 h-4" /> : lv === 3 ? <Heading3 className="w-4 h-4" /> : <Heading4 className="w-4 h-4" />}

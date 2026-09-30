@@ -184,7 +184,7 @@ export function MeetingsTab({ projectIdFilter, initialMeetingId }: { projectIdFi
 }
 
 function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultProjectId?: string; onClose: () => void; onCreated: (id: string) => void }) {
-  const { alertDialog } = useDialog()
+  const { alertDialog, confirmDialog } = useDialog()
   const { data: projects } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
   const { data: users } = useLoad<UserOpt[]>(() => api.get('/api/users'))
   const { data: members } = useLoad<MemberOpt[]>(() => api.get('/api/members'))
@@ -206,6 +206,17 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
   const [manualEmail, setManualEmail] = useState('')
   const [attendeeFilter, setAttendeeFilter] = useState<AttendeeFilter>('employee')
   const [busy, setBusy] = useState(false)
+
+  // (2026-09-30) PRO-0042 — กรอกอะไรไว้แล้ว (หัวข้อ/วาระ/ลิงก์/ผู้เข้าร่วม/ผู้เชิญ) แล้วกดพื้นที่ว่างข้างนอก modal หรือ X/ยกเลิก → ถามยืนยันก่อนปิด กันข้อมูลหายเงียบๆ
+  const isDirty =
+    title.trim() !== '' || agenda.trim() !== '' || externalMeetingUrl.trim() !== '' ||
+    participantIds.size > 0 || externalInviteeIds.size > 0 || manualInvitees.length > 0 ||
+    manualName.trim() !== '' || manualEmail.trim() !== ''
+  const requestClose = async () => {
+    if (busy) return
+    if (isDirty && !(await confirmDialog({ title: 'ปิดหน้าต่างนัดประชุม?', message: 'ข้อมูลที่กรอกไว้ยังไม่ได้บันทึก และจะหายไปถ้าปิดตอนนี้', confirmLabel: 'ปิดโดยไม่บันทึก', cancelLabel: 'กลับไปกรอกต่อ', danger: true }))) return
+    onClose()
+  }
 
   const toggleParticipant = (id: string) => setParticipantIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const toggleExternalInvitee = (id: string) => setExternalInviteeIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -244,11 +255,11 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={() => void requestClose()}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
           <span className="font-semibold text-ink text-sm">นัดประชุม</span>
-          <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
+          <button onClick={() => void requestClose()} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-3 overflow-y-auto">
           <div>
@@ -364,7 +375,7 @@ function CreateMeetingModal({ defaultProjectId, onClose, onCreated }: { defaultP
           </div>
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border-subtle shrink-0">
-          <button onClick={onClose} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
+          <button onClick={() => void requestClose()} className="text-sm px-3.5 py-2 rounded-lg text-soft hover:bg-hover">ยกเลิก</button>
           <button onClick={() => void create()} disabled={!title.trim() || busy} className="text-sm font-medium text-white px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-40">นัดประชุม</button>
         </div>
       </div>

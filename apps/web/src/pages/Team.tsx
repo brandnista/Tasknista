@@ -731,13 +731,14 @@ function GroupMembersModal({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[75vh] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[92vh] overflow-y-auto flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
           <span className="font-semibold text-ink text-sm">จัดการสมาชิกกลุ่ม</span>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim shrink-0"><X className="w-4 h-4" /></button>
         </div>
-        <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-muted uppercase tracking-wide">สมาชิก · {members.length}</div>
-        <div className="max-h-40 overflow-y-auto px-1">
+        <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-muted uppercase tracking-wide shrink-0">สมาชิก · {members.length}</div>
+        {/* (2026-09-30) PRO-0032 — แถวสมาชิกสูง 44px (avatar 28 + py-2 16): 1-5 คนสูงพอดีจำนวนแถวไม่มี scrollbar · เกิน 5 คนล็อกความสูง 5 แถว (220px) แล้วเลื่อนดูต่อ · shrink-0 กัน flex บีบแถวเดียวจนถูกตัด */}
+        <div className="max-h-[220px] shrink-0 overflow-y-auto px-1">
           {members.map((m) => (
             <div key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-hover rounded-lg">
               <Avatar name={m.name} avatarUrl={m.avatarUrl} className="w-7 h-7 text-xs shrink-0" colorClass={avatarColor(m.name)} />
@@ -753,9 +754,9 @@ function GroupMembersModal({
             </div>
           ))}
         </div>
-        <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-muted uppercase tracking-wide border-t border-border-subtle mt-2">เพิ่มสมาชิก</div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="mx-4 mt-1 mb-2 text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden" />
-        <div className="flex-1 overflow-y-auto pb-2 min-h-20">
+        <div className="px-4 pt-3 pb-1 text-[11px] font-medium text-muted uppercase tracking-wide border-t border-border-subtle mt-2 shrink-0">เพิ่มสมาชิก</div>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="mx-4 mt-1 mb-2 text-sm bg-hover rounded-lg px-3 py-2 focus:outline-hidden shrink-0" />
+        <div className="max-h-[220px] shrink-0 overflow-y-auto mb-2">
           {candidates.map((u) => (
             <button
               key={u.id}

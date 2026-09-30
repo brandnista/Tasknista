@@ -638,8 +638,10 @@ export function WorkspacePage() {
           draggable={it.kind !== 'epic'}
           onDragStart={(e: DragEvent) => { if (it.kind === 'epic') return; e.dataTransfer.setData('text/plain', it.id); setDragTaskId(it.id) }}
           onDragEnd={() => setDragTaskId(null)}
-          className={`flex items-center gap-2 px-3 py-2 flex-wrap ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+          className={`flex flex-col gap-1 px-3 py-2 ${URGENCY_CARD_CLASS[dueUrgency(it.dueDate, it.status === 'done', cfg?.dueSoonDays)]} ${it.kind !== 'epic' ? 'cursor-grab' : ''} ${dragTaskId === it.id ? 'opacity-50' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
         >
+          {/* (2026-09-30) PRO-0046 — โครงแถวมาตรฐาน 2 บรรทัด: บรรทัดที่ 1 = ลูกศร/checkbox/ป้ายประเภท/ชื่องาน (ตัดด้วย … + tooltip ชื่อเต็ม)/ผู้รับผิดชอบ · บรรทัดที่ 2 = ข้อมูลรอง (โปรเจกต์ รหัส เวลา สถานะ กำหนดส่ง ฯลฯ) — ชื่อยาวแค่ไหนก็ไม่ดันข้อมูลตกบรรทัดมั่ว ความสูงแถวสม่ำเสมอ */}
+          <div className="flex items-center gap-2 min-w-0">
           {/* Pronista §Task-row expand (2026-09-15) — ลูกศรคลี่ดูงานย่อย โผล่เฉพาะแถวที่มีจริง แถวไม่มีลูกใส่ spacer แทนกันแนวเลื่อน (มือถือ: hit-area ใหญ่กว่าไอคอนจริงด้วย p-1 -m-1) */}
           {hasChildren ? (
             <button
@@ -692,6 +694,14 @@ export function WorkspacePage() {
               )}
             </div>
           )}
+          {it.kind === 'epic' ? (
+            <span title={it.title} className="flex-1 min-w-0 text-sm font-medium text-ink truncate">{it.title}</span>
+          ) : (
+            <button onClick={() => navigate(`/tasks/${it.id}`)} title={it.title} className="flex-1 min-w-0 text-sm text-body truncate text-left hover:underline">{it.title}</button>
+          )}
+          {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap pl-5">
           {it.projectId || it.kind === 'epic' ? (
             <ProjectChip code={it.projectCode} name={it.projectName} />
           ) : (
@@ -737,11 +747,6 @@ export function WorkspacePage() {
             </div>
           )}
           {showCode && it.code && <span className="text-[11px] font-mono text-muted shrink-0">{it.code}</span>}
-          {it.kind === 'epic' ? (
-            <span className="flex-1 basis-full sm:basis-auto text-sm font-medium text-ink truncate min-w-32">{it.title}</span>
-          ) : (
-            <button onClick={() => navigate(`/tasks/${it.id}`)} className="flex-1 basis-full sm:basis-auto text-sm text-body truncate text-left hover:underline min-w-32">{it.title}</button>
-          )}
           {it.priority === 'high' && <span className="text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded shrink-0">สูง</span>}
           {it.kind !== 'epic' && <span className="text-[11px] text-dim shrink-0">⏱ {it.estimateMinutes != null ? minutesToHoursLabel(it.estimateMinutes) : '0'} ชม.</span>}
           {checklistLabel(it.checklistDone, it.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(it.checklistDone, it.checklistTotal)}</span>}
@@ -756,7 +761,6 @@ export function WorkspacePage() {
             </select>
           )}
           <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
-          {it.assigneeName && <Avatar name={it.assigneeName} avatarUrl={null} className="w-5 h-5 text-[9px] shrink-0" colorClass={avatarColor(it.assigneeName)} />}
           {it.kind !== 'epic' && (
             <button onClick={() => setLinkingItemId(it.id)} title="เชื่อมโยงกับงานอื่น" className="text-muted hover:text-brand-600 shrink-0 text-xs">
               🔗
@@ -795,6 +799,7 @@ export function WorkspacePage() {
               )}
             </div>
           )}
+          </div>
         </div>
         {hasChildren && isExpanded && children.map((child) => renderItem(child, depth + 1))}
       </div>
