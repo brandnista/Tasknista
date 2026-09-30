@@ -1,4 +1,4 @@
-import { createDb, docLinks, docs } from '@seedoffice/db'
+import { createDb, docLinks, docs, docTemplateValues } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { and, eq } from 'drizzle-orm'
 import { strToU8, zipSync } from 'fflate'
@@ -230,5 +230,43 @@ describe('§ผูกเอกสารที่มีอยู่แล้ว�
     await db.insert(docLinks).values({ docId: projectDoc.id, projectId: p.id, createdBy: 'u_owner' })
     await app.request(`/api/projects/${p.id}/documents/${projectDoc.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
     expect((await db.select().from(docs).where(eq(docs.id, projectDoc.id)))[0]!.deletedAt).not.toBeNull()
+  })
+})
+
+describe('§Template — รหัสเอกสาร (document_no) กรอกให้อัตโนมัติ', () => {
+  const docNoOf = async (docId: string, sectionId: string) => {
+    const row = (await createDb(env.DB).select().from(docTemplateValues).where(eq(docTemplateValues.docId, docId)))[0]!
+    return (JSON.parse(row.dataJson) as { fields: Record<string, Record<string, string>> }).fields[sectionId]!.document_no
+  }
+
+  it('สร้าง MOM จาก Template → ช่อง MOM No. = เลขที่เอกสารที่ระบบออกให้ (ไม่ต้องกรอกเอง)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = await makeProject(owner, 'โปรเจกต์เลขที่เอกสาร', 'AAA')
+    const res = await app.request('/api/docs/template', json(owner, { templateType: 'mom', title: 'ประชุมใหม่', projectId: p.id }), env)
+    expect(res.status).toBe(201)
+    const doc = (await res.json()) as { id: string; templateDocNumber: string }
+    expect(doc.templateDocNumber).toMatch(/^AAA-MOM-[0-9]{8}-001$/)
+    expect(await docNoOf(doc.id, 'meeting_info')).toBe(doc.templateDocNumber)
+  })
+
+  it('template อื่นที่มีช่อง document_no (เช่น BRD) ก็กรอกให้เหมือนกัน', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = await makeProject(owner, 'โปรเจกต์ BRD', 'AAB')
+    const doc = (await (await app.request('/api/docs/template', json(owner, { templateType: 'brd', title: 'BRD ใหม่', projectId: p.id }), env)).json()) as { id: string; templateDocNumber: string }
+    const values = JSON.parse((await createDb(env.DB).select().from(docTemplateValues).where(eq(docTemplateValues.docId, doc.id)))[0]!.dataJson) as { fields: Record<string, Record<string, string>> }
+    const filled = Object.values(values.fields).filter((f) => f.document_no === doc.templateDocNumber)
+    expect(filled).toHaveLength(1)
+  })
+
+  it('นำเข้า MOM จากไฟล์ที่ไม่มีเลขที่เอกสาร → ใช้เลขที่ที่ระบบออกให้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = await makeProject(owner, 'โปรเจกต์นำเข้าไม่มีเลข', 'AAC')
+    const noNumber = docx(
+      para('ข้อมูลการประชุม') + table([['หัวข้อ', 'รายละเอียด'], ['หัวข้อการประชุม', 'ประชุมไม่มีเลขที่']]) + para('ผู้เข้าร่วมประชุม') + table([['ลำดับ', 'ชื่อ - นามสกุล', 'ตำแหน่ง / บริษัท', 'สถานะ'], ['1', 'คุณสมชาย', 'ลูกค้า', 'เข้าร่วม']]),
+    )
+    const pv = (await (await app.request(`/api/projects/${p.id}/documents/import-mom/preview`, previewReq(owner, new File([noNumber], 'm.docx', { type: DOCX_MIME })), env)).json()) as { suggestedTitle: string; data: unknown; docNumber: string | null }
+    expect(pv.docNumber).toBeNull()
+    const doc = (await (await app.request(`/api/projects/${p.id}/documents/import-mom`, json(owner, { title: pv.suggestedTitle, data: pv.data }), env)).json()) as { id: string; templateDocNumber: string }
+    expect(await docNoOf(doc.id, 'meeting_info')).toBe(doc.templateDocNumber)
   })
 })

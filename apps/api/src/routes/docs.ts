@@ -368,10 +368,17 @@ export const docRoutes = new Hono<AppEnv>()
       })
       .returning()
     const createdDoc = inserted[0]!
+    // (2026-09-30) ช่อง "รหัสเอกสาร" (document_no) ของ template ทุกแบบ (MOM/BRD/SOW/SRS/PEP/UIR) กรอกให้อัตโนมัติด้วยเลขที่เอกสารที่ระบบออกให้ — แก้ทีหลังได้
+    const initialData = emptyTemplateData(def)
+    if (templateDocNumber) {
+      for (const section of def.sections) {
+        if (section.kind === 'fields' && section.fields.some((f) => f.key === 'document_no')) initialData.fields[section.id] = { ...initialData.fields[section.id], document_no: templateDocNumber }
+      }
+    }
     await db.insert(docTemplateValues).values({
       docId: createdDoc.id,
       templateType: body.data.templateType,
-      dataJson: JSON.stringify(emptyTemplateData(def)),
+      dataJson: JSON.stringify(initialData),
     })
     if (project) await db.insert(docLinks).values({ docId: createdDoc.id, projectId: project.id, createdBy: me.id })
     await writeAudit(c.env, {

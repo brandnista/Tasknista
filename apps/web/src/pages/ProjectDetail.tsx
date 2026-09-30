@@ -12,7 +12,6 @@ import { ConvertBacklogModal } from '../components/ConvertBacklogModal'
 import { useDialog } from '../components/Dialog'
 import { ProjectIcon } from '../components/ProjectIcon'
 import { ImportDataModal } from '../components/ImportDataModal'
-import { SowUploadBreakoutModal } from '../components/SowUploadBreakoutModal'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { LinkOrCreateModal } from '../components/LinkOrCreateModal'
 import { DocumentHistoryTable } from '../components/DocumentHistoryTable'
@@ -2404,7 +2403,6 @@ export function ProjectDetailPage() {
   const doneCount = allTasks.filter((t) => t.status === 'done').length
   const progressPct = allTasks.length > 0 ? Math.round((doneCount / allTasks.length) * 100) : 0
   // Pronista §SOW Task/Subtask — อัปโหลดไฟล์ Word ของ SOW แตกเป็น Task/Subtask ลง Backlog (เฉพาะ SOW เท่านั้นที่แตกเป็น Task ได้แล้ว)
-  const [uploadOpen, setUploadOpen] = useState(false)
   // Pronista §Import Data — อัปงานเข้าระบบทีเดียวจาก Excel (+ เอกสารแนบ) วางไว้ข้างปุ่มอัปโหลด SOW ที่หัวโปรเจกต์ (เห็นได้ทุกแท็บ เพราะผลลัพธ์กระทบทั้ง Backlog และเอกสาร)
   const [importOpen, setImportOpen] = useState(false)
   // Pronista §Mobile Responsive Refactor (2026-09-02) — More Menu (...) รวม action หัวโปรเจกต์บนมือถือ (สเปก §4)
@@ -2444,13 +2442,6 @@ export function ProjectDetailPage() {
                     <Upload className="w-3.5 h-3.5" /> Import Data
                   </button>
                 )}
-                <button
-                  onClick={() => setUploadOpen(true)}
-                  title="อัปโหลดเอกสาร SOW มาแตกเป็น Task/Subtask"
-                  className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 text-dim border-border-subtle hover:bg-hover"
-                >
-                  <FileText className="w-3.5 h-3.5" /> อัปโหลดเอกสาร SOW
-                </button>
                 <Link
                   to={`/projects/${project.id}/edit`}
                   title="แก้ไขโปรเจกต์"
@@ -2573,6 +2564,8 @@ export function ProjectDetailPage() {
       {view === 'docs' && id && (
         <ProjectDocumentsTab
           projectId={id}
+          project={{ id: project.id, code: project.code, name: project.name }}
+          onSowUploaded={() => { void reload(); setBacklogRefreshKey((k) => k + 1) }}
           canCreate={project.myPermissions?.actions.doc.create ?? false}
           canEdit={project.myPermissions?.actions.doc.edit ?? false}
           canDelete={project.myPermissions?.actions.doc.delete ?? false}
@@ -2614,14 +2607,6 @@ export function ProjectDetailPage() {
         <ProjectEstimateSection projectId={id} members={project.members ?? []} />
       )}
 
-      {uploadOpen && id && (
-        <SowUploadBreakoutModal
-          lockedProject={{ id: project.id, code: project.code, name: project.name }}
-          onClose={() => setUploadOpen(false)}
-          onCreated={() => { setUploadOpen(false); void reload(); setBacklogRefreshKey((k) => k + 1) }}
-        />
-      )}
-
       {importOpen && id && (
         <ImportDataModal
           project={{ id: project.id, code: project.code, name: project.name }}
@@ -2638,7 +2623,6 @@ export function ProjectDetailPage() {
           onClose={() => setHeaderMenuAnchor(null)}
           items={[
             ...(user?.importDataEnabled ? [{ label: 'Import Data', icon: <Upload className="w-4 h-4 text-muted" />, onClick: () => setImportOpen(true) }] : []),
-            { label: 'อัปโหลดเอกสาร SOW', icon: <FileText className="w-4 h-4 text-muted" />, onClick: () => setUploadOpen(true) },
             { label: 'แก้ไข', icon: <Pencil className="w-4 h-4 text-muted" />, onClick: () => navigate(`/projects/${project.id}/edit`) },
             ...(user?.role === 'owner'
               ? [{

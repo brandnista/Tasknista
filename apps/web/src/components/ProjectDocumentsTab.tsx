@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { useLoad } from '../lib/useLoad'
 import { useDialog } from './Dialog'
 import { TemplatePickerModal } from './doc-templates/TemplatePickerModal'
+import { SowUploadBreakoutModal } from './SowUploadBreakoutModal'
 import { useToast } from './Toast'
 
 // Pronista §Project Documents (2026-09-17) — แท็บ "เอกสาร" ของโปรเจกต์ ยกเครื่องจาก list อ่านอย่างเดียวเดิม (ProjectDocsSection)
@@ -523,7 +524,15 @@ function LinkExistingModal({ projectId, onClose, onLinked }: { projectId: string
   )
 }
 
-export function ProjectDocumentsTab({ projectId, canCreate, canEdit, canDelete }: { projectId: string; canCreate: boolean; canEdit: boolean; canDelete: boolean }) {
+export function ProjectDocumentsTab({ projectId, project, onSowUploaded, canCreate, canEdit, canDelete }: {
+  projectId: string
+  project: { id: string; code: string | null; name: string }
+  /** อัปโหลด SOW แล้วมี Task/Subtask ใหม่เกิดขึ้น — ให้หน้าโปรเจกต์รีเฟรช backlog/ตัวเลขความคืบหน้า */
+  onSowUploaded?: () => void
+  canCreate: boolean
+  canEdit: boolean
+  canDelete: boolean
+}) {
   const { user } = useAuth()
   const { data, reload } = useLoad<{ series: DocSeries[] }>(() => api.get(`/api/projects/${projectId}/documents`), [projectId])
   const series = data?.series ?? []
@@ -532,6 +541,7 @@ export function ProjectDocumentsTab({ projectId, canCreate, canEdit, canDelete }
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [templateOpen, setTemplateOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
+  const [sowOpen, setSowOpen] = useState(false)
   const [momFile, setMomFile] = useState<File | null>(null)
   const momInputRef = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState<DocVersion | null>(null)
@@ -592,6 +602,7 @@ export function ProjectDocumentsTab({ projectId, canCreate, canEdit, canDelete }
                         {isTeam && <button className={item} onClick={() => { setAddMenuOpen(false); setTemplateOpen(true) }}><FileText className="w-4 h-4 text-muted shrink-0" /> สร้างเอกสารจาก Template</button>}
                         {isTeam && <button className={item} onClick={() => { setAddMenuOpen(false); momInputRef.current?.click() }}><FileUp className="w-4 h-4 text-muted shrink-0" /> อัปโหลด MOM (Word) → กรอก Template ให้</button>}
                         {isTeam && <button className={item} onClick={() => { setAddMenuOpen(false); setLinkOpen(true) }}><Link2 className="w-4 h-4 text-muted shrink-0" /> ผูกเอกสารที่มีอยู่แล้ว</button>}
+                        {isTeam && <button className={item} onClick={() => { setAddMenuOpen(false); setSowOpen(true) }}><FileUp className="w-4 h-4 text-muted shrink-0" /> อัปโหลดเอกสาร SOW → แตกเป็น Task/Subtask</button>}
                       </>
                     )
                   })()}
@@ -701,6 +712,13 @@ export function ProjectDocumentsTab({ projectId, canCreate, canEdit, canDelete }
         />
       )}
       {linkOpen && <LinkExistingModal projectId={projectId} onClose={() => setLinkOpen(false)} onLinked={reload} />}
+      {sowOpen && (
+        <SowUploadBreakoutModal
+          lockedProject={project}
+          onClose={() => setSowOpen(false)}
+          onCreated={() => { setSowOpen(false); reload(); onSowUploaded?.() }}
+        />
+      )}
       {momFile && (
         <MomImportModal
           projectId={projectId}
