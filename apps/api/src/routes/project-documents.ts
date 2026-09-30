@@ -327,6 +327,7 @@ export const projectDocumentRoutes = new Hono<AppEnv>()
       templateDocNumber = await nextTemplateDocNumber(db, sanitizeCodePrefix(project.code, 'DOC'), def.docCodePrefix, d + m + y)
     }
 
+    if (!importedNo) clean.fields.meeting_info = { ...clean.fields.meeting_info, document_no: templateDocNumber } // ไฟล์ไม่มีเลขที่ → ใช้เลขที่ที่ระบบออกให้
     const parentId = await findOrCreateTemplateFolder(db, def, ctx.me)
     const siblings = await db.select({ id: docs.id }).from(docs).where(and(eq(docs.parentId, parentId), isNull(docs.deletedAt)))
     const inserted = await db
