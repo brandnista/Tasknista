@@ -190,6 +190,27 @@ describe('Pronista §Workload — GET /api/workload', () => {
   })
 })
 
+describe('Pronista §Workload — GET /api/workload/users/:id/tasks (คลิกตัวเลขในตารางเพื่อดูงาน)', () => {
+  it('ส่ง ids จากช่องตาราง → ได้งานที่คนนั้น "ลงเวลาไว้" แม้ไม่ได้ถูกมอบหมายให้ · ไม่ส่ง ids → เฉพาะที่มอบหมาย', async () => {
+    await makeTask({ id: 'wl_help', assigneeId: 'u_owner', dueDate: '2026-11-02' }) // งานของ owner แต่ pond มาช่วยลงเวลา
+    await makeTask({ id: 'wl_mine', assigneeId: 'u_pond', dueDate: '2026-11-02' })
+    await logTime('wl_help', '2026-11-02', 60, 'help')
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const get = async (qs: string) =>
+      ((await (await app.request(`/api/workload/users/u_pond/tasks${qs}`, { headers: { cookie: owner } }, env)).json()) as { tasks: { id: string }[] }).tasks.map((t) => t.id)
+    expect(await get('?ids=wl_help,wl_mine')).toEqual(expect.arrayContaining(['wl_help', 'wl_mine']))
+    expect(await get('')).not.toContain('wl_help')
+    expect(await get('?ids=wl_help')).toEqual(['wl_help'])
+  })
+
+  it('ids ที่คนนั้นไม่ได้เกี่ยวข้องเลย (ไม่ได้รับมอบหมาย/ไม่ได้ลงเวลา) → ไม่คืนงานนั้น', async () => {
+    await makeTask({ id: 'wl_stranger', assigneeId: 'u_owner', dueDate: '2026-11-03' })
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload/users/u_pond/tasks?ids=wl_stranger', { headers: { cookie: owner } }, env)).json()) as { tasks: { id: string }[] }
+    expect(res.tasks).toEqual([])
+  })
+})
+
 describe('Pronista §Workload — GET /api/workload/sprints', () => {
   it('คืนเฉพาะ sprint ที่ planned/active · ไม่รวม completed · owner/member/vendor เข้าได้ (เดิม owner เท่านั้น)', async () => {
     const db = createDb(env.DB)
