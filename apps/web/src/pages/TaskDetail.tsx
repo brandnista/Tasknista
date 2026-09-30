@@ -889,7 +889,12 @@ export function TaskDetailPage() {
   // Pronista §System Requirements Update — ประวัติการเปลี่ยนแปลง: เฉพาะความเคลื่อนไหวสถานะ/ผู้รับผิดชอบ/ประเภทงาน ไม่รวมคอมเมนต์/แนบไฟล์/เวลา
   const historyFeed = feed.filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
   // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แท็บ "Comments" แยกเฉพาะคอมเมนต์ ไม่ปนกิจกรรม
-  const commentsFeed = feed.filter((f): f is FeedEntry & { kind: 'comment' } => f.kind === 'comment')
+  // (2026-09-30) เรียงจากใหม่ไปเก่า: คอมเมนต์ที่เพิ่งเขียนหรือเพิ่งถูกแก้ไขล่าสุดอยู่บนสุดเสมอ (ใช้เวลาที่ใหม่กว่าระหว่าง "สร้าง" กับ "แก้ไข")
+  // หมายเหตุ: JSON จาก API ส่งเวลามาเป็นสตริง ISO (ไม่ใช่ตัวเลข) จึงแปลงเป็น ms ก่อนเทียบ
+  const toMs = (v: number | string | null | undefined) => (v == null ? 0 : typeof v === 'number' ? v : Date.parse(v))
+  const commentsFeed = feed
+    .filter((f): f is FeedEntry & { kind: 'comment' } => f.kind === 'comment')
+    .sort((a, b) => Math.max(toMs(b.at), toMs(b.editedAt)) - Math.max(toMs(a.at), toMs(a.editedAt)))
   const latestRejectionReason = [...historyFeed].reverse().find((f) => f.action === 'task.reject' && typeof f.meta?.reason === 'string')?.meta?.reason as string | undefined
 
   const siblingTotal = t.siblings.length + 1
