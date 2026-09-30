@@ -19,6 +19,7 @@ interface WorkloadCell {
   meetingMinutes: number
   capacityMinutes: number
   onLeave: boolean
+  onHoliday?: boolean
   taskIds: string[]
 }
 interface WorkloadResponse {
@@ -104,6 +105,19 @@ export function WorkloadPage() {
   const showSprintEmpty = view === 'sprint' && !sprintId
   const rows = data ?? EMPTY_WORKLOAD
   const filteredPeople = roleFilter === 'all' ? rows.people : rows.people.filter((p) => p.role === roleFilter)
+  const showTotal = view !== 'daily'
+  // ผลรวมต่อคนตลอดช่วงที่แสดง — ความจุรวมมาจากความจุรายวันของแต่ละคน (วันหยุดสุดสัปดาห์ = 0, วันลา = 0) จึงถูกต้องตามวันทำงานจริงโดยไม่ต้อง hardcode 40/160
+  const totalsOf = (personId: string) => {
+    let used = 0
+    let capacity = 0
+    for (const d of rows.days) {
+      const cell = rows.grid[personId]?.[d]
+      if (!cell) continue
+      used += cell.usedMinutes
+      capacity += cell.capacityMinutes
+    }
+    return { used, capacity }
+  }
 
   return (
     <div className="p-4 md:p-6">
@@ -180,6 +194,12 @@ export function WorkloadPage() {
                           {week[0]} – {week[week.length - 1]}
                         </th>
                       ))}
+                      {/* (2026-09-30) คอลัมน์ "รวม" — สรุปต่อคนทั้งช่วงที่ดู: เวลาที่ใช้จริง / ความจุ (รายสัปดาห์ = 40.0 ถ้าไม่มีวันลา · รายเดือน = วันทำงานจริง × 8 หักวันลาแล้ว) ไม่โชว์ในมุมมองรายวัน (ช่องเดียวอยู่แล้ว) */}
+                      {showTotal && (
+                        <th rowSpan={2} title="เวลาที่ลงจริง / ความจุ = วันทำงานจริง × ชม./วัน − วันหยุด − วันลาที่อนุมัติแล้ว" className="sticky right-0 z-30 bg-hover px-3 py-2 text-center text-xs font-semibold text-muted whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)]">
+                          รวม
+                        </th>
+                      )}
                     </tr>
                     <tr>
                       <th className="sticky left-0 z-30 bg-hover shadow-[1px_0_0_var(--color-border-subtle)]" />
@@ -224,6 +244,8 @@ export function WorkloadPage() {
                             >
                               {cell?.onLeave ? (
                                 <span className="inline-block text-[11px] font-medium text-warning-700 bg-warning-100 rounded-full px-2 py-0.5">ลา</span>
+                              ) : cell?.onHoliday && cell.usedMinutes === 0 ? (
+                                <span className="inline-block text-[11px] font-medium text-success-700 bg-success-100 rounded-full px-2 py-0.5">หยุด</span>
                               ) : cell ? (
                                 <span className={`text-[12.5px] ${over ? 'text-danger-600 font-semibold' : 'text-body'}`}>
                                   {minutesToHoursLabel(cell.usedMinutes)}/{minutesToHoursLabel(cell.capacityMinutes)}
@@ -234,6 +256,17 @@ export function WorkloadPage() {
                             </td>
                           )
                         })}
+                        {showTotal && (() => {
+                          const t = totalsOf(p.id)
+                          const over = t.used > t.capacity
+                          return (
+                            <td className="sticky right-0 z-20 bg-white group-hover/row:bg-hover px-3 py-2 text-center tabular-nums whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)]">
+                              <span className={`text-[12.5px] font-semibold ${over ? 'text-danger-600' : 'text-strong'}`}>
+                                {minutesToHoursLabel(t.used)}/{minutesToHoursLabel(t.capacity)}
+                              </span>
+                            </td>
+                          )
+                        })()}
                       </tr>
                     ))}
                   </tbody>

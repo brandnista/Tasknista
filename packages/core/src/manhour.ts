@@ -4,7 +4,7 @@ import { PERMISSION_CATEGORIES } from './permissions'
 /**
  * Pronista §System Enhancements — Manhour/วัน แยกตาม "ประเภทผู้ใช้งาน" (staff/outsource/customer)
  * §Workload (2026-09-04) — แยกเพิ่มเป็นรายวันในสัปดาห์ได้ด้วย (เช่น outsource จ-ศ 4 ชม. ส-อา 10 ชม.)
- * null = ยังไม่ตั้งค่า ใช้ workHourCapMinutes (เพดานรวมเดิม) เป็นค่าเริ่มต้นทุกวันของทั้ง 3 ประเภท
+ * null = ยังไม่ตั้งค่า ใช้ workHourCapMinutes (เพดานรวมเดิม) เป็นค่าเริ่มต้นเฉพาะวันทำงาน จ-ศ (เสาร์-อาทิตย์ = 0) ของทั้ง 3 ประเภท
  */
 export type ManhourUserType = LoginPermissionCategory
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
@@ -14,9 +14,15 @@ export type WeeklyMinutes = Record<Weekday, number>
 const manhourCategories = () => PERMISSION_CATEGORIES.filter((c): c is ManhourUserType => c !== 'membership')
 
 /** ค่าที่เก็บจริงอาจเป็นเลขแบนราบของเดิม (ก่อนแยกรายวัน) — normalize ให้เป็น WeeklyMinutes เสมอ */
+const WEEKEND: readonly Weekday[] = ['sat', 'sun']
+
 function normalizeCategoryValue(raw: number | Partial<WeeklyMinutes> | undefined, fallbackMinutes: number): WeeklyMinutes {
-  if (typeof raw === 'number') return Object.fromEntries(WEEKDAYS.map((d) => [d, raw])) as WeeklyMinutes
-  return Object.fromEntries(WEEKDAYS.map((d) => [d, raw?.[d] ?? fallbackMinutes])) as WeeklyMinutes
+  // (2026-09-30) Working Calendar จริง — ค่าเริ่มต้น/เลขแบนราบเดิม = ชม.ต่อ "วันทำงาน" (จ-ศ) เสาร์-อาทิตย์เป็นวันหยุด (0) เว้นแต่บริษัทตั้งค่ารายวันไว้ชัดเจน
+  // (เดิมเติมให้ครบ 7 วัน ทำให้ความจุสัปดาห์ = 56 ชม. แทน 40 และรายเดือนนับเสาร์-อาทิตย์เป็นวันทำงาน)
+  const base = typeof raw === 'number' ? raw : fallbackMinutes
+  return Object.fromEntries(
+    WEEKDAYS.map((d) => [d, typeof raw === 'object' && raw?.[d] !== undefined ? raw[d] : WEEKEND.includes(d) ? 0 : base]),
+  ) as WeeklyMinutes
 }
 
 export function resolveManhourMinutesPerDay(

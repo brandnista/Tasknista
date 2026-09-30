@@ -13,11 +13,13 @@ const label = 'text-xs font-medium text-muted mb-1 block'
 
 /** Pronista §Document Template — เลือก template (ตอนนี้มีแค่ MOM) + โปรเจกต์ที่ผูก + ตั้งชื่อ แล้วสร้างเอกสารว่างพร้อมกรอก
  * เพิ่ม template ใหม่ (เช่น SRS) ใน registry แล้ว จะโผล่ในลิสต์นี้เองโดยไม่ต้องแก้โค้ดตรงนี้ */
-export function TemplatePickerModal({ parentId, onClose, onCreated }: { parentId: string | null; onClose: () => void; onCreated: (docId: string) => void }) {
+export function TemplatePickerModal({ parentId, fixedProjectId, onClose, onCreated }: { parentId: string | null; fixedProjectId?: string; onClose: () => void; onCreated: (docId: string) => void }) {
   const templates = Object.values(DOC_TEMPLATES)
   const [templateType, setTemplateType] = useState(templates[0]?.templateType ?? '')
   const { data: projectOpts } = useLoad<ProjectOpt[]>(() => api.get('/api/projects'))
-  const [projectId, setProjectId] = useState('')
+  // (2026-09-30) fixedProjectId = เปิดจากแท็บเอกสารของโปรเจกต์ — ล็อกโปรเจกต์ไว้ ไม่ให้เลือกซ้ำ/เลือกผิดโปรเจกต์
+  const [pickedProjectId, setProjectId] = useState('')
+  const projectId = fixedProjectId ?? pickedProjectId
   const [projectQuery, setProjectQuery] = useState('')
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false)
   const selectedProject = (projectOpts ?? []).find((p) => p.id === projectId)
@@ -57,6 +59,12 @@ export function TemplatePickerModal({ parentId, onClose, onCreated }: { parentId
                 {templates.map((t) => <option key={t.templateType} value={t.templateType}>{t.labelThai}</option>)}
               </select>
             </div>
+            {fixedProjectId ? (
+              <div>
+                <label className={label}>โปรเจกต์</label>
+                <div className="text-sm text-body bg-hover rounded-lg px-3 py-2">{selectedProject?.name ?? 'โปรเจกต์นี้'}</div>
+              </div>
+            ) : (
             <div className="relative">
               <label className={label}>โปรเจกต์</label>
               <input
@@ -84,6 +92,7 @@ export function TemplatePickerModal({ parentId, onClose, onCreated }: { parentId
                 </div>
               )}
             </div>
+            )}
             <div>
               <label className={label}>ชื่อเอกสาร</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="เช่น ประชุม Kick-off ครั้งที่ 1" className={input} />

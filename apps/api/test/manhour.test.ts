@@ -21,12 +21,13 @@ describe('Pronista §Workload — /api/admin/manhour (รายวันใน�
     expect((await app.request('/api/admin/manhour', { headers: { cookie: vendor } }, env)).status).toBe(403)
   })
 
-  it('ค่าเริ่มต้น (ยังไม่ตั้ง) = workHourCapMinutes เดิมทุกวันของทั้ง 3 ประเภท', async () => {
+  it('ค่าเริ่มต้น (ยังไม่ตั้ง) = workHourCapMinutes เฉพาะวันทำงาน จ-ศ (เสาร์-อาทิตย์ = 0) ของทั้ง 3 ประเภท', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
     const res = (await (await app.request('/api/admin/manhour', { headers: { cookie: owner } }, env)).json()) as {
       manhourMinutesPerDay: Record<string, Record<string, number>>
     }
-    expect(res.manhourMinutesPerDay).toEqual({ staff: flat480, outsource: flat480, customer: flat480 })
+    const weekdays480 = { ...flat480, sat: 0, sun: 0 }
+    expect(res.manhourMinutesPerDay).toEqual({ staff: weekdays480, outsource: weekdays480, customer: weekdays480 })
   })
 
   it('ตั้งค่าแยกวันธรรมดา/วันหยุดของ outsource แล้วอ่านกลับมาถูกต้อง', async () => {
