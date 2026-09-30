@@ -7,6 +7,7 @@ import { addDaysISO, bkkDateOf, minutesToHoursLabel, WEEKDAYS, weekdayOfISO, typ
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Avatar } from '../components/Avatar'
+import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
@@ -33,6 +34,9 @@ interface SprintOption { id: string; name: string | null; projectName: string | 
 const EMPTY_WORKLOAD: WorkloadResponse = { people: [], days: [], grid: {}, unscheduled: [] }
 const WEEKDAY_LABEL_SHORT: Record<Weekday, string> = { mon: 'จ', tue: 'อ', wed: 'พ', thu: 'พฤ', fri: 'ศ', sat: 'ส', sun: 'อา' }
 const VIEW_LABEL: Record<ViewMode, string> = { daily: 'รายวัน', weekly: 'รายสัปดาห์', monthly: 'รายเดือน', sprint: 'Sprint' }
+
+const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
+const pickerCls = 'w-36 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400'
 
 function mondayOf(date: string): string {
   return addDaysISO(date, -WEEKDAYS.indexOf(weekdayOfISO(date)))
@@ -110,13 +114,15 @@ export function WorkloadPage() {
   const totalsOf = (personId: string) => {
     let used = 0
     let capacity = 0
+    const taskIds = new Set<string>()
     for (const d of rows.days) {
       const cell = rows.grid[personId]?.[d]
       if (!cell) continue
       used += cell.usedMinutes
       capacity += cell.capacityMinutes
+      for (const id of cell.taskIds) taskIds.add(id)
     }
-    return { used, capacity }
+    return { used, capacity, taskIds: [...taskIds] }
   }
 
   return (
@@ -158,6 +164,40 @@ export function WorkloadPage() {
             <button type="button" onClick={goNext} className="p-1.5 rounded-lg text-soft hover:bg-hover" aria-label="ถัดไป">
               <ChevronRight className="w-4 h-4" />
             </button>
+          </div>
+        )}
+        {/* (2026-09-30) เลือกช่วงที่ต้องการดูเองได้: รายวัน = เลือกวันที่ · รายสัปดาห์ = เลือกวันใดก็ได้ในสัปดาห์ (ระบบปัดเป็นจันทร์-อาทิตย์ให้) · รายเดือน = เลือกเดือน/ปี */}
+        {view === 'daily' && <DateInputTH value={anchor} onChange={(v) => v && setAnchor(v)} className={pickerCls} />}
+        {view === 'weekly' && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted hidden sm:inline">เลือกสัปดาห์ (วันใดก็ได้ในสัปดาห์):</span>
+            <DateInputTH value={anchor} onChange={(v) => v && setAnchor(v)} className={pickerCls} />
+          </div>
+        )}
+        {view === 'monthly' && (
+          <div className="flex items-center gap-1.5">
+            <select
+              aria-label="เลือกเดือน"
+              value={Number(anchor.slice(5, 7))}
+              onChange={(e) => setAnchor(`${anchor.slice(0, 4)}-${String(e.target.value).padStart(2, '0')}-01`)}
+              className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
+            >
+              {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+            <select
+              aria-label="เลือกปี"
+              value={Number(anchor.slice(0, 4))}
+              onChange={(e) => setAnchor(`${e.target.value}-${anchor.slice(5, 7)}-01`)}
+              className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
+            >
+              {(() => {
+                const cur = Number(today.slice(0, 4))
+                const at = Number(anchor.slice(0, 4))
+                const lo = Math.min(cur - 4, at)
+                const hi = Math.max(cur + 1, at)
+                return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i).map((y) => <option key={y} value={y}>{y + 543}</option>)
+              })()}
+            </select>
           </div>
         )}
         {/* Pronista §Workload role filter (2026-09-15) — กรองประเภทผู้ใช้งาน: ทั้งหมด/พนักงาน/พาร์ทเนอร์ เท่านั้น (ไม่แยก Admin ออกมาเป็นตัวเลือก — ยังเห็นได้ผ่าน "ทั้งหมด") */}
@@ -259,8 +299,13 @@ export function WorkloadPage() {
                         {showTotal && (() => {
                           const t = totalsOf(p.id)
                           const over = t.used > t.capacity
+                          const hasTasks = t.taskIds.length > 0
                           return (
-                            <td className="sticky right-0 z-20 bg-white group-hover/row:bg-hover px-3 py-2 text-center tabular-nums whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)]">
+                            <td
+                              onClick={hasTasks ? () => window.open(`/workload/${p.id}?ids=${t.taskIds.join(',')}&date=${encodeURIComponent(`${from} – ${to}`)}`, '_blank', 'noopener') : undefined}
+                              title={hasTasks ? `ดูงานที่ทำของ ${p.name} ในช่วงนี้ (${t.taskIds.length} งาน)` : undefined}
+                              className={`sticky right-0 z-20 bg-white group-hover/row:bg-hover px-3 py-2 text-center tabular-nums whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)] ${hasTasks ? 'cursor-pointer hover:underline' : ''}`}
+                            >
                               <span className={`text-[12.5px] font-semibold ${over ? 'text-danger-600' : 'text-strong'}`}>
                                 {minutesToHoursLabel(t.used)}/{minutesToHoursLabel(t.capacity)}
                               </span>
