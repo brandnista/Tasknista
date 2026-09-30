@@ -7,7 +7,6 @@ import { addDaysISO, bkkDateOf, minutesToHoursLabel, WEEKDAYS, weekdayOfISO, typ
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Avatar } from '../components/Avatar'
-import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
 import { api } from '../lib/api'
 import { useLoad } from '../lib/useLoad'
@@ -35,8 +34,11 @@ const EMPTY_WORKLOAD: WorkloadResponse = { people: [], days: [], grid: {}, unsch
 const WEEKDAY_LABEL_SHORT: Record<Weekday, string> = { mon: 'จ', tue: 'อ', wed: 'พ', thu: 'พฤ', fri: 'ศ', sat: 'ส', sun: 'อา' }
 const VIEW_LABEL: Record<ViewMode, string> = { daily: 'รายวัน', weekly: 'รายสัปดาห์', monthly: 'รายเดือน', sprint: 'Sprint' }
 
+// (2026-09-30) คอลัมน์แบบสรุป: รายสัปดาห์ = 1 คอลัมน์ต่อสัปดาห์ · รายเดือน = 1 คอลัมน์ต่อเดือน (ตัวเลขในช่อง = ผลรวมของช่วงนั้น)
+interface AggCol { key: string; label: string; from: string; to: string }
+const ddmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
+
 const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม']
-const pickerCls = 'w-36 text-sm bg-white border border-border rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-brand-400'
 
 function mondayOf(date: string): string {
   return addDaysISO(date, -WEEKDAYS.indexOf(weekdayOfISO(date)))
@@ -66,13 +68,14 @@ export function WorkloadPage() {
   const sprintList = sprintsData?.sprints ?? []
   const selectedSprint = sprintList.find((s) => s.id === sprintId)
 
+  // (2026-09-30) รายวัน = ทุกวันของเดือนที่เลือก · รายสัปดาห์ = ทุกสัปดาห์ (จันทร์-อาทิตย์) ที่อยู่ในเดือนที่เลือก · รายเดือน = ทั้งปีที่เลือก (12 เดือน)
   const { from, to } = useMemo(() => {
-    if (view === 'daily') return { from: anchor, to: anchor }
+    if (view === 'daily') return monthRange(anchor)
     if (view === 'weekly') {
-      const m = mondayOf(anchor)
-      return { from: m, to: addDaysISO(m, 6) }
+      const m = monthRange(anchor)
+      return { from: mondayOf(m.from), to: addDaysISO(mondayOf(m.to), 6) }
     }
-    if (view === 'monthly') return monthRange(anchor)
+    if (view === 'monthly') return { from: `${anchor.slice(0, 4)}-01-01`, to: `${anchor.slice(0, 4)}-12-31` }
     if (selectedSprint) return { from: selectedSprint.startDate, to: selectedSprint.endDate }
     return { from: today, to: today }
   }, [view, anchor, selectedSprint, today])
@@ -85,16 +88,9 @@ export function WorkloadPage() {
     [from, to, view, sprintId],
   )
 
-  const goPrev = () => {
-    if (view === 'daily') setAnchor((a) => addDaysISO(a, -1))
-    else if (view === 'weekly') setAnchor((a) => addDaysISO(a, -7))
-    else if (view === 'monthly') setAnchor((a) => shiftMonth(a, -1))
-  }
-  const goNext = () => {
-    if (view === 'daily') setAnchor((a) => addDaysISO(a, 1))
-    else if (view === 'weekly') setAnchor((a) => addDaysISO(a, 7))
-    else if (view === 'monthly') setAnchor((a) => shiftMonth(a, 1))
-  }
+  const shiftBy = (dir: 1 | -1) => setAnchor((a) => shiftMonth(a, view === 'monthly' ? 12 * dir : dir))
+  const goPrev = () => shiftBy(-1)
+  const goNext = () => shiftBy(1)
 
   // จัดกลุ่มวันเป็นแถบสัปดาห์ (สัปดาห์เริ่มจันทร์) สำหรับหัวตาราง — ช่วงที่ไม่ได้เริ่มวันจันทร์ (Sprint/ต้นเดือน) แถบแรกจะสั้นกว่าปกติ ไม่เป็นไร
   const weeks = useMemo(() => {
@@ -109,13 +105,34 @@ export function WorkloadPage() {
   const showSprintEmpty = view === 'sprint' && !sprintId
   const rows = data ?? EMPTY_WORKLOAD
   const filteredPeople = roleFilter === 'all' ? rows.people : rows.people.filter((p) => p.role === roleFilter)
-  const showTotal = view !== 'daily'
-  // ผลรวมต่อคนตลอดช่วงที่แสดง — ความจุรวมมาจากความจุรายวันของแต่ละคน (วันหยุดสุดสัปดาห์ = 0, วันลา = 0) จึงถูกต้องตามวันทำงานจริงโดยไม่ต้อง hardcode 40/160
-  const totalsOf = (personId: string) => {
+  const aggregated = view === 'weekly' || view === 'monthly'
+  const showTotal = view !== 'weekly' // รายสัปดาห์: ทุกคอลัมน์เป็นผลรวมอยู่แล้ว (สัปดาห์ขอบเดือนมีวันนอกเดือนปนอยู่ จึงไม่รวมซ้ำ)
+  const aggCols = useMemo<AggCol[]>(() => {
+    if (view === 'weekly') {
+      const cols: AggCol[] = []
+      for (let d = from; d <= to; d = addDaysISO(d, 7)) {
+        const end = addDaysISO(d, 6)
+        cols.push({ key: d, label: `${ddmm(d)} – ${ddmm(end)}`, from: d, to: end })
+      }
+      return cols
+    }
+    if (view === 'monthly') {
+      const y = anchor.slice(0, 4)
+      return THAI_MONTHS.map((m, i) => {
+        const mm = String(i + 1).padStart(2, '0')
+        const r = monthRange(`${y}-${mm}-01`)
+        return { key: mm, label: m, from: r.from, to: r.to }
+      })
+    }
+    return []
+  }, [view, from, to, anchor])
+  // ผลรวมต่อคนในช่วง [rangeFrom, rangeTo] — ความจุรวมมาจากความจุรายวันของแต่ละคน (เสาร์-อาทิตย์/วันหยุด/วันลา = 0) จึงถูกต้องตามปฏิทินทำงานจริงโดยไม่ต้อง hardcode 40/160
+  const sumRange = (personId: string, rangeFrom?: string, rangeTo?: string) => {
     let used = 0
     let capacity = 0
     const taskIds = new Set<string>()
     for (const d of rows.days) {
+      if ((rangeFrom && d < rangeFrom) || (rangeTo && d > rangeTo)) continue
       const cell = rows.grid[personId]?.[d]
       if (!cell) continue
       used += cell.usedMinutes
@@ -124,6 +141,9 @@ export function WorkloadPage() {
     }
     return { used, capacity, taskIds: [...taskIds] }
   }
+  const totalsOf = (personId: string) => sumRange(personId)
+  const openTasks = (personId: string, ids: string[], label: string) =>
+    window.open(`/workload/${personId}?ids=${ids.join(',')}&date=${encodeURIComponent(label)}`, '_blank', 'noopener')
 
   return (
     <div className="p-4 md:p-6">
@@ -166,24 +186,19 @@ export function WorkloadPage() {
             </button>
           </div>
         )}
-        {/* (2026-09-30) เลือกช่วงที่ต้องการดูเองได้: รายวัน = เลือกวันที่ · รายสัปดาห์ = เลือกวันใดก็ได้ในสัปดาห์ (ระบบปัดเป็นจันทร์-อาทิตย์ให้) · รายเดือน = เลือกเดือน/ปี */}
-        {view === 'daily' && <DateInputTH value={anchor} onChange={(v) => v && setAnchor(v)} className={pickerCls} />}
-        {view === 'weekly' && (
+        {/* (2026-09-30) เลือกช่วงที่ต้องการดู: รายวัน/รายสัปดาห์ = เลือกเดือน+ปี · รายเดือน = เลือกปี */}
+        {view !== 'sprint' && (
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted hidden sm:inline">เลือกสัปดาห์ (วันใดก็ได้ในสัปดาห์):</span>
-            <DateInputTH value={anchor} onChange={(v) => v && setAnchor(v)} className={pickerCls} />
-          </div>
-        )}
-        {view === 'monthly' && (
-          <div className="flex items-center gap-1.5">
-            <select
-              aria-label="เลือกเดือน"
-              value={Number(anchor.slice(5, 7))}
-              onChange={(e) => setAnchor(`${anchor.slice(0, 4)}-${String(e.target.value).padStart(2, '0')}-01`)}
-              className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
-            >
-              {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-            </select>
+            {view !== 'monthly' && (
+              <select
+                aria-label="เลือกเดือน"
+                value={Number(anchor.slice(5, 7))}
+                onChange={(e) => setAnchor(`${anchor.slice(0, 4)}-${String(e.target.value).padStart(2, '0')}-01`)}
+                className="text-sm bg-white border border-border rounded-lg px-2.5 py-1.5"
+              >
+                {THAI_MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+              </select>
+            )}
             <select
               aria-label="เลือกปี"
               value={Number(anchor.slice(0, 4))}
@@ -227,29 +242,49 @@ export function WorkloadPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-separate border-spacing-0">
                   <thead>
-                    <tr>
-                      <th className="sticky left-0 z-30 bg-hover px-3 py-2 text-left text-xs font-semibold text-muted shadow-[1px_0_0_var(--color-border-subtle)]">สมาชิก</th>
-                      {weeks.map((week) => (
-                        <th key={week[0]} colSpan={week.length} className="px-2 py-1.5 bg-hover text-[11px] font-medium text-muted text-center border-l border-border-subtle whitespace-nowrap">
-                          {week[0]} – {week[week.length - 1]}
-                        </th>
-                      ))}
-                      {/* (2026-09-30) คอลัมน์ "รวม" — สรุปต่อคนทั้งช่วงที่ดู: เวลาที่ใช้จริง / ความจุ (รายสัปดาห์ = 40.0 ถ้าไม่มีวันลา · รายเดือน = วันทำงานจริง × 8 หักวันลาแล้ว) ไม่โชว์ในมุมมองรายวัน (ช่องเดียวอยู่แล้ว) */}
-                      {showTotal && (
-                        <th rowSpan={2} title="เวลาที่ลงจริง / ความจุ = วันทำงานจริง × ชม./วัน − วันหยุด − วันลาที่อนุมัติแล้ว" className="sticky right-0 z-30 bg-hover px-3 py-2 text-center text-xs font-semibold text-muted whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)]">
-                          รวม
-                        </th>
-                      )}
-                    </tr>
-                    <tr>
-                      <th className="sticky left-0 z-30 bg-hover shadow-[1px_0_0_var(--color-border-subtle)]" />
-                      {rows.days.map((d) => (
-                        <th key={d} className={`px-2 py-1.5 text-[11px] font-medium text-center min-w-[64px] ${d === today ? 'bg-brand-50 text-brand-700' : 'text-muted'}`}>
-                          {WEEKDAY_LABEL_SHORT[weekdayOfISO(d)]}
-                          <span className="block tabular-nums">{d.slice(8, 10)}/{d.slice(5, 7)}</span>
-                        </th>
-                      ))}
-                    </tr>
+                    {aggregated ? (
+                      <tr>
+                        <th className="sticky left-0 z-30 bg-hover px-3 py-2 text-left text-xs font-semibold text-muted shadow-[1px_0_0_var(--color-border-subtle)]">สมาชิก</th>
+                        {aggCols.map((c) => {
+                          const current = today >= c.from && today <= c.to
+                          return (
+                            <th key={c.key} title={`${c.from} – ${c.to}`} className={`px-3 py-2 text-[11px] font-medium text-center whitespace-nowrap min-w-[96px] ${current ? 'bg-brand-50 text-brand-700' : 'bg-hover text-muted'}`}>
+                              {c.label}
+                            </th>
+                          )
+                        })}
+                        {showTotal && (
+                          <th title="ผลรวมทั้งปี — เวลาที่ลงจริง / ความจุ (วันทำงานจริง × ชม./วัน − วันหยุด − วันลาที่อนุมัติแล้ว)" className="sticky right-0 z-30 bg-hover px-3 py-2 text-center text-xs font-semibold text-muted whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)]">
+                            รวมทั้งปี
+                          </th>
+                        )}
+                      </tr>
+                    ) : (
+                      <>
+                        <tr>
+                          <th className="sticky left-0 z-30 bg-hover px-3 py-2 text-left text-xs font-semibold text-muted shadow-[1px_0_0_var(--color-border-subtle)]">สมาชิก</th>
+                          {weeks.map((week) => (
+                            <th key={week[0]} colSpan={week.length} className="px-2 py-1.5 bg-hover text-[11px] font-medium text-muted text-center border-l border-border-subtle whitespace-nowrap">
+                              {week[0]} – {week[week.length - 1]}
+                            </th>
+                          ))}
+                          {showTotal && (
+                            <th rowSpan={2} title="เวลาที่ลงจริง / ความจุ = วันทำงานจริง × ชม./วัน − วันหยุด − วันลาที่อนุมัติแล้ว" className="sticky right-0 z-30 bg-hover px-3 py-2 text-center text-xs font-semibold text-muted whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)]">
+                              รวม
+                            </th>
+                          )}
+                        </tr>
+                        <tr>
+                          <th className="sticky left-0 z-30 bg-hover shadow-[1px_0_0_var(--color-border-subtle)]" />
+                          {rows.days.map((d) => (
+                            <th key={d} className={`px-2 py-1.5 text-[11px] font-medium text-center min-w-[64px] ${d === today ? 'bg-brand-50 text-brand-700' : 'text-muted'}`}>
+                              {WEEKDAY_LABEL_SHORT[weekdayOfISO(d)]}
+                              <span className="block tabular-nums">{d.slice(8, 10)}/{d.slice(5, 7)}</span>
+                            </th>
+                          ))}
+                        </tr>
+                      </>
+                    )}
                   </thead>
                   <tbody>
                     {filteredPeople.map((p) => (
@@ -265,44 +300,67 @@ export function WorkloadPage() {
                             <span className="font-medium text-strong">{p.name}</span>
                           </button>
                         </td>
-                        {rows.days.map((d) => {
-                          const cell = rows.grid[p.id]?.[d]
-                          const over = !!cell && !cell.onLeave && cell.usedMinutes > cell.capacityMinutes
-                          const hasTasks = !!cell && cell.taskIds.length > 0
-                          return (
-                            <td
-                              key={d}
-                              onClick={hasTasks ? () => window.open(`/workload/${p.id}?ids=${cell.taskIds.join(',')}&date=${d}`, '_blank', 'noopener') : undefined}
-                              className={`px-2 py-2 text-center tabular-nums ${d === today ? 'bg-brand-50/40' : ''} ${hasTasks ? 'cursor-pointer hover:bg-hover' : ''}`}
-                              title={
-                                cell && (cell.taskMinutes > 0 || cell.meetingMinutes > 0)
-                                  ? `เวลางานที่บันทึก: ${minutesToHoursLabel(cell.taskMinutes)} · ประชุม: ${minutesToHoursLabel(cell.meetingMinutes)}`
-                                  : hasTasks
-                                    ? `ดูงานของ ${p.name} วันที่ ${d}`
-                                    : undefined
-                              }
-                            >
-                              {cell?.onLeave ? (
-                                <span className="inline-block text-[11px] font-medium text-warning-700 bg-warning-100 rounded-full px-2 py-0.5">ลา</span>
-                              ) : cell?.onHoliday && cell.usedMinutes === 0 ? (
-                                <span className="inline-block text-[11px] font-medium text-success-700 bg-success-100 rounded-full px-2 py-0.5">หยุด</span>
-                              ) : cell ? (
-                                <span className={`text-[12.5px] ${over ? 'text-danger-600 font-semibold' : 'text-body'}`}>
-                                  {minutesToHoursLabel(cell.usedMinutes)}/{minutesToHoursLabel(cell.capacityMinutes)}
-                                </span>
-                              ) : (
-                                <span className="text-[12.5px] text-muted">—</span>
-                              )}
-                            </td>
-                          )
-                        })}
+                        {aggregated
+                          ? aggCols.map((c) => {
+                              const t = sumRange(p.id, c.from, c.to)
+                              const over = t.used > t.capacity
+                              const hasTasks = t.taskIds.length > 0
+                              const current = today >= c.from && today <= c.to
+                              return (
+                                <td
+                                  key={c.key}
+                                  onClick={hasTasks ? () => openTasks(p.id, t.taskIds, `${c.from} – ${c.to}`) : undefined}
+                                  title={hasTasks ? `ดูงานที่ทำของ ${p.name} ช่วง ${c.label} (${t.taskIds.length} งาน)` : undefined}
+                                  className={`px-3 py-2 text-center tabular-nums whitespace-nowrap ${current ? 'bg-brand-50/40' : ''} ${hasTasks ? 'cursor-pointer hover:bg-hover' : ''}`}
+                                >
+                                  {t.capacity === 0 && t.used === 0 ? (
+                                    <span className="text-[12.5px] text-muted">—</span>
+                                  ) : (
+                                    <span className={`text-[12.5px] ${over ? 'text-danger-600 font-semibold' : 'text-body'}`}>
+                                      {minutesToHoursLabel(t.used)}/{minutesToHoursLabel(t.capacity)}
+                                    </span>
+                                  )}
+                                </td>
+                              )
+                            })
+                          : rows.days.map((d) => {
+                              const cell = rows.grid[p.id]?.[d]
+                              const over = !!cell && !cell.onLeave && cell.usedMinutes > cell.capacityMinutes
+                              const hasTasks = !!cell && cell.taskIds.length > 0
+                              return (
+                                <td
+                                  key={d}
+                                  onClick={hasTasks ? () => openTasks(p.id, cell.taskIds, d) : undefined}
+                                  className={`px-2 py-2 text-center tabular-nums ${d === today ? 'bg-brand-50/40' : ''} ${hasTasks ? 'cursor-pointer hover:bg-hover' : ''}`}
+                                  title={
+                                    cell && (cell.taskMinutes > 0 || cell.meetingMinutes > 0)
+                                      ? `เวลางานที่บันทึก: ${minutesToHoursLabel(cell.taskMinutes)} · ประชุม: ${minutesToHoursLabel(cell.meetingMinutes)}`
+                                      : hasTasks
+                                        ? `ดูงานของ ${p.name} วันที่ ${d}`
+                                        : undefined
+                                  }
+                                >
+                                  {cell?.onLeave ? (
+                                    <span className="inline-block text-[11px] font-medium text-warning-700 bg-warning-100 rounded-full px-2 py-0.5">ลา</span>
+                                  ) : cell?.onHoliday && cell.usedMinutes === 0 ? (
+                                    <span className="inline-block text-[11px] font-medium text-success-700 bg-success-100 rounded-full px-2 py-0.5">หยุด</span>
+                                  ) : cell ? (
+                                    <span className={`text-[12.5px] ${over ? 'text-danger-600 font-semibold' : 'text-body'}`}>
+                                      {minutesToHoursLabel(cell.usedMinutes)}/{minutesToHoursLabel(cell.capacityMinutes)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[12.5px] text-muted">—</span>
+                                  )}
+                                </td>
+                              )
+                            })}
                         {showTotal && (() => {
                           const t = totalsOf(p.id)
                           const over = t.used > t.capacity
                           const hasTasks = t.taskIds.length > 0
                           return (
                             <td
-                              onClick={hasTasks ? () => window.open(`/workload/${p.id}?ids=${t.taskIds.join(',')}&date=${encodeURIComponent(`${from} – ${to}`)}`, '_blank', 'noopener') : undefined}
+                              onClick={hasTasks ? () => openTasks(p.id, t.taskIds, `${from} – ${to}`) : undefined}
                               title={hasTasks ? `ดูงานที่ทำของ ${p.name} ในช่วงนี้ (${t.taskIds.length} งาน)` : undefined}
                               className={`sticky right-0 z-20 bg-white group-hover/row:bg-hover px-3 py-2 text-center tabular-nums whitespace-nowrap shadow-[-1px_0_0_var(--color-border-subtle)] ${hasTasks ? 'cursor-pointer hover:underline' : ''}`}
                             >
