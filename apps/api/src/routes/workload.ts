@@ -9,8 +9,8 @@ import {
   weekdayOfISO,
   type ManhourUserType,
 } from '@seedoffice/core'
-import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, timeEntries, users } from '@seedoffice/db'
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm'
+import { calendarEvents, companyConfig, createDb, projects, sprints, tasks, timeEntries, users, workspaces } from '@seedoffice/db'
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { actualMinutesFor, checklistCountsFor } from '../lib/workspace-query'
@@ -178,11 +178,19 @@ export const workloadRoutes = new Hono<AppEnv>()
     const ids = c.req.query('ids')?.split(',').filter(Boolean)
 
     // หน้านี้เป็นมุมมองเจาะจากตาราง Workload — ถ้าส่ง ids มา จะเห็นเฉพาะงานที่ถูกนับใน Cell นั้น
+    // (2026-09-30) ตัวเลขใน Workload นับ "เวลาที่คนนั้นลงจริง" — งานที่ลงเวลาไว้อาจไม่ได้ถูกมอบหมายให้เขา (เช่นช่วยงานคนอื่น) และอาจเป็นงานใน Workspace ที่ไม่ผูกโปรเจกต์
+    // ดังนั้นเมื่อเจาะจาก ids ของช่องในตาราง: แสดงงานที่ "มอบหมายให้เขา หรือ เขาลงเวลาไว้" (ไม่ใช่เฉพาะที่มอบหมาย) และไม่ตัดงานที่ไม่มีโปรเจกต์ทิ้ง
+    const loggedByUser = db.select({ id: timeEntries.taskId }).from(timeEntries).where(and(eq(timeEntries.userId, userId), isNull(timeEntries.deletedAt)))
     const rows = await db
-      .select({ task: tasks, projectName: projects.name })
+      .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name })
       .from(tasks)
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .where(and(eq(tasks.assigneeId, userId), ids && ids.length > 0 ? inArray(tasks.id, ids) : undefined))
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
+      .where(
+        ids && ids.length > 0
+          ? and(inArray(tasks.id, ids), or(eq(tasks.assigneeId, userId), inArray(tasks.id, loggedByUser)))
+          : and(eq(tasks.assigneeId, userId), isNotNull(tasks.projectId)),
+      )
       .orderBy(asc(tasks.dueDate))
     const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
     const checklistOf = (taskId: string) => {
@@ -191,7 +199,7 @@ export const workloadRoutes = new Hono<AppEnv>()
     }
     // Pronista §Workload Restructuring เฟส 5b (2026-09-24) — "เวลาทำจริง" บนการ์ด Kanban ของหน้า Workload รายบุคคล
     const actualMinutes = await actualMinutesFor(db, rows.map((r) => r.task.id))
-    return c.json({ user, tasks: rows.map((r) => ({ ...r.task, projectName: r.projectName, ...checklistOf(r.task.id), actualMinutes: actualMinutes.get(r.task.id) ?? null })) })
+    return c.json({ user, tasks: rows.map((r) => ({ ...r.task, projectName: r.projectName ?? r.workspaceName, ...checklistOf(r.task.id), actualMinutes: actualMinutes.get(r.task.id) ?? null })) })
   })
 
   // sprint ที่ยังไม่ปิด ทุกโปรเจกต์ — ให้ dropdown เลือกตอน view=Sprint
