@@ -20,7 +20,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
 import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
@@ -384,7 +384,7 @@ export function TaskDetailPage() {
   const { user } = useAuth()
   const { alertDialog, confirmDialog, promptDialog } = useDialog()
   const toast = useToast()
-  const { data: t, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${routeTaskId}/detail`), [routeTaskId])
+  const { data: t, error: taskError, reload } = useLoad<Detail>(() => api.get(`/api/tasks/${routeTaskId}/detail`), [routeTaskId])
   // URL เก่า (UUID/รหัสเก่า/รหัสแสดงผล) ยังเปิดได้ แต่พอ resolve งานใหม่สำเร็จให้แทนด้วย URL มาตรฐานทันที
   useEffect(() => {
     if (t?.slug && routeTaskId !== t.slug) navigate(`/tasks/${t.slug}`, { replace: true })
@@ -491,6 +491,19 @@ export function TaskDetailPage() {
     }
   }, [resolvedTaskId])
 
+  // Pronista §PRO-0010 (2026-09-25) — งานไม่มีจริง/ไม่มีสิทธิ์ (เช่น 404 เพราะ id เป็น Epic คนละตารางกัน) เดิมไม่มี error state เลย ค้าง "กำลังโหลด…" ตลอดไป
+  if (taskError && !t) {
+    return (
+      <div className="max-w-5xl mx-auto p-3 sm:p-6">
+        <div className="bg-white rounded-xl border border-border-subtle shadow-xs p-10 flex flex-col items-center gap-3 text-center">
+          <p className="text-sm text-body">ไม่พบงานนี้ หรือคุณไม่มีสิทธิ์เข้าถึง</p>
+          <Link to="/my-tasks" className="text-sm text-brand-700 hover:underline flex items-center gap-1">
+            <ChevronLeft className="w-4 h-4" /> กลับไปหน้างานของฉัน
+          </Link>
+        </div>
+      </div>
+    )
+  }
   if (!t) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
   // Pronista §Workspace/Task Jira-alignment (2026-09-04) — เฉพาะปุ่ม action หลักทีละคลิก (เริ่มทำ/ปิดงานเอง ฯลฯ) ที่ยังคง instant-patch เดิม ไม่ผ่าน draft (ทีละ action ชัดเจนอยู่แล้ว ไม่ใช่การแก้ฟอร์ม)
@@ -688,6 +701,18 @@ export function TaskDetailPage() {
     }
     const att = (await res.json()) as { id: string }
     void reload()
+    return `/api/attachments/${att.id}`
+  }
+  // (2026-09-25) รูป/วิดีโอในคอมเมนต์ — endpoint แยก สิทธิ์เดียวกับคอมเมนต์ (คนที่คอมเมนต์ได้แต่แก้งานไม่ได้ก็แนบได้)
+  const uploadCommentMedia = async (file: File): Promise<string | null> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/tasks/${t.id}/comment-media`, { method: 'POST', body: fd })
+    if (!res.ok) {
+      await alertDialog({ title: res.status === 413 ? 'ไฟล์ใหญ่เกิน 15MB' : res.status === 415 ? 'แนบได้เฉพาะรูปหรือวิดีโอ' : 'แนบไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง' })
+      return null
+    }
+    const att = (await res.json()) as { id: string }
     return `/api/attachments/${att.id}`
   }
   const uploadMany = async (files: FileList | File[]) => {
@@ -982,7 +1007,7 @@ export function TaskDetailPage() {
                         </div>
                         {editingComment?.id === f.id ? (
                           <div className="space-y-2">
-                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" />
+                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" onUploadMedia={uploadCommentMedia} />
                             <div className="flex justify-end gap-2">
                               <button onClick={() => setEditingComment(null)} className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
                               <button onClick={() => void saveComment()} disabled={!editingComment.body.trim()} className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 text-white disabled:opacity-40">บันทึก</button>
@@ -1028,7 +1053,9 @@ export function TaskDetailPage() {
 
           {activityTab === 'comments' && (
             <div className="mt-3 space-y-2">
-              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" />
+              {/* Pronista §CR PRO-CR-17092026-0010 (2026-09-25) — onUploadMedia เปิดปุ่มแทรกรูป/วิดีโอ + วาง/ลากไฟล์ในคอมเมนต์ เหมือนฟิลด์ "รายละเอียดจากผู้จ่ายงาน"
+                  reuse uploadDescriptionMedia เดิม (ไป endpoint attachments เดียวกัน + reload()) — ปลอดภัยกับ key ที่ผูกกับ t.comments.length เพราะอัปโหลดสื่อไม่ได้เพิ่มจำนวนคอมเมนต์ ไม่ทำให้ editor remount ทับข้อความที่พิมพ์ค้างไว้ */}
+              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" onUploadMedia={uploadCommentMedia} />
               <div className="flex justify-end gap-2">
                 {isAssignee && (
                   <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 py-2 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
@@ -1581,7 +1608,7 @@ export function TaskDetailPage() {
 
             {!isAssigneeOnly && t.estimateMinutes != null && (
               <div className="border-t border-border-subtle pt-4">
-                <div className="text-xs font-medium text-muted mb-2">ประเมิน vs เวลาที่ใช้จริง</div>
+                <div className="text-xs font-medium text-muted mb-2">เวลาที่ใช้จริง vs เวลาประเมิน</div>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 h-2 bg-divider rounded-full overflow-hidden">
                     <div className={`h-full rounded-full ${totalMinutes > t.estimateMinutes ? 'bg-danger-500' : 'bg-brand-500'}`} style={{ width: `${Math.min(100, (totalMinutes / t.estimateMinutes) * 100)}%` }} />

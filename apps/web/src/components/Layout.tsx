@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { api } from '../lib/api'
 import { useAuth, type Me, type MenuKey } from '../lib/auth'
-import { NotificationsProvider } from '../lib/notifications-context'
+import { NotificationsProvider, useNotifications } from '../lib/notifications-context'
 import { TimerProvider, useTimer } from '../lib/timer'
 import { TopbarContext } from '../lib/topbar'
 import { NotificationBell } from './NotificationBell'
@@ -114,6 +114,32 @@ function isMyTasksNotificationRelevant(
     isDispatchedNotificationRelevant(row, meId) &&
     isMeetingNotificationRelevant(row)
   )
+}
+// Pronista §PRO-DEF-0002 (2026-09-25) — pill style เดียวกับ NotificationBell แต่รับเลขสำเร็จรูปมาโชว์ตรงๆ (ไม่แก้ NotificationBell.tsx เพราะเมนูย่อยอื่นยังต้องนับ unread notification แบบเดิม)
+function CountPill({ n }: { n: number }) {
+  if (n === 0) return null
+  return (
+    <span className="ml-auto text-[10px] bg-danger-500 text-white rounded-full min-w-4 h-4 px-1 grid place-items-center leading-none">
+      {n > 9 ? '9+' : n}
+    </span>
+  )
+}
+// Pronista §PRO-DEF-0002 (2026-09-25) — badge "งานรอตรวจ" นับจากจำนวน task จริงใน GET /api/tasks/pending-review (เหมือน list ในหน้านั้นเป๊ะ) ไม่ใช่จำนวนแจ้งเตือนยังไม่อ่านแบบเดิม (เข้าเพจแล้ว mark อ่านทันที + reviewer=assigner เดียวกันไม่มีแจ้งเตือนส่งเลย ทำให้เลขเดิมไม่ตรง)
+function ReviewCountBadge() {
+  const { reviewCount } = useNotifications()
+  return <CountPill n={reviewCount} />
+}
+// Pronista §PRO-DEF-0002 (2026-09-25) — เมนูแม่ "งานของฉัน" ต้อง = ผลรวม sub-badge ทั้งหมดไม่นับซ้ำ: ตัด type กลุ่มงานรอตรวจออกจากการนับแจ้งเตือน แล้วบวก reviewCount (นับจาก task จริง) แทนที่
+function MyTasksParentBadge({ meId }: { meId?: string }) {
+  const { rows, reviewCount } = useNotifications()
+  const notifCount = (rows ?? []).filter(
+    (r) =>
+      !r.isRead &&
+      (MY_TASKS_ALL_TYPES as readonly string[]).includes(r.type) &&
+      !(MY_TASKS_REVIEW_TYPES as readonly string[]).includes(r.type) &&
+      isMyTasksNotificationRelevant(r, meId),
+  ).length
+  return <CountPill n={notifCount + reviewCount} />
 }
 // Pronista §Pin เมนู — ซ่อนปุ่ม pin/เลื่อนลำดับไว้ก่อน โผล่ตอน hover แถว (เมาส์) เท่านั้น
 // อุปกรณ์ที่ไม่มี hover จริง (มือถือ/แตะ) ให้โชว์ค้างเสมอ เพราะแตะแล้วไม่มีทาง "hover ก่อนกด" ได้
@@ -466,7 +492,7 @@ export function Layout() {
           >
             <Icon className="w-[18px] h-[18px] shrink-0" />
             <span className="flex-1 min-w-0 truncate">{label}</span>
-            {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ALL_TYPES} filter={(r) => isMyTasksNotificationRelevant(r, user?.id)} />}
+            {to === '/my-tasks' && <MyTasksParentBadge meId={user?.id} />}
             {to === '/team' && <NotificationBell types={TEAM_NOTIFICATION_TYPES} />}
             {to === '/vault' && <NotificationBell types={VAULT_NOTIFICATION_TYPES} />}
             {to === '/leave' && <NotificationBell types={LEAVE_NOTIFICATION_TYPES} filter={isLeaveNotificationRelevant} />}
@@ -501,7 +527,7 @@ export function Layout() {
                     {/* Pronista §My Tasks menu badges (2026-09-18) — ทุก sub-menu ใต้ "งานของฉัน" มีตัวเลขแจ้งเตือนแดงของตัวเอง เหมือนที่ My Note มีอยู่แล้ว */}
                     {c.to === '/my-tasks' && <NotificationBell types={MY_TASKS_ASSIGNED_TYPES} filter={(r) => isAssignedTaskNotificationRelevant(r, user?.id)} />}
                     {c.to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} filter={(r) => isDispatchedNotificationRelevant(r, user?.id)} />}
-                    {c.to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} filter={(r) => isReviewNotificationRelevant(r, user?.id)} />}
+                    {c.to === '/my-tasks/review' && <ReviewCountBadge />}
                     {c.to === '/my-tasks/notes' && <NotificationBell types={MY_TASKS_NOTES_TYPES} />}
                     {c.to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} filter={isMeetingNotificationRelevant} />}
                   </NavLink>
@@ -544,7 +570,7 @@ export function Layout() {
           </span>
           {to === '/my-tasks' && <NotificationBell types={MY_TASKS_ASSIGNED_TYPES} filter={(r) => isAssignedTaskNotificationRelevant(r, user?.id)} />}
           {to === '/my-tasks/dispatched' && <NotificationBell types={MY_TASKS_DISPATCHED_TYPES} filter={(r) => isDispatchedNotificationRelevant(r, user?.id)} />}
-          {to === '/my-tasks/review' && <NotificationBell types={MY_TASKS_REVIEW_TYPES} filter={(r) => isReviewNotificationRelevant(r, user?.id)} />}
+          {to === '/my-tasks/review' && <ReviewCountBadge />}
           {to === '/my-tasks/notes' && <NotificationBell types={MY_TASKS_NOTES_TYPES} />}
           {to === '/my-tasks/meetings' && <NotificationBell types={MY_TASKS_MEETINGS_TYPES} filter={isMeetingNotificationRelevant} />}
         </NavLink>

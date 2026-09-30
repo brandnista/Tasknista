@@ -401,7 +401,9 @@ export function WorkspacePage() {
         await api.post(`/api/tasks/${created.id}/convert`, convertBody)
         createdId = created.id
       }
-      toastAction(taskCreatedMessage(addType, title), createdId)
+      // Pronista §PRO-0010 (2026-09-25) — Epic ไม่มี /tasks/<id> จริง ปุ่ม View ของ toastAction เลยพาไปหน้าโหลดค้าง ใช้ toast ธรรมดาไม่มีปุ่มแทนเฉพาะ Epic
+      if (addType === 'epic') toast(taskCreatedMessage(addType, title))
+      else toastAction(taskCreatedMessage(addType, title), createdId)
       setAddTitle('')
       setAddParentId('')
       void reloadBacklog()

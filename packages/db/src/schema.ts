@@ -509,6 +509,8 @@ export const tasks = sqliteTable(
     // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยๆ ได้โดยไม่ต้องมี Story แม่ก่อน (parentId ยังว่างได้)
     // ต้องมี flag แยกเพราะ kind='task'+parentId=null ปกติแปลว่า Story (โครงสร้างเดิม) — flag นี้บอกว่า "ตั้งใจให้เป็น Task ลอย" ไปโผล่แท็บ Task ไม่ใช่แท็บ Story
     isStandaloneTask: integer('is_standalone_task', { mode: 'boolean' }).notNull().default(false),
+    // Pronista §PRO-DEF-0006 (2026-09-25) — flag แยก "งานย่อย" (สร้างจากส่วนงานย่อยในหน้า Task Detail) ออกจาก Task จริงที่ผูกใต้ Story ผ่าน "🔗 เชื่อมกับ Task" (เดิมสองอย่างนี้แยกไม่ออกเพราะดูแค่ parentId)
+    isSubtask: integer('is_subtask', { mode: 'boolean' }).notNull().default(false),
     // Pronista §2.6 — ย้าย backlog เป็น Defect: kind แยกประเภทงาน · reporterType = ผู้แจ้ง
     // Pronista §Project Refactor — เพิ่ม 'cr' (Change Request ระดับ task แยกจาก doc type 'CR') สำหรับแท็บ CR ในหน้าโปรเจกต์
     // Pronista §Back to Basic (ต่อยอด) — เพิ่ม 'backlog' แยกงานที่คีย์จากแท็บ "ทั่วไป" ออกจาก Story (kind='task' ระดับบนสุดเหมือนกันแต่คนละความหมาย) ให้เด็ดขาด
@@ -577,8 +579,13 @@ export const tasks = sqliteTable(
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
     // Pronista §My Work UX — เวลาที่กด "ส่งงาน" ล่าสุด (status → waiting_for_test) ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     submittedAt: integer('submitted_at', { mode: 'timestamp_ms' }),
+    // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — เวลาที่ผู้ตรวจงานกดเข้าเมนู "งานรอตรวจ" ล่าสุด (เห็นงานนี้แล้ว) — badge นับเฉพาะงานที่ยังไม่เคยเห็น
+    // หรือถูกส่งตรวจใหม่หลังเห็นครั้งล่าสุด (submittedAt > reviewSeenAt) · ล้างเป็น null เมื่อเปลี่ยนผู้ตรวจงาน (คนใหม่ยังไม่เคยเห็น)
+    reviewSeenAt: integer('review_seen_at', { mode: 'timestamp_ms' }),
     // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เวลาที่ถูกตีกลับล่าสุด (waiting_for_test → non_start) — สัญญาณถาวรแยกจาก read/unread ของ notification task_bounced (เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification ยังไม่อ่าน แต่การเข้าเมนู "งานของฉัน" มาร์คอ่านทันที ทำให้วิดเจ็ตหลุดจาก list ทั้งที่งานยังค้างจริง) — null = ไม่ได้ถูกตีกลับค้างอยู่ตอนนี้ (เคลียร์ทุกครั้งที่สถานะขยับ/เปลี่ยนผู้รับผิดชอบ)
     bouncedAt: integer('bounced_at', { mode: 'timestamp_ms' }),
+    // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ใครเป็นคนตีกลับล่าสุด ใช้โชว์ avatar/ชื่อในวิดเจ็ต "งานที่ถูกตีกลับ" (mirror assignedBy ที่โชว์ในวิดเจ็ต "งานใหม่ที่รอกดรับ")
+    bouncedBy: text('bounced_by').references((): AnySQLiteColumn => users.id),
     // Pronista §Daily Report activity logic (2026-09-22) — Stamp ทุกครั้งที่กดปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" ในหน้ารายละเอียด Task (ไม่ผูกกับ startDate/dueDate ที่ผู้ใช้อาจไม่ได้กรอก) ใช้เลือกว่างานไหนควรโผล่ใน Daily Report ของวันนั้น
     lastActivityAt: integer('last_activity_at', { mode: 'timestamp_ms' }),
   },

@@ -282,6 +282,8 @@ export const taskRoutes = new Hono<AppEnv>()
         parentId: tasks.parentId,
         epicId: tasks.epicId,
         isStandaloneTask: tasks.isStandaloneTask,
+        // Pronista §PRO-DEF-0006 (2026-09-25) — ให้ ProjectHierarchyTab กรองงานย่อยของ Story ออกจากแท็บ Task ได้
+        isSubtask: tasks.isSubtask,
         status: tasks.status,
         defectStatus: tasks.defectStatus,
         assigneeName: users.name,
@@ -454,6 +456,8 @@ export const taskRoutes = new Hono<AppEnv>()
     const me = c.get('user')
     // Pronista §My Tasks — งานใหม่ที่รอกดรับ (2026-09-18) — ต้องรู้ว่าใครจ่ายงานมา (assignedBy) โชว์เป็นคอลัมน์ในตารางได้
     const dispatcher = alias(users, 'dispatcher')
+    // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ต้องรู้ว่าใครตีกลับ (bouncedBy) โชว์ avatar/ชื่อในวิดเจ็ต "งานที่ถูกตีกลับ"
+    const bouncer = alias(users, 'bouncer')
     // (2026-09-16 fix) — เดิม innerJoin(projects) ทำให้งานที่คีย์ตรงใน Workspace (ไม่ผูกโปรเจกต์ projectId เป็น null) หายไปจากลิสต์นี้ทั้งหมด
     // แม้จะจ่ายมาแล้ว/กดรับงานแล้วจริง (status ขยับเป็น on_processing) ก็ไม่โผล่ใน "งานของฉัน" — ล้อ fix เดียวกับ /tasks/dispatched-by-me ด้านล่าง: leftJoin ทั้งคู่ (projects/workspaces) + fallback ชื่อที่โชว์
     const rows = await db
@@ -463,11 +467,14 @@ export const taskRoutes = new Hono<AppEnv>()
         workspaceName: workspaces.name,
         dispatcherName: dispatcher.name,
         dispatcherAvatarUrl: dispatcher.avatarUrl,
+        bouncedByName: bouncer.name,
+        bouncedByAvatarUrl: bouncer.avatarUrl,
       })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
+      .leftJoin(bouncer, eq(tasks.bouncedBy, bouncer.id))
       // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: งานที่ยังไม่ถูกจ่าย (dispatchedAt ว่าง) ไม่โผล่ในหน้า "งานของฉัน"
       .where(and(eq(tasks.assigneeId, me.id), isNotNull(tasks.dispatchedAt)))
       .orderBy(asc(tasks.dueDate))
@@ -502,6 +509,8 @@ export const taskRoutes = new Hono<AppEnv>()
         projectName: r.projectName ?? r.workspaceName,
         dispatcherName: r.dispatcherName,
         dispatcherAvatarUrl: r.dispatcherAvatarUrl,
+        bouncedByName: r.bouncedByName,
+        bouncedByAvatarUrl: r.bouncedByAvatarUrl,
         myRole: roleOf(r.task.projectId),
         ...checklistOf(r.task.id),
         actualMinutes: actualMinutes.get(r.task.id) ?? null,
@@ -532,6 +541,18 @@ export const taskRoutes = new Hono<AppEnv>()
         checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
       })),
     )
+  })
+
+  // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — ผู้ตรวจงานกดเข้าเมนู "งานรอตรวจ" = เห็นงานที่รอตรวจทั้งหมดแล้ว → badge ลดทันที
+  // (งานยังอยู่ใน list จนกว่าจะอนุมัติ/ตีกลับ — แค่ไม่นับเป็น "ใหม่" แล้ว; ส่งตรวจรอบใหม่หลังจากนี้จะนับใหม่อีกครั้งผ่าน submittedAt > reviewSeenAt)
+  .post('/tasks/pending-review/seen', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    await db
+      .update(tasks)
+      .set({ reviewSeenAt: new Date() })
+      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+    return c.json({ ok: true })
   })
 
   // Pronista §My Tasks dispatcher view — งานที่ฉันเป็นคนกด assign ล่าสุด (assignedBy) ข้ามทุกโปรเจกต์ ดูสถานะรวมของงานที่จ่ายออกไป
@@ -707,8 +728,14 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §My Work UX — จำเวลากด "ส่งงาน" ล่าสุด ใช้เช็ค "ส่งตรวจวันนี้" ในสรุปผลงานประจำวัน
     if (body.data.status === 'waiting_for_test' && before.status !== 'waiting_for_test') patch.submittedAt = new Date()
     // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification task_bounced ที่ "ยังไม่อ่าน" เป็นสัญญาณเดียว แต่การเข้าเมนู "งานของฉัน" (หน้าที่วิดเจ็ตนี้อยู่) มาร์ค type นี้อ่านอัตโนมัติทันที (เฟส 6a) ทำให้วิดเจ็ตหลุดจาก list เองทั้งที่งานยังค้างไม่ได้แก้ไขจริง — ย้ายมาเก็บเป็นสถานะถาวรของ task เอง ไม่ผูกกับ read/unread ของแจ้งเตือนอีกต่อไป เคลียร์ทุกครั้งที่สถานะขยับออกจากตรงนี้ (ไม่ว่าจะไปทางไหน)
-    if (body.data.status === 'non_start' && before.status === 'waiting_for_test') patch.bouncedAt = new Date()
-    else if (body.data.status && body.data.status !== before.status) patch.bouncedAt = null
+    if (body.data.status === 'non_start' && before.status === 'waiting_for_test') {
+      patch.bouncedAt = new Date()
+      // Pronista §Bounced Tasks Widget redesign (2026-09-25) — เก็บว่าใครตีกลับ ใช้โชว์ avatar/ชื่อในวิดเจ็ต
+      patch.bouncedBy = me.id
+    } else if (body.data.status && body.data.status !== before.status) {
+      patch.bouncedAt = null
+      patch.bouncedBy = null
+    }
     // Pronista §My Work/Notification — จำคนที่กด assign ล่าสุด (ผู้มอบหมาย) ใช้แจ้งเตือนกลับตอน subtask เสร็จ
     if ('assigneeId' in body.data && body.data.assigneeId && body.data.assigneeId !== before.assigneeId) patch.assignedBy = me.id
     // Pronista §Back to Basic (ต่อยอด) — เปลี่ยนผู้รับผิดชอบ (รวมถึงเคลียร์เป็น null) ต้องเคลียร์เกตจ่ายงานเดิมด้วยเสมอ กันคนใหม่เห็นงานที่ยังไม่ได้จ่ายให้ตัวเอง
@@ -717,11 +744,25 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.dispatchedAt = null
       patch.acceptedAt = null
       patch.bouncedAt = null // เปลี่ยนตัวคนรับผิดชอบ = คนใหม่เริ่มนับหนึ่งใหม่ ไม่ควรเห็นค้างว่า "ถูกตีกลับ" จากรอบของคนเก่า
+      patch.bouncedBy = null
       if (before.status !== 'non_start') {
         patch.status = 'non_start'
         patch.completedAt = null
       }
     }
+    // Pronista §Defect PRO-Defect-16092026-0004 (2026-09-25) — กด "บันทึกเพื่ออัปเดตข้อมูล" (notifyOnUpdate) แล้วผู้ตรวจงานว่าง → default เป็นผู้จ่ายงาน (หรือคนที่กำลังบันทึกเอง ถ้ายังไม่เคยมีผู้จ่ายงาน)
+    // เฉพาะ caller ที่มีสิทธิ์ตั้ง reviewerId เองอยู่แล้วเท่านั้น (isAssigneeOnly = allowedKeys ไม่มี reviewerId อยู่แล้ว ข้ามไปเงียบๆ ไม่ใช่ error) · ห้าม default ให้ reviewer ซ้ำกับ assignee ผลลัพธ์ (กันตรวจงานตัวเอง)
+    if (body.data.notifyOnUpdate && !isAssigneeOnly) {
+      const nextReviewerId = 'reviewerId' in body.data ? body.data.reviewerId : before.reviewerId
+      if (!nextReviewerId) {
+        const nextAssigneeId = 'assigneeId' in body.data ? body.data.assigneeId : before.assigneeId
+        const effectiveAssignerId = (patch.assignedBy as string | undefined) ?? before.assignedBy
+        const defaultReviewerId = effectiveAssignerId ?? me.id
+        if (defaultReviewerId !== nextAssigneeId) patch.reviewerId = defaultReviewerId
+      }
+    }
+    // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — เปลี่ยนผู้ตรวจงาน = คนใหม่ยังไม่เคยเห็นงานนี้ในเมนู "งานรอตรวจ" → นับเป็นงานใหม่ใน badge ของเขา
+    if (patch.reviewerId !== undefined && patch.reviewerId !== before.reviewerId) patch.reviewSeenAt = null
     // Pronista §Notification overhaul (2026-08-27) — แก้กำหนดส่งใหม่ → เคลียร์เกตกันเตือนซ้ำ ให้นับรอบเลยกำหนดใหม่ตามวันที่แก้ (mirror expiryNotifiedAt reset ใน routes/projects.ts)
     if ('dueDate' in body.data && body.data.dueDate !== before.dueDate) patch.dueNotifiedAt = null
     // Pronista §2.6 — ย้าย backlog เป็น sub-task ของ task ที่มีอยู่ → ผูก project/group ตาม parent + code = <parentCode>.N
@@ -731,6 +772,8 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.projectId = parent.projectId
       patch.groupId = parent.groupId
       patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? sanitizeCodePrefix(null, 'TSK'))
+      // Pronista §PRO-DEF-0006 (2026-09-25) — ทางนี้คือย้าย backlog เข้าเป็นงานย่อยของ task ที่มีอยู่ (ไม่ใช่ convert) ต้องติด flag เหมือนกัน
+      patch.isSubtask = true
     } else if (body.data.projectId && before.projectId === null) {
       // Pronista §2.5 — ย้าย backlog (BL-N) เข้าโปรเจกต์ → ออกโค้ดใหม่ตามคำนำหน้าโปรเจกต์
       const project = (await db.select().from(projects).where(eq(projects.id, body.data.projectId)).limit(1))[0]
@@ -1118,7 +1161,8 @@ export const taskRoutes = new Hono<AppEnv>()
     }
 
     // Pronista §Project Refactor — Epic/Story/Task/Subtask คือ "ประเภทงานปกติ" เดียวกัน ต่างแค่ตำแหน่งใน hierarchy · Defect/CR เป็นคนละ kind
-    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', version: sql`${tasks.version} + 1` }
+    // Pronista §PRO-DEF-0006 (2026-09-25) — convert ไปทางไหนก็ตาม ถือว่าไม่ใช่ "งานย่อย" แล้ว ยกเว้น to:'subtask' เท่านั้นที่ตั้งกลับเป็น true (เขียนทับด้านล่าง)
+    const patch: Record<string, unknown> = { kind: body.data.to === 'defect' || body.data.to === 'cr' ? body.data.to : 'task', isSubtask: false, version: sql`${tasks.version} + 1` }
     // Pronista §Back to Basic — regenerate เลขรหัสให้ตรงประเภทใหม่ทุกครั้งที่ convert (Epic/Story/Defect/CR ใช้ scheme ใหม่ · Task/Subtask ที่มี parent ยังใช้ dotted code เดิม) เก็บ oldCode ไว้ log เป็นประวัติ
     const codePrefix = sanitizeCodePrefix(null, 'TSK')
     // Pronista §Backlog cross-project convert — โปรเจกต์ปลายทางจริง (ไม่ระบุ = คงโปรเจกต์เดิม)
@@ -1159,6 +1203,7 @@ export const taskRoutes = new Hono<AppEnv>()
       patch.groupId = parent.groupId
       patch.epicId = parent.epicId
       patch.isStandaloneTask = false
+      patch.isSubtask = true
       if (!before.code) patch.code = await nextSubTaskCode(db, parent.id, parent.code ?? codePrefix)
     } else {
       // task — Pronista §Feedback batch 4: ไม่บังคับเลือก parent (Story) ทันทีอีกต่อไป ผูกทีหลังได้ผ่าน PATCH /tasks/:id

@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `is_subtask` integer DEFAULT false NOT NULL;

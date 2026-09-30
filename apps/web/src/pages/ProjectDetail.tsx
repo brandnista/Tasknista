@@ -22,7 +22,7 @@ import { ProjectDocumentsTab } from '../components/ProjectDocumentsTab'
 import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
-import { useToastAction } from '../components/Toast'
+import { useToast, useToastAction } from '../components/Toast'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
@@ -148,6 +148,14 @@ function BulkKindActions({ totalCount, selectedCount, excludeKind, busy, onDelet
   )
 }
 
+// Pronista §Backlog mobile row wrap (2026-09-25) — แถวงานใน Backlog panel เดิม w-max+flex-nowrap ทุกจอ มือถือ 320–414px เลยล้นขวา
+// (ผู้รับงาน/ชม./สถานะหลุดขอบ) — มือถือ: ชื่องานเต็มบรรทัดแรก metadata ตกลงบรรทัดสองผ่าน BacklogRowBreak · sm+ คงแถวเดียว+scroll แนวนอนตามเดิม (§Horizontal-scroll preference)
+const BACKLOG_ROW_LAYOUT = 'flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-0.5 py-2.5 px-2 w-full sm:w-max sm:min-w-full'
+const BACKLOG_ROW_TITLE = 'flex-1 min-w-0 sm:flex-none sm:min-w-32 sm:max-w-64 text-sm text-body truncate text-left hover:underline'
+function BacklogRowBreak() {
+  return <span aria-hidden className="basis-full h-0 sm:hidden" />
+}
+
 /** งานแถวหนึ่งใน Backlog ของโปรเจกต์ — ลากไปวางใน Sprint (มุมมอง Sprint) ได้เลย */
 function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, dragging, selected, onToggleSelect, onConvertDirect, onConvertPick, labelCatalog, showCode, soonDays }: {
   t: ProjectBacklogTask
@@ -197,7 +205,7 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${urgencyCls} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
+      className={`${BACKLOG_ROW_LAYOUT} ${urgencyCls} ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-50' : ''}`}
     >
       {onToggleSelect && (
         <input type="checkbox" checked={!!selected} onChange={onToggleSelect} className="shrink-0 cursor-pointer" />
@@ -206,7 +214,8 @@ function BacklogTaskRow({ t, onOpenTask, draggable, onDragStart, onDragEnd, drag
       <span className="w-1.5 h-1.5 rounded-full bg-border shrink-0" />
       {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
       {originBadge}
-      <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+      <button onClick={() => onOpenTask(t.id)} className={BACKLOG_ROW_TITLE}>{t.title}</button>
+      <BacklogRowBreak />
       {t.kind === 'defect' && <span className="shrink-0 text-[10px] bg-danger-50 text-danger-600 px-1.5 py-0.5 rounded">🐛 Defect</span>}
       {t.priority === 'high' && <span className="shrink-0 text-[10px] text-danger-600 bg-danger-50 px-1.5 py-0.5 rounded">สูง</span>}
       {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-dim shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
@@ -225,6 +234,13 @@ const BACKLOG_TAB_LABEL: Record<BacklogTab, string> = {
 const KIND_BADGE_LABEL: Record<'task' | 'defect' | 'cr' | 'backlog', string> = { task: 'Task', defect: 'Defect', cr: 'CR', backlog: 'ยังไม่ระบุ' }
 const KIND_BADGE_CLASS: Record<'task' | 'defect' | 'cr' | 'backlog', string> = {
   task: 'bg-info-50 text-info-700', defect: 'bg-danger-50 text-danger-600', cr: 'bg-warning-50 text-warning-700', backlog: 'bg-divider text-dim',
+}
+// Pronista §PRO-0023 (2026-09-25) — Story ก็ kind='task' เหมือน Task ธรรมดา แยกกันแค่ตำแหน่ง (parentId ว่าง + ไม่ใช่ Task ลอย, กฎเดียวกับ ProjectHierarchyTab) badge เดิมเลย KIND_BADGE_LABEL['task'] มาตรงๆ ทำให้ Story ขึ้น "Task" ผิด — สีให้ตรงกับ Story chip ที่ Workspace.tsx (WORKTYPE_BADGE.story)
+function taskRowKindBadge(t: Pick<ProjectAllTask, 'kind' | 'parentId' | 'isStandaloneTask'>): { label: string; className: string } {
+  if (t.kind === 'task' && t.parentId === null && !t.isStandaloneTask) {
+    return { label: 'Story', className: 'bg-violet-50 text-violet-700' }
+  }
+  return { label: KIND_BADGE_LABEL[t.kind], className: KIND_BADGE_CLASS[t.kind] }
 }
 
 /** Pronista §5 (2026-07-03) — Backlog ของโปรเจกต์: แยกจาก Company Backlog · เฉพาะ editor/owner ของโปรเจกต์นี้พิมพ์/แก้ไขได้
@@ -420,11 +436,11 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   }
 
   return (
-    <div className="bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="font-semibold text-ink text-sm">📥 Backlog ของโปรเจกต์</span>
-        <span className="text-[11px] text-muted">ยังไม่ขึ้นกระดาน · เฉพาะสมาชิกโปรเจกต์นี้แก้ไขได้</span>
-        <span className="ml-auto text-[11px] bg-info-100 text-info-700 px-2 py-0.5 rounded-full">{list.length} งาน</span>
+    <div className="min-w-0 bg-info-50 border border-info-100 rounded-lg shadow-xs p-4 mb-4">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-3">
+        <span className="font-semibold text-ink text-sm whitespace-nowrap">📥 Backlog ของโปรเจกต์</span>
+        <span className="min-w-0 order-last basis-full sm:order-none sm:basis-auto text-[11px] text-muted">ยังไม่ขึ้นกระดาน · เฉพาะสมาชิกโปรเจกต์นี้แก้ไขได้</span>
+        <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] bg-info-100 text-info-700 px-2 py-0.5 rounded-full">{list.length} งาน</span>
       </div>
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -497,7 +513,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       <>
       {tab === 'regular' && canEdit && (
         <div className="flex gap-2 mb-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="พิมพ์ชื่องานแล้วกด Enter หรือ +TASK…" className="flex-1 min-w-0 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
           <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ TASK</button>
         </div>
       )}
@@ -593,7 +609,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
             onKeyDown={(e) => { if (e.key === 'Enter') void addDocTabTask('SOW') }}
             disabled={docTabAddBusy}
             placeholder="พิมพ์ชื่อ Task แล้วกด Enter เพื่อเพิ่มในแท็บ SOW"
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
+            className="flex-1 min-w-0 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
           />
           <button onClick={() => void addDocTabTask('SOW')} disabled={!docTabTitle.trim() || docTabAddBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ Task</button>
         </div>
@@ -792,7 +808,7 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
     return (
       <div key={t.id}>
         {/* Pronista §Backlog row layout (2026-09-16) — เดิม flex-wrap ตกบรรทัดตอนชื่องานยาว ทำให้คอลัมน์ (badge/ผู้รับผิดชอบ/เมนู) เพี้ยนตาม — เปลี่ยนเป็น flex-nowrap + ชื่องานตัดด้วย truncate ล้อ BacklogTaskRow ที่แก้ไปแล้วก่อนหน้า */}
-        <div className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
+        <div className={`${BACKLOG_ROW_LAYOUT} ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), cfg?.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}>
           {hasChildren ? (
             <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
               <ChevronRight className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
@@ -800,9 +816,10 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
           ) : (
             <span className="w-3 shrink-0" />
           )}
-          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${KIND_BADGE_CLASS[t.kind]}`}>{KIND_BADGE_LABEL[t.kind]}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${taskRowKindBadge(t).className}`}>{taskRowKindBadge(t).label}</span>
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-          <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          <button onClick={() => onOpenTask(t.id)} className={BACKLOG_ROW_TITLE}>{t.title}</button>
+          <BacklogRowBreak />
           {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           {checklistLabel(t.checklistDone, t.checklistTotal) && <span className="text-[11px] text-muted shrink-0">{checklistLabel(t.checklistDone, t.checklistTotal)}</span>}
@@ -823,8 +840,8 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่องาน/รหัสงาน…" className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 w-56" />
-        <span className="text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่องาน/รหัสงาน…" className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 flex-1 min-w-0 sm:flex-none sm:w-56" />
+        <span className="shrink-0 whitespace-nowrap text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
       </div>
       <div className="divide-y divide-divider overflow-x-auto">
         {topLevel.map((t) => renderRow(t))}
@@ -1290,6 +1307,8 @@ interface ProjectAllTask {
   epicId: string | null
   // Pronista §Back to Basic (ต่อยอด) — คีย์ Task ลอยได้โดยไม่ต้องมี Story แม่ (แยกจาก Story ที่ parentId=null เหมือนกันแต่ flag นี้เป็น false)
   isStandaloneTask?: boolean
+  // Pronista §PRO-DEF-0006 (2026-09-25) — งานย่อยจริง (สร้างจากส่วน "งานย่อย") ต่างจาก Task ที่ผูกใต้ Story ผ่าน convert — ใช้กรองแท็บ Task
+  isSubtask?: boolean
   status: TaskStatus
   defectStatus: 'reported' | 'fixing' | 'waiting_verify' | 'closed' | null
   assigneeName: string | null
@@ -1474,7 +1493,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
       <div key={t.id}>
         <div
           // Pronista §Defect grid column alignment fix (2026-09-23) — เดิม flex-wrap + ชื่อ flex-1 basis-full ทำให้แถวตกบรรทัดไม่เท่ากันตามความยาวชื่อ แถมไม่มี status badge เลย (ขาดหายไปจาก renderRow นี้) ต่างจากแท็บ Task/CR (ProjectHierarchyTab) — ปรับให้ตรงกันเป๊ะ
-          className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+          className={`${BACKLOG_ROW_LAYOUT} ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
         >
           {hasChildren ? (
             <button type="button" onClick={() => toggleExpand(t.id)} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
@@ -1487,7 +1506,8 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
             <input type="checkbox" checked={sel.selected.has(t.id)} onChange={() => sel.toggleSelect(t.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
           )}
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-          <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          <button onClick={() => onOpenTask(t.id)} className={BACKLOG_ROW_TITLE}>{t.title}</button>
+          <BacklogRowBreak />
           {depth === 0 && t.parentTitle && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
@@ -1537,7 +1557,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
             onKeyDown={(e) => { if (e.key === 'Enter') void createDefect() }}
             disabled={addBusy}
             placeholder="ชื่อ Defect ใหม่…"
-            className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
+            className="flex-1 min-w-0 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
           />
           <button onClick={() => void createDefect()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">
             + สร้าง Defect
@@ -1745,7 +1765,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
   const [addBusy, setAddBusy] = useState(false)
-  const toastAction = useToastAction()
+  // Pronista §PRO-0010 (2026-09-25) — Epic ไม่มี /tasks/<id> จริง ปุ่ม View ของ toastAction เลยพาไปหน้าโหลดค้าง ใช้ toast ธรรมดาแทน (ไม่มีปุ่ม View)
+  const toast = useToast()
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkingEpic, setLinkingEpic] = useState<ProjectEpic | null>(null)
   const { data: allTasks } = useLoad<ProjectAllTask[]>(
@@ -1761,8 +1782,8 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Epic เบิ้ลจากกด Enter รัวๆ
     setAddBusy(true)
     try {
-      const created = await api.post<{ id: string }>(`/api/projects/${projectId}/epics`, { title: title.trim() })
-      toastAction(taskCreatedMessage('epic', title.trim()), created.id)
+      await api.post<{ id: string }>(`/api/projects/${projectId}/epics`, { title: title.trim() })
+      toast(taskCreatedMessage('epic', title.trim()))
       setTitle('')
       void reload()
     } finally {
@@ -1790,7 +1811,7 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
       </div>
       {canEdit && (
         <div className="flex gap-2 mb-3">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="ชื่อ Epic ใหม่…" className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void add() }} disabled={addBusy} placeholder="ชื่อ Epic ใหม่…" className="flex-1 min-w-0 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover" />
           <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ สร้าง Epic</button>
         </div>
       )}
@@ -1878,7 +1899,10 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         // Pronista §Back to Basic (ต่อยอด) — Story ตัวจริง = parentId ว่าง "และ" ไม่ใช่ Task ลอย (isStandaloneTask)
         ? all.filter((t) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask)
         // Task = มีพ่อ (2nd level ปกติ) หรือ Task ลอยที่คีย์ตรงจากแท็บนี้ (isStandaloneTask)
-        : all.filter((t) => t.kind === 'task' && (t.parentId !== null || t.isStandaloneTask))
+        // Pronista §PRO-DEF-0006 (2026-09-25) — เดิมมีพ่อ "อะไรก็ได้" ก็ติดแท็บ Task ทำให้งานย่อยของ Defect/CR (subtask default kind='task') หลุดมาโผล่ที่นี่ด้วย
+        // ต้องเช็คว่าพ่อตัวจริงเป็น kind='task' (Story หรือ Task) เท่านั้น — ลูกของ Story ยังไม่แตะ (เจ้าของยังไม่ตัดสินใจ) ส่วนลูกของ Defect/CR ยังโชว์ซ้อนอยู่ใต้พ่อจริงในแท็บนั้นๆ ได้ปกติ เพราะ childrenOf ของแท็บนั้นอ่านจาก `all`/`data` เต็ม ไม่ผ่าน filter นี้
+        // ต่อมา: !t.isSubtask กัน "งานย่อย" ของ Story (สร้างจากหน้า Task Detail) ไม่ให้ปนกับ Task จริงที่ผูกใต้ Story — ยังโผล่ซ้อนใต้พ่อในแท็บ Story ได้ปกติ เพราะ childrenOf อ่านจาก `all` เต็มเหมือนกัน
+        : all.filter((t) => t.kind === 'task' && !t.isSubtask && (t.isStandaloneTask || (t.parentId !== null && all.find((p) => p.id === t.parentId)?.kind === 'task')))
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
   const toastAction = useToastAction()
@@ -2029,7 +2053,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           draggable={level === 'task' && canEdit}
           onDragStart={level === 'task' && canEdit ? (e) => e.dataTransfer.setData('text/plain', t.id) : undefined}
           // Pronista §Backlog row layout (2026-09-16) — เดิม flex-wrap ตกบรรทัดตอนชื่องานยาว ทำให้คอลัมน์เพี้ยนตาม — เปลี่ยนเป็น flex-nowrap + ชื่องานตัดด้วย truncate ล้อ BacklogTaskRow
-          className={`flex flex-nowrap items-center gap-3 py-2.5 px-2 w-max min-w-full ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
+          className={`${BACKLOG_ROW_LAYOUT} ${URGENCY_CARD_CLASS[dueUrgency(t.dueDate, isInactiveStatus(t.status), sel.dueSoonDays)]} ${level === 'task' && canEdit ? 'cursor-grab' : ''} ${depth > 0 ? 'pl-3 sm:pl-6 border-l-2 border-border-subtle ml-1.5' : ''}`}
         >
           {hasChildren ? (
             <button type="button" onClick={(e) => { e.stopPropagation(); toggleExpand(t.id) }} className="shrink-0 p-1 -m-1 text-muted hover:text-ink" aria-label={isOpen ? 'ย่อรายการงานย่อย' : 'คลี่ดูงานย่อย'}>
@@ -2043,7 +2067,8 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           )}
           {level === 'task' && canEdit && <GripVertical className="w-3.5 h-3.5 text-border shrink-0" />}
           {showCode && t.code && <span className="text-[11px] font-mono text-muted shrink-0">{t.code}</span>}
-          <button onClick={() => onOpenTask(t.id)} className="shrink-0 min-w-32 max-w-64 text-sm text-body truncate text-left hover:underline">{t.title}</button>
+          <button onClick={() => onOpenTask(t.id)} className={BACKLOG_ROW_TITLE}>{t.title}</button>
+          <BacklogRowBreak />
           {t.parentTitle && level === 'task' && depth === 0 && <span className="text-[11px] text-muted truncate max-w-40" title={`อยู่ใน: ${t.parentTitle}`}>↳ {t.parentTitle}</span>}
           {t.assigneeName && <span className="text-[11px] text-muted shrink-0">{t.assigneeName}</span>}
           <span className="text-[11px] text-muted shrink-0">⏱ {t.estimateMinutes != null ? minutesToHoursLabel(t.estimateMinutes) : '0'} ชม.</span>
@@ -2130,7 +2155,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               onKeyDown={(e) => { if (e.key === 'Enter') void (level === 'task' ? createUnderStory() : createDirect()) }}
               disabled={addBusy}
               placeholder={meta.placeholder}
-              className="flex-1 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
+              className="flex-1 min-w-0 text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 disabled:bg-hover"
             />
             <button
               onClick={() => void (level === 'task' ? createUnderStory() : createDirect())}
@@ -2519,7 +2544,8 @@ export function ProjectDetailPage() {
               <Link to="/workspace" className="font-medium underline hover:no-underline">Workspace</Link>
             </div>
           )}
-          <div className="grid lg:grid-cols-2 gap-4 items-start">
+          {/* Pronista §Backlog mobile row wrap (2026-09-25) — เดิมมือถือไม่มี grid-cols (track = auto) ทำให้คอลัมน์ยืดตาม min-content ของ Backlog panel จนล้นขวา — grid-cols-1 = minmax(0,1fr) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             <ProjectBacklogSection
               projectId={id}
               canEdit={canEdit || guestCanKeyBacklog}
