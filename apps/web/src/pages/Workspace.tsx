@@ -896,9 +896,10 @@ export function WorkspacePage() {
               )}
             </div>
 
-            <div className={room.type === 'developer' ? 'grid lg:grid-cols-2 gap-4' : 'space-y-4'}>
+            <div className={room.type === 'developer' ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : 'space-y-4'}>
               {/* Backlog Grid — ตารางแบนรวมทุก work item ข้ามโปรเจกต์ในห้อง */}
-              <div className="space-y-3">
+              {/* (2026-09-30) PRO-0046 — grid-cols-1 (= minmax(0,1fr)) + min-w-0: ชื่องานยาวที่ตัดด้วย truncate ต้องไม่ดันคอลัมน์กว้างเกินจอ (grid ไม่ระบุคอลัมน์ = auto ขยายตามเนื้อหา) */}
+              <div className="space-y-3 min-w-0">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <button
