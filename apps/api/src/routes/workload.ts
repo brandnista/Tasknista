@@ -59,11 +59,11 @@ export const workloadRoutes = new Hono<AppEnv>()
       .map((t) => ({ id: t.id, code: t.code, title: t.title, assigneeId: t.assigneeId! }))
 
     // Pronista §Calendar/Workload (2026-09-18) — แยก taskMinutes/meetingMinutes ให้ frontend โชว์ breakdown แหล่งที่มาได้ (usedMinutes รวมยังคงมีไว้เหมือนเดิม)
-    type Cell = { usedMinutes: number; taskMinutes: number; meetingMinutes: number; capacityMinutes: number; onLeave: boolean; taskIds: string[] }
+    type Cell = { usedMinutes: number; taskMinutes: number; meetingMinutes: number; capacityMinutes: number; onLeave: boolean; onHoliday: boolean; taskIds: string[] }
     const grid: Record<string, Record<string, Cell>> = {}
     for (const u of roster) grid[u.id] = {}
     const cellOf = (userId: string, date: string): Cell =>
-      (grid[userId]![date] ??= { usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, capacityMinutes: 0, onLeave: false, taskIds: [] })
+      (grid[userId]![date] ??= { usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, capacityMinutes: 0, onLeave: false, onHoliday: false, taskIds: [] })
 
     // Workload คือ utilisation จริง: รวม time_entries ตามวันทำงานของคนที่บันทึกเวลา
     // ไม่ใช้ estimate/start/due date ในการเติมเวลาสมมติอีกต่อไป
@@ -132,6 +132,20 @@ export const workloadRoutes = new Hono<AppEnv>()
       for (let d = r.startDate < from ? from : r.startDate; d <= last; d = addDaysISO(d, 1)) leaveSet.add(`${r.userId}:${d}`)
     }
 
+    // (2026-09-30) วันหยุด (calendarEvents type='holiday') — Working Calendar จริง: ความจุของวันนั้น = 0 · userId ว่าง = วันหยุดบริษัท (ทุกคน) · ระบุ userId = เฉพาะคนนั้น
+    // Workload รายสัปดาห์/เดือนจึงได้ความจุ = วันทำงานจริง × ชม./วัน − วันหยุด − วันลาที่อนุมัติแล้ว (วันลาที่อนุมัติสร้างเป็น event type='leave' อยู่แล้ว)
+    const holidayRows = await db
+      .select({ userId: calendarEvents.userId, startDate: calendarEvents.startDate, endDate: calendarEvents.endDate })
+      .from(calendarEvents)
+      .where(and(eq(calendarEvents.type, 'holiday'), lte(calendarEvents.startDate, to), gte(calendarEvents.startDate, addDaysISO(from, -31))))
+    const holidaySet = new Set<string>() // 'all:<date>' หรือ '<userId>:<date>'
+    for (const r of holidayRows) {
+      const end = r.endDate ?? r.startDate
+      if (end < from) continue
+      const last = end > to ? to : end
+      for (let d = r.startDate < from ? from : r.startDate; d <= last; d = addDaysISO(d, 1)) holidaySet.add(`${r.userId ?? 'all'}:${d}`)
+    }
+
     const cfg = (await db.select({ manhourMinutesPerDay: companyConfig.manhourMinutesPerDay, workHourCapMinutes: companyConfig.workHourCapMinutes }).from(companyConfig).limit(1))[0]
     const manhour = resolveManhourMinutesPerDay(cfg?.manhourMinutesPerDay, cfg?.workHourCapMinutes ?? 480)
 
@@ -143,8 +157,10 @@ export const workloadRoutes = new Hono<AppEnv>()
       for (const date of days) {
         const onLeave = leaveSet.has(`${u.id}:${date}`)
         const cell = cellOf(u.id, date)
+        const onHoliday = holidaySet.has(`all:${date}`) || holidaySet.has(`${u.id}:${date}`)
         cell.onLeave = onLeave
-        cell.capacityMinutes = onLeave ? 0 : manhour[category][weekdayOfISO(date)]
+        cell.onHoliday = onHoliday
+        cell.capacityMinutes = onLeave || onHoliday ? 0 : manhour[category][weekdayOfISO(date)]
       }
     }
 

@@ -179,12 +179,13 @@ function UploadDocTypeModal({ filename, onClose, onConfirm }: { filename: string
 }
 
 /** เมนูจัดการเอกสาร (⋮): เปลี่ยนชื่อ/ย้ายไปโฟลเดอร์/ลบ — ใช้กับทุกเอกสารที่แก้ไขได้ ทั้ง Grid/List */
-function DocActionsMenu({ x, y, onClose, onRename, onMove, onDelete }: {
+function DocActionsMenu({ x, y, onClose, onRename, onMove, onLinkProject, onDelete }: {
   x: number
   y: number
   onClose: () => void
   onRename: () => void
   onMove: () => void
+  onLinkProject?: () => void
   onDelete: () => void
 }) {
   const item = 'w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-hover flex items-center gap-2'
@@ -197,8 +198,46 @@ function DocActionsMenu({ x, y, onClose, onRename, onMove, onDelete }: {
       >
         <button className={item} onClick={() => { onRename(); onClose() }}><Pencil className="w-4 h-4 text-muted" /> เปลี่ยนชื่อ</button>
         <button className={item} onClick={() => { onMove(); onClose() }}><FolderInput className="w-4 h-4 text-muted" /> ย้ายไปโฟลเดอร์</button>
+        {onLinkProject && <button className={item} onClick={() => { onLinkProject(); onClose() }}><Link2 className="w-4 h-4 text-muted" /> ผูกโปรเจกต์</button>}
         <div className="my-1 border-t border-divider" />
         <button className={`${item} text-danger-600`} onClick={() => { onDelete(); onClose() }}><Trash2 className="w-4 h-4" /> ลบ</button>
+      </div>
+    </div>
+  )
+}
+
+/** (2026-09-30) ผูกเอกสารที่อัปโหลดไว้แล้วเข้าโปรเจกต์ภายหลัง — เอกสารจะโผล่ในแท็บ "เอกสาร" ของโปรเจกต์นั้นด้วย (เอกสารเดียวผูกได้หลายโปรเจกต์) */
+function LinkProjectModal({ doc, projects, currentProjectName, onClose, onConfirm }: {
+  doc: DocNode
+  projects: { id: string; name: string }[]
+  currentProjectName: string | null
+  onClose: () => void
+  onConfirm: (projectId: string) => void
+}) {
+  const [target, setTarget] = useState('')
+  return (
+    <div className="fixed inset-0 z-50">
+      <div onClick={onClose} className="absolute inset-0 bg-ink/30" />
+      <div className="absolute inset-x-0 top-24 mx-auto w-full max-w-sm px-4">
+        <div className="bg-white rounded-lg shadow-2xl p-5">
+          <div className="font-semibold text-ink text-sm mb-1">ผูกโปรเจกต์ &quot;{doc.templateDocNumber ?? doc.title}&quot;</div>
+          <p className="text-xs text-muted mb-3">
+            {currentProjectName ? `ตอนนี้ผูกกับ "${currentProjectName}" — ผูกเพิ่มได้อีกโปรเจกต์ ` : 'เลือกโปรเจกต์ที่ต้องการ '}
+            สมาชิกโปรเจกต์ที่เปิดแท็บเอกสารได้จะเห็นไฟล์นี้ด้วย
+          </p>
+          <select
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            className="w-full text-sm bg-white border border-border rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400 mb-4"
+          >
+            <option value="">— เลือกโปรเจกต์ —</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg hover:bg-hover">ยกเลิก</button>
+            <button disabled={!target} onClick={() => onConfirm(target)} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40">ผูกโปรเจกต์</button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -415,6 +454,7 @@ export function DocsPage() {
   // เมนูจัดการเอกสาร (⋮) ต่อรายการ — เปลี่ยนชื่อ/ย้ายไปโฟลเดอร์/ลบ
   const [docMenu, setDocMenu] = useState<{ n: DocNode; x: number; y: number } | null>(null)
   const [movingDoc, setMovingDoc] = useState<DocNode | null>(null)
+  const [linkingDoc, setLinkingDoc] = useState<DocNode | null>(null)
   // ลากเอกสารมาวางบนโฟลเดอร์แนะนำ — ไฮไลต์โฟลเดอร์ที่กำลังลากผ่านอยู่
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null)
 
@@ -919,7 +959,26 @@ export function DocsPage() {
           onClose={() => setDocMenu(null)}
           onRename={() => void renameDoc(docMenu.n)}
           onMove={() => setMovingDoc(docMenu.n)}
+          onLinkProject={docMenu.n.kind === 'folder' ? undefined : () => setLinkingDoc(docMenu.n)}
           onDelete={() => void deleteDoc(docMenu.n)}
+        />
+      )}
+      {linkingDoc && (
+        <LinkProjectModal
+          doc={linkingDoc}
+          projects={projectOpts ?? []}
+          currentProjectName={projectNameOf(linkingDoc.linkedProjectId)}
+          onClose={() => setLinkingDoc(null)}
+          onConfirm={async (projectId) => {
+            const d = linkingDoc
+            setLinkingDoc(null)
+            try {
+              await api.post(`/api/docs/${d.id}/links`, { projectId })
+              await reloadTree()
+            } catch (e) {
+              await alertDialog({ title: e instanceof ApiError ? e.message : 'ผูกโปรเจกต์ไม่สำเร็จ' })
+            }
+          }}
         />
       )}
       {movingDoc && (

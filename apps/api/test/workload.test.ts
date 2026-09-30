@@ -141,9 +141,29 @@ describe('Pronista §Workload — GET /api/workload', () => {
     const res = (await (await app.request('/api/workload?from=2026-10-19&to=2026-10-20', { headers: { cookie: owner } }, env)).json()) as {
       grid: Record<string, Record<string, { capacityMinutes: number; onLeave: boolean; usedMinutes: number; taskIds: string[] }>>
     }
-    expect(res.grid.u_pond!['2026-10-20']).toEqual({ capacityMinutes: 0, onLeave: true, usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, taskIds: [] })
+    expect(res.grid.u_pond!['2026-10-20']).toEqual({ capacityMinutes: 0, onLeave: true, onHoliday: false, usedMinutes: 0, taskMinutes: 0, meetingMinutes: 0, taskIds: [] })
     expect(res.grid.u_pond!['2026-10-19']!.onLeave).toBe(false) // 2026-10-19 = จันทร์
     expect(res.grid.u_pond!['2026-10-19']!.capacityMinutes).toBe(480)
+  })
+
+  // (2026-09-30) Working Calendar จริง — วันหยุด (type=holiday) ตัดความจุเป็น 0: userId ว่าง = ทุกคน · ระบุ userId = เฉพาะคนนั้น · ความจุรวมทั้งช่วง = วันทำงาน × 8 − วันหยุด − วันลา
+  it('วันหยุดบริษัท (holiday ไม่ระบุ userId) → capacity=0 ทุกคน · วันหยุดเฉพาะคน → เฉพาะคนนั้น · ผลรวมความจุสัปดาห์ = 40 ชม. − วันหยุด − วันลา', async () => {
+    const db = createDb(env.DB)
+    await db.insert(calendarEvents).values([
+      { id: 'wl_h_all', title: 'วันหยุดบริษัท', type: 'holiday', startDate: '2026-11-11', endDate: '2026-11-11', createdBy: 'u_owner' },
+      { id: 'wl_h_pond', title: 'หยุดชดเชย', type: 'holiday', userId: 'u_pond', startDate: '2026-11-12', endDate: '2026-11-12', createdBy: 'u_owner' },
+      { id: 'wl_lv2', title: 'ลาป่วย', type: 'leave', userId: 'u_pond', startDate: '2026-11-13', endDate: '2026-11-13', createdBy: 'u_owner' },
+    ]).onConflictDoNothing()
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const res = (await (await app.request('/api/workload?from=2026-11-09&to=2026-11-15', { headers: { cookie: owner } }, env)).json()) as {
+      grid: Record<string, Record<string, { capacityMinutes: number; onHoliday: boolean; onLeave: boolean }>>
+    }
+    expect(res.grid.u_owner!['2026-11-11']).toMatchObject({ capacityMinutes: 0, onHoliday: true })
+    expect(res.grid.u_owner!['2026-11-12']).toMatchObject({ capacityMinutes: 480, onHoliday: false }) // วันหยุดของ pond ไม่กระทบ owner
+    expect(res.grid.u_pond!['2026-11-12']).toMatchObject({ capacityMinutes: 0, onHoliday: true })
+    const weekCapacity = (userId: string) => Object.values(res.grid[userId]!).reduce((sum, c) => sum + c.capacityMinutes, 0)
+    expect(weekCapacity('u_owner')).toBe(4 * 480) // จ-ศ 5 วัน − วันหยุดบริษัท 1 วัน (เสาร์-อาทิตย์ = 0 ตามค่าเริ่มต้น Working Calendar)
+    expect(weekCapacity('u_pond')).toBe(2 * 480) // − วันหยุดบริษัท 1 − หยุดชดเชย 1 − ลา 1
   })
 
   it('ส่ง sprintId มา → กรองเฉพาะ task ของ sprint นั้น', async () => {
