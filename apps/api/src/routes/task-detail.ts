@@ -48,7 +48,10 @@ export const taskDetailRoutes = new Hono<AppEnv>()
   .get('/tasks/:id/detail', async (c) => {
     const db = createDb(c.env.DB)
     const taskId = c.req.param('id')
-    const requestedSlug = parseTaskSlug(taskId)
+    // Pronista §Legacy code vs slug fix (2026-10-01) — งานเก่าที่ตั้งรหัสเองแบบมีวันที่ (เช่น PRO-CR-17092026-0009) หน้าตาตรงกับ slug รุ่นใหม่ (<คีย์>-<ประเภท>-<วันที่>-<เลข>) พอดี
+    // เดิมถูกตีความเป็น slug แล้วไปหางานรหัส PRO-0009 → ไม่เจอ/ไม่ตรง → 404 "ไม่พบงานนี้" ทั้งที่งานมีอยู่ — ลองหาด้วยรหัสตรงๆ ก่อนเสมอ ค่อยตีความเป็น slug ถ้าไม่เจอ
+    const exactByCode = isUuid(taskId) ? undefined : (await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.code, taskId)).limit(1))[0]
+    const requestedSlug = exactByCode ? null : parseTaskSlug(taskId)
     // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ผู้จ่ายงาน (Reporter สไตล์ Jira) ต้อง join users อีกรอบแยกจาก assignee
     const dispatcher = alias(users, 'dispatcher')
     // Pronista §Workspace/Task Jira-alignment (2026-09-07) — Reporter แบบ Jira ต้องมีเสมอ (Jira ใช้ผู้สร้างเป็น Reporter ตายตัว) ต่างจาก "ผู้จ่ายงาน" (assignedBy) ที่ว่างได้ถ้ายังไม่เคยจ่ายงานอย่างเป็นทางการ (เช่น คีย์ backlog ตรงๆ ไม่ผ่าน dispatch) — join ผู้สร้างไว้ fallback
@@ -81,7 +84,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         .leftJoin(creator, eq(tasks.createdBy, creator.id))
         .leftJoin(reviewer, eq(tasks.reviewerId, reviewer.id))
         // รองรับ UUID/รหัสเดิม และ canonical slug ใหม่ โดย slug ใช้รหัสแสดงผล PRO-0001 เป็น key lookup
-        .where(isUuid(taskId) ? eq(tasks.id, taskId) : eq(tasks.code, requestedSlug ? `${requestedSlug.projectCode}-${requestedSlug.running}` : taskId))
+        .where(exactByCode ? eq(tasks.id, exactByCode.id) : isUuid(taskId) ? eq(tasks.id, taskId) : eq(tasks.code, requestedSlug ? `${requestedSlug.projectCode}-${requestedSlug.running}` : taskId))
         .limit(1)
     )[0]
     if (!row) return c.json({ error: 'not_found' }, 404)
