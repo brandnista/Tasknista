@@ -430,3 +430,36 @@ describe('§PRO-0024 — แท็กคนในคอมเมนต์ (@ment
     expect((await notifsOf(pond, 'task_mentioned')).length).toBe(afterCreate)
   })
 })
+
+// (2026-10-01) §PRO-CR-17092026-0009 — ผู้แจ้ง (Reporter): ไม่บังคับ ตั้ง/ล้างได้
+describe('§PRO-CR-17092026-0009 — ผู้แจ้ง (Reporter)', () => {
+  const patch = (cookie: string, id: string, body: unknown) =>
+    app.request(`/api/tasks/${id}`, { method: 'PATCH', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify(body) }, env)
+  const detail = async (cookie: string, id: string) =>
+    (await (await app.request(`/api/tasks/${id}/detail`, { headers: { cookie } }, env)).json()) as { reporterId: string | null; reporterName: string | null }
+
+  it('งานใหม่ไม่มีผู้แจ้ง (ไม่บังคับ) · ตั้งผู้แจ้งได้แม้ไม่ใช่สมาชิกโปรเจกต์ (เช่น พาร์ทเนอร์/ลูกค้า) · ล้างกลับเป็นว่างได้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    expect((await detail(owner, t.id)).reporterId).toBeNull()
+
+    expect((await patch(owner, t.id, { reporterId: 'u_somchai' })).status).toBe(200)
+    const set = await detail(owner, t.id)
+    expect(set.reporterId).toBe('u_somchai')
+    expect(set.reporterName).toBe('สมชาย')
+
+    expect((await patch(owner, t.id, { reporterId: null })).status).toBe(200)
+    const cleared = await detail(owner, t.id)
+    expect(cleared.reporterId).toBeNull()
+    expect(cleared.reporterName).toBeNull()
+  })
+
+  it('ผู้แจ้งต้องเป็นบัญชีที่มีอยู่จริงและยังใช้งานอยู่ → ไม่มีอยู่/ปิดใช้งานแล้ว = 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const missing = await patch(owner, t.id, { reporterId: 'ไม่มีคนนี้' })
+    expect(missing.status).toBe(400)
+    expect(((await missing.json()) as { error: string }).error).toBe('reporter_not_eligible')
+    expect((await patch(owner, t.id, { reporterId: 'u_gone' })).status).toBe(400)
+  })
+})

@@ -29,6 +29,9 @@ import {
   sumMinutes,
   sumSatang,
   uploadLogo,
+  PROJECT_KEY_MAX,
+  PROJECT_KEY_MIN,
+  PROJECT_KEY_REGEX,
 } from '@seedoffice/core'
 import {
   auditLogs,
@@ -68,7 +71,12 @@ import type { AppEnv } from '../types'
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const MAX_LOGO_BYTES = 2 * 1024 * 1024 // โลโก้ลูกค้า ≤ 2MB
 // Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัวเป๊ะๆ เฉพาะตอนสร้าง/แก้ไขใหม่ (ของเก่าที่ไม่ตรงปล่อยผ่าน ไม่ migrate ย้อนหลัง)
-const PROJECT_CODE = z.string().regex(/^[A-Z0-9]{3}$/, 'รหัสโปรเจกต์ต้องเป็นตัวอักษร/ตัวเลข 3 ตัว')
+// Pronista §PRO-0040 (2026-10-01) — เปลี่ยนเป็น Free Key: A-Z/ตัวเลข คั่นด้วยขีดได้ เช่น MAK-DIN, MAK-RD (2-12 ตัว) ยังห้ามซ้ำ (เช็คด้านล่าง)
+const PROJECT_CODE = z
+  .string()
+  .min(PROJECT_KEY_MIN, 'รหัสโปรเจกต์ต้องยาวอย่างน้อย 2 ตัว')
+  .max(PROJECT_KEY_MAX, 'รหัสโปรเจกต์ยาวได้ไม่เกิน 12 ตัว')
+  .regex(PROJECT_KEY_REGEX, 'รหัสโปรเจกต์ใช้ได้เฉพาะ A-Z ตัวเลข และขีด (-) เช่น MAK-DIN (ห้ามขึ้นต้น/ลงท้ายด้วยขีด)')
 
 /** เช็ครหัสโปรเจกต์ซ้ำ (case-insensitive, ข้ามโปรเจกต์ที่ลบไปแล้ว) — กันโค้ดงานชนกันข้ามโปรเจกต์ (ไม่มี unique index ระดับ DB) */
 async function isProjectCodeTaken(db: Db, code: string, excludeId?: string): Promise<boolean> {

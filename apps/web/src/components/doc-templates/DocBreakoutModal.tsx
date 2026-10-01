@@ -1,4 +1,4 @@
-import type { TableColumnDef, TableSectionDef, TemplateTableRow } from '@seedoffice/core'
+import { projectKeyPrefix, type TableColumnDef, type TableSectionDef, type TemplateTableRow } from '@seedoffice/core'
 import { AlertTriangle, FileText, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useDialog } from '../Dialog'
@@ -31,7 +31,7 @@ function guessPriority(raw: string): 'low' | 'normal' | 'high' | null {
   return null
 }
 
-const sanitizeCodePrefix = (raw: string | null | undefined, fallback: string) => (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || fallback
+const sanitizeCodePrefix = projectKeyPrefix
 
 /**
  * Pronista §Document Traceability — แตกแถวจากตาราง breakoutToTasks (MOM/BRD/SOW/SRS ทั้งหมด) ในเอกสาร Template ให้เป็น Task จริง

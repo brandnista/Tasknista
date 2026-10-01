@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `reporter_id` text REFERENCES users(id);

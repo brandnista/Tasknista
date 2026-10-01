@@ -251,6 +251,10 @@ interface Detail {
   reviewerId: string | null
   reviewerName: string | null
   reviewerAvatarUrl: string | null
+  // Pronista §PRO-CR-17092026-0009 (2026-10-01) — ผู้แจ้ง (Reporter) ไม่บังคับ เก็บไว้ตามรอยต้นทางอย่างเดียว ไม่เกี่ยวกับสิทธิ์/Workflow/Daily Report
+  reporterId: string | null
+  reporterName: string | null
+  reporterAvatarUrl: string | null
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ยังไม่โผล่ในหน้า "งานของฉัน" ของ assignee)
   dispatchedAt: number | null
   createdBy: string
@@ -310,6 +314,7 @@ interface TaskDraftFields {
   status: TaskStatus
   assigneeId: string | null
   reviewerId: string | null
+  reporterId: string | null
   priority: 'low' | 'normal' | 'high'
   labelIds: string[]
   taskType: string | null
@@ -360,7 +365,7 @@ const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 't
 // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — renderer แบบ generic (best-effort) สำหรับ action='task.update' จากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" — meta.after มีแค่ฟิลด์ที่แก้ (ไม่มี "ค่าเดิม" ต่อฟิลด์ ยกเว้น status/convert ที่มี before ให้เห็นอยู่แล้วด้านบน)
 const FIELD_LABEL: Record<string, string> = {
   title: 'ชื่องาน', description: 'รายละเอียดจากผู้จ่ายงาน', assigneeNotes: 'รายละเอียดจากผู้รับงาน', originCode: 'Reference Code',
-  assigneeId: 'ผู้รับผิดชอบ', priority: 'ความสำคัญ', labelIds: 'Labels', taskType: 'ประเภทงาน', subTaskType: 'ตัวเลือกย่อย',
+  assigneeId: 'ผู้รับผิดชอบ', reviewerId: 'ผู้ตรวจงาน', reporterId: 'ผู้แจ้ง', priority: 'ความสำคัญ', labelIds: 'Labels', taskType: 'ประเภทงาน', subTaskType: 'ตัวเลือกย่อย',
   startDate: 'วันที่เริ่ม', dueDate: 'วันที่คาดว่าเสร็จ', estimateMinutes: 'ประเมิน ชม.',
 }
 function genericChangedFields(after: unknown): string[] {
@@ -1505,6 +1510,28 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
                     ) : (
                       <span className="w-fit text-muted text-xs">— ไม่ระบุ —</span>
                     )
+                  )}
+
+                  {/* Pronista §PRO-CR-17092026-0009 (2026-10-01) — ผู้แจ้ง (Reporter): ไม่บังคับ เลือกได้จากผู้ใช้ทั้งระบบ (ผู้แจ้งมักเป็นลูกค้า/คนนอกทีม ไม่จำกัดแค่สมาชิกโปรเจกต์)
+                      เก็บเพื่อตามรอยต้นทางอย่างเดียว — ไม่ทำให้งานโผล่ใน Daily Report ของผู้แจ้ง และไม่เปลี่ยนสิทธิ์ใดๆ */}
+                  <span className="text-dim" title="ไม่บังคับ — ใช้บันทึกว่าใครเป็นผู้แจ้งเรื่องนี้ ไม่เกี่ยวกับ Daily Report และสิทธิ์">ผู้แจ้ง</span>
+                  {canEdit && !isAssigneeOnly ? (
+                    <div className="relative min-w-24">
+                      <select value={draftVal('reporterId') ?? ''} onChange={(e) => setDraftField('reporterId', e.target.value || null)} aria-label="ผู้แจ้ง" className="w-full appearance-none border border-border bg-white text-soft pl-2 pr-7 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400">
+                        <option value="">— ไม่ระบุ —</option>
+                        {/* ผู้แจ้งปัจจุบันอาจไม่อยู่ในรายชื่อที่โหลดมา (เช่นบัญชีถูกปิดใช้งานแล้ว) — คงชื่อไว้ใน select กันโชว์ว่างงงๆ */}
+                        {t.reporterId && !(userOpts ?? []).some((u) => u.id === t.reporterId) && <option value={t.reporterId}>{t.reporterName ?? t.reporterId}</option>}
+                        {(userOpts ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
+                    </div>
+                  ) : t.reporterName ? (
+                    <span className="w-fit flex items-center gap-1.5 bg-white text-soft px-2 py-1.5 rounded-lg text-xs">
+                      <Avatar name={t.reporterName} avatarUrl={t.reporterAvatarUrl} className="w-4 h-4 text-[8px]" colorClass={avatarColor(t.reporterName)} />
+                      {t.reporterName}
+                    </span>
+                  ) : (
+                    <span className="w-fit text-muted text-xs">— ไม่ระบุ —</span>
                   )}
 
                   {/* Pronista §Workspace/Task Jira-alignment (2026-09-09) — "Sprint" แบบ Jira: โชว์ชื่อ Sprint ที่งานนี้สังกัดอยู่ พร้อมลิงก์กลับไปที่บอร์ด (โปรเจกต์ หรือ Workspace แล้วแต่ Sprint นี้ผูกกับอันไหน) */}

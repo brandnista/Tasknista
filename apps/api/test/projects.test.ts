@@ -311,7 +311,7 @@ describe('Pronista §Notification overhaul (2026-08-27) — เพิ่มเ�
 })
 
 // Pronista §Task ID Format (2026-09-23) — บังคับรหัสโปรเจกต์ 3 ตัว A-Z0-9 เป๊ะๆ + ห้ามซ้ำ (case-insensitive) เฉพาะตอนสร้าง/แก้ไขใหม่ ของเก่าไม่ migrate ย้อนหลัง
-describe('§Task ID Format — รหัสโปรเจกต์บังคับ 3 ตัว A-Z0-9 + ห้ามซ้ำ', () => {
+describe('§Task ID Format / PRO-0040 — Project Key แบบ Free Key (A-Z 0-9 และขีด 2-12 ตัว) + ห้ามซ้ำ', () => {
   const patch = (cookie: string, id: string, body: Record<string, unknown>) =>
     app.request(
       `/api/projects/${id}`,
@@ -319,12 +319,43 @@ describe('§Task ID Format — รหัสโปรเจกต์บังค�
       env,
     )
 
-  it('สร้างโปรเจกต์: code สั้น/ยาวเกิน/มีอักขระแปลก → 400 · code ว่าง (ไม่กรอก) → 201 ผ่านปกติ (ยัง optional)', async () => {
+  it('สร้างโปรเจกต์: code สั้นไป/ยาวเกิน 12/ขีดต้น-ท้าย-ซ้อน/อักขระแปลก/ตัวพิมพ์เล็ก → 400 · code ว่าง (ไม่กรอก) → 201 ผ่านปกติ (ยัง optional)', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
-    expect((await createProject(owner, { name: 'สั้นไป', type: 'project', code: 'AB' })).status).toBe(400)
-    expect((await createProject(owner, { name: 'ยาวไป', type: 'project', code: 'ABCD' })).status).toBe(400)
-    expect((await createProject(owner, { name: 'มีขีด', type: 'project', code: 'AB-' })).status).toBe(400)
+    for (const [i, bad] of ['A', 'ABCDEFGHIJKLM', 'AB-', '-AB', 'AB--CD', 'AB_CD', 'ab-cd'].entries())
+      expect((await createProject(owner, { name: 'โค้ดผิด ' + i, type: 'project', code: bad })).status).toBe(400)
     expect((await createProject(owner, { name: 'ไม่มี code', type: 'project' })).status).toBe(201)
+  })
+
+  it('PRO-0040: Free Key รับ MAK-DIN, MAK-RD (มีขีด) และ 2 ตัว · รหัสงานใช้ Key เต็มเป็นคำนำหน้า (MAK-DIN-0001) และไม่ชนกับโปรเจกต์ที่ Key เป็นคำนำหน้ากัน (MAK)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const mk = async (name: string, code: string) => {
+      const res = await createProject(owner, { name, type: 'project', code })
+      expect(res.status).toBe(201)
+      return (await res.json()) as { id: string; code: string }
+    }
+    const din = await mk('Makan Halal Guide : Dine-in', 'MAK-DIN')
+    const rd = await mk('Makan Halal Guide : ReDesign', 'MAK-RD')
+    const short = await mk('Makan', 'MAK')
+    expect(din.code).toBe('MAK-DIN')
+    expect(rd.code).toBe('MAK-RD')
+    const addTask = async (projectId: string) =>
+      (await (await app.request(`/api/projects/${projectId}/backlog`, { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ title: 'งาน' }) }, env)).json()) as { code: string }
+    expect((await addTask(din.id)).code).toBe('MAK-DIN-0001')
+    expect((await addTask(din.id)).code).toBe('MAK-DIN-0002')
+    expect((await addTask(rd.id)).code).toBe('MAK-RD-0001')
+    // โปรเจกต์ MAK (Key สั้นกว่า เป็นคำนำหน้าของ MAK-DIN/MAK-RD) เริ่มนับของตัวเองที่ 0001 ไม่นับงานของโปรเจกต์อื่นปน
+    expect((await addTask(short.id)).code).toBe('MAK-0001')
+    expect((await addTask(short.id)).code).toBe('MAK-0002')
+    // เปิดงานด้วยรหัสงาน และด้วย URL slug (มีขีดในคีย์ก็ต้องใช้ได้) → ได้งานเดียวกัน
+    const byCode = await app.request('/api/tasks/MAK-DIN-0001/detail', { headers: { cookie: owner } }, env)
+    expect(byCode.status).toBe(200)
+    const detail = (await byCode.json()) as { id: string; slug: string | null }
+    expect(detail.slug).toMatch(/^MAK-DIN-TSK-\d{8}-0001$/)
+    const bySlug = await app.request('/api/tasks/' + detail.slug + '/detail', { headers: { cookie: owner } }, env)
+    expect(bySlug.status).toBe(200)
+    expect(((await bySlug.json()) as { id: string }).id).toBe(detail.id)
+    // Key ซ้ำเป๊ะ → 409
+    expect((await createProject(owner, { name: 'ซ้ำ', type: 'project', code: 'MAK-DIN' })).status).toBe(409)
   })
 
   it('code ซ้ำกัน → 409 ทั้งตอนสร้างและแก้ไข · ไม่ชนตัวเอง (แก้ไขคง code เดิม) ผ่านปกติ', async () => {

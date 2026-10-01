@@ -1,4 +1,5 @@
 import { AlertTriangle, FileText, Plus, Trash2, Upload, X } from 'lucide-react'
+import { projectKeyPrefix } from '@seedoffice/core'
 import { useRef, useState } from 'react'
 import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
@@ -32,7 +33,7 @@ const randomId = () => `manual_${Math.random().toString(36).slice(2, 10)}`
 
 // Pronista §Sprint & Board แก้ไข flow (ข้อ 10) — mirror apps/api/src/lib/task-code.ts sanitizeCodePrefix ไว้ preview รหัสจริงที่จะได้
 // (ตัว running number ท้ายสุดรู้แน่นอนได้ตอน confirm เท่านั้น — พรีวิวนี้บอกแค่รูปแบบ prefix ให้เห็นว่ายึด Codename โปรเจกต์ ไม่ใช่ code จากเอกสาร)
-const sanitizeCodePrefix = (raw: string | null | undefined, fallback: string) => (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || fallback
+const sanitizeCodePrefix = projectKeyPrefix
 
 /** Pronista §SRS import — นำเข้าเอกสาร SRS มาแตกเป็น Task: อัปโหลด → พาร์สหาโครงสร้าง → รีวิว/แก้/เลือก → ยืนยันสร้าง */
 export function SrsImportModal({ projectId, projectCode, onClose, onCreated }: { projectId: string; projectCode: string | null; onClose: () => void; onCreated: () => void }) {

@@ -1,4 +1,5 @@
 import { AlertTriangle, Plus, Search, X } from 'lucide-react'
+import { finalizeProjectKey, normalizeProjectKeyInput, PROJECT_KEY_MAX } from '@seedoffice/core'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -521,7 +522,7 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
         ...(form.leadId ? { leadId: form.leadId } : {}),
         ...(members.length ? { members } : {}),
         ...(form.sprint ? { sprint: form.sprint + ' สัปดาห์' } : {}),
-        ...(form.code ? { code: form.code } : {}),
+        ...(finalizeProjectKey(form.code) ? { code: finalizeProjectKey(form.code) } : {}),
         ...(form.startDate ? { startDate: form.startDate } : {}),
         ...(form.dueDate ? { dueDate: form.dueDate } : {}),
         ...(form.serviceType ? { serviceType: form.serviceType } : {}),
@@ -700,13 +701,15 @@ function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreate
               <div>
                 <label className={label}>Project Key (รหัสอ้างอิง)</label>
                 <input
-                  placeholder="เช่น MAK"
+                  placeholder="เช่น MAK หรือ MAK-DIN"
+                  aria-describedby="project-key-hint"
                   value={form.code}
-                  // Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัว A-Z0-9 เป๊ะๆ (backend เช็คซ้ำ + ห้ามซ้ำกับโปรเจกต์อื่นด้วย) — ตัดอักขระที่ไม่ใช่ A-Z0-9 ทิ้งกันพิมพ์ผิดแล้วโดน 400 ตอนกดสร้าง
-                  onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }) }}
+                  // Pronista §PRO-0040 (2026-10-01) — Free Key: A-Z/ตัวเลข/ขีด สูงสุด 12 ตัว (backend เช็คซ้ำ + ห้ามซ้ำกับโปรเจกต์อื่น) ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400
+                  onChange={(e) => { setCodeTouched(true); setForm({ ...form, code: normalizeProjectKeyInput(e.target.value) }) }}
                   className={`${input} font-mono`}
-                  maxLength={3}
+                  maxLength={PROJECT_KEY_MAX}
                 />
+                <div id="project-key-hint" className="mt-1 text-[11px] text-muted">พิมพ์เองได้อิสระ ใช้ A-Z ตัวเลข และขีด (-) ได้ เช่น MAK-DIN · ยาวไม่เกิน 12 ตัว · ห้ามซ้ำกับโปรเจกต์อื่น</div>
               </div>
             </div>
 

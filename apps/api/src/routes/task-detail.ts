@@ -55,6 +55,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     const creator = alias(users, 'creator')
     // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน (reviewerId) ไม่บังคับมี ต้อง join แยกเหมือน dispatcher/creator
     const reviewer = alias(users, 'reviewer')
+    // Pronista §PRO-CR-17092026-0009 (2026-10-01) — ผู้แจ้ง (reporterId) ไม่บังคับมี ต้อง join แยกเหมือน reviewer
+    const reporter = alias(users, 'reporter')
     const row = (
       await db
         .select({
@@ -71,6 +73,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
           createdByAvatarUrl: creator.avatarUrl,
           reviewerName: reviewer.name,
           reviewerAvatarUrl: reviewer.avatarUrl,
+          reporterName: reporter.name,
+          reporterAvatarUrl: reporter.avatarUrl,
         })
         .from(tasks)
         // Pronista §5 (2026-07-03) — leftJoin: task ใน "Backlog ของโปรเจกต์" (groupId ยังว่าง) ต้องเปิด detail ได้ด้วย
@@ -80,6 +84,7 @@ export const taskDetailRoutes = new Hono<AppEnv>()
         .leftJoin(dispatcher, eq(tasks.assignedBy, dispatcher.id))
         .leftJoin(creator, eq(tasks.createdBy, creator.id))
         .leftJoin(reviewer, eq(tasks.reviewerId, reviewer.id))
+        .leftJoin(reporter, eq(tasks.reporterId, reporter.id))
         // รองรับ UUID/รหัสเดิม และ canonical slug ใหม่ โดย slug ใช้รหัสแสดงผล PRO-0001 เป็น key lookup
         .where(isUuid(taskId) ? eq(tasks.id, taskId) : eq(tasks.code, requestedSlug ? `${requestedSlug.projectCode}-${requestedSlug.running}` : taskId))
         .limit(1)
@@ -210,6 +215,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       createdByAvatarUrl: row.createdByAvatarUrl,
       reviewerName: row.reviewerName,
       reviewerAvatarUrl: row.reviewerAvatarUrl,
+      reporterName: row.reporterName,
+      reporterAvatarUrl: row.reporterAvatarUrl,
       myRole,
       parent,
       epic,

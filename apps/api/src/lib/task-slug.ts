@@ -11,7 +11,10 @@ const SLUG_TYPE: Record<SluggableTask['kind'], string> = {
   backlog: 'BLG',
 }
 
-const slugPattern = /^([A-Z0-9]{3})-(TSK|DEF|CR|BLG)-(\d{8})-(\d{4})$/
+// Pronista §PRO-0040 (2026-10-01) — Project Key เป็น Free Key มีขีดได้ (เช่น MAK-DIN) จึงไม่ล็อก 3 ตัวอีกต่อไป (ยึดโครงสร้างจากท้าย: -TYPE-วันที่-เลขรัน)
+const PROJECT_KEY = '[A-Z0-9]+(?:-[A-Z0-9]+)*'
+const slugPattern = new RegExp(`^(${PROJECT_KEY})-(TSK|DEF|CR|BLG)-(\\d{8})-(\\d{4})$`)
+const codePattern = new RegExp(`^(${PROJECT_KEY})-(\\d{4})$`)
 
 function bkkDayCompact(date: Date): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -26,7 +29,7 @@ function bkkDayCompact(date: Date): string {
 
 /** URL มาตรฐานของรหัสใหม่ เช่น PRO-DEF-23092026-0001; งานเก่ายังคงใช้ code/UUID เดิมได้ */
 export function taskSlugFor(task: SluggableTask, projectCode: string | null | undefined): string | null {
-  const codeMatch = task.code?.match(/^([A-Z0-9]{3})-(\d{4})$/)
+  const codeMatch = task.code?.match(codePattern)
   const normalizedProjectCode = projectCode?.toUpperCase()
   if (!codeMatch || !normalizedProjectCode || codeMatch[1] !== normalizedProjectCode) return null
   return `${normalizedProjectCode}-${SLUG_TYPE[task.kind]}-${bkkDayCompact(task.createdAt)}-${codeMatch[2]}`

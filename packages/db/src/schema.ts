@@ -544,6 +544,8 @@ export const tasks = sqliteTable(
     assignedBy: text('assigned_by').references(() => users.id),
     // Pronista §Business Rules Workflow (2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ใช้พฤติกรรมเดิม: editor/owner โปรเจกต์คนไหนก็อนุมัติได้) — เลือกได้จากสมาชิกโปรเจกต์คนไหนก็ได้เหมือน assigneeId
     reviewerId: text('reviewer_id').references(() => users.id),
+    // Pronista §PRO-CR-17092026-0009 (2026-10-01) — ผู้แจ้ง (Reporter): คนที่แจ้งเรื่อง/ขอให้ทำงานนี้ ไม่บังคับ — เก็บไว้ตามรอยต้นทางอย่างเดียว ไม่ผูกกับสิทธิ์/Workflow/Daily Report เลย (Daily Report ดูแค่ assignedBy/assigneeId/reviewerId)
+    reporterId: text('reporter_id').references(() => users.id),
     // Pronista §Business Rules Workflow (เฟส D, 2026-09-15) — optimistic concurrency: บวก 1 ทุกครั้งที่แก้ไข task นี้สำเร็จ (PATCH ทั่วไป) เอาไว้ให้ client แนบ expectedVersion กันแก้ทับกันเงียบๆ
     version: integer('version').notNull().default(1),
     // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: null = ยังไม่จ่าย (ไม่โผล่ในหน้า "งานของฉัน" ของ assignee) — เคลียร์กลับเป็น null ทุกครั้งที่เปลี่ยน assigneeId

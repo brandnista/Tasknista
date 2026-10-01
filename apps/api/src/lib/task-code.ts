@@ -1,3 +1,4 @@
+import { projectKeyPrefix } from '@seedoffice/core'
 import { createDb, epics, tasks } from '@seedoffice/db'
 import { eq, like } from 'drizzle-orm'
 
@@ -16,9 +17,9 @@ const TYPE_CODE: Record<TaskCodeTypeLabel, string> = {
 
 // รหัสที่ผู้ใช้เห็น: <Project Code>-<Running Number> เช่น PRO-0001
 // แยกชนิดงานและวันที่ออกไปอยู่ใน URL slug เพื่อให้รหัสอ้างอิงสั้น คงที่ และไม่เปลี่ยนเมื่อแปลง Task ↔ Defect/CR
+// Pronista §PRO-0040 (2026-10-01) — Project Key เป็น Free Key (มีขีดได้ เช่น MAK-DIN) คงขีดไว้ในรหัสงาน → MAK-DIN-0001 (เดิมตัดขีดทิ้ง+ตัดเหลือ 6 ตัว ทำให้ MAK-DIN กับ MAKD-IN ชนกันได้)
 export function sanitizeCodePrefix(raw: string | null | undefined, fallback: string): string {
-  const clean = (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-  return clean.slice(0, 6) || fallback
+  return projectKeyPrefix(raw, fallback)
 }
 
 export async function nextTaskCode(db: ReturnType<typeof createDb>, prefix: string): Promise<string> {

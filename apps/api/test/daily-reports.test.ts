@@ -342,3 +342,20 @@ describe('§Daily Report time entry totals', () => {
     expect(detail.items.find((item) => item.taskId === task.id)?.minutes).toBe(15)
   })
 })
+
+// (2026-10-01) §PRO-CR-17092026-0009 — ผู้แจ้ง (Reporter) แยกขาดจาก Daily Report
+describe('§PRO-CR-17092026-0009 — ผู้แจ้ง (Reporter) ไม่ทำให้งานโผล่ใน Daily Report', () => {
+  it('คนที่เป็น "ผู้แจ้ง" อย่างเดียว แม้เป็นสมาชิกที่แก้/บันทึกงานได้ งานก็ไม่โผล่ใน Daily Report ของเขา · ผู้จ่ายงานที่บันทึกแบบเดียวกันยังโผล่ตามปกติ', async () => {
+    const { owner, project, task } = await setupRoleMappedTask({ assigneeId: 'u_pond' })
+    await app.request(`/api/projects/${project.id}/members`, json(owner, { userId: 'u_nam', positionId: 'pos_full_access' }), env)
+    expect((await app.request(`/api/tasks/${task.id}`, json(owner, { reporterId: 'u_nam' }, 'PATCH'), env)).status).toBe(200)
+
+    const nam = await loginAs(app, 'nam@example-co.test')
+    expect((await app.request(`/api/tasks/${task.id}`, json(nam, { title: 'ผู้แจ้งแก้ชื่อ', notifyOnUpdate: true }, 'PATCH'), env)).status).toBe(200)
+    expect(await suggestedTaskIds(nam)).not.toContain(task.id)
+
+    // เทียบ: ผู้จ่ายงาน (owner) บันทึกแบบเดียวกัน → มีบทบาท Daily Report จริง จึงโผล่
+    expect((await app.request(`/api/tasks/${task.id}`, json(owner, { title: 'ผู้จ่ายงานแก้ชื่อ', notifyOnUpdate: true }, 'PATCH'), env)).status).toBe(200)
+    expect(await suggestedTaskIds(owner)).toContain(task.id)
+  })
+})

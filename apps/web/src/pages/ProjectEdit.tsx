@@ -1,4 +1,5 @@
 /** หน้าแก้ไขโปรเจกต์ (SPEC §4.3) — แก้ไอคอน/ชื่อ/ลูกค้า/ราคา/วันที่/สถานะ · owner หรือ member ที่เป็น editor ของโปรเจกต์นี้ */
+import { finalizeProjectKey, normalizeProjectKeyInput, PROJECT_KEY_MAX } from '@seedoffice/core'
 import { ChevronLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -125,7 +126,7 @@ export function ProjectEditPage() {
         url: form.url || null,
         status: form.status,
         clientId: form.clientId || null,
-        code: form.code || null,
+        code: finalizeProjectKey(form.code) || null,
       }
       if (project.type === 'project') {
         body.quotedSatang = form.budgetBaht ? Math.round(Number(form.budgetBaht) * 100) : null
@@ -241,8 +242,8 @@ export function ProjectEditPage() {
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">รหัสโปรเจกต์ (code)</div>
-                {/* Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัว A-Z0-9 เป๊ะๆ ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400/409 ตอนบันทึก */}
-                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} className={input} placeholder="ไม่บังคับ" maxLength={3} />
+                {/* Pronista §PRO-0040 (2026-10-01) — Free Key: A-Z/ตัวเลข/ขีด สูงสุด 12 ตัว (เช่น MAK-DIN) ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400/409 ตอนบันทึก */}
+                <input value={form.code} onChange={(e) => setForm({ ...form, code: normalizeProjectKeyInput(e.target.value) })} className={input} placeholder="ไม่บังคับ เช่น MAK-DIN" maxLength={PROJECT_KEY_MAX} />
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">เริ่ม</div>
@@ -264,8 +265,8 @@ export function ProjectEditPage() {
               </label>
               <label className="block">
                 <div className="text-xs font-medium text-muted mb-1.5">รหัสโปรเจกต์ (code)</div>
-                {/* Pronista §Task ID Format (2026-09-23) — บังคับ 3 ตัว A-Z0-9 เป๊ะๆ ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400/409 ตอนบันทึก */}
-                <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} className={input} placeholder="ไม่บังคับ" maxLength={3} />
+                {/* Pronista §PRO-0040 (2026-10-01) — Free Key: A-Z/ตัวเลข/ขีด สูงสุด 12 ตัว (เช่น MAK-DIN) ตัดอักขระอื่นทิ้งกันพิมพ์ผิดแล้วโดน 400/409 ตอนบันทึก */}
+                <input value={form.code} onChange={(e) => setForm({ ...form, code: normalizeProjectKeyInput(e.target.value) })} className={input} placeholder="ไม่บังคับ เช่น MAK-DIN" maxLength={PROJECT_KEY_MAX} />
               </label>
             </>
           )}

@@ -1,4 +1,5 @@
 import { AlertTriangle, FileText, Plus, Trash2, Upload, X } from 'lucide-react'
+import { projectKeyPrefix } from '@seedoffice/core'
 import { useRef, useState } from 'react'
 import { useDialog } from './Dialog'
 import { api, ApiError } from '../lib/api'
@@ -52,7 +53,7 @@ interface UserOpt {
 }
 
 const randomId = () => `manual_${Math.random().toString(36).slice(2, 10)}`
-const sanitizeCodePrefix = (raw: string | null | undefined, fallback: string) => (raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) || fallback
+const sanitizeCodePrefix = projectKeyPrefix
 
 /**
  * Pronista §Document Version History — จับ "ชื่อเล่ม" + "เวอร์ชัน" จากชื่อไฟล์ (เหมือน DocUploadBreakoutModal เดิม)

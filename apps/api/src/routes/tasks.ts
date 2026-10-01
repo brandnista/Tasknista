@@ -45,6 +45,8 @@ const taskPatchSchema = z.object({
   assigneeId: z.string().nullable().optional(),
   // Pronista §Business Rules Workflow (เฟส A, 2026-09-15) — ผู้ตรวจงาน ไม่บังคับเลือก (null = ไม่มีผู้ตรวจเฉพาะ ใช้พฤติกรรมเดิม)
   reviewerId: z.string().nullable().optional(),
+  // Pronista §PRO-CR-17092026-0009 (2026-10-01) — ผู้แจ้ง (Reporter) ไม่บังคับ ใครเป็นผู้แจ้งก็ได้ (รวมลูกค้า) เก็บเพื่อตามรอยต้นทางอย่างเดียว ไม่เกี่ยวกับสิทธิ์/Workflow/Daily Report
+  reporterId: z.string().nullable().optional(),
   // Pronista §SOW Task/Subtask — Reference Code แก้ไขได้ (เดิมตั้งได้แค่ตอนแตกเอกสาร)
   originCode: z.string().nullable().optional(),
   status: z.enum(TASK_STATUSES).optional(),
@@ -701,6 +703,11 @@ export const taskRoutes = new Hono<AppEnv>()
         )[0]
         if (!isMember) return c.json({ error: 'assignee_not_eligible', message: 'ผู้รับผิดชอบต้องเป็นสมาชิกของโปรเจกต์นี้ก่อน' }, 400)
       }
+    }
+    // Pronista §PRO-CR-17092026-0009 — ผู้แจ้งต้องเป็นบัญชีที่มีอยู่จริงและยังใช้งานอยู่ (ไม่บังคับเป็นสมาชิกโปรเจกต์ เพราะผู้แจ้งมักเป็นลูกค้าหรือคนนอกทีม)
+    if ('reporterId' in body.data && body.data.reporterId && body.data.reporterId !== before.reporterId) {
+      const reporter = (await db.select({ status: users.status }).from(users).where(eq(users.id, body.data.reporterId)).limit(1))[0]
+      if (!reporter || reporter.status !== 'active') return c.json({ error: 'reporter_not_eligible', message: 'ผู้แจ้งต้องเป็นบัญชีที่ยังใช้งานอยู่' }, 400)
     }
 
     // Pronista §Workspace/Task Jira-alignment (2026-09-04) — วันที่เริ่มต้องไม่เกินวันที่คาดว่าจะเสร็จ (เช็คกับค่าที่มีอยู่เดิมด้วย กัน PATCH ทีละฟิลด์ทำข้อมูลขัดกัน)
