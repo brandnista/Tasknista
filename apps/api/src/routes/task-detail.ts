@@ -25,6 +25,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { copyR2DocFile } from '../lib/doc-file'
+import { notifyCommentMentions } from '../lib/comment-mentions'
 import { notifyUser } from '../lib/notify'
 import { canEditTask, canEditTaskCollab, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
@@ -379,7 +380,9 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       meta: { preview: body.data.body.slice(0, 80) },
     })
     // Pronista §Notification overhaul (2026-08-27) — แจ้งผู้รับงาน + ผู้จ่ายงาน (createdBy) + คนที่เคยคอมเมนต์มาก่อน ยกเว้นคนคอมเมนต์เอง — ติดขัด (isBlocked) ขึ้นต้นด้วย 🚩
-    const recipients = new Set([task.assigneeId, task.createdBy, ...priorCommenters.map((r) => r.userId)].filter((id): id is string => !!id && id !== me.id))
+    // Pronista §PRO-0024 — คนที่ถูกแท็กได้แจ้งเตือน "ถูกแท็ก" แยกต่างหากอยู่แล้ว ตัดออกจากแจ้งเตือนคอมเมนต์ปกติ กันได้ซ้ำสองอัน
+    const mentioned = new Set(await notifyCommentMentions(db, { task, author: me, body: body.data.body }))
+    const recipients = new Set([task.assigneeId, task.createdBy, ...priorCommenters.map((r) => r.userId)].filter((id): id is string => !!id && id !== me.id && !mentioned.has(id)))
     const preview = body.data.body.slice(0, 80)
     const message = body.data.isBlocked ? `🚩 ${me.name} ติดขัดในงาน "${task.title}": "${preview}"` : `${me.name} คอมเมนต์ในงาน "${task.title}": "${preview}"`
     for (const userId of recipients) {
@@ -398,6 +401,9 @@ export const taskDetailRoutes = new Hono<AppEnv>()
     if (!comment) return c.json({ error: 'not_found' }, 404)
     if (comment.userId !== me.id) return c.json({ error: 'forbidden' }, 403)
     const updated = (await db.update(taskComments).set({ body: body.data.body, isBlocked: body.data.isBlocked ?? comment.isBlocked, editedAt: new Date() }).where(eq(taskComments.id, comment.id)).returning())[0]!
+    // Pronista §PRO-0024 — แก้คอมเมนต์แล้วแท็กคนเพิ่ม → แจ้งเฉพาะคนที่เพิ่งถูกแท็กเพิ่ม (ไม่แจ้งซ้ำคนเดิม)
+    const parentTask = (await db.select({ id: tasks.id, title: tasks.title, projectId: tasks.projectId }).from(tasks).where(eq(tasks.id, comment.taskId)).limit(1))[0]
+    if (parentTask) await notifyCommentMentions(db, { task: parentTask, author: me, body: body.data.body, previousBody: comment.body })
     await writeAudit(c.env, { actorId: me.id, action: 'task.comment.edit', entity: 'task', entityId: comment.taskId, meta: { commentId: comment.id } })
     return c.json(updated)
   })

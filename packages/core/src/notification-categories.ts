@@ -30,6 +30,8 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'task_reassigned',
       // Pronista §Business Rules Workflow (เฟส B, 2026-09-15)
       'task_cancelled',
+      // Pronista §PRO-0024 (2026-10-01) — ถูกแท็กในคอมเมนต์งาน
+      'task_mentioned',
       // Pronista §My Tasks menu badges (2026-09-18)
       'task_review_requested',
     ],

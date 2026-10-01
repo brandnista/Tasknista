@@ -385,3 +385,48 @@ describe('§Task ID URL Slug — GET /tasks/:id/detail รองรับทั�
     expect(body.checklist).toHaveLength(1)
   })
 })
+
+// (2026-10-01) §PRO-0024 — @mention ในคอมเมนต์งาน: แจ้งเตือนคนที่ถูกแท็ก
+describe('§PRO-0024 — แท็กคนในคอมเมนต์ (@mention) + แจ้งเตือน', () => {
+  const mention = (id: string, name: string) => `[@${name}](/mention/${id})`
+  const notifsOf = async (cookie: string, type: string) =>
+    ((await (await app.request('/api/notifications', { headers: { cookie } }, env)).json()) as { type: string; message: string; taskId: string | null }[]).filter((n) => n.type === type)
+
+  it('แท็กผู้ใช้ในคอมเมนต์ → คนที่ถูกแท็กได้ task_mentioned (ลิงก์ไปงานนั้น) · ผู้รับงานที่ถูกแท็กด้วยไม่ได้ task_commented ซ้ำ · แท็กตัวเองไม่แจ้ง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const t = await makeTask(owner, 'u_pond')
+    await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ assigneeId: 'u_pond' }) }, env)
+    const beforeMention = (await notifsOf(pond, 'task_mentioned')).length
+    const beforeCommented = (await notifsOf(pond, 'task_commented')).length
+
+    const res = await app.request(`/api/tasks/${t.id}/comments`, json(owner, { body: `ฝากดูหน่อยครับ ${mention('u_pond', 'ปอนด์')} และ ${mention('u_owner', 'เมธ')}` }), env)
+    expect(res.status).toBe(201)
+
+    const mentions = await notifsOf(pond, 'task_mentioned')
+    expect(mentions.length).toBe(beforeMention + 1)
+    expect(mentions[0]!.taskId).toBe(t.id)
+    expect(mentions[0]!.message).toContain('@ปอนด์')
+    expect((await notifsOf(pond, 'task_commented')).length).toBe(beforeCommented) // ไม่ซ้ำสองอัน
+    expect((await notifsOf(owner, 'task_mentioned')).length).toBe(0) // แท็กตัวเอง
+  })
+
+  it('แท็ก id ที่ไม่มีจริง / พิมพ์ @ เฉยๆ ไม่ใช่ลิงก์ mention → คอมเมนต์ยังบันทึกได้ ไม่ error', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const t = await makeTask(owner)
+    const ok = await app.request(`/api/tasks/${t.id}/comments`, json(owner, { body: `${mention('ไม่มีคนนี้', 'ผี')} และ @pond เฉยๆ` }), env)
+    expect(ok.status).toBe(201)
+  })
+
+  it('แก้คอมเมนต์แล้วแท็กเพิ่ม → แจ้งเฉพาะคนที่เพิ่งถูกแท็กเพิ่ม ไม่แจ้งคนเดิมซ้ำ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const t = await makeTask(owner, 'u_pond')
+    const created = (await (await app.request(`/api/tasks/${t.id}/comments`, json(owner, { body: `สวัสดี ${mention('u_pond', 'ปอนด์')}` }), env)).json()) as { id: string }
+    const afterCreate = (await notifsOf(pond, 'task_mentioned')).length
+
+    // แก้โดยคงแท็กเดิมไว้ ไม่เพิ่มใคร → ไม่แจ้งซ้ำ
+    await app.request(`/api/tasks/${t.id}/comments/${created.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ body: `แก้ข้อความ ${mention('u_pond', 'ปอนด์')}` }) }, env)
+    expect((await notifsOf(pond, 'task_mentioned')).length).toBe(afterCreate)
+  })
+})

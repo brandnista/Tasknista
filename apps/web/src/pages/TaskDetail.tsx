@@ -895,6 +895,68 @@ export function TaskDetailPage() {
   const commentsFeed = feed
     .filter((f): f is FeedEntry & { kind: 'comment' } => f.kind === 'comment')
     .sort((a, b) => Math.max(toMs(b.at), toMs(b.editedAt)) - Math.max(toMs(a.at), toMs(a.editedAt)))
+
+  // Pronista §PRO-0024 (2026-10-01) — คอมเมนต์ (รายการ + ช่องพิมพ์) ใช้ร่วมกัน 2 ที่: แท็บ Comments และล่างสุดของแท็บ All (กลับมาเหมือนเดิมตามที่พี่แบงค์ขอ)
+  // รายชื่อให้แท็ก (@): สมาชิกโปรเจกต์ (งาน Backlog ไม่ผูกโปรเจกต์ = ผู้ใช้ทั้งบริษัท) + owner ทุกคน (เห็นทุกโปรเจกต์อยู่แล้ว) · ไม่รวมตัวเอง
+  const mentionCandidates: { id: string; name: string }[] = (() => {
+    const base = t.projectMembers ?? (userOpts ?? [])
+    const owners = ((userOpts ?? []) as { id: string; name: string; role?: string }[]).filter((u) => u.role === 'owner')
+    const seen = new Set<string>()
+    return [...base, ...owners].filter((u) => u.id !== user?.id && !seen.has(u.id) && seen.add(u.id)).map((u) => ({ id: u.id, name: u.name }))
+  })()
+  const renderCommentItem = (f: FeedEntry & { kind: 'comment' }) => (
+                  <div key={`c-${f.id}`} className="flex gap-2">
+                    <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
+                    <div className="min-w-0 flex-1">
+                      <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <b className="text-body">{f.userName}</b>
+                          {f.editedAt && <span className="text-[10px] text-muted">แก้ไขแล้ว</span>}
+                          {f.userId === user?.id && editingComment?.id !== f.id && (
+                            <span className="ml-auto flex items-center gap-1">
+                              <button onClick={() => setEditingComment({ id: f.id, body: f.body, isBlocked: f.isBlocked })} className="p-1 text-muted hover:text-brand-700" title="แก้ไขคอมเมนต์"><Pencil className="w-3 h-3" /></button>
+                              <button onClick={() => void deleteComment(f.id)} className="p-1 text-muted hover:text-danger-600" title="ลบคอมเมนต์"><Trash2 className="w-3 h-3" /></button>
+                            </span>
+                          )}
+                        </div>
+                        {editingComment?.id === f.id ? (
+                          <div className="space-y-2">
+                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" onUploadMedia={uploadCommentMedia} mentionCandidates={mentionCandidates} />
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => setEditingComment(null)} className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
+                              <button onClick={() => void saveComment()} disabled={!editingComment.body.trim()} className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 text-white disabled:opacity-40">บันทึก</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <RichTextEditor content={f.body} editable={false} bare minHeight="min-h-0" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
+                        {f.isBlocked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger-700 bg-danger-100 px-1.5 py-0.5 rounded-full">
+                            <AlertTriangle className="w-3 h-3" /> ติดขัด
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+  )
+  const commentComposer = (
+            <div className="mt-3 space-y-2">
+              {/* Pronista §CR PRO-CR-17092026-0010 (2026-09-25) — onUploadMedia เปิดปุ่มแทรกรูป/วิดีโอ + วาง/ลากไฟล์ในคอมเมนต์ เหมือนฟิลด์ "รายละเอียดจากผู้จ่ายงาน"
+                  reuse uploadDescriptionMedia เดิม (ไป endpoint attachments เดียวกัน + reload()) — ปลอดภัยกับ key ที่ผูกกับ t.comments.length เพราะอัปโหลดสื่อไม่ได้เพิ่มจำนวนคอมเมนต์ ไม่ทำให้ editor remount ทับข้อความที่พิมพ์ค้างไว้ */}
+              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" onUploadMedia={uploadCommentMedia} mentionCandidates={mentionCandidates} />
+              <div className="flex justify-end gap-2">
+                {isAssignee && (
+                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 py-2 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
+                    <AlertTriangle className="w-4 h-4" /> ติดขัด
+                  </button>
+                )}
+                <button onClick={() => void postComment()} disabled={!comment.trim()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded-lg shrink-0 disabled:opacity-40" title="ส่ง"><Send className="w-4 h-4" /></button>
+              </div>
+            </div>
+  )
   const latestRejectionReason = [...historyFeed].reverse().find((f) => f.action === 'task.reject' && typeof f.meta?.reason === 'string')?.meta?.reason as string | undefined
 
   const siblingTotal = t.siblings.length + 1
@@ -996,42 +1058,7 @@ export function TaskDetailPage() {
               )}
               {(activityTab === 'comments' ? commentsFeed : historyFeed).map((f) =>
                 f.kind === 'comment' ? (
-                  <div key={`c-${f.id}`} className="flex gap-2">
-                    <Avatar name={f.userName} avatarUrl={f.userAvatarUrl} className="w-7 h-7 text-[10px]" colorClass={avatarColor(f.userName)} />
-                    <div className="min-w-0 flex-1">
-                      <div className={`rounded-xl px-3 py-2 text-sm ${f.isBlocked ? 'bg-danger-50 text-danger-800' : 'bg-hover text-soft'}`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <b className="text-body">{f.userName}</b>
-                          {f.editedAt && <span className="text-[10px] text-muted">แก้ไขแล้ว</span>}
-                          {f.userId === user?.id && editingComment?.id !== f.id && (
-                            <span className="ml-auto flex items-center gap-1">
-                              <button onClick={() => setEditingComment({ id: f.id, body: f.body, isBlocked: f.isBlocked })} className="p-1 text-muted hover:text-brand-700" title="แก้ไขคอมเมนต์"><Pencil className="w-3 h-3" /></button>
-                              <button onClick={() => void deleteComment(f.id)} className="p-1 text-muted hover:text-danger-600" title="ลบคอมเมนต์"><Trash2 className="w-3 h-3" /></button>
-                            </span>
-                          )}
-                        </div>
-                        {editingComment?.id === f.id ? (
-                          <div className="space-y-2">
-                            <RichTextEditor key={f.id} content={editingComment.body} onChange={(body) => setEditingComment((prev) => prev ? { ...prev, body } : null)} minHeight="min-h-20" onUploadMedia={uploadCommentMedia} />
-                            <div className="flex justify-end gap-2">
-                              <button onClick={() => setEditingComment(null)} className="text-xs px-2.5 py-1.5 rounded-lg hover:bg-white">ยกเลิก</button>
-                              <button onClick={() => void saveComment()} disabled={!editingComment.body.trim()} className="text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 text-white disabled:opacity-40">บันทึก</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <RichTextEditor content={f.body} editable={false} bare minHeight="min-h-0" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-muted">{fmtWhen(f.at)}</span>
-                        {f.isBlocked && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-danger-700 bg-danger-100 px-1.5 py-0.5 rounded-full">
-                            <AlertTriangle className="w-3 h-3" /> ติดขัด
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  renderCommentItem(f)
                 ) : (
                   <div key={`a-${f.id}`} className="flex gap-2 text-xs">
                     <Avatar name={f.actorName} avatarUrl={f.actorAvatarUrl} className="w-5 h-5 text-[9px]" colorClass={avatarColor(f.actorName)} />
@@ -1056,21 +1083,7 @@ export function TaskDetailPage() {
             </div>
           )}
 
-          {activityTab === 'comments' && (
-            <div className="mt-3 space-y-2">
-              {/* Pronista §CR PRO-CR-17092026-0010 (2026-09-25) — onUploadMedia เปิดปุ่มแทรกรูป/วิดีโอ + วาง/ลากไฟล์ในคอมเมนต์ เหมือนฟิลด์ "รายละเอียดจากผู้จ่ายงาน"
-                  reuse uploadDescriptionMedia เดิม (ไป endpoint attachments เดียวกัน + reload()) — ปลอดภัยกับ key ที่ผูกกับ t.comments.length เพราะอัปโหลดสื่อไม่ได้เพิ่มจำนวนคอมเมนต์ ไม่ทำให้ editor remount ทับข้อความที่พิมพ์ค้างไว้ */}
-              <RichTextEditor key={`${t.id}-${t.comments.length}`} content="" onChange={setComment} placeholder="เพิ่มความเห็น..." minHeight="min-h-20" onUploadMedia={uploadCommentMedia} />
-              <div className="flex justify-end gap-2">
-                {isAssignee && (
-                  <button onClick={() => void reportBlocked()} className="bg-danger-50 hover:bg-danger-100 text-danger-700 px-3 py-2 rounded-lg text-sm shrink-0 flex items-center gap-1" title="แจ้งติดขัด">
-                    <AlertTriangle className="w-4 h-4" /> ติดขัด
-                  </button>
-                )}
-                <button onClick={() => void postComment()} disabled={!comment.trim()} className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded-lg shrink-0 disabled:opacity-40" title="ส่ง"><Send className="w-4 h-4" /></button>
-              </div>
-            </div>
-          )}
+          {activityTab === 'comments' && commentComposer}
         </div>
         )}
 
@@ -1750,6 +1763,18 @@ export function TaskDetailPage() {
             )}
           </div>
         </div>
+        )}
+
+        {/* Pronista §PRO-0024 — คอมเมนต์อยู่ล่างสุดของแท็บ All (เหมือนเดิม) */}
+        {activityTab === 'all' && (
+          <div className="p-5 border-t border-border-subtle">
+            <div className="text-sm font-semibold text-ink mb-3">ความเห็น ({commentsFeed.length})</div>
+            <div className="space-y-3">
+              {commentsFeed.length === 0 && <div className="text-sm text-border">ยังไม่มีความเห็น</div>}
+              {commentsFeed.map((f) => renderCommentItem(f))}
+            </div>
+            {commentComposer}
+          </div>
         )}
       </div>
 
