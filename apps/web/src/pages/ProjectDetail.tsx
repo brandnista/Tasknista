@@ -819,7 +819,8 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode, search }
   const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
     const children = childrenOf(t.id)
     const hasChildren = children.length > 0
-    const isOpen = expandedIds.has(t.id)
+    // ค้นหาแล้วแม่โผล่เพราะงานย่อยตรง → คลี่ให้เห็นงานย่อยที่ตรงทันที (เหมือนแท็บอื่น)
+    const isOpen = expandedIds.has(t.id) || (!!q && !taskMatches(t, q) && hasChildren)
     return (
       <div key={t.id}>
         {/* Pronista §Backlog row layout (2026-09-16) — เดิม flex-wrap ตกบรรทัดตอนชื่องานยาว ทำให้คอลัมน์ (badge/ผู้รับผิดชอบ/เมนู) เพี้ยนตาม — เปลี่ยนเป็น flex-nowrap + ชื่องานตัดด้วย truncate ล้อ BacklogTaskRow ที่แก้ไปแล้วก่อนหน้า */}

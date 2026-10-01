@@ -1417,7 +1417,7 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
                           </select>
                           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
                         </div>
-                        <p className="mt-1 text-[11px] text-muted">เลือกแล้วกด "บันทึกเพื่ออัปเดตข้อมูล" งานจะย้ายเข้าโปรเจกต์และได้รหัสงานของโปรเจกต์นั้น</p>
+                        <p className="mt-1 text-[11px] text-muted">เลือกแล้วกด "บันทึกเพื่ออัปเดตข้อมูล" งานจะย้ายเข้าโปรเจกต์ที่เลือก (รหัสงานเดิมไม่เปลี่ยน)</p>
                       </div>
                     </>
                   )}
