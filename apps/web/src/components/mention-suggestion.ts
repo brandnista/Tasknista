@@ -71,7 +71,10 @@ export function createMentionExtension(getCandidates: () => MentionCandidate[]) 
               if (rect) {
                 const width = 224
                 box.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`
-                box.style.top = `${rect.bottom + 6}px`
+                // ที่ด้านล่างไม่พอ (เช่น ช่องพิมพ์อยู่ท้ายหน้า/มือถือ) → แสดงเหนือเคอร์เซอร์แทน
+                const h = box.offsetHeight
+                const below = rect.bottom + 6
+                box.style.top = `${below + h > window.innerHeight - 8 ? Math.max(8, rect.top - h - 6) : below}px`
               }
             }
 
