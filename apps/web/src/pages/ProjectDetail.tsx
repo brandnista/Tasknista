@@ -23,6 +23,7 @@ import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { useToast, useToastAction } from '../components/Toast'
 import { api } from '../lib/api'
+import { deleteFailureReasons } from '../lib/delete-failure'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate, statusChip, type ProjectRow } from '../lib/project-ui'
@@ -110,10 +111,10 @@ function backlogTabOf(t: ProjectBacklogTask): BacklogTab {
 
 // Pronista §Bulk actions (2026-09-03) — ลบ/ย้ายหลายงานพร้อมกัน ใช้ endpoint เดี่ยวเดิม (/tasks/:id DELETE, /tasks/:id/convert) ยิงขนานผ่าน Promise.allSettled
 // เหมือน pattern deleteSelected เดิมของแท็บ Backlog ทั่วไป — ไม่ต้องเพิ่ม batch endpoint ใหม่ฝั่ง API
-async function bulkDeleteTasks(ids: string[]): Promise<{ ok: number; failed: number }> {
+async function bulkDeleteTasks(ids: string[]): Promise<{ ok: number; failed: number; reason: string }> {
   const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
   const failed = results.filter((r) => r.status === 'rejected').length
-  return { ok: ids.length - failed, failed }
+  return { ok: ids.length - failed, failed, reason: deleteFailureReasons(results) }
 }
 async function bulkConvertTasks(ids: string[], to: 'task' | 'defect' | 'cr'): Promise<{ ok: number; failed: number }> {
   const results = await Promise.allSettled(ids.map((id) => api.post(`/api/tasks/${id}/convert`, { to })))
@@ -401,7 +402,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       const res = await bulkDeleteTasks(ids)
       setSelected(new Set())
       void reload()
-      if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+      if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ`, message: res.reason })
     } finally {
       setDeleting(false)
     }
@@ -1434,7 +1435,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   const bulkDeleteConfirm = async (ids: string[]) => {
     if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     const res = await sel.bulkDelete(ids)
-    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ`, message: res.reason })
   }
   const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
     if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return
@@ -1908,7 +1909,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   const bulkDeleteConfirm = async (ids: string[]) => {
     if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     const res = await sel.bulkDelete(ids)
-    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ (อาจถูกล็อกอยู่/มีลงเวลาแล้ว)` })
+    if (res.failed > 0) await alertDialog({ title: `ลบสำเร็จ ${res.ok} รายการ, ไม่สำเร็จ ${res.failed} รายการ`, message: res.reason })
   }
   const bulkMoveConfirm = async (ids: string[], to: 'task' | 'defect' | 'cr') => {
     if (!(await confirmDialog({ title: `ย้าย ${ids.length} รายการเป็น ${CONVERT_LABEL[to].replace('ย้ายเป็น ', '')}?`, confirmLabel: 'ย้าย' }))) return

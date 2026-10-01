@@ -1268,7 +1268,7 @@ export const taskRoutes = new Hono<AppEnv>()
     if (hasTime.length > 0)
       return c.json({ error: 'has_time_entries', message: 'ลบไม่ได้ เพราะมีการลงเวลาในงานนี้แล้ว (ข้อมูลการเงิน ลบไม่ได้ตามกฎ) — ย้ายเวลาไปงานอื่นก่อน หรือเก็บงานนี้ไว้เฉยๆ' }, 409)
     if (hasSubtasks.length > 0)
-      return c.json({ error: 'has_subtasks', message: 'ลบไม่ได้ เพราะยังมีงานย่อยอยู่ — ลบหรือย้ายงานย่อยออกก่อน' }, 409)
+      return c.json({ error: 'has_subtasks', message: 'ลบงานนี้ไม่ได้ เพราะมีงานย่อย (Sub-task) อยู่ภายใน — กรุณาลบหรือย้ายงานย่อยออกก่อน แล้วลองลบอีกครั้ง' }, 409)
 
     // เมทาดาต้า (ไม่ใช่ข้อมูลการเงิน) — ลบทิ้งได้จริงก่อนลบ task ตัวเอง กัน FK constraint failed
     const attachments = await db.select().from(taskAttachments).where(eq(taskAttachments.taskId, before.id))

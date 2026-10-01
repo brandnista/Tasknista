@@ -5,7 +5,7 @@
  * มี 2 โหมดภายในแท็บ: "วันนี้/แก้ไข" (แก้รายงานของตัวเอง — งานแนะนำ+คีย์เองรวมลิสต์เดียว) กับ "ประวัติ" (ดูย้อนหลัง ทั้งของฉัน/ที่ได้รับ)
  */
 import { AlertTriangle, Calendar, Check, ExternalLink, History as HistoryIcon, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Avatar } from './Avatar'
 import { DateInputTH } from './DateInputTH'
 import { useDialog } from './Dialog'
@@ -132,9 +132,23 @@ function TaskLink({ projectId, taskId, code, title }: { projectId: string | null
   )
 }
 
+/** Pronista §PRO-0030 — ช่องพิมพ์ชื่องานที่ขยายความสูงตามข้อความเอง (ตัดบรรทัดอัตโนมัติ) แทน input บรรทัดเดียวที่ต้องเลื่อนซ้าย-ขวา — ชื่องานยังเป็นบรรทัดเดียวในข้อมูล (แปลงขึ้นบรรทัดใหม่เป็นช่องว่าง) */
+function AutoGrowTextarea({ value, onChange, className = '', ...rest }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & { value: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+  return <textarea ref={ref} rows={1} value={value} onChange={(e) => onChange(e.target.value.replace(/[\r\n]+/g, ' '))} className={`resize-none overflow-hidden ${className}`} {...rest} />
+}
+
 export function DailyReportTab({ initialReportId }: { initialReportId?: string | null }) {
   const { user } = useAuth()
   const [mode, setMode] = useState<'today' | 'history'>('today')
+  // Pronista §PRO-0041 — เมนูซ้ายต้องมีสถานะ "กำลังอยู่ที่หัวข้อไหน" จริง (เดิมจุดสีฟ้าคือสถานะกรอกแล้ว ไม่ใช่หัวข้อที่เปิดอยู่) เริ่มต้นที่ "งานวันนี้" แล้วขยับตามการเลื่อนหน้า
+  const [activeStage, setActiveStage] = useState('stage-tasks')
   const [date, setDate] = useState(bkkToday())
   const [openId, setOpenId] = useState<string | null>(initialReportId ?? null)
   const [rangePreset, setRangePreset] = useState<DateRangePreset>('month')
@@ -373,8 +387,21 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   }
   const scrollToStage = (id: string) => (e: React.MouseEvent) => {
     e.preventDefault()
+    setActiveStage(id)
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+
+  useEffect(() => {
+    if (!canEditNow || typeof IntersectionObserver === 'undefined') return
+    const els = ['stage-tasks', 'stage-blocker', 'stage-notes'].map((id) => document.getElementById(id)).filter((el): el is HTMLElement => !!el)
+    if (els.length === 0) return
+    const io = new IntersectionObserver(
+      (entries) => { for (const en of entries) if (en.isIntersecting) setActiveStage(en.target.id) },
+      { rootMargin: '-15% 0px -65% 0px' },
+    )
+    els.forEach((el) => io.observe(el))
+    return () => io.disconnect()
+  }, [canEditNow, report?.id])
 
   const totalMinutes = (report?.items ?? []).reduce((s, it) => s + it.minutes, 0)
   const itemByTaskId = new Map<string, ReportItem>()
@@ -517,7 +544,8 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                     key={s.id}
                     href={`#${s.id}`}
                     onClick={scrollToStage(s.id)}
-                    className="flex items-center gap-2.5 text-[13px] font-medium text-dim hover:text-body hover:bg-hover px-2.5 py-2 rounded-lg shrink-0 focus-visible:outline-2 focus-visible:outline-brand-500"
+                    aria-current={activeStage === s.id ? 'location' : undefined}
+                    className={`flex items-center gap-2.5 text-[13px] px-2.5 py-2 rounded-lg shrink-0 focus-visible:outline-2 focus-visible:outline-brand-500 ${activeStage === s.id ? 'font-semibold text-brand-700 bg-brand-50' : 'font-medium text-dim hover:text-body hover:bg-hover'}`}
                   >
                     <span className={`w-[7px] h-[7px] rounded-full border-[1.5px] shrink-0 ${s.state === 'filled' ? 'bg-brand-600 border-brand-600' : s.state === 'warn' ? 'bg-danger-600 border-danger-600' : 'border-border'}`} />
                     {s.label}
@@ -641,11 +669,11 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                       {manualItems.map((it) =>
                         editingManualId === it.id ? (
                           <div key={it.id} className="flex items-center gap-2 px-3.5 py-2.5 bg-white">
-                            <input
+                            <AutoGrowTextarea
                               autoFocus
                               value={editManualTitle}
-                              onChange={(e) => setEditManualTitle(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') void saveEditManual(it.id); if (e.key === 'Escape') cancelEditManual() }}
+                              onChange={setEditManualTitle}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveEditManual(it.id) } if (e.key === 'Escape') cancelEditManual() }}
                               className="flex-1 min-w-[140px] border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
                             />
                             <input
@@ -690,9 +718,10 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                         ),
                       )}
                       <div className="flex gap-2 p-3 bg-white">
-                        <input
+                        <AutoGrowTextarea
                           value={manualTitle}
-                          onChange={(e) => setManualTitle(e.target.value)}
+                          onChange={setManualTitle}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addManualItem() } }}
                           placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
                           className="flex-1 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
                         />

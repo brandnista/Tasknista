@@ -1141,3 +1141,25 @@ describe('§Assign to me fix — self-claim งานว่าง + self-dispatc
     expect(res.status).toBe(403)
   })
 })
+
+// (2026-10-01) §PRO-0037 — ลบงานที่มีงานย่อยต้องถูกบล็อกพร้อมข้อความที่บอกเหตุผลชัดเจน
+describe('§PRO-0037 — ลบงานที่มีงานย่อย', () => {
+  it('ลบงานแม่ที่ยังมีงานย่อย → 409 has_subtasks + ข้อความระบุว่าเป็นเพราะมีงานย่อย · ลบงานย่อยออกแล้วลบงานแม่ได้', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const parent = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานแม่' }), env)).json()) as { id: string }
+    const child = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานลูก' }), env)).json()) as { id: string }
+    const link = await app.request(`/api/tasks/${child.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ parentId: parent.id }) }, env)
+    expect(link.status).toBe(200)
+
+    const blocked = await app.request(`/api/tasks/${parent.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(blocked.status).toBe(409)
+    const body = (await blocked.json()) as { error: string; message: string }
+    expect(body.error).toBe('has_subtasks')
+    expect(body.message).toContain('งานย่อย')
+    expect(body.message).toContain('ลบงานนี้ไม่ได้')
+
+    expect((await app.request(`/api/tasks/${child.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
+    expect((await app.request(`/api/tasks/${parent.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
+  })
+})

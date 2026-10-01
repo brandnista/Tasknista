@@ -27,6 +27,7 @@ import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
 import { LabelChips } from '../components/LabelChips'
 import { RichTextEditor } from '../components/RichTextEditor'
+import { deleteFailureReasons } from '../lib/delete-failure'
 import { STATUS_SWATCH } from '../lib/project-ui'
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { TemplatePickerModal } from '../components/doc-templates/TemplatePickerModal'
@@ -370,10 +371,6 @@ function genericChangedFields(after: unknown): string[] {
 function isTaskStatus(v: unknown): v is { status: TaskStatus } {
   return !!v && typeof v === 'object' && typeof (v as { status?: unknown }).status === 'string' && (v as { status: string }).status in TASK_STATUS_LABEL
 }
-const DELETE_TASK_ERROR_LABEL = {
-  has_time_entries: 'ลบไม่ได้ เพราะมีการลงเวลาในงานนี้แล้ว (ข้อมูลการเงิน) — ย้ายเวลาไปงานอื่นก่อน หรือเก็บงานนี้ไว้เฉยๆ',
-  has_subtasks: 'ลบไม่ได้ เพราะยังมีงานย่อยอยู่ — ลบหรือย้ายงานย่อยออกก่อน',
-} as const
 const fmtWhen = (ms: number) => new Date(ms).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 const fmtAttSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`)
 
@@ -826,9 +823,11 @@ export function TaskDetailPage() {
     if (!yes) return
     setDeletingSubtasks(true)
     try {
-      await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
+      const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/tasks/${id}`)))
       setSelectedSubtasks(new Set())
       await reload()
+      const failed = results.filter((r) => r.status === 'rejected').length
+      if (failed > 0) await alertDialog({ title: `ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ`, message: deleteFailureReasons(results) })
     } finally {
       setDeletingSubtasks(false)
     }
@@ -850,7 +849,8 @@ export function TaskDetailPage() {
         (e) => {
           void confirmDialog({
             title: 'ลบไม่ได้',
-            message: e instanceof ApiError && e.message in DELETE_TASK_ERROR_LABEL ? DELETE_TASK_ERROR_LABEL[e.message as keyof typeof DELETE_TASK_ERROR_LABEL] : 'ลบไม่สำเร็จ ลองใหม่อีกครั้ง',
+            // Pronista §PRO-0037 — เดิมเทียบ e.message (ข้อความไทยจากหลังบ้าน) กับตารางที่ใช้ "รหัส error" เป็นคีย์ จึงไม่เคยตรงและตกไปที่ข้อความกว้างๆ เสมอ — ใช้ข้อความจากหลังบ้านตรงๆ (บอกเหตุผลเฉพาะอยู่แล้ว เช่น มีงานย่อย/มีการลงเวลา)
+            message: e instanceof ApiError ? e.message : 'ลบไม่สำเร็จ ลองใหม่อีกครั้ง',
             confirmLabel: 'เข้าใจแล้ว',
             cancelLabel: 'ปิด',
           })

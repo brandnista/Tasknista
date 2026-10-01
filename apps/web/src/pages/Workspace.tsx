@@ -19,6 +19,7 @@ import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBul
 import { TaskPickerModal, type PickableTask } from '../components/TaskPickerModal'
 import { useToast, useToastAction } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
+import { deleteFailureReasons } from '../lib/delete-failure'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { fmtThaiDate } from '../lib/project-ui'
@@ -435,7 +436,7 @@ export function WorkspacePage() {
       const failed = results.filter((r) => r.status === 'rejected').length
       setSelectedIds(new Set())
       void reloadBacklog()
-      if (failed > 0) setError(`ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ`)
+      if (failed > 0) setError(`ลบสำเร็จ ${ids.length - failed} รายการ, ไม่สำเร็จ ${failed} รายการ — ${deleteFailureReasons(results).replace(/\n/g, ' / ')}`)
     } finally {
       setDeletingAll(false)
     }

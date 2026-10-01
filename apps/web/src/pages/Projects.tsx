@@ -121,7 +121,7 @@ function Cards({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean }) 
         <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="bg-white rounded-lg shadow-xs p-5 cursor-pointer hover:shadow-sm transition">
           <div className="flex items-center gap-2">
             <ProjectIcon id={p.id} logo={p.logo} size={20} />
-            <div className="flex-1 min-w-0 font-semibold text-strong truncate">{p.name}</div>
+            <div className="flex-1 min-w-0 font-semibold text-strong truncate"><Link to={`/projects/${p.id}`} onClick={(ev) => ev.stopPropagation()} className="hover:text-brand-600 hover:underline">{p.name}</Link></div>
             <LeadAvatar p={p} />
           </div>
           <div className="flex items-center gap-2 mt-2.5 flex-wrap">
@@ -179,7 +179,7 @@ function BoardView({ rows, showMoney }: { rows: ProjectRow[]; showMoney: boolean
                 <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="bg-white rounded-lg shadow-xs p-3 cursor-pointer hover:shadow-sm">
                   <div className="flex items-center gap-2 mb-1.5">
                     <ProjectIcon id={p.id} logo={p.logo} size={16} />
-                    <span className="text-sm text-body truncate flex-1">{p.name}</span>
+                    <span className="text-sm text-body truncate flex-1"><Link to={`/projects/${p.id}`} onClick={(ev) => ev.stopPropagation()} className="hover:text-brand-600 hover:underline">{p.name}</Link></span>
                     <LeadAvatar p={p} />
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
@@ -295,7 +295,7 @@ function ExpiringServicesTable({ rows }: { rows: ProjectRow[] }) {
             return (
               <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="hover:bg-hover cursor-pointer">
                 <td className="px-5 py-3 text-body">
-                  <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> {p.name}</div>
+                  <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> <Link to={`/projects/${p.id}`} onClick={(ev) => ev.stopPropagation()} className="hover:text-brand-600 hover:underline">{p.name}</Link></div>
                 </td>
                 <td className="px-3 py-3 text-muted">{(p.category === 'product' ? p.productTypeName : p.serviceTypeName) ?? '—'}</td>
                 <td className="px-3 py-3 text-muted">{p.clientName ?? '—'}</td>
@@ -350,7 +350,7 @@ function TableView({ rows }: { rows: ProjectRow[] }) {
               <tr key={p.id} onClick={() => navigate(`/projects/${p.id}`)} className="hover:bg-hover cursor-pointer">
                 <td className="px-5 py-3 text-muted tabular-nums">{(page - 1) * pageSize + i + 1}</td>
                 <td className="px-3 py-3 text-body">
-                  <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> {p.name}</div>
+                  <div className="flex items-center gap-2"><ProjectIcon id={p.id} logo={p.logo} size={16} /> <Link to={`/projects/${p.id}`} onClick={(ev) => ev.stopPropagation()} className="hover:text-brand-600 hover:underline">{p.name}</Link></div>
                   {p.clientName && <div className="text-[11px] text-muted mt-0.5 pl-6">{p.clientName}</div>}
                 </td>
                 <td className="px-3 py-3"><span className={`text-[11px] px-2 py-0.5 rounded-full ${statusChip(p.statusColor)}`}>{p.statusName}</span></td>
