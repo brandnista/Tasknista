@@ -1,7 +1,7 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, Filter, GripVertical, History, MoreVertical, Pencil, Play, Plus, Trash2, Upload, X } from 'lucide-react'
 import { ActionMenu } from '../components/ActionMenu'
 import { BottomSheet } from '../components/BottomSheet'
-import { minutesToHoursLabel, resolveTaskTypes, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
+import { minutesToHoursLabel, normalizeSearch, resolveTaskTypes, taskMatches, taskVisibleForSearch, visibleChildren, type Label, type PermissionTabKey, type PositionPermissions, type TaskType } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -283,6 +283,9 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
   // Pronista §System Requirements Update (ต่อยอด) — ฟิลเตอร์ผู้จ่ายงาน/ผู้รับงาน (ชื่อ) เหมือนที่ Workspace.tsx มีอยู่แล้ว
   const [dispatcherFilter, setDispatcherFilter] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
+  // Pronista §PRO-CR-21092026-0016 — ช่องค้นหาเดียวใช้ร่วมกันทุกแท็บ (เดิมมีเฉพาะแท็บ ทั้งหมด) ค้นชื่อ/รหัสงาน และค้นลึกถึงงานย่อย
+  const [search, setSearch] = useState('')
+  const q = normalizeSearch(search)
   // Pronista §Mobile Responsive Refactor (2026-09-02) — Filter บนมือถือย้ายเข้า Bottom Sheet แทน select แถวเดิม (สเปก §7)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [title, setTitle] = useState('')
@@ -347,6 +350,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
     .filter((t) => subTaskTypeFilter === 'all' || t.subTaskType === subTaskTypeFilter)
     .filter((t) => dispatcherFilter === 'all' || t.dispatcherName === dispatcherFilter)
     .filter((t) => assigneeFilter === 'all' || t.assigneeName === assigneeFilter)
+    .filter((t) => taskVisibleForSearch(activeListUnfiltered, t, q))
 
   const add = async () => {
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Task เบิ้ลจากกด Enter รัวๆ
@@ -483,14 +487,23 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
         >
           {showCode ? 'ซ่อนรหัสงาน' : 'แสดงรหัสงาน'}
         </button>
+        {tab !== 'summary' && (
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหาชื่องาน/รหัสงาน…"
+            aria-label="ค้นหางาน"
+            className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 w-full sm:ml-auto sm:w-60"
+          />
+        )}
       </div>
 
       {tab === 'all' ? (
-        <ProjectAllTasksTab projectId={projectId} onOpenTask={onOpenTask} canEdit={canEdit} showCode={showCode} />
+        <ProjectAllTasksTab projectId={projectId} onOpenTask={onOpenTask} canEdit={canEdit} showCode={showCode} search={search} />
       ) : (FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
         <>
-          {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} showCode={showCode} />}
-          {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} showCode={showCode} />}
+          {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} showCode={showCode} search={search} />}
+          {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} showCode={showCode} search={search} />}
           {tab === 'task' && (
             <ProjectHierarchyTab
               projectId={projectId}
@@ -503,10 +516,11 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
               selectable
               onSprintChanged={onSprintChanged}
               showCode={showCode}
+              search={search}
             />
           )}
-          {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} selectable onSprintChanged={onSprintChanged} showCode={showCode} />}
-          {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} onSprintChanged={onSprintChanged} showCode={showCode} />}
+          {tab === 'cr' && <ProjectHierarchyTab projectId={projectId} level="cr" canEdit={canEdit} onOpenTask={onOpenTask} selectable onSprintChanged={onSprintChanged} showCode={showCode} search={search} />}
+          {tab === 'defect' && <ProjectDefectSection projectId={projectId} canEdit={canEdit} onOpenTask={onOpenTask} onSprintChanged={onSprintChanged} showCode={showCode} search={search} />}
           {tab === 'summary' && <ProjectSummaryTab projectId={projectId} onOpenTask={onOpenTask} showCode={showCode} />}
         </>
       ) : (
@@ -619,7 +633,7 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       <div className="overflow-x-auto">
       {activeList.length === 0 ? (
         <div className="text-center text-xs text-muted py-3">
-          {tab === 'regular' ? 'ยังไม่มีงานใน Backlog ของโปรเจกต์นี้' : `ยังไม่มีงานจากเอกสาร ${BACKLOG_TAB_LABEL[tab]}`}
+          {q && activeListUnfiltered.length > 0 ? `ไม่พบผลลัพธ์ที่ตรงกับ "${(search).trim()}"` : tab === 'regular' ? 'ยังไม่มีงานใน Backlog ของโปรเจกต์นี้' : `ยังไม่มีงานจากเอกสาร ${BACKLOG_TAB_LABEL[tab]}`}
         </div>
       ) : tab === 'SOW' ? (
         // Pronista §SOW Task/Subtask — แท็บ SOW แสดงเป็น tree: Task พ่อ (ลากทั้งก้อน = ดึง subtask ทั้งหมดเข้า Sprint แทน) + Subtask ลูกย่อหน้าใต้ (ลากทีละตัวได้เหมือนเดิม)
@@ -775,17 +789,18 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
 
 /** Pronista §System Enhancements — แท็บ "ทั้งหมด": รวมทุกงานทุกประเภท (ยังไม่ระบุ/Task/Defect/CR) ของโปรเจกต์มาแสดงในลิสต์เดียว
  * ใช้ endpoint /tasks/all เดิม (ไม่กรอง kind อยู่แล้ว) — ไม่มี bulk move/checkbox เพราะ source kind ปนกัน มีแค่ per-row convert (จัดการ) เหมือนแท็บอื่น */
-function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
+function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode, search }: {
   projectId: string
   onOpenTask: (id: string) => void
   canEdit: boolean
   showCode?: boolean
+  search?: string
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const { data: cfg } = useLoad<{ dueSoonDays: number }>(() => api.get('/api/config'))
   const all = data ?? []
-  const [search, setSearch] = useState('')
-  const filtered = search.trim() ? all.filter((t) => t.title.toLowerCase().includes(search.trim().toLowerCase()) || (t.code ?? '').toLowerCase().includes(search.trim().toLowerCase())) : all
+  const q = normalizeSearch(search)
+  const filtered = q ? all.filter((t) => taskVisibleForSearch(all, t, q)) : all
   const [convertModal, setConvertModal] = useState<{ taskId: string; to: 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'cr' } | null>(null)
   // Pronista §Task-row expand (2026-09-15) — งานย่อยมากับ `filtered` อยู่แล้ว flat (มี parentId) โชว์แค่แถวบนสุด ซ่อนแถวลูกไว้ใต้ปุ่มคลี่แทน
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
@@ -840,12 +855,15 @@ function ProjectAllTasksTab({ projectId, onOpenTask, canEdit, showCode }: {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่องาน/รหัสงาน…" className="text-xs bg-white border border-border rounded-lg px-2.5 py-1.5 flex-1 min-w-0 sm:flex-none sm:w-56" />
         <span className="shrink-0 whitespace-nowrap text-[11px] text-muted">{filtered.length} / {all.length} งาน</span>
       </div>
-      <div className="divide-y divide-divider overflow-x-auto">
-        {topLevel.map((t) => renderRow(t))}
-      </div>
+      {filtered.length === 0 ? (
+        <div className="text-center text-xs text-muted py-6">{`ไม่พบผลลัพธ์ที่ตรงกับ "${(search ?? '').trim()}"`}</div>
+      ) : (
+        <div className="divide-y divide-divider overflow-x-auto">
+          {topLevel.map((t) => renderRow(t))}
+        </div>
+      )}
       {convertModal && (
         <ConvertBacklogModal
           taskId={convertModal.taskId}
@@ -1419,16 +1437,20 @@ function useBacklogSprintSelect<
 
 /** Pronista §Project Refactor — แท็บ "Defect" รวม Defect ทั้งหมดของโปรเจกต์ (รวมที่แปลงมาจาก Backlog ผ่านเมนู "จัดการ")
  * Pronista §Back to Basic — ปุ่ม "🔗 เชื่อมโยง" ต่อแถว: ผูก Defect กับ Epic/Story/Task ใดก็ได้แบบอ้างอิง (task_references) ไม่ใช่ลูก-แม่ */
-function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged, showCode }: {
+function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged, showCode, search }: {
   projectId: string
   canEdit: boolean
   onOpenTask: (id: string) => void
   // Pronista §System Requirements Update (ต่อยอด) — บอก SprintSection (sibling) ให้รีโหลดหลังโยนงานเข้า Sprint จาก checkbox bulk-add ตรงนี้
   onSprintChanged?: () => void
   showCode?: boolean
+  // Pronista §PRO-CR-21092026-0016 — คำค้นจาก ProjectBacklogSection (ใช้ร่วมทุกแท็บ)
+  search?: string
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
-  const defects = (data ?? []).filter((t) => t.kind === 'defect')
+  const allDefects = (data ?? []).filter((t) => t.kind === 'defect')
+  const q = normalizeSearch(search)
+  const defects = q ? allDefects.filter((t) => taskVisibleForSearch(data ?? [], t, q)) : allDefects
   const sel = useBacklogSprintSelect(projectId, defects, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
   const toastAction = useToastAction()
@@ -1475,7 +1497,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const selFilteredIds = new Set(sel.filtered.map((t) => t.id))
   const topLevel = sel.filtered.filter((t) => !t.parentId || !selFilteredIds.has(t.parentId))
-  const childrenOf = (id: string) => (data ?? []).filter((t) => t.parentId === id)
+  const childrenOf = (parent: ProjectAllTask) => visibleChildren(data ?? [], parent, q)
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev)
@@ -1486,9 +1508,9 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
   }
 
   const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
-    const children = childrenOf(t.id)
+    const children = childrenOf(t)
     const hasChildren = children.length > 0
-    const isOpen = expandedIds.has(t.id)
+    const isOpen = expandedIds.has(t.id) || (!!q && !taskMatches(t, q) && hasChildren)
     return (
       <div key={t.id}>
         <div
@@ -1610,7 +1632,7 @@ function ProjectDefectSection({ projectId, canEdit, onOpenTask, onSprintChanged,
         </div>
       )}
       {sel.filtered.length === 0 ? (
-        <div className="text-center text-xs text-muted py-6">{defects.length === 0 ? 'ยังไม่มี Defect ในโปรเจกต์นี้' : 'ไม่มี Defect ตรงตัวกรองที่เลือก'}</div>
+        <div className="text-center text-xs text-muted py-6">{q ? `ไม่พบผลลัพธ์ที่ตรงกับ "${(search ?? '').trim()}"` : allDefects.length === 0 ? 'ยังไม่มี Defect ในโปรเจกต์นี้' : 'ไม่มี Defect ตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider overflow-x-auto">
           {topLevel.map((t) => renderRow(t))}
@@ -1761,7 +1783,7 @@ interface ProjectEpic { id: string; title: string; code: string | null; doneCoun
 
 /** Pronista §Project Refactor — แท็บ "EPIC": list Epic ทั้งหมดของโปรเจกต์ + สร้างใหม่ตรงๆ ได้ (ต่างจาก "ย้ายเป็น Epic" ใน Backlog ที่ยกระดับจาก task ที่มีอยู่)
  * Pronista §Back to Basic — เพิ่มเมนู "..." ต่อแถว: "เชื่อมกับ Story" เปิด LinkOrCreateModal (สร้าง Story ใหม่ หรือเลือก Story ที่มีอยู่มาผูก epicId) */
-function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; canEdit: boolean; showCode?: boolean }) {
+function ProjectEpicTab({ projectId, canEdit, showCode, search }: { projectId: string; canEdit: boolean; showCode?: boolean; search?: string }) {
   const { data, reload } = useLoad<ProjectEpic[]>(() => api.get(`/api/projects/${projectId}/epics`), [projectId])
   const [title, setTitle] = useState('')
   const [addBusy, setAddBusy] = useState(false)
@@ -1777,7 +1799,9 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
     () => (allTasks ?? []).filter((t) => t.kind === 'task' && t.parentId === null).map((t) => ({ id: t.id, code: t.code, title: t.title, parentId: t.parentId })),
     [allTasks],
   )
-  const epicsList = data ?? []
+  const allEpics = data ?? []
+  const q = normalizeSearch(search)
+  const epicsList = q ? allEpics.filter((e) => taskMatches(e, q)) : allEpics
   const add = async () => {
     if (!title.trim() || addBusy) return // Pronista §Workspace/Task Jira-alignment — กัน Epic เบิ้ลจากกด Enter รัวๆ
     setAddBusy(true)
@@ -1816,7 +1840,7 @@ function ProjectEpicTab({ projectId, canEdit, showCode }: { projectId: string; c
         </div>
       )}
       {epicsList.length === 0 ? (
-        <div className="text-center text-xs text-muted py-6">ยังไม่มี Epic ในโปรเจกต์นี้</div>
+        <div className="text-center text-xs text-muted py-6">{q && allEpics.length > 0 ? `ไม่พบผลลัพธ์ที่ตรงกับ "${(search ?? '').trim()}"` : 'ยังไม่มี Epic ในโปรเจกต์นี้'}</div>
       ) : (
         <div className="divide-y divide-divider">
           {epicsList.map((e) => {
@@ -1878,7 +1902,7 @@ const HIERARCHY_TAB_META = {
 } as const
 
 /** Pronista §Project Refactor — แท็บ Story/Task/CR ใช้ view เดียวกัน กรองจาก /tasks/all ตามตำแหน่งใน hierarchy · "Task" ต้องเลือก Story แม่ก่อนสร้าง */
-function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask, selectable, onSprintChanged, showCode }: {
+function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask, selectable, onSprintChanged, showCode, search }: {
   projectId: string
   level: 'story' | 'task' | 'cr'
   canEdit: boolean
@@ -1889,10 +1913,12 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   selectable?: boolean
   onSprintChanged?: () => void
   showCode?: boolean
+  // Pronista §PRO-CR-21092026-0016 — คำค้นจาก ProjectBacklogSection (ใช้ร่วมทุกแท็บ) ค้นลึกถึงงานย่อย: งานย่อยตรง → โชว์งานแม่
+  search?: string
 }) {
   const { data, reload } = useLoad<ProjectAllTask[]>(() => api.get(`/api/projects/${projectId}/tasks/all`), [projectId])
   const all = data ?? []
-  const items =
+  const levelItems =
     level === 'cr'
       ? all.filter((t) => t.kind === 'cr')
       : level === 'story'
@@ -1903,6 +1929,8 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         // ต้องเช็คว่าพ่อตัวจริงเป็น kind='task' (Story หรือ Task) เท่านั้น — ลูกของ Story ยังไม่แตะ (เจ้าของยังไม่ตัดสินใจ) ส่วนลูกของ Defect/CR ยังโชว์ซ้อนอยู่ใต้พ่อจริงในแท็บนั้นๆ ได้ปกติ เพราะ childrenOf ของแท็บนั้นอ่านจาก `all`/`data` เต็ม ไม่ผ่าน filter นี้
         // ต่อมา: !t.isSubtask กัน "งานย่อย" ของ Story (สร้างจากหน้า Task Detail) ไม่ให้ปนกับ Task จริงที่ผูกใต้ Story — ยังโผล่ซ้อนใต้พ่อในแท็บ Story ได้ปกติ เพราะ childrenOf อ่านจาก `all` เต็มเหมือนกัน
         : all.filter((t) => t.kind === 'task' && !t.isSubtask && (t.isStandaloneTask || (t.parentId !== null && all.find((p) => p.id === t.parentId)?.kind === 'task')))
+  const q = normalizeSearch(search)
+  const items = q ? levelItems.filter((t) => taskVisibleForSearch(all, t, q)) : levelItems
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
   const toastAction = useToastAction()
@@ -2031,7 +2059,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const selFilteredIds = new Set(sel.filtered.map((t) => t.id))
   const topLevel = sel.filtered.filter((t) => !t.parentId || !selFilteredIds.has(t.parentId))
-  const childrenOf = (id: string) => all.filter((t) => t.parentId === id)
+  const childrenOf = (parent: ProjectAllTask) => visibleChildren(all, parent, q)
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev)
@@ -2042,9 +2070,10 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   }
 
   const renderRow = (t: ProjectAllTask, depth = 0): React.ReactNode => {
-    const children = childrenOf(t.id)
+    const children = childrenOf(t)
     const hasChildren = children.length > 0
-    const isOpen = expandedIds.has(t.id)
+    // ค้นหาแล้วแม่โผล่เพราะงานย่อยตรง → คลี่ให้เห็นงานย่อยที่ตรงทันที
+    const isOpen = expandedIds.has(t.id) || (!!q && !taskMatches(t, q) && hasChildren)
     return (
       <div key={t.id}>
         <div
@@ -2217,7 +2246,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
         </div>
       )}
       {sel.filtered.length === 0 ? (
-        <div className="text-center text-xs text-muted py-6">{items.length === 0 ? meta.empty : 'ไม่มีงานตรงตัวกรองที่เลือก'}</div>
+        <div className="text-center text-xs text-muted py-6">{q ? `ไม่พบผลลัพธ์ที่ตรงกับ "${(search ?? '').trim()}"` : levelItems.length === 0 ? meta.empty : 'ไม่มีงานตรงตัวกรองที่เลือก'}</div>
       ) : (
         <div className="divide-y divide-divider overflow-x-auto">
           {topLevel.map((t) => renderRow(t))}

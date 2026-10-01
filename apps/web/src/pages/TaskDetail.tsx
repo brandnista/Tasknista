@@ -303,6 +303,7 @@ interface Detail {
 // Pronista §Workspace/Task Jira-alignment (2026-09-04) — ฟิลด์ที่ตัด Auto-save ออกทั้งหมด แก้เป็น draft ในเครื่องก่อน รวมบันทึกทีเดียวตอนกด "บันทึกเพื่ออัปเดตข้อมูล"
 interface TaskDraftFields {
   title: string
+  projectId: string | null
   description: string | null
   assigneeNotes: string | null
   originCode: string | null
@@ -379,6 +380,12 @@ const fmtAttSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n
  * ไม่แตะระบบสิทธิ์เดิม (canEdit = owner/editor ของโปรเจกต์) — แค่จัดการมองเห็น/ปุ่มลัดให้คนที่มีสิทธิ์แก้ไขอยู่แล้ว */
 export function TaskDetailPage() {
   const { id: routeTaskId } = useParams<{ id: string }>()
+  // React Router ใช้หน้าเดิมเมื่อเปลี่ยน :id แต่ข้อมูล/draft ใน useState ยังเป็นงานก่อนหน้า
+  // แยก instance ต่อ URL เพื่อไม่ให้ข้อมูลเก่า redirect กลับงานเดิมหรือ draft ข้ามงาน
+  return <TaskDetailContent key={routeTaskId} routeTaskId={routeTaskId} />
+}
+
+function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined }) {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { alertDialog, confirmDialog, promptDialog } = useDialog()
@@ -396,6 +403,12 @@ export function TaskDetailPage() {
   // Pronista §CR PRO-CR-16092026-0003 (2026-09-16) — non-admin (ทุกคนที่ไม่ใช่ vendor/guest) ที่มองเห็นงานนี้อยู่แล้ว แก้ "เกณฑ์ว่าเสร็จ/งานย่อย/รายการที่เชื่อมโยง" ได้เต็มที่ ไม่ต้องเป็น editor โปรเจกต์/assignee เหมือน canEdit — ล้อ backend canEditTaskCollab (มองเห็นงาน = แก้ 3 ส่วนนี้ได้ เพราะเดิมพนักงานทั่วไปต้องรอ Admin แก้ให้ตลอด)
   const canEditCollab = user?.role === 'owner' || user?.role === 'member'
   const { data: userOpts } = useLoad<UserOpt[]>(() => api.get('/api/users'))
+  // Pronista §PRO-0045 — งานที่ยังไม่ผูกโปรเจกต์ (Backlog) เลือกโปรเจกต์ได้จากหน้ารายละเอียด (งานย่อยสืบทอดโปรเจกต์จากงานแม่ ไม่ต้องเลือก) — โหลดรายชื่อเฉพาะตอนที่ต้องใช้
+  const canPickProject = !!t && t.projectId === null && !t.isSubtask && !/.d+$/.test(t.code ?? '')
+  const { data: projectChoices } = useLoad<{ id: string; code: string | null; name: string; type?: string; statusKind?: string }[]>(
+    () => (canPickProject ? api.get('/api/projects') : Promise.resolve([])),
+    [canPickProject],
+  )
   // Pronista §Workspace — แคตตาล็อกแท็กสี ใช้แสดง+เลือกในแถบข้าง
   // Pronista §System Requirements Update — แคตตาล็อกประเภทงาน/ตัวเลือกย่อย ใช้ dependent dropdown ในแถบข้าง
   const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[] }>(() => api.get('/api/config'))
@@ -1382,6 +1395,32 @@ export function TaskDetailPage() {
               <div>
                 <div className="text-[11px] font-medium text-muted tracking-wide mb-2">สถานะงาน</div>
                 <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-2.5 items-center text-sm">
+                  {canPickProject && canEdit && (
+                    <>
+                      <span className="text-dim">โปรเจกต์</span>
+                      <div>
+                        <div className="relative">
+                          <select
+                            value={draftVal('projectId') ?? ''}
+                            onChange={(ev) =>
+                              ev.target.value
+                                ? setDraftField('projectId', ev.target.value)
+                                : setDraft((d) => { const next = { ...d }; delete next.projectId; return next })
+                            }
+                            aria-label="โปรเจกต์"
+                            className="w-full appearance-none border border-border bg-white text-soft pl-2 pr-7 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-brand-400"
+                          >
+                            <option value="">— ยังไม่ผูกโปรเจกต์ —</option>
+                            {(projectChoices ?? [])
+                              .filter((p) => (p.type ?? 'project') === 'project' && p.statusKind !== 'archived')
+                              .map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted">เลือกแล้วกด "บันทึกเพื่ออัปเดตข้อมูล" งานจะย้ายเข้าโปรเจกต์และได้รหัสงานของโปรเจกต์นั้น</p>
+                      </div>
+                    </>
+                  )}
                   <span className="text-dim">สถานะงาน</span>
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
                   {canEditStatusFreely ? (

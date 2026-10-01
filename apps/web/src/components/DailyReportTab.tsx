@@ -6,6 +6,7 @@
  */
 import { AlertTriangle, Calendar, Check, ExternalLink, History as HistoryIcon, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { durationToMinutes, minutesToDurationInput, type DurationUnit } from '@seedoffice/core'
 import { Avatar } from './Avatar'
 import { DateInputTH } from './DateInputTH'
 import { useDialog } from './Dialog'
@@ -144,6 +145,34 @@ function AutoGrowTextarea({ value, onChange, className = '', ...rest }: Omit<Rea
   return <textarea ref={ref} rows={1} value={value} onChange={(e) => onChange(e.target.value.replace(/[\r\n]+/g, ' '))} className={`resize-none overflow-hidden ${className}`} {...rest} />
 }
 
+/** Pronista §PRO-0034 — ช่องเวลา + เลือกหน่วย ชม./นาที (พิมพ์ 0.5 ชม. ยังแปลงเป็น 30 นาทีเหมือนเดิม) */
+function DurationInput({ value, unit, onValue, onUnit, tone = 'subtle' }: { value: string; unit: DurationUnit; onValue: (v: string) => void; onUnit: (u: DurationUnit) => void; tone?: 'subtle' | 'edit' }) {
+  const border = tone === 'edit' ? 'border-border' : 'border-border-subtle'
+  return (
+    <div className="flex items-stretch shrink-0">
+      <input
+        value={value}
+        onChange={(ev) => onValue(ev.target.value)}
+        type="number"
+        min="0"
+        step={unit === 'min' ? 1 : 0.5}
+        placeholder={unit === 'min' ? 'นาที' : 'ชม.'}
+        aria-label="เวลาที่ใช้"
+        className={`w-16 border ${border} rounded-l-lg px-2.5 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500`}
+      />
+      <select
+        value={unit}
+        onChange={(ev) => onUnit(ev.target.value as DurationUnit)}
+        aria-label="หน่วยเวลา"
+        className={`border border-l-0 ${border} rounded-r-lg pl-2 pr-1 text-sm bg-white text-soft outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500`}
+      >
+        <option value="hr">ชม.</option>
+        <option value="min">นาที</option>
+      </select>
+    </div>
+  )
+}
+
 export function DailyReportTab({ initialReportId }: { initialReportId?: string | null }) {
   const { user } = useAuth()
   const [mode, setMode] = useState<'today' | 'history'>('today')
@@ -161,6 +190,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [error, setError] = useState('')
   const [manualTitle, setManualTitle] = useState('')
   const [manualHours, setManualHours] = useState('')
+  const [manualUnit, setManualUnit] = useState<DurationUnit>('hr')
   const [manualBusy, setManualBusy] = useState(false)
   const [convertingManualId, setConvertingManualId] = useState<string | null>(null)
   const [convertProjectId, setConvertProjectId] = useState('')
@@ -169,6 +199,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const [editingManualId, setEditingManualId] = useState<string | null>(null)
   const [editManualTitle, setEditManualTitle] = useState('')
   const [editManualHours, setEditManualHours] = useState('')
+  const [editManualUnit, setEditManualUnit] = useState<DurationUnit>('hr')
   const [editManualBusy, setEditManualBusy] = useState(false)
   const [submitBusy, setSubmitBusy] = useState(false)
   const [retractBusy, setRetractBusy] = useState(false)
@@ -236,10 +267,10 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
     if (!r) return
     setManualBusy(true)
     try {
-      const hours = Number(manualHours)
-      await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0 })
+      await api.post(`/api/daily-reports/${r.id}/items`, { manualTitle: manualTitle.trim(), manualMinutes: durationToMinutes(manualHours, manualUnit) })
       setManualTitle('')
       setManualHours('')
+      setManualUnit('hr')
       await reloadReport()
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'เพิ่มงานไม่สำเร็จ' })
@@ -250,17 +281,18 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
   const startEditManual = (it: ReportItem) => {
     setEditingManualId(it.id)
     setEditManualTitle(it.manualTitle ?? '')
-    setEditManualHours(it.manualMinutes ? String(it.manualMinutes / 60) : '')
+    const d = minutesToDurationInput(it.manualMinutes ?? 0)
+    setEditManualHours(d.value)
+    setEditManualUnit(d.unit)
   }
   const cancelEditManual = () => setEditingManualId(null)
   const saveEditManual = async (itemId: string) => {
     if (!report || !editManualTitle.trim() || editManualBusy) return
     setEditManualBusy(true)
     try {
-      const hours = Number(editManualHours)
       await api.patch(`/api/daily-reports/${report.id}/items/${itemId}`, {
         manualTitle: editManualTitle.trim(),
-        manualMinutes: Number.isFinite(hours) && hours > 0 ? Math.round(hours * 60) : 0,
+        manualMinutes: durationToMinutes(editManualHours, editManualUnit),
       })
       setEditingManualId(null)
       await reloadReport()
@@ -676,15 +708,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveEditManual(it.id) } if (e.key === 'Escape') cancelEditManual() }}
                               className="flex-1 basis-full sm:basis-0 min-w-[140px] border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
                             />
-                            <input
-                              value={editManualHours}
-                              onChange={(e) => setEditManualHours(e.target.value)}
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              placeholder="ชม."
-                              className="w-20 border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
-                            />
+                            <DurationInput value={editManualHours} unit={editManualUnit} onValue={setEditManualHours} onUnit={setEditManualUnit} tone="edit" />
                             <button onClick={() => void saveEditManual(it.id)} disabled={editManualBusy || !editManualTitle.trim()} aria-label="บันทึก" className="text-brand-600 hover:text-brand-700 disabled:opacity-40 shrink-0"><Check className="w-4 h-4" /></button>
                             <button onClick={cancelEditManual} aria-label="ยกเลิก" className="text-border hover:text-dim shrink-0"><X className="w-4 h-4" /></button>
                           </div>
@@ -725,15 +749,7 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                           placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
                           className="flex-1 basis-full sm:basis-0 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
                         />
-                        <input
-                          value={manualHours}
-                          onChange={(e) => setManualHours(e.target.value)}
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          placeholder="ชม."
-                          className="w-20 border border-border-subtle rounded-lg px-3 py-2.5 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
-                        />
+                        <DurationInput value={manualHours} unit={manualUnit} onValue={setManualHours} onUnit={setManualUnit} />
                         <button onClick={() => void addManualItem()} disabled={manualBusy} className="text-xs font-semibold px-3.5 rounded-lg border border-border-subtle bg-white hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed text-soft shrink-0 flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> เพิ่ม</button>
                       </div>
                     </div>
