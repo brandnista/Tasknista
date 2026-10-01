@@ -463,3 +463,20 @@ describe('§PRO-CR-17092026-0009 — ผู้แจ้ง (Reporter)', () => {
     expect((await patch(owner, t.id, { reporterId: 'u_gone' })).status).toBe(400)
   })
 })
+
+// (2026-10-01) งานที่ใช้รหัสแบบเก่ามีวันที่ในรหัส (เช่น PRO-CR-17092026-0009) หน้าตาตรงกับ URL slug รุ่นใหม่ — ต้องเปิดด้วยรหัสนั้นตรงๆ ได้ ไม่ใช่ 404
+describe('GET /tasks/:code/detail — รหัสเก่าที่หน้าตาคล้าย slug', () => {
+  it('งานที่ตั้งรหัสเองเป็น <คีย์>-CR-<วันที่>-<เลข> เปิดด้วยรหัสนั้นได้ (200) และเปิดด้วย UUID ได้เหมือนกัน', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const p = (await (await app.request('/api/projects', json(owner, { name: 'P-legacy-code', type: 'project' }), env)).json()) as { id: string }
+    const created = (await (
+      await app.request(`/api/projects/${p.id}/backlog`, json(owner, { title: 'งานรหัสเก่า', code: 'PRO-CR-17092026-0009' }), env)
+    ).json()) as { id: string; code: string }
+    expect(created.code).toBe('PRO-CR-17092026-0009')
+
+    const byCode = await app.request('/api/tasks/PRO-CR-17092026-0009/detail', { headers: { cookie: owner } }, env)
+    expect(byCode.status).toBe(200)
+    expect(((await byCode.json()) as { id: string }).id).toBe(created.id)
+    expect((await app.request(`/api/tasks/${created.id}/detail`, { headers: { cookie: owner } }, env)).status).toBe(200)
+  })
+})
