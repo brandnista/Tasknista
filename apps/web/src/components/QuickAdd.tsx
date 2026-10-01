@@ -130,7 +130,7 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
                 disabled={submitting}
                 className={input}
               >
-                <option value="">— ยังไม่เลือก (Backlog กลาง) —</option>
+                <option value="">— ไม่ระบุโปรเจกต์ —</option>
                 {active.map((p) => {
                   const logo = parseProjectLogo(p.logo)
                   return (
