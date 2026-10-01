@@ -967,6 +967,13 @@
       "when": 1790325811233,
       "tag": "0138_solid_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "6",
+      "when": 1790845290491,
+      "tag": "0140_absurd_vanisher",
+      "breakpoints": true
     }
   ]
 }

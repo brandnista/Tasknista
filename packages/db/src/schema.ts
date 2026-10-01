@@ -600,6 +600,9 @@ export const tasks = sqliteTable(
     index('tasks_origin_code_idx').on(t.projectId, t.originCode),
     // Pronista §Task ID URL Slug (2026-09-23) — GET /tasks/:id/detail lookup โดย code เพิ่มขึ้นเป็นเส้นทางหลัก ต้องมี index รองรับ
     index('tasks_code_idx').on(t.code),
+    // Pronista §D1 row-read quota (2026-10-01) — 2 query ที่ไล่อ่านทั้งตาราง tasks ทุกครั้งเพราะไม่มี index: "งานรอตรวจของผู้ตรวจ" (reviewer_id+status — เรียกซ้ำจากตัวเลขแจ้งเตือน/หน้างานรอตรวจ) และ "งานย่อยของงานแม่" (parent_id)
+    index('tasks_reviewer_idx').on(t.reviewerId, t.status),
+    index('tasks_parent_idx').on(t.parentId),
   ],
 )
 
@@ -1867,6 +1870,8 @@ export const auditLogs = sqliteTable(
   (t) => [
     index('audit_entity_idx').on(t.entity, t.entityId),
     index('audit_actor_idx').on(t.actorId),
+    // Pronista §D1 row-read quota (2026-10-01) — หน้ารายละเอียดงานค้นประวัติด้วย entity_id อย่างเดียว (ไม่ใส่ entity) จึงใช้ audit_entity_idx ด้านบนไม่ได้ (คอลัมน์ซ้ายสุดคือ entity) → ไล่อ่านทั้งตารางทุกครั้ง · index นี้ให้ค้นด้วย entity_id แล้วเรียงตามเวลาได้ตรงๆ
+    index('audit_entity_id_at_idx').on(t.entityId, t.at),
   ],
 )
 
@@ -1962,7 +1967,11 @@ export const notifications = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  (t) => [index('notifications_user_idx').on(t.userId, t.isRead, t.createdAt)],
+  (t) => [
+    index('notifications_user_idx').on(t.userId, t.isRead, t.createdAt),
+    // Pronista §D1 row-read quota (2026-10-01) — GET /notifications ค้น user_id แล้วเรียง created_at ล่าสุด limit N โดยไม่กรอง is_read → index เดิม (user_id, is_read, created_at) เรียงตามเวลาให้ไม่ได้ ต้องอ่านแจ้งเตือนทั้งหมดของผู้ใช้แล้วค่อยเรียง
+    index('notifications_user_created_idx').on(t.userId, t.createdAt),
+  ],
 )
 
 // Pronista §Membership — สมาชิก (ธุรกิจใหม่แยกจากงานโปรเจกต์ลูกค้าเดิม) — ยังไม่ผูกกับ users เพราะสมาชิกยังไม่ login เข้า Pronista ในเฟสนี้
