@@ -668,13 +668,13 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                       ))}
                       {manualItems.map((it) =>
                         editingManualId === it.id ? (
-                          <div key={it.id} className="flex items-center gap-2 px-3.5 py-2.5 bg-white">
+                          <div key={it.id} className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 bg-white">
                             <AutoGrowTextarea
                               autoFocus
                               value={editManualTitle}
                               onChange={setEditManualTitle}
                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveEditManual(it.id) } if (e.key === 'Escape') cancelEditManual() }}
-                              className="flex-1 min-w-[140px] border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
+                              className="flex-1 basis-full sm:basis-0 min-w-[140px] border border-border rounded-lg px-3 py-2 text-sm bg-hover outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500"
                             />
                             <input
                               value={editManualHours}
@@ -717,13 +717,13 @@ export function DailyReportTab({ initialReportId }: { initialReportId?: string |
                           </div>
                         ),
                       )}
-                      <div className="flex gap-2 p-3 bg-white">
+                      <div className="flex flex-wrap gap-2 p-3 bg-white">
                         <AutoGrowTextarea
                           value={manualTitle}
                           onChange={setManualTitle}
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addManualItem() } }}
                           placeholder="เพิ่มงานเอง เช่น ประชุมกับลูกค้า..."
-                          className="flex-1 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
+                          className="flex-1 basis-full sm:basis-0 min-w-[140px] border border-dashed border-border rounded-lg px-3 py-2.5 text-sm bg-transparent placeholder:text-muted outline-hidden focus-visible:outline-2 focus-visible:outline-brand-500 focus-visible:border-solid"
                         />
                         <input
                           value={manualHours}
