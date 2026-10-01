@@ -3,7 +3,7 @@
  * เพื่อให้ My Note (และจุดอื่นในอนาคต) ใช้ทูลบาร์จัดรูปแบบชุดเดียวกันได้ — เก็บ/โหลดเนื้อหาเป็น Markdown เสมอ
  * ปุ่มแทรกรูปโชว์เฉพาะตอนมี onPickImage (ตอนนี้มีแค่ DocViewer ที่ผูก endpoint อัปโหลดรูปไว้ — My Note ยังไม่มีที่เก็บรูปของตัวเอง)
  */
-import { mergeAttributes, Node, type CommandProps, type MarkdownParseHelpers, type MarkdownToken } from '@tiptap/core'
+import { mergeAttributes, Node, type CommandProps, type Extension, type MarkdownParseHelpers, type MarkdownToken } from '@tiptap/core'
 import { Markdown } from '@tiptap/markdown'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import Image from '@tiptap/extension-image'
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useRef, type ReactNode } from 'react'
 import { useDialog } from './Dialog'
+import { createMentionExtension, type MentionCandidate } from './mention-suggestion'
 
 /**
  * Pronista §Rich text media upload (2026-09-16) — Tiptap ไม่มีโหนดวิดีโอมาให้ (มีแต่ Image)
@@ -71,7 +72,7 @@ declare module '@tiptap/core' {
   }
 }
 
-export function richTextExtensions(placeholder: string) {
+export function richTextExtensions(placeholder: string, extra: Extension[] = []) {
   return [
     // Pronista §Heading hierarchy (2026-09-17) — เปิด H1 เพิ่มตามคำขออาร์ม (เดิมสงวนไว้ให้ "ชื่อ" ของหน้า
     // เช่น ชื่อ Task/เอกสาร/โน้ต ที่อยู่เหนือกล่องพิมพ์เป็น input ตัวใหญ่อยู่แล้ว — ตอนนี้เปิดให้เลือกในเนื้อหาได้ด้วย 4 ระดับ)
@@ -83,6 +84,7 @@ export function richTextExtensions(placeholder: string) {
     TableKit.configure({ table: { resizable: false } }),
     Placeholder.configure({ placeholder }),
     Markdown,
+    ...extra,
   ]
 }
 
@@ -174,6 +176,7 @@ export function RichTextEditor({
   autoFocus,
   bare = false,
   onUploadMedia,
+  mentionCandidates,
 }: {
   content: string
   onChange?: (markdown: string) => void
@@ -183,8 +186,13 @@ export function RichTextEditor({
   autoFocus?: boolean
   bare?: boolean
   onUploadMedia?: (file: File) => Promise<string | null>
+  /** Pronista §PRO-0024 — ส่งรายชื่อมา = เปิดให้พิมพ์ @ เพื่อแท็กคน (คอมเมนต์งาน) ไม่ส่ง = ไม่มีฟีเจอร์นี้ (Docs/My Note เหมือนเดิม) */
+  mentionCandidates?: MentionCandidate[]
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
+  // editor สร้างครั้งเดียว — ให้ตัวเลือก @ อ่านรายชื่อล่าสุดผ่าน ref เสมอ (รายชื่อโหลดทีหลังก็ใช้ได้)
+  const mentionRef = useRef<MentionCandidate[]>(mentionCandidates ?? [])
+  mentionRef.current = mentionCandidates ?? []
   const insertMediaFile = (file: File) => {
     void onUploadMedia?.(file).then((url) => {
       if (!url || !editor) return
@@ -196,7 +204,7 @@ export function RichTextEditor({
   }
   const editor = useEditor(
     {
-      extensions: richTextExtensions(placeholder),
+      extensions: richTextExtensions(placeholder, mentionCandidates ? [createMentionExtension(() => mentionRef.current)] : []),
       content,
       contentType: 'markdown',
       editable,

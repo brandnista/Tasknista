@@ -1922,6 +1922,8 @@ export const NOTIFICATION_TYPES = [
   'vault_accessed',
   // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — แจ้ง assignee (ถ้ามี) ตอนงานถูกยกเลิก
   'task_cancelled',
+  // Pronista §PRO-0024 (2026-10-01) — แจ้งคนที่ถูกแท็ก (@mention) ในคอมเมนต์งาน
+  'task_mentioned',
   // Pronista §My Tasks menu badges (2026-09-18) — แจ้งผู้ตรวจ (reviewerId) โดยเฉพาะตอนงานส่งมารอตรวจ — แยกจาก task_submitted (ไปหาผู้จ่ายงาน) กันตัวเลขแจ้งเตือนของเมนู "งานที่จ่ายให้คนอื่น" กับ "งานรอตรวจ" ปนกัน
   'task_review_requested',
   // Pronista §Leave Request (2026-09-22, Phase 1)
