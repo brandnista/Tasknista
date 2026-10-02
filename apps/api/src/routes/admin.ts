@@ -835,6 +835,23 @@ export const adminRoutes = new Hono<AppEnv>()
       if (inUse) return c.json({ error: 'workflow_in_use', message: `ปิดไม่ได้ — ยังมีงาน ${inUse} ชิ้นค้างอยู่ที่ Testing on STG / Ready for PRD / Testing on PRD ต้องเคลียร์ให้เสร็จก่อน`, inUse }, 409)
     }
 
+    // เปลี่ยน flow ของประเภทงาน/แก้ขั้นของ flow ขณะมีงานค้างอยู่ขั้นทดสอบ/PRD ที่ flow ใหม่ไม่รู้จัก → งานจะค้างไม่มีปุ่มให้กด จึงบล็อกไว้ก่อน
+    if (prev.enabled && next.enabled) {
+      const inFlight = await db
+        .select({ id: tasks.id, status: tasks.status, taskType: tasks.taskType, parentId: tasks.parentId })
+        .from(tasks)
+        .where(inArray(tasks.status, ['testing_stg', 'ready_for_prd', 'testing_prd']))
+      const parentIds = [...new Set(inFlight.filter((t) => !t.taskType && t.parentId).map((t) => t.parentId as string))]
+      const parentType = new Map<string, string | null>()
+      for (let i = 0; i < parentIds.length; i += 90) {
+        const rows = await db.select({ id: tasks.id, taskType: tasks.taskType }).from(tasks).where(inArray(tasks.id, parentIds.slice(i, i + 90)))
+        for (const r of rows) parentType.set(r.id, r.taskType)
+      }
+      const stranded = inFlight.filter((t) => !workflowForTask(next, { taskTypeId: t.taskType }, t.parentId ? { taskTypeId: parentType.get(t.parentId) ?? null } : null, taskTypes).steps.includes(t.status as never))
+      if (stranded.length > 0)
+        return c.json({ error: 'workflow_in_use', message: `แก้ไม่ได้ — มีงาน ${stranded.length} ชิ้นที่กำลังอยู่ขั้นทดสอบ/PRD ซึ่ง flow ใหม่ไม่มีขั้นนั้นแล้ว ต้องให้งานเหล่านั้นเดินต่อหรือกลับไปแก้ก่อน`, inUse: stranded.length }, 409)
+    }
+
     // เปิดสวิตช์ครั้งแรก: งาน flow Deployment ที่ค้าง Waiting for Review อยู่ → ย้ายไป Testing on STG (นับเป็นรอบทดสอบที่ 1) ให้ตรงกับ flow ใหม่
     let migrated = 0
     if (!prev.enabled && next.enabled) {

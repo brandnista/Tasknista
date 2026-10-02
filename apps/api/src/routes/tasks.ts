@@ -1104,12 +1104,12 @@ export const taskRoutes = new Hono<AppEnv>()
       Object.assign(patch, { stgPassedAt: now, stgPassedBy: me.id, reviewSeenAt: null })
     } else if (action === 'deployed') {
       patch.reviewSeenAt = null
-    } else if (action === 'prd_pass') {
-      patch.completedAt = now
     } else if (action === 'fail') {
       Object.assign(patch, { stgPassedAt: null, stgPassedBy: null, completedAt: null })
     }
 
+    // flow ที่ปรับเองอาจข้าม PRD ไปถึง Done ตั้งแต่ขั้นอื่น — ถึง done ทางไหนก็ลงเวลาเสร็จเสมอ
+    if (match.to === 'done') patch.completedAt = now
     const updated = await db
       .update(tasks)
       .set(patch)

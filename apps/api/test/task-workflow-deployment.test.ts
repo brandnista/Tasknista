@@ -432,3 +432,36 @@ describe('GET /tasks/workflow-config — ให้หน้าเว็บรู
     await createDb(env.DB).update(companyConfig).set({ taskTypes: null }).where(eq(companyConfig.id, 1))
   })
 })
+
+describe('admin workflow-config — แก้ flow ขณะมีงานค้าง · flow ที่ปรับเอง', () => {
+  it('ย้ายประเภทงานไป flow Document ขณะมีงานของประเภทนั้นค้าง Testing on STG → 409 workflow_in_use', async () => {
+    await createDb(env.DB)
+      .update(companyConfig)
+      .set({ taskTypes: [{ id: 'type_dev', name: 'Development', sortOrder: 1, subTypes: [] }] })
+      .where(eq(companyConfig.id, 1))
+    await makeTask({ status: 'testing_stg', taskType: 'type_dev' })
+    const res = await app.request(
+      '/api/admin/workflow-config',
+      put(owner, { config: { ...DEFAULT_WORKFLOW_CONFIG, enabled: true, typeFlows: { type_dev: 'document' } } }),
+      env,
+    )
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { error: string }).error).toBe('workflow_in_use')
+    await createDb(env.DB).update(companyConfig).set({ taskTypes: null }).where(eq(companyConfig.id, 1))
+  })
+
+  it('flow ที่ข้าม PRD (STG แล้วถึง Done) → อนุมัติที่ STG แล้ว Done พร้อม completedAt', async () => {
+    const quick = { id: 'quick', name: 'Quick', steps: ['non_start', 'on_processing', 'testing_stg', 'done'] }
+    const res = await app.request(
+      '/api/admin/workflow-config',
+      put(owner, { config: { ...DEFAULT_WORKFLOW_CONFIG, enabled: true, workflows: [...DEFAULT_WORKFLOW_CONFIG.workflows, quick], defaultWorkflowId: 'quick' } }),
+      env,
+    )
+    expect(res.status).toBe(200)
+    const t = await makeTask({ status: 'testing_stg', stgPassedAt: new Date(), stgPassedBy: QA })
+    expect((await act(ba, t.id, 'stg_approve')).status).toBe(200)
+    const row = await getTask(t.id)
+    expect(row.status).toBe('done')
+    expect(row.completedAt).not.toBeNull()
+  })
+})

@@ -8,6 +8,7 @@ import { BoardPresetSettings } from '../components/BoardPresetSettings'
 import { ServiceTypeSettings } from '../components/ServiceTypeSettings'
 import { ProductTypeSettings } from '../components/ProductTypeSettings'
 import { TaskTypeSettings } from '../components/TaskTypeSettings'
+import { WorkflowSettings } from '../components/WorkflowSettings'
 import { LabelSettings } from '../components/LabelSettings'
 import { ManhourSettings } from '../components/ManhourSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
@@ -235,6 +236,8 @@ export function AdminPage() {
         <ProductTypeSettings />
 
         <TaskTypeSettings />
+
+        <WorkflowSettings />
 
         <LabelSettings />
 

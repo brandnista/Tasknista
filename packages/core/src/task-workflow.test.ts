@@ -63,6 +63,12 @@ describe('resolveWorkflowConfig / validateWorkflowConfig', () => {
     expect(bad(['non_start', 'on_processing']).ok).toBe(false)
     expect(bad(['non_start', 'done']).ok).toBe(false)
     expect(bad(['non_start', 'on_processing', 'testing_stg', 'testing_stg', 'done']).ok).toBe(false)
+    // flow ต้องเป็น Document-like หรือ Deployment-like อย่างใดอย่างหนึ่ง · เรียงตามแคตตาล็อก
+    expect(bad(['non_start', 'on_processing', 'waiting_for_test', 'testing_stg', 'done']).ok).toBe(false)
+    expect(bad(['non_start', 'on_processing', 'ready_for_prd', 'done']).ok).toBe(false)
+    expect(bad(['non_start', 'testing_stg', 'on_processing', 'done']).ok).toBe(false)
+    expect(bad(['non_start', 'on_processing', 'testing_stg', 'done']).ok).toBe(true)
+    expect(bad(['non_start', 'on_processing', 'done']).ok).toBe(true)
     expect(validateWorkflowConfig({ ...DEFAULT_WORKFLOW_CONFIG, defaultWorkflowId: 'zzz' }).ok).toBe(false)
     expect(validateWorkflowConfig({ ...DEFAULT_WORKFLOW_CONFIG, typeFlows: { tt_brd: 'zzz' } }).ok).toBe(false)
   })

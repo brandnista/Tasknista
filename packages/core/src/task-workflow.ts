@@ -107,6 +107,11 @@ export function validateWorkflowConfig(cfg: WorkflowConfig): { ok: true } | { ok
     if (s[s.length - 1] !== 'done') return { ok: false, error: `flow "${w.name}" ต้องลงท้ายด้วย Done` }
     if (!s.includes('on_processing')) return { ok: false, error: `flow "${w.name}" ต้องมี On Processing` }
     if (new Set(s).size !== s.length) return { ok: false, error: `flow "${w.name}" มีสถานะซ้ำ` }
+    // ลำดับต้องเรียงตามแคตตาล็อก (ไม่ข้ามไปมา) และต้องเป็น flow แบบใดแบบหนึ่ง: Document-like (มี Waiting for Review) หรือ Deployment-like (มี Testing on STG) — ปนกันไม่ได้ เพราะแต่ละแบบใช้ปุ่ม/กติกาคนละชุด
+    const idx = s.map((x) => WORKFLOW_STEP_IDS.indexOf(x))
+    if (idx.some((v, i) => i > 0 && v < idx[i - 1]!)) return { ok: false, error: `flow "${w.name}" เรียงสถานะผิดลำดับ` }
+    if (s.includes('testing_stg') && s.includes('waiting_for_test')) return { ok: false, error: `flow "${w.name}" ใช้ Waiting for Review คู่กับ Testing on STG ไม่ได้ (เลือกแบบใดแบบหนึ่ง)` }
+    if (!s.includes('testing_stg') && (s.includes('ready_for_prd') || s.includes('testing_prd'))) return { ok: false, error: `flow "${w.name}" ต้องมี Testing on STG ก่อนถึงจะใช้ Ready for PRD / Testing on PRD ได้` }
   }
   if (!ids.has(cfg.defaultWorkflowId)) return { ok: false, error: 'flow เริ่มต้นไม่มีอยู่จริง' }
   for (const [typeId, flowId] of Object.entries(cfg.typeFlows)) {
