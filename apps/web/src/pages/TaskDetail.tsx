@@ -888,7 +888,10 @@ export function TaskDetailPage() {
     ...t.activity.map((a): FeedEntry => ({ kind: 'activity', id: a.id, at: a.at, actorName: a.actorName, actorAvatarUrl: a.actorAvatarUrl, action: a.action, meta: a.meta })),
   ].sort((a, b) => a.at - b.at)
   // Pronista §System Requirements Update — ประวัติการเปลี่ยนแปลง: เฉพาะความเคลื่อนไหวสถานะ/ผู้รับผิดชอบ/ประเภทงาน ไม่รวมคอมเมนต์/แนบไฟล์/เวลา
-  const historyFeed = feed.filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
+  // Pronista §Sort newest first (2026-10-02) — เรียงใหม่สุดไว้บนตรงๆ (เดิมพึ่งลำดับที่ API ส่งมา: เวลาเป็นสตริง ISO ทำให้ sort ด้านบนไม่ทำงาน)
+  const historyFeed = feed
+    .filter((f): f is FeedEntry & { kind: 'activity' } => f.kind === 'activity' && HISTORY_ACTIONS.has(f.action))
+    .sort((a, b) => (typeof b.at === 'number' ? b.at : Date.parse(String(b.at))) - (typeof a.at === 'number' ? a.at : Date.parse(String(a.at))))
   // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — แท็บ "Comments" แยกเฉพาะคอมเมนต์ ไม่ปนกิจกรรม
   // (2026-09-30) เรียงจากใหม่ไปเก่า: คอมเมนต์ที่เพิ่งเขียนหรือเพิ่งถูกแก้ไขล่าสุดอยู่บนสุดเสมอ (ใช้เวลาที่ใหม่กว่าระหว่าง "สร้าง" กับ "แก้ไข")
   // หมายเหตุ: JSON จาก API ส่งเวลามาเป็นสตริง ISO (ไม่ใช่ตัวเลข) จึงแปลงเป็น ms ก่อนเทียบ
@@ -1207,7 +1210,7 @@ export function TaskDetailPage() {
               <div className="text-xs font-medium text-muted mb-2">ไฟล์แนบ{t.linkedDocuments.length > 0 ? ' / เอกสารที่เชื่อม' : ''}</div>
               {t.attachments.length > 0 && (
                 <div className="space-y-1 mb-2">
-                  {t.attachments.map((a) => (
+                  {[...t.attachments].reverse() /* API ส่งเก่า→ใหม่ · แสดงใหม่สุดไว้บน */.map((a) => (
                     <div key={a.id} className="group flex items-center gap-2.5 bg-hover rounded-lg px-2.5 py-2">
                       {renamingAttachment?.id === a.id ? (
                         <input
