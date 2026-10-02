@@ -1,4 +1,5 @@
-import { Calendar, Download, MessageCircle, MessagesSquare, Minus, Paperclip, Plus, RotateCcw, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { Calendar, Download, ExternalLink, Link2, MessageCircle, MessagesSquare, Minus, Paperclip, Plus, RotateCcw, Search, Send, Trash2, Users, X } from 'lucide-react'
+import { firstLink, linkHost, splitLinks } from '@seedoffice/core'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { Avatar } from '../components/Avatar'
@@ -65,10 +66,42 @@ function detectMentions(text: string, members: { id: string; name: string }[]): 
   return [...found]
 }
 /** เรนเดอร์ body พร้อมไฮไลต์ "@ชื่อ" ของคนที่ถูก mention จริง (เทียบชื่อปัจจุบันจาก members — ถ้าเปลี่ยนชื่อทีหลัง ไฮไลต์อาจไม่ตรงเป๊ะ ยอมรับได้สำหรับ v1) */
+// Pronista §Chat links (2026-10-02) — ลิงก์ในข้อความแชทกดเปิดได้ (แท็บใหม่ · noopener) เดิมแสดงเป็นข้อความธรรมดา กดไม่ได้
+function linkifyText(text: string, keyBase: string) {
+  return splitLinks(text).map((seg, i) =>
+    seg.type === 'link' ? (
+      <a key={`${keyBase}-${i}`} href={seg.value} target="_blank" rel="noopener noreferrer nofollow" className="underline underline-offset-2 break-all hover:opacity-80">{seg.value}</a>
+    ) : (
+      seg.value
+    ),
+  )
+}
+
+/** การ์ดตัวอย่างลิงก์ใต้บับเบิล (โดเมน + ที่อยู่เต็ม) — ไม่ดึงข้อมูลจากเว็บปลายทาง จึงไม่เปิดเผยการเข้าชมของผู้ใช้ต่อเว็บภายนอก */
+function LinkPreviewCard({ url, mine }: { url: string; mine: boolean }) {
+  const host = linkHost(url)
+  if (!host) return null
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      className={`mt-1 flex max-w-[320px] items-center gap-2.5 rounded-xl border px-3 py-2 text-left hover:shadow-xs focus-visible:outline-2 focus-visible:outline-brand-500 ${mine ? 'border-brand-200 bg-brand-50' : 'border-border-subtle bg-white'}`}
+    >
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-info-50 text-info-700"><Link2 className="h-4 w-4" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-semibold text-ink">{host}</span>
+        <span className="block truncate text-[11px] text-muted">{url}</span>
+      </span>
+      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted" />
+    </a>
+  )
+}
+
 function renderMessageBody(body: string, mentionedUserIds: string[] | null | undefined, members: { id: string; name: string }[]) {
-  if (!mentionedUserIds?.length) return body
+  if (!mentionedUserIds?.length) return linkifyText(body, 'b')
   const names = members.filter((m) => mentionedUserIds.includes(m.id)).map((m) => m.name).sort((a, b) => b.length - a.length)
-  if (!names.length) return body
+  if (!names.length) return linkifyText(body, 'b')
   const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   const pattern = new RegExp(`@(?:${escaped.join('|')})(?![\\p{L}\\p{N}_])`, 'gu')
   const parts: (string | { key: number; text: string })[] = []
@@ -81,7 +114,7 @@ function renderMessageBody(body: string, mentionedUserIds: string[] | null | und
     lastIndex = match.index + match[0].length
   }
   if (lastIndex < body.length) parts.push(body.slice(lastIndex))
-  return parts.map((p) => (typeof p === 'string' ? p : <span key={p.key} className="font-semibold text-brand-700 bg-brand-50/70 rounded px-0.5">{p.text}</span>))
+  return parts.map((p, i) => (typeof p === 'string' ? linkifyText(p, `t${i}`) : <span key={p.key} className="font-semibold text-brand-700 bg-brand-50/70 rounded px-0.5">{p.text}</span>))
 }
 interface UserOpt {
   id: string
@@ -868,9 +901,12 @@ function MessageRow({
         ) : (
           // Pronista §Chat attachment caption (2026-09-16) — ข้อความที่มีแต่ไฟล์แนบล้วนๆ (body ว่าง) ไม่ต้องมีบับเบิลข้อความเปล่าโผล่มาด้วย
           m.body.trim() && (
-            <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
-              {renderMessageBody(m.body, m.mentionedUserIds, members)}
-            </div>
+            <>
+              <div className={`text-sm whitespace-pre-line break-words rounded-2xl px-3 py-2 mt-0.5 ${mine ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-hover text-body rounded-tl-sm'}`}>
+                {renderMessageBody(m.body, m.mentionedUserIds, members)}
+              </div>
+              {firstLink(m.body) && <LinkPreviewCard url={firstLink(m.body)!} mine={mine} />}
+            </>
           )
         )}
         {m.attachments.map((a) => {
