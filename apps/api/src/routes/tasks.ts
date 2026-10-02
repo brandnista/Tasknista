@@ -320,7 +320,7 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/projects/:id/epics', async (c) => {
     const db = createDb(c.env.DB)
     const projectId = c.req.param('id')
-    const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(desc(epics.createdAt))
+    const epicRows = await db.select().from(epics).where(and(eq(epics.projectId, projectId), isNull(epics.deletedAt))).orderBy(desc(epics.createdAt))
     const epicIds = epicRows.map((e) => e.id)
     const progressByEpic = new Map<string, { done: number; total: number }>()
     if (epicIds.length > 0) {
@@ -340,6 +340,42 @@ export const taskRoutes = new Hono<AppEnv>()
     return c.json(
       epicRows.map((e) => ({ ...e, doneCount: progressByEpic.get(e.id)?.done ?? 0, totalCount: progressByEpic.get(e.id)?.total ?? 0 })),
     )
+  })
+
+  // Pronista §Epic bulk delete (2026-10-02) — ลบ Epic ที่เลือกจากแท็บ EPIC: soft-delete (ตั้ง deleted_at) · Story ใต้ Epic ไม่ถูกลบ แค่ถูกปลดออกจาก Epic · เก็บรายการ id ที่ปลดไว้ใน audit (กู้คืนมือได้)
+  // รับเฉพาะ Epic ของโปรเจกต์นี้ที่ยังไม่ถูกลบ (id อื่น/ไม่มีจริงข้ามเงียบๆ — deleted นับตามที่ลบจริง) · สิทธิ์เดียวกับสร้าง Epic (canEditProject)
+  .post('/projects/:id/epics/bulk-delete', teamOnly, async (c) => {
+    const body = z.object({ ids: z.array(z.string().min(1)).min(1).max(200) }).safeParse(await c.req.json().catch(() => null))
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const projectId = c.req.param('id')
+    const me = c.get('user')
+    const role = await getProjectRole(db, projectId, me.id, me.role)
+    if (!canEditProject(role)) return c.json({ error: 'forbidden' }, 403)
+    const targets: { id: string; title: string; code: string | null }[] = []
+    for (let i = 0; i < body.data.ids.length; i += 50) {
+      const chunk = body.data.ids.slice(i, i + 50)
+      targets.push(
+        ...(await db
+          .select({ id: epics.id, title: epics.title, code: epics.code })
+          .from(epics)
+          .where(and(eq(epics.projectId, projectId), isNull(epics.deletedAt), inArray(epics.id, chunk)))),
+      )
+    }
+    const now = new Date()
+    for (const e of targets) {
+      const detached = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.epicId, e.id))
+      await db.update(tasks).set({ epicId: null }).where(eq(tasks.epicId, e.id))
+      await db.update(epics).set({ deletedAt: now }).where(eq(epics.id, e.id))
+      await writeAudit(c.env, {
+        actorId: me.id,
+        action: 'epic.delete',
+        entity: 'epic',
+        entityId: e.id,
+        meta: { title: e.title, code: e.code, projectId, detachedTaskIds: detached.map((t) => t.id) },
+      })
+    }
+    return c.json({ deleted: targets.length })
   })
 
   // Pronista §Project Refactor — สร้าง Epic ใหม่ตรงๆ จากแท็บ EPIC (ต่างจาก convert 'epic' ที่ยกระดับจาก task ที่มีอยู่แล้ว)

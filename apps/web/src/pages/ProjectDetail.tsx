@@ -22,7 +22,7 @@ import { ProjectReleasesTab } from '../components/ProjectReleasesTab'
 import { MeetingsTab } from '../components/MeetingsTab'
 import { addTasksToSprintBatch, SprintBulkAddBar } from '../components/SprintBulkAddBar'
 import { useToast, useToastAction } from '../components/Toast'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { deleteFailureReasons } from '../lib/delete-failure'
 import { useAuth } from '../lib/auth'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
@@ -1791,8 +1791,12 @@ function ProjectEpicTab({ projectId, canEdit, showCode, search }: { projectId: s
   const [addBusy, setAddBusy] = useState(false)
   // Pronista §PRO-0010 (2026-09-25) — Epic ไม่มี /tasks/<id> จริง ปุ่ม View ของ toastAction เลยพาไปหน้าโหลดค้าง ใช้ toast ธรรมดาแทน (ไม่มีปุ่ม View)
   const toast = useToast()
+  const { confirmDialog, alertDialog } = useDialog()
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [linkingEpic, setLinkingEpic] = useState<ProjectEpic | null>(null)
+  // Pronista (2026-10-02) — เลือก Epic หลายรายการด้วย checkbox แล้วลบทีเดียว (เหมือนแท็บ Story/Task/CR) · ลบ = soft-delete, Story ใต้ Epic ไม่ถูกลบ แค่หลุดจาก Epic
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleting, setDeleting] = useState(false)
   const { data: allTasks } = useLoad<ProjectAllTask[]>(
     () => (linkingEpic ? api.get(`/api/projects/${projectId}/tasks/all`) : Promise.resolve([])),
     [projectId, linkingEpic !== null],
@@ -1814,6 +1818,29 @@ function ProjectEpicTab({ projectId, canEdit, showCode, search }: { projectId: s
       void reload()
     } finally {
       setAddBusy(false)
+    }
+  }
+  const deleteSelected = async () => {
+    const chosen = epicsList.filter((e) => selected.has(e.id))
+    if (chosen.length === 0 || deleting) return
+    const linked = chosen.reduce((sum, e) => sum + e.totalCount, 0)
+    const ok = await confirmDialog({
+      title: `ลบ ${chosen.length} Epic?`,
+      message: linked > 0 ? `Story/งานที่อยู่ใต้ Epic เหล่านี้ (${linked} งาน) จะไม่ถูกลบ แค่หลุดจาก Epic` : 'Epic เหล่านี้ยังไม่มีงานผูกอยู่',
+      confirmLabel: 'ลบ Epic',
+      danger: true,
+    })
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const res = await api.post<{ deleted: number }>(`/api/projects/${projectId}/epics/bulk-delete`, { ids: chosen.map((e) => e.id) })
+      setSelected(new Set())
+      toast(`ลบ Epic แล้ว ${res.deleted} รายการ`)
+      void reload()
+    } catch (err) {
+      await alertDialog({ title: 'ลบ Epic ไม่สำเร็จ', message: err instanceof ApiError ? err.message : 'กรุณาลองใหม่อีกครั้ง' })
+    } finally {
+      setDeleting(false)
     }
   }
   const createStoryUnder = async (storyTitle: string) => {
@@ -1841,6 +1868,25 @@ function ProjectEpicTab({ projectId, canEdit, showCode, search }: { projectId: s
           <button onClick={() => void add()} disabled={!title.trim() || addBusy} className="text-sm bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap font-medium">+ สร้าง Epic</button>
         </div>
       )}
+      {canEdit && epicsList.length > 0 && (
+        <div className="flex items-center gap-3 mb-2 text-xs flex-wrap">
+          <label className="flex items-center gap-1.5 text-dim cursor-pointer">
+            <input
+              type="checkbox"
+              checked={epicsList.every((e) => selected.has(e.id))}
+              onChange={() => setSelected(epicsList.every((e) => selected.has(e.id)) ? new Set() : new Set(epicsList.map((e) => e.id)))}
+            />
+            เลือกทั้งหมด
+          </label>
+          <button
+            onClick={() => void deleteSelected()}
+            disabled={deleting || epicsList.every((e) => !selected.has(e.id))}
+            className="ml-auto text-[11px] rounded-lg px-2 py-1 disabled:opacity-40 whitespace-nowrap text-danger-600 border border-danger-200 bg-danger-50 hover:bg-danger-100"
+          >
+            ลบที่เลือก ({epicsList.filter((e) => selected.has(e.id)).length})
+          </button>
+        </div>
+      )}
       {epicsList.length === 0 ? (
         <div className="text-center text-xs text-muted py-6">{q && allEpics.length > 0 ? `ไม่พบผลลัพธ์ที่ตรงกับ "${(search ?? '').trim()}"` : 'ยังไม่มี Epic ในโปรเจกต์นี้'}</div>
       ) : (
@@ -1849,6 +1895,14 @@ function ProjectEpicTab({ projectId, canEdit, showCode, search }: { projectId: s
             const pct = e.totalCount > 0 ? Math.round((e.doneCount / e.totalCount) * 100) : 0
             return (
               <div key={e.id} className="flex items-center gap-3 flex-wrap py-2.5">
+                {canEdit && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(e.id)}
+                    onChange={() => setSelected((prev) => { const next = new Set(prev); if (next.has(e.id)) next.delete(e.id); else next.add(e.id); return next })}
+                    className="shrink-0 cursor-pointer"
+                  />
+                )}
                 {showCode && e.code && <span className="text-[11px] font-mono text-muted shrink-0">{e.code}</span>}
                 <span className="flex-1 basis-full sm:basis-auto min-w-32 text-sm text-body truncate">{e.title}</span>
                 <div className="flex items-center gap-2 w-36 shrink-0">

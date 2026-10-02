@@ -1,4 +1,4 @@
-import { createDb, tasks, users } from '@seedoffice/db'
+import { auditLogs, createDb, epics, tasks, users } from '@seedoffice/db'
 import { env } from 'cloudflare:test'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -1161,5 +1161,59 @@ describe('§PRO-0037 — ลบงานที่มีงานย่อย', (
 
     expect((await app.request(`/api/tasks/${child.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
     expect((await app.request(`/api/tasks/${parent.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
+  })
+})
+
+describe('§Epic bulk delete (2026-10-02) — POST /projects/:id/epics/bulk-delete (soft-delete + ปลด Story ออกจาก Epic)', () => {
+  const del = (cookie: string, projectId: string, ids: string[]) => app.request(`/api/projects/${projectId}/epics/bulk-delete`, json(cookie, { ids }), env)
+  const listEpics = async (cookie: string, projectId: string) =>
+    (await (await app.request(`/api/projects/${projectId}/epics`, { headers: { cookie } }, env)).json()) as { id: string; title: string }[]
+  const mkEpic = async (cookie: string, projectId: string, title: string) =>
+    (await (await app.request(`/api/projects/${projectId}/epics`, json(cookie, { title }), env)).json()) as { id: string }
+
+  it('ลบ Epic ที่เลือก → หายจากรายการ (soft-delete แถวยังอยู่) · Story ใต้ Epic ไม่ถูกลบ แค่หลุดจาก Epic · Epic อื่นไม่ถูกแตะ · มี audit', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p } = await setupProject(owner)
+    const e1 = await mkEpic(owner, p.id, 'Epic ที่จะลบ')
+    const e2 = await mkEpic(owner, p.id, 'Epic ที่ไม่ลบ')
+    const story = (await (await app.request(`/api/projects/${p.id}/backlog`, json(owner, { title: 'Story ใต้ Epic' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${story.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ epicId: e1.id }) }, env)
+
+    const res = await del(owner, p.id, [e1.id])
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { deleted: number }).deleted).toBe(1)
+
+    expect((await listEpics(owner, p.id)).map((e) => e.title)).toEqual(['Epic ที่ไม่ลบ'])
+    const db = createDb(env.DB)
+    const storyRow = (await db.select().from(tasks).where(eq(tasks.id, story.id)))[0]!
+    expect(storyRow.epicId).toBeNull()
+    expect(storyRow.title).toBe('Story ใต้ Epic')
+    const epicRow = (await db.select().from(epics).where(eq(epics.id, e1.id)))[0]!
+    expect(epicRow.deletedAt).not.toBeNull()
+    const audit = (await db.select().from(auditLogs).where(eq(auditLogs.entityId, e1.id)))[0]
+    expect(audit?.action).toBe('epic.delete')
+    expect(JSON.stringify(audit?.meta)).toContain(story.id)
+    expect(e2.id).toBeTruthy()
+  })
+
+  it('ส่ง id ของ Epic โปรเจกต์อื่น/ไม่มีจริง → ไม่แตะ (deleted = 0) · ids ว่าง → 400', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p } = await setupProject(owner)
+    const { p: other } = await setupProject(owner)
+    const foreign = await mkEpic(owner, other.id, 'Epic ของโปรเจกต์อื่น')
+    const res = await del(owner, p.id, [foreign.id, 'ไม่มีจริง'])
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { deleted: number }).deleted).toBe(0)
+    expect((await listEpics(owner, other.id)).length).toBe(1)
+    expect((await del(owner, p.id, [])).status).toBe(400)
+  })
+
+  it('คนที่ไม่มีสิทธิ์แก้โปรเจกต์ (ตำแหน่งดูอย่างเดียว) ลบไม่ได้ → 403', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p } = await setupProject(owner)
+    const e = await mkEpic(owner, p.id, 'Epic')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    expect((await del(pond, p.id, [e.id])).status).toBe(403)
+    expect((await listEpics(owner, p.id)).length).toBe(1)
   })
 })
