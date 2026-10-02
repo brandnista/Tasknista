@@ -39,7 +39,8 @@ type TaskDocType = (typeof TASK_DOC_TYPES)[number]
 interface ProjectDocOpt { id: string; title: string; docType: TaskDocType | 'API' | null }
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { FREE_EDIT_TASK_STATUS_ORDER, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { TaskWorkflowPanel, type TaskWorkflowInfo } from '../components/TaskWorkflowPanel'
+import { FREE_EDIT_TASK_STATUS_ORDER, statusSelectOptions, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
 import { useTimer } from '../lib/timer'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor } from './ProjectDetail'
@@ -224,6 +225,8 @@ interface Detail {
   version: number
   // Pronista §Workspace/Task Jira-alignment (2.7, 2026-09-04) — Manhour/วันของหมวด assignee ปัจจุบัน ใช้คำนวณ "ประเมิน ชม." แนะนำตอนเปลี่ยนวันที่
   weeklyMinutes: WeeklyMinutes
+  // Pronista §Task status workflow phase 3 (2026-10-02) — flow ของงานนี้ + ปุ่มที่ฉันกดได้ + ผลการทดสอบ (server คำนวณตามบทบาทผู้ดู)
+  workflow: TaskWorkflowInfo
   title: string
   // Pronista §Back to Basic (ต่อยอด) — "รายละเอียดของผู้จ่ายงาน" แก้ได้เฉพาะผู้จ่ายงาน
   description: string | null
@@ -356,12 +359,14 @@ const ACTION_LABEL: Record<string, string> = {
   'task.reject': 'ปฏิเสธงาน',
   // Pronista §Business Rules Workflow (เฟส B, 2026-09-15)
   'task.cancel': 'ยกเลิกงาน',
+  // Pronista §Task status workflow phase 3 (2026-10-02) — QA กด "ผ่าน STG" (สถานะไม่เปลี่ยน รอ BA อนุมัติ)
+  'task.test_pass': 'ทดสอบผ่านบน STG',
   'time_entry.create': 'ลงเวลา',
   'time_entry.update': 'แก้เวลา',
   'time_entry.delete': 'ลบเวลา',
 }
 // Pronista §System Requirements Update — แท็บ "ประวัติการเปลี่ยนแปลง" แยกจากฟีดคอมเมนต์ — เฉพาะ action ที่เป็นความเคลื่อนไหวของสถานะ/ผู้รับผิดชอบงาน (ไม่รวมคอมเมนต์/แนบไฟล์/เวลา)
-const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.cancel', 'task.done', 'task.convert', 'task.update'])
+const HISTORY_ACTIONS = new Set(['task.create', 'task.status', 'task.assign', 'task.dispatch', 'task.accept', 'task.reject', 'task.cancel', 'task.done', 'task.convert', 'task.update', 'task.test_pass'])
 // Pronista §Workspace/Task Jira-alignment (3.3, 2026-09-04) — renderer แบบ generic (best-effort) สำหรับ action='task.update' จากปุ่ม "บันทึกเพื่ออัปเดตข้อมูล" — meta.after มีแค่ฟิลด์ที่แก้ (ไม่มี "ค่าเดิม" ต่อฟิลด์ ยกเว้น status/convert ที่มี before ให้เห็นอยู่แล้วด้านบน)
 const FIELD_LABEL: Record<string, string> = {
   title: 'ชื่องาน', description: 'รายละเอียดจากผู้จ่ายงาน', assigneeNotes: 'รายละเอียดจากผู้รับงาน', originCode: 'Reference Code',
@@ -897,7 +902,11 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
   const canReviewSubmission = !effectiveReviewerId || effectiveReviewerId === user?.id || user?.role === 'owner'
   // Pronista §Task Detail fix (2026-08-26) — เปลี่ยนสถานะเองอิสระได้เมื่อ: ไม่ใช่ assignee (ผู้จ่ายงานจริง) หรือยังไม่ได้กด "จ่ายงาน" (ยังไม่เข้า workflow ตรวจงานจริง) — ตรงกับกฎฝั่ง backend (PATCH /tasks/:id) เป๊ะ
   // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
-  const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt)
+  // Pronista §Task status workflow phase 3 (2026-10-02) — งาน flow Deployment (สวิตช์เปิด): ตั้งแต่ On Processing เป็นต้นไปใช้แผงปุ่ม/ผลการทดสอบแทนปุ่มส่งงาน/อนุมัติแบบเดิม · dropdown สถานะอิสระเหลือแค่ Non Start/On Processing
+  const wfDeployment = !!t.workflow?.enabled && t.workflow.steps.includes('testing_stg')
+  const useWfPanel = wfDeployment && !!t.dispatchedAt && ['on_processing', 'waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'].includes(t.status)
+  const statusLockedByWorkflow = wfDeployment && t.status !== 'non_start' && t.status !== 'on_processing'
+  const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt) && !statusLockedByWorkflow
   const done = draftVal('status') === 'done'
   const input = 'text-sm bg-white shadow-xs rounded-lg px-2.5 py-1.5'
   const totalMinutes = (timeRows ?? []).reduce((s, r) => s + r.minutes, 0)
@@ -1093,7 +1102,11 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
                       <b className="text-body">{f.actorName}</b>{' '}<span className="text-dim">{ACTION_LABEL[f.action] ?? f.action}</span>{' '}<span className="text-muted">· {fmtWhen(f.at)}</span>
                       {/* Pronista §System Requirements Update — ประวัติเปลี่ยนสถานะ: โชว์ "สถานะเดิม → สถานะใหม่" จาก audit meta.before/after */}
                       {f.action === 'task.status' && isTaskStatus(f.meta?.before) && isTaskStatus(f.meta?.after) && (
-                        <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}</div>
+                        <div className="text-[11px] text-muted mt-0.5">{TASK_STATUS_LABEL[f.meta.before.status]} → {TASK_STATUS_LABEL[f.meta.after.status]}{typeof f.meta?.round === 'number' && f.meta.round > 0 ? ` · รอบทดสอบที่ ${f.meta.round}` : ''}</div>
+                      )}
+                      {/* Pronista §Task status workflow phase 3 — เหตุผลที่ "ไม่ผ่าน" (flow Deployment) */}
+                      {typeof f.meta?.reason === 'string' && f.meta.reason && (f.action === 'task.status' || f.action === 'task.test_pass') && (
+                        <div className="text-[11px] text-danger-700 mt-0.5">เหตุผล: {f.meta.reason}</div>
                       )}
                       {/* Pronista §Back to Basic — เลขรหัส regenerate ตอน convert ประเภท: โชว์ประวัติรหัสเดิม→ใหม่ตรงนี้ (audit meta มีอยู่แล้ว แค่ยังไม่เคยแสดงผล) */}
                       {f.action === 'task.convert' && typeof f.meta?.oldCode === 'string' && typeof f.meta?.newCode === 'string' && f.meta.oldCode !== f.meta.newCode && (
@@ -1447,7 +1460,7 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
                   {/* Pronista §Back to Basic (ต่อยอด) — ฝั่ง assignee เปลี่ยนสถานะเองอิสระไม่ได้แล้ว (กัน jump ข้ามขั้น) ต้องผ่านปุ่ม "ส่งงาน" เท่านั้น — ยกเว้นงานคีย์เอง/ยังไม่ได้จ่ายงาน */}
                   {canEditStatusFreely ? (
                     <select value={draftVal('status')} onChange={(e) => setDraftField('status', e.target.value as TaskStatus)} aria-label="สถานะงาน" className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[draftVal('status')]}`}>
-                      {FREE_EDIT_TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                      {(wfDeployment ? statusSelectOptions(draftVal('status'), true) : FREE_EDIT_TASK_STATUS_ORDER).map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                     </select>
                   ) : (
                     <span className={`w-fit px-2 py-1.5 rounded-lg text-xs ${TASK_STATUS_BADGE[t.status]}`}>{TASK_STATUS_LABEL[t.status]}</span>
@@ -1732,7 +1745,19 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
               </div>
             )}
 
-            {canEdit && (
+            {useWfPanel && (
+              <div className="border-t border-border-subtle pt-4">
+                <TaskWorkflowPanel
+                  taskId={t.id}
+                  status={t.status}
+                  workflow={t.workflow}
+                  onChanged={reload}
+                  onSubmitted={() => { if (!(!!t.isSubtask || !!t.parent || /\.\d+$/.test(t.code ?? ''))) navigate(-1) }}
+                />
+              </div>
+            )}
+
+            {canEdit && !useWfPanel && (
               <div className="border-t border-border-subtle pt-4 space-y-2">
                 {isAssignee ? (
                   // Pronista §Task lifecycle accept step — ยังไม่จ่าย (dispatchedAt ว่าง) → คนที่ถูก assign เอง (self-assign) ก็ต้องกด "จ่ายงาน" ได้เหมือน flow ปกติ (เดิมมีแต่ข้อความเฉยๆ ไม่มีปุ่มเลย ทำให้ self-assign ค้าง ไปต่อไม่ได้ด้วยตัวเอง) · จ่ายแล้วแต่ยังไม่กดรับ (status ยังเป็น non_start) → ปุ่ม "รับงาน" · รับแล้ว → ปุ่ม "ส่งงาน" เดิม

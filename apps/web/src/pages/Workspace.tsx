@@ -25,7 +25,8 @@ import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgen
 import { fmtThaiDate } from '../lib/project-ui'
 import { taskCreatedMessage } from '../lib/task-url'
 import { ROLE_LABEL } from '../lib/role-label'
-import { KANBAN_TASK_STATUS_ORDER, TASK_STATUS_BADGE, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { isDeploymentOnlyStatus, kanbanStatusOrder, statusFilterOrder, statusSelectOptions, TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { isDeploymentTask, useWorkflowConfig } from '../lib/workflow-config'
 import { useLoad } from '../lib/useLoad'
 import { avatarColor, SprintStartModal } from './ProjectDetail'
 import { Avatar } from '../components/Avatar'
@@ -44,6 +45,8 @@ interface WsTask {
   labelIds: string[] | null
   kind?: string
   projectId: string | null
+  // Pronista §Task status workflow phase 3 — ใช้ตัดสินตัวเลือกสถานะรายแถว (flow Deployment/Document)
+  taskType?: string | null
 }
 type WorkType = 'epic' | 'story' | 'task' | 'subtask' | 'defect' | 'backlog' | 'cr'
 interface WsBacklogItem {
@@ -304,6 +307,7 @@ export function WorkspacePage() {
 
   const { data: projects } = useLoad<AccessibleProject[]>(() => api.get(`/api/workspace/accessible-projects?workspaceId=${workspaceId}`), [workspaceId])
   const { data: cfg } = useLoad<{ labels: Label[]; taskTypes: TaskType[]; dueSoonDays: number }>(() => api.get('/api/config'))
+  const wf = useWorkflowConfig()
   const [projectFilter, setProjectFilter] = useState('all')
   const queryIds = projectFilter === 'all' ? '' : projectFilter
 
@@ -758,7 +762,7 @@ export function WorkspacePage() {
               onChange={(e) => void changeStatus(it.id, e.target.value as TaskStatus)}
               className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[it.status]}`}
             >
-              {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+              {statusSelectOptions(it.status, isDeploymentTask(wf, it)).map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
             </select>
           )}
           <DueDateChip dueDate={it.dueDate} status={it.status} soonDays={cfg?.dueSoonDays} />
@@ -873,7 +877,7 @@ export function WorkspacePage() {
               </select>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | TaskStatus)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ทุกสถานะ</option>
-                {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                {statusFilterOrder(wf.enabled).map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
               </select>
               <select value={workTypeFilter} onChange={(e) => setWorkTypeFilter(e.target.value as 'all' | WorkType)} className={`${selectCls} w-full sm:w-auto`}>
                 <option value="all">ทุกประเภทงาน</option>
@@ -968,13 +972,23 @@ export function WorkspacePage() {
                       </div>
                     )}
                     <div className="flex gap-3 overflow-x-auto pb-2">
-                      {KANBAN_TASK_STATUS_ORDER.map((s) => {
+                      {kanbanStatusOrder(wf.enabled).map((s) => {
                         const colItems = filteredItems.filter((i) => i.status === s)
                         return (
                           <div
                             key={s}
                             onDragOver={(e: DragEvent) => e.preventDefault()}
-                            onDrop={(e: DragEvent) => { e.preventDefault(); if (dragTaskId) void changeStatus(dragTaskId, s); setDragTaskId(null) }}
+                            onDrop={(e: DragEvent) => {
+                              e.preventDefault()
+                              if (dragTaskId) {
+                                // Pronista §Task status workflow phase 3 — งาน flow Deployment ลากได้เฉพาะ Non Start/On Processing · งานอื่นห้ามลากเข้าคอลัมน์ขั้นทดสอบ/PRD
+                                const dragged = filteredItems.find((i) => i.id === dragTaskId)
+                                const allowed = dragged && isDeploymentTask(wf, dragged) ? s === 'non_start' || s === 'on_processing' : !isDeploymentOnlyStatus(s)
+                                if (allowed) void changeStatus(dragTaskId, s)
+                                else setError('ย้ายมาคอลัมน์นี้ด้วยการลากไม่ได้ — ขั้นทดสอบ/Deploy ใช้ปุ่มในหน้ารายละเอียดงาน')
+                              }
+                              setDragTaskId(null)
+                            }}
                             className="bg-hover/60 rounded-lg p-2 min-h-32 w-64 shrink-0"
                           >
                             <div className="flex items-center gap-1.5 px-1.5 py-1 mb-1.5">
@@ -1110,7 +1124,7 @@ export function WorkspacePage() {
                   const isDropHovering = dropHoverSprintId === sprint.id
                   const canDrop = sprint.status !== 'completed' && !!dragTaskId
                   // Pronista §Business Rules Workflow (2026-09-15) — badge สรุปนี้โชว์แค่ 4 สถานะหลัก (เหมือน Kanban) เติม rejected/cancelled ไว้กันพัง TS แต่ไม่โชว์ในแถบสรุป
-                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, done: 0, rejected: 0, cancelled: 0 }
+                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, testing_stg: 0, ready_for_prd: 0, testing_prd: 0, done: 0, rejected: 0, cancelled: 0 }
                   for (const t of item.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
                   return (
                     <div key={sprint.id} className="bg-white rounded-lg shadow-xs p-4 sm:p-5">
@@ -1123,7 +1137,7 @@ export function WorkspacePage() {
                         <div className="ml-auto flex items-center gap-2">
                           {item.tasks.length > 0 && (
                             <div className="flex items-center gap-1 shrink-0">
-                              {KANBAN_TASK_STATUS_ORDER.map((s) => (
+                              {kanbanStatusOrder(wf.enabled).map((s) => (
                                 <span key={s} title={TASK_STATUS_LABEL[s]} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TASK_STATUS_BADGE[s]}`}>{counts[s]}</span>
                               ))}
                             </div>
@@ -1169,7 +1183,7 @@ export function WorkspacePage() {
                                     onChange={(e) => void changeStatus(t.id, e.target.value as TaskStatus)}
                                     className={`text-[11px] rounded px-1.5 py-1 border-0 shrink-0 ${TASK_STATUS_BADGE[t.status]}`}
                                   >
-                                    {TASK_STATUS_ORDER.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+                                    {statusSelectOptions(t.status, isDeploymentTask(wf, t)).map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
                                   </select>
                                   <DueDateChip dueDate={t.dueDate} status={t.status} soonDays={cfg?.dueSoonDays} />
                                   {t.assigneeName && (

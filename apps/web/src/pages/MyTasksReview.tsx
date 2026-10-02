@@ -20,7 +20,7 @@ export function MyTasksReviewPage() {
   // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานรอตรวจ" แล้วเคลียร์ badge ทันที
   // (2026-09-25) + มาร์คงานรอตรวจทั้งหมดว่า "เห็นแล้ว" → เลข badge งานรอตรวจลดเป็น 0 ทันทีที่เข้าเมนู (งานยังอยู่ใน list จนกว่าจะอนุมัติ/ตีกลับ)
   const { markTypeRead, markReviewSeen } = useNotifications()
-  useEffect(() => { void markTypeRead('task_review_requested'); void markReviewSeen() }, [markTypeRead, markReviewSeen])
+  useEffect(() => { void markTypeRead('task_review_requested'); void markTypeRead('task_test_passed'); void markTypeRead('task_deployed'); void markReviewSeen() }, [markTypeRead, markReviewSeen])
 
   return (
     <>

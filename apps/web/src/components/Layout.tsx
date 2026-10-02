@@ -57,9 +57,10 @@ const VAULT_NOTIFICATION_TYPES = ['vault_accessed'] as const
 // Pronista §Leave Request (2026-09-22, Phase 1)
 const LEAVE_NOTIFICATION_TYPES = ['leave_requested', 'leave_approved', 'leave_rejected'] as const
 // Pronista §My Tasks menu badges (2026-09-18) — แยกตัวเลขแจ้งเตือนต่อ sub-menu แต่ละอัน
-const MY_TASKS_ASSIGNED_TYPES = ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const
+const MY_TASKS_ASSIGNED_TYPES = ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder', 'task_stg_approved', 'task_test_failed', 'task_prd_passed'] as const
 const MY_TASKS_DISPATCHED_TYPES = ['task_submitted', 'task_accepted', 'task_rejected', 'task_recalled', 'subtask_completed'] as const
-const MY_TASKS_REVIEW_TYPES = ['task_review_requested'] as const
+// Pronista §Task status workflow phase 3 (2026-10-02) — task_test_passed (QA ผ่าน STG รอ BA อนุมัติ) / task_deployed (Deploy แล้ว รอทดสอบ PRD) เข้าคิว "งานรอตรวจ" ด้วย
+const MY_TASKS_REVIEW_TYPES = ['task_review_requested', 'task_test_passed', 'task_deployed'] as const
 const MY_TASKS_NOTES_TYPES = ['note_shared'] as const
 const MY_TASKS_MEETINGS_TYPES = ['meeting_scheduled', 'meeting_updated', 'meeting_cancelled', 'meeting_reminder'] as const
 // Pronista §My Tasks menu badges fix (2026-09-18) — เมนูแม่ "งานของฉัน" เดิมนับแบบ excludeTypes (ทุกอย่างยกเว้นทีม/วอลต์) ทำให้ตัวเลขรวมไม่ตรงกับผลรวม sub-menu ที่กางออกมา (มีบางประเภท เช่น daily_report_*/expiry_reminder ที่ไม่ได้อยู่ใน sub-menu ไหนเลยแต่ถูกนับรวมด้วย) — เปลี่ยนเป็นรวม type ของ 5 sub-menu ตรงๆ ให้เลขแม่ = ผลรวมลูกเป๊ะ ตามที่อาร์มขอ
@@ -72,10 +73,13 @@ function isAssignedTaskNotificationRelevant(row: { type: string; taskId: string 
   return row.taskAssigneeId === meId && !!row.taskDispatchedAt
 }
 // Pronista §Notification Badge Audit เฟส 6b (2026-09-24) — ต่อยอด pattern เดียวกับ isAssignedTaskNotificationRelevant ให้ครบอีก 3 กลุ่ม (งานรอตรวจ/งานที่จ่ายให้คนอื่น/การประชุม) + การลา (คนละ badge ไม่ใช่ my-tasks submenu)
-function isReviewNotificationRelevant(row: { type: string; taskId: string | null; taskStatus: string | null; taskReviewerId: string | null }, meId?: string): boolean {
+function isReviewNotificationRelevant(row: { type: string; taskId: string | null; taskStatus: string | null; taskReviewerId: string | null; taskAssignedBy: string | null }, meId?: string): boolean {
   if (!(MY_TASKS_REVIEW_TYPES as readonly string[]).includes(row.type)) return true
   if (!row.taskId) return true
-  return row.taskReviewerId === meId && row.taskStatus === 'waiting_for_test'
+  // Pronista §Task status workflow phase 3 — ยังค้างอยู่ในคิวจริงเท่านั้นถึงนับ: ผู้ตรวจ+(รอตรวจ/ทดสอบ STG) · ผู้จ่ายงาน+STG ที่ผ่านแล้ว · ผู้ตรวจ/ผู้จ่ายงาน+ทดสอบ PRD
+  if (row.type === 'task_test_passed') return row.taskAssignedBy === meId && row.taskStatus === 'testing_stg'
+  if (row.type === 'task_deployed') return (row.taskAssignedBy === meId || row.taskReviewerId === meId) && row.taskStatus === 'testing_prd'
+  return row.taskReviewerId === meId && (row.taskStatus === 'waiting_for_test' || row.taskStatus === 'testing_stg')
 }
 function isDispatchedNotificationRelevant(row: { type: string; taskId: string | null; taskAssignedBy: string | null; taskAssigneeId: string | null }, meId?: string): boolean {
   if (!(MY_TASKS_DISPATCHED_TYPES as readonly string[]).includes(row.type)) return true

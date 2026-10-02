@@ -29,7 +29,8 @@ import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useNotifications } from '../lib/notifications-context'
 import { avatarColor } from './ProjectDetail'
-import { isInactiveStatus, KANBAN_TASK_STATUS_ORDER, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { isInactiveStatus, kanbanStatusOrder, statusFilterOrder, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { useWorkflowConfig } from '../lib/workflow-config'
 import { useLoad } from '../lib/useLoad'
 
 interface MyTask extends KanbanTask {
@@ -194,6 +195,8 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
 }
 
 type SummaryKey = 'all' | 'pending' | 'processing' | 'review' | 'overdue'
+// Pronista §Task status workflow phase 3 — งานที่ส่งตรวจ/ทดสอบแล้วและรอผลอยู่ (ตอนเปิด flow ใหม่รวม Testing on STG/PRD ด้วย)
+const isInReviewGroup = (s: TaskStatus, workflowEnabled: boolean) => s === 'waiting_for_test' || (workflowEnabled && (s === 'testing_stg' || s === 'testing_prd'))
 
 function SummaryCards({ cards, selected, loading, onSelect }: {
   cards: { key: SummaryKey; label: string; value: number; icon: typeof BriefcaseBusiness; tone: string }[]
@@ -384,9 +387,10 @@ export function MyTasksPage() {
   // Pronista §Notification overhaul (2026-08-27) — ย้ายมาอ่านจาก NotificationsProvider กลาง (แท็บ "แจ้งเตือน" ในหน้านี้ถูกถอดออกแล้ว เพราะมีกระดิ่งที่ Navbar เป็นจุดเข้าถึงหลักแทน)
   // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — ใช้แค่ markTypeRead ล้วนๆ แล้ว (ไม่อ่าน rows/notifications จาก context นี้อีกต่อไป — สัญญาณ "ตีกลับ" ย้ายไป tasks.bouncedAt แล้ว ดู bouncedTaskIds ด้านล่าง)
   const { markTypeRead } = useNotifications()
+  const wf = useWorkflowConfig()
   // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานของฉัน" แล้วเคลียร์ badge กลุ่ม assigned ทันที (เดิมไม่เคยเคลียร์เลย ทั้งที่หน้านี้ import useNotifications อยู่แล้ว)
   useEffect(() => {
-    for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder'] as const) void markTypeRead(t)
+    for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder', 'task_stg_approved', 'task_test_failed', 'task_prd_passed'] as const) void markTypeRead(t)
   }, [markTypeRead])
   const tasks = data ?? []
 
@@ -443,13 +447,13 @@ export function MyTasksPage() {
     { key: 'all' as const, label: 'งานทั้งหมด', value: tasks.length, icon: BriefcaseBusiness, tone: 'bg-divider text-soft' },
     { key: 'pending' as const, label: 'รอรับ', value: tasks.filter((t) => !!t.dispatchedAt && t.status === 'non_start').length, icon: Inbox, tone: 'bg-info-50 text-info-700' },
     { key: 'processing' as const, label: 'กำลังทำ', value: tasks.filter((t) => t.status === 'on_processing').length, icon: PlayCircle, tone: 'bg-brand-50 text-brand-700' },
-    { key: 'review' as const, label: 'รอตรวจ', value: tasks.filter((t) => t.status === 'waiting_for_test').length, icon: Eye, tone: 'bg-warning-50 text-warning-700' },
+    { key: 'review' as const, label: 'รอตรวจ', value: tasks.filter((t) => isInReviewGroup(t.status, wf.enabled)).length, icon: Eye, tone: 'bg-warning-50 text-warning-700' },
     { key: 'overdue' as const, label: 'เกินกำหนด', value: tasks.filter(isOverdue).length, icon: AlertTriangle, tone: 'bg-danger-50 text-danger-700' },
-  ], [tasks, today])
+  ], [tasks, today, wf.enabled])
 
   const selectSummary = (key: SummaryKey) => {
     setSummarySelection(key)
-    setStatusFilter(key === 'pending' ? 'non_start' : key === 'processing' ? 'on_processing' : key === 'review' ? 'waiting_for_test' : 'all')
+    setStatusFilter(key === 'pending' ? 'non_start' : key === 'processing' ? 'on_processing' : key === 'review' ? (wf.enabled ? 'all' : 'waiting_for_test') : 'all')
     setDateFilter(key === 'overdue' ? 'overdue' : 'all')
   }
 
@@ -460,6 +464,8 @@ export function MyTasksPage() {
       if (projectFilter !== 'all' && t.projectId !== projectFilter) return false
       if (taskTypeFilter !== 'all' && t.taskType !== taskTypeFilter) return false
       if (statusFilter !== 'all' && t.status !== statusFilter) return false
+      // Pronista §Task status workflow phase 3 — การ์ด "รอตรวจ" ตอนเปิด flow ใหม่ = รวมงานที่ส่งทดสอบแล้ว (Waiting/STG/PRD) ไม่ใช่แค่ waiting_for_test
+      if (wf.enabled && summarySelection === 'review' && statusFilter === 'all' && !isInReviewGroup(t.status, true)) return false
       if (spFilter === 'sprint' && !t.sprintId) return false
       if (spFilter === 'backlog' && t.sprintId) return false
       if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false
@@ -469,7 +475,7 @@ export function MyTasksPage() {
       if (todayOnly && !(isDoneToday(t) || isSubmittedToday(t))) return false
       return true
     })
-  }, [tasks, search, projectFilter, taskTypeFilter, statusFilter, spFilter, priorityFilter, dateFilter, todayOnly, today])
+  }, [tasks, search, projectFilter, taskTypeFilter, statusFilter, spFilter, priorityFilter, dateFilter, todayOnly, today, wf.enabled, summarySelection])
 
   const activeFilterCount = [projectFilter, taskTypeFilter, statusFilter, spFilter, priorityFilter, dateFilter].filter((value) => value !== 'all').length + (todayOnly ? 1 : 0)
   const clearFilters = () => {
@@ -572,12 +578,12 @@ export function MyTasksPage() {
                 setStatusFilter(nextStatus)
                 setSummarySelection(nextStatus === 'non_start' ? 'pending' : nextStatus === 'on_processing' ? 'processing' : nextStatus === 'waiting_for_test' ? 'review' : 'all')
                 if (dateFilter === 'overdue') setDateFilter('all')
-                if (nextStatus !== 'all' && !KANBAN_TASK_STATUS_ORDER.includes(nextStatus)) setView('list')
+                if (nextStatus !== 'all' && !kanbanStatusOrder(wf.enabled).includes(nextStatus)) setView('list')
               }}
               className="h-9 text-sm border border-border rounded-lg px-2.5 bg-white w-full sm:w-auto focus:outline-hidden focus:ring-2 focus:ring-brand-500/25"
             >
               <option value="all">สถานะ: ทั้งหมด</option>
-              {TASK_STATUS_ORDER.map((status) => <option key={status} value={status}>{TASK_STATUS_LABEL[status]}</option>)}
+              {statusFilterOrder(wf.enabled).map((status) => <option key={status} value={status}>{TASK_STATUS_LABEL[status]}</option>)}
             </select>
             <select aria-label="กรองตาม Sprint" value={spFilter} onChange={(e) => setSpFilter(e.target.value as typeof spFilter)} className="h-9 w-full rounded-lg border border-border bg-white px-2.5 text-sm focus-visible:outline-2 focus-visible:outline-brand-500 sm:w-auto">
               <option value="all">Sprint: ทั้งหมด</option>

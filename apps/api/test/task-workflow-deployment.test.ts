@@ -417,3 +417,18 @@ describe('แจ้งเตือน', () => {
     expect(rows).toHaveLength(1)
   })
 })
+
+describe('GET /tasks/workflow-config — ให้หน้าเว็บรู้สถานะสวิตช์', () => {
+  it('ทุกคนอ่านได้ · คืน enabled + ประเภทงานที่ใช้ flow Document', async () => {
+    await createDb(env.DB)
+      .update(companyConfig)
+      .set({ taskTypes: [{ id: 'type_document', name: 'Document', sortOrder: 1, subTypes: [] }, { id: 'type_dev', name: 'Development', sortOrder: 2, subTypes: [] }] })
+      .where(eq(companyConfig.id, 1))
+    const res = await app.request('/api/tasks/workflow-config', { headers: { cookie: dev } }, env)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ enabled: true, documentTypeIds: ['type_document'] })
+    await setConfig(false)
+    expect(((await (await app.request('/api/tasks/workflow-config', { headers: { cookie: dev } }, env)).json()) as { enabled: boolean }).enabled).toBe(false)
+    await createDb(env.DB).update(companyConfig).set({ taskTypes: null }).where(eq(companyConfig.id, 1))
+  })
+})

@@ -3,7 +3,8 @@ import { Columns3, List, Search, X } from 'lucide-react'
 import { sortByRecentActivity } from '@seedoffice/core'
 import { useEffect, useMemo, useState } from 'react'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
-import { TASK_STATUS_BADGE, TASK_STATUS_DOT, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
+import { statusFilterOrder, TASK_STATUS_BADGE, TASK_STATUS_DOT, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { useWorkflowConfig } from '../lib/workflow-config'
 import type { KanbanTask } from './StatusKanban'
 
 type ViewMode = 'list' | 'kanban'
@@ -18,6 +19,14 @@ export interface TrackingTask extends KanbanTask {
   bouncedAt?: string | number | null
   completedAt?: string | number | null
   lastActivityAt?: string | number | null
+  // Pronista §Task status workflow phase 3 (2026-10-02) — งานรอตรวจแบบรวมคิว: ฉันต้องทำอะไรกับงานนี้ (review=ทดสอบ · approve_stg=อนุมัติขึ้น PRD · confirm_prd=ยืนยันผล PRD)
+  queueReason?: 'review' | 'approve_stg' | 'confirm_prd'
+}
+
+const QUEUE_REASON_LABEL = { review: 'รอคุณทดสอบ', approve_stg: 'QA ผ่านแล้ว · รออนุมัติ', confirm_prd: 'รอยืนยันผล PRD' } as const
+function QueueReasonChip({ task }: { task: TrackingTask }) {
+  if (!task.queueReason || (task.status !== 'testing_stg' && task.status !== 'testing_prd')) return null
+  return <span className="inline-flex whitespace-nowrap rounded-md border border-warning-200 bg-warning-50 px-1.5 py-0.5 text-[10px] font-medium text-warning-700">{QUEUE_REASON_LABEL[task.queueReason]}</span>
 }
 
 interface TaskTrackingViewProps<T extends TrackingTask> {
@@ -53,6 +62,7 @@ export function TaskTrackingView<T extends TrackingTask>({
   dateOf,
   emptyLabel,
 }: TaskTrackingViewProps<T>) {
+  const wf = useWorkflowConfig()
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(storageKey) === 'kanban' ? 'kanban' : 'list'))
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL)
@@ -99,7 +109,7 @@ export function TaskTrackingView<T extends TrackingTask>({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:flex xl:items-center">
             <select aria-label="กรองตามสถานะ" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as TaskStatus | typeof ALL)} className="h-10 rounded-lg border border-border bg-white px-3 text-sm text-body focus:outline-hidden focus:ring-2 focus:ring-brand-500/25">
               <option value={ALL}>ทุกสถานะ</option>
-              {TASK_STATUS_ORDER.map((status) => <option key={status} value={status}>{TASK_STATUS_LABEL[status]}</option>)}
+              {statusFilterOrder(wf.enabled).map((status) => <option key={status} value={status}>{TASK_STATUS_LABEL[status]}</option>)}
             </select>
             <select aria-label="กรองตามผู้รับผิดชอบ" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} className="h-10 rounded-lg border border-border bg-white px-3 text-sm text-body focus:outline-hidden focus:ring-2 focus:ring-brand-500/25 xl:max-w-52">
               <option value={ALL}>ผู้รับผิดชอบทั้งหมด</option>
@@ -138,7 +148,7 @@ export function TaskTrackingView<T extends TrackingTask>({
       ) : viewMode === 'list' ? (
         <TrackingList tasks={filteredTasks} onOpenTask={onOpenTask} soonDays={soonDays} dateColumnLabel={dateColumnLabel} dateOf={dateOf} />
       ) : (
-        <TrackingKanban tasks={filteredTasks} onOpenTask={onOpenTask} soonDays={soonDays} statusFilter={statusFilter} />
+        <TrackingKanban tasks={filteredTasks} onOpenTask={onOpenTask} soonDays={soonDays} statusFilter={statusFilter} workflowEnabled={wf.enabled} />
       )}
     </div>
   )
@@ -154,14 +164,14 @@ function TrackingList<T extends TrackingTask>({ tasks, onOpenTask, soonDays, dat
           </tr></thead>
           <tbody className="divide-y divide-divider">{tasks.map((task) => (
             <tr key={task.id} tabIndex={0} role="button" onClick={() => onOpenTask(task.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpenTask(task.id) }} className={`cursor-pointer hover:brightness-[0.98] focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-brand-500 ${URGENCY_CARD_CLASS[dueUrgency(task.dueDate, task.status === 'done', soonDays)]}`}>
-              <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">{formatDate(dateOf(task))}</td><td className="truncate px-3 py-3 font-mono text-xs text-muted">{task.code || '—'}</td><td className="min-w-0 px-3 py-3"><div className="line-clamp-2 font-medium text-body">{task.title}</div>{checklistLabel(task.checklistDone, task.checklistTotal) && <div className="mt-0.5 text-[11px] text-dim">{checklistLabel(task.checklistDone, task.checklistTotal)}</div>}</td><td className="truncate px-3 py-3 text-xs text-soft">{projectLabel(task)}</td><td className="truncate px-3 py-3 text-xs text-soft">{assigneeLabel(task)}</td><td className="whitespace-nowrap px-3 py-3 text-xs text-soft">{formatDate(task.dueDate)}</td><td className="px-3 py-3"><span className={`inline-flex whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium ${TASK_STATUS_BADGE[task.status]}`}>{TASK_STATUS_LABEL[task.status]}</span></td>
+              <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">{formatDate(dateOf(task))}</td><td className="truncate px-3 py-3 font-mono text-xs text-muted">{task.code || '—'}</td><td className="min-w-0 px-3 py-3"><div className="line-clamp-2 font-medium text-body">{task.title}</div>{checklistLabel(task.checklistDone, task.checklistTotal) && <div className="mt-0.5 text-[11px] text-dim">{checklistLabel(task.checklistDone, task.checklistTotal)}</div>}</td><td className="truncate px-3 py-3 text-xs text-soft">{projectLabel(task)}</td><td className="truncate px-3 py-3 text-xs text-soft">{assigneeLabel(task)}</td><td className="whitespace-nowrap px-3 py-3 text-xs text-soft">{formatDate(task.dueDate)}</td><td className="px-3 py-3"><span className={`inline-flex whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium ${TASK_STATUS_BADGE[task.status]}`}>{TASK_STATUS_LABEL[task.status]}</span> <QueueReasonChip task={task} /></td>
             </tr>
           ))}</tbody>
         </table>
       </div>
       <div className="divide-y divide-divider md:hidden">{tasks.map((task) => (
         <button key={task.id} type="button" onClick={() => onOpenTask(task.id)} className={`w-full p-4 text-left focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-brand-500 ${URGENCY_CARD_CLASS[dueUrgency(task.dueDate, task.status === 'done', soonDays)]}`}>
-          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-[11px] text-muted">{task.code || 'ไม่มีรหัส'} · {dateColumnLabel} {formatDate(dateOf(task))}</div><div className="mt-1 line-clamp-2 text-sm font-medium text-body">{task.title}</div></div><span className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-medium ${TASK_STATUS_BADGE[task.status]}`}>{TASK_STATUS_LABEL[task.status]}</span></div>
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="text-[11px] text-muted">{task.code || 'ไม่มีรหัส'} · {dateColumnLabel} {formatDate(dateOf(task))}</div><div className="mt-1 line-clamp-2 text-sm font-medium text-body">{task.title}</div></div><span className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-medium ${TASK_STATUS_BADGE[task.status]}`}>{TASK_STATUS_LABEL[task.status]}</span><QueueReasonChip task={task} /></div>
           <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]"><div className="min-w-0"><dt className="text-muted">โปรเจกต์ / Workspace</dt><dd className="truncate text-soft">{projectLabel(task)}</dd></div><div className="min-w-0"><dt className="text-muted">ผู้รับผิดชอบ</dt><dd className="truncate text-soft">{assigneeLabel(task)}</dd></div><div><dt className="text-muted">กำหนดส่ง</dt><dd className="text-soft">{formatDate(task.dueDate)}</dd></div>{checklistLabel(task.checklistDone, task.checklistTotal) && <div><dt className="text-muted">Checklist</dt><dd className="text-soft">{checklistLabel(task.checklistDone, task.checklistTotal)}</dd></div>}</dl>
         </button>
       ))}</div>
@@ -169,8 +179,8 @@ function TrackingList<T extends TrackingTask>({ tasks, onOpenTask, soonDays, dat
   )
 }
 
-function TrackingKanban<T extends TrackingTask>({ tasks, onOpenTask, soonDays, statusFilter }: { tasks: T[]; onOpenTask: (id: string) => void; soonDays?: number; statusFilter: TaskStatus | typeof ALL }) {
-  const statuses = statusFilter === ALL ? TASK_STATUS_ORDER : [statusFilter]
+function TrackingKanban<T extends TrackingTask>({ tasks, onOpenTask, soonDays, statusFilter, workflowEnabled }: { tasks: T[]; onOpenTask: (id: string) => void; soonDays?: number; statusFilter: TaskStatus | typeof ALL; workflowEnabled: boolean }) {
+  const statuses = statusFilter === ALL ? statusFilterOrder(workflowEnabled) : [statusFilter]
   return <div className="grid grid-flow-col auto-cols-[minmax(260px,1fr)] gap-3 overflow-x-auto pb-2">{statuses.map((status) => {
     const columnTasks = tasks.filter((task) => task.status === status)
     return <section key={status} className="min-h-40 rounded-xl border border-border-subtle bg-hover/70 p-2.5" aria-labelledby={`tracking-column-${status}`}><div className="mb-2 flex items-center gap-2 px-1 py-1"><span className={`h-2 w-2 rounded-full ${TASK_STATUS_DOT[status]}`} /><h2 id={`tracking-column-${status}`} className="text-xs font-semibold text-body">{TASK_STATUS_LABEL[status]}</h2><span className="ml-auto text-[11px] tabular-nums text-muted">{columnTasks.length}</span></div><div className="space-y-2">{columnTasks.map((task) => <button key={task.id} type="button" onClick={() => onOpenTask(task.id)} className={`w-full rounded-lg border border-border-subtle p-3 text-left shadow-xs hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 ${URGENCY_CARD_CLASS[dueUrgency(task.dueDate, task.status === 'done', soonDays)]}`}><div className="flex items-center justify-between gap-2 text-[10px] text-muted"><span className="truncate font-mono">{task.code || 'ไม่มีรหัส'}</span><span className="shrink-0">{formatDate(task.dueDate)}</span></div><div className="mt-1.5 line-clamp-2 text-sm font-medium text-body">{task.title}</div><div className="mt-2 truncate text-[11px] text-muted">{projectLabel(task)}</div><div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-soft"><span className="truncate">{assigneeLabel(task)}</span>{checklistLabel(task.checklistDone, task.checklistTotal) && <span className="shrink-0 text-dim">{checklistLabel(task.checklistDone, task.checklistTotal)}</span>}</div></button>)}{columnTasks.length === 0 && <div className="py-8 text-center text-[11px] text-muted">ไม่มีงาน</div>}</div></section>

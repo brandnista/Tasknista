@@ -1,4 +1,4 @@
-import { bkkDateOf, hasAnyEditRight, parentGate, type WorkflowStatus, isValidTaskTypePair, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
+import { bkkDateOf, hasAnyEditRight, parentGate, workflowIdForTaskType, type WorkflowStatus, isValidTaskTypePair, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
 import {
   companyConfig,
   createDb,
@@ -556,6 +556,17 @@ export const taskRoutes = new Hono<AppEnv>()
         actualMinutes: actualMinutes.get(r.task.id) ?? null,
       })),
     )
+  })
+
+  // Pronista §Task status workflow phase 3 (2026-10-02) — ให้หน้าเว็บรู้ว่าเปิด flow ใหม่หรือยัง + ประเภทงานไหนใช้ flow Document (อื่นๆ = Deployment) เพื่อเลือกคอลัมน์ Kanban/ตัวกรอง/ลากสถานะ
+  // ทุกคนที่ล็อกอินอ่านได้ (ไม่มีข้อมูลลับ) — ตัวแก้ไขอยู่ที่ /api/admin/workflow-config (owner เท่านั้น)
+  .get('/tasks/workflow-config', async (c) => {
+    const db = createDb(c.env.DB)
+    const { config, taskTypes } = await loadWorkflowSettings(db)
+    const documentTypeIds = taskTypes
+      .filter((t) => !config.workflows.find((w) => w.id === workflowIdForTaskType(config, t.id, taskTypes))?.steps.includes('testing_stg'))
+      .map((t) => t.id)
+    return c.json({ enabled: config.enabled, documentTypeIds })
   })
 
   // Pronista §My Tasks reviewer queue — งานที่ผู้ใช้ปัจจุบันถูกระบุเป็น Reviewer และกำลังรอตรวจ

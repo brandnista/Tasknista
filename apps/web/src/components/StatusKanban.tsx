@@ -1,7 +1,8 @@
 import { minutesToHoursLabel } from '@seedoffice/core'
 import { type DragEvent, useState } from 'react'
 import { dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
-import { KANBAN_TASK_STATUS_ORDER, TASK_STATUS_DOT, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { isDeploymentOnlyStatus, kanbanStatusOrder, KANBAN_TASK_STATUS_ORDER, TASK_STATUS_DOT, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
+import { isDeploymentTask, useWorkflowConfig, type WorkflowClientConfig } from '../lib/workflow-config'
 import { Avatar } from './Avatar'
 import { taskTypeLabel } from './MyWorkSummary'
 import { avatarColor } from '../pages/ProjectDetail'
@@ -23,6 +24,8 @@ export interface KanbanTask {
   srsDocId?: string | null
   // Pronista §Back to Basic (ต่อยอด) — รหัสงาน+ประเภท + ชั่วโมงประเมิน + ความคืบหน้าเกณฑ์ว่าเสร็จ
   code?: string | null
+  // Pronista §Task status workflow phase 3 (2026-10-02) — ประเภทงาน (ใช้ตัดสินว่างานชิ้นนี้ใช้ flow ไหนตอนลากสถานะ)
+  taskType?: string | null
   kind?: 'task' | 'defect' | 'cr' | 'backlog'
   parentId?: string | null
   estimateMinutes?: number | null
@@ -44,9 +47,15 @@ const ASSIGNEE_DRAG_TARGETS: Partial<Record<TaskStatus, TaskStatus[]>> = {
   on_processing: [],
   waiting_for_test: ['on_processing'],
 }
-function allowedDragTargets(t: KanbanTask, meId?: string): TaskStatus[] {
+function allowedDragTargets(t: KanbanTask, meId?: string, wf?: WorkflowClientConfig): TaskStatus[] {
+  // Pronista §Task status workflow phase 3 (2026-10-02) — งาน flow Deployment ลากได้เฉพาะ Non Start ↔ On Processing · ขั้นทดสอบ/PRD/Done เปลี่ยนผ่านปุ่มในหน้ารายละเอียดงานเท่านั้น (server บล็อกอยู่แล้ว)
+  if (wf && isDeploymentTask(wf, t)) {
+    if (t.status === 'non_start') return ['on_processing']
+    if (t.status === 'on_processing' && meId && t.createdBy === meId) return ['non_start']
+    return []
+  }
   // Pronista §Business Rules Workflow (2026-09-15) — คงเหลือแค่ 4 คอลัมน์ Kanban หลัก (ไม่รวม rejected/cancelled ที่เพิ่มเข้า TaskStatus แล้ว ต้องผ่านปุ่มเฉพาะเท่านั้น)
-  if (meId && t.createdBy === meId) return KANBAN_TASK_STATUS_ORDER.filter((s) => s !== t.status)
+  if (meId && t.createdBy === meId) return KANBAN_TASK_STATUS_ORDER.filter((s) => s !== t.status && !isDeploymentOnlyStatus(s))
   return ASSIGNEE_DRAG_TARGETS[t.status] ?? []
 }
 
@@ -56,12 +65,18 @@ const STATUS_COLUMN_CLASS: Partial<Record<TaskStatus, string>> = {
   non_start: 'border-border bg-hover/60',
   on_processing: 'border-info-200 bg-info-50/55',
   waiting_for_test: 'border-warning-200 bg-warning-50/55',
+  testing_stg: 'border-warning-200 bg-warning-50/55',
+  ready_for_prd: 'border-brand-200 bg-brand-50/55',
+  testing_prd: 'border-info-200 bg-info-50/55',
   done: 'border-success-100 bg-success-50/55',
 }
 const STATUS_COUNT_CLASS: Partial<Record<TaskStatus, string>> = {
   non_start: 'bg-divider text-soft',
   on_processing: 'bg-info-100 text-info-700',
   waiting_for_test: 'bg-warning-100 text-warning-700',
+  testing_stg: 'bg-warning-100 text-warning-700',
+  ready_for_prd: 'bg-brand-100 text-brand-700',
+  testing_prd: 'bg-info-100 text-info-700',
   done: 'bg-success-100 text-success-700',
 }
 
@@ -100,22 +115,24 @@ export function StatusKanban({ tasks, onOpenTask, onStatusChange, canEdit, bounc
   // Pronista §Kanban drag constraints (2026-08-26) — ตัวผู้ใช้ที่กำลังดูบอร์ดอยู่ ใช้เช็คข้อยกเว้น "งานที่คีย์เอง" ต่อใบ (ไม่ระบุ = ปิดข้อยกเว้นนี้ กลับไปใช้กฎ assignee ปกติล้วน)
   meId?: string
 }) {
+  const wf = useWorkflowConfig()
   const [dragId, setDragId] = useState<string | null>(null)
   const over = (e: DragEvent) => e.preventDefault()
   const editableOf = (t: KanbanTask) => (typeof canEdit === 'function' ? canEdit(t) : canEdit)
   const dragTask = dragId ? tasks.find((t) => t.id === dragId) : null
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      {KANBAN_TASK_STATUS_ORDER.map((status) => {
+    // Pronista §Task status workflow phase 3 — เปิด flow ใหม่ = 7 คอลัมน์ เลื่อนแนวนอนได้ (มือถือ/จอแคบ) · ปิด = 4 คอลัมน์เดิม
+    <div className={wf.enabled ? 'flex gap-3 overflow-x-auto pb-2' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'}>
+      {kanbanStatusOrder(wf.enabled).map((status) => {
         const col = tasks.filter((t) => t.status === status)
-        const dropOk = !!dragTask && editableOf(dragTask) && allowedDragTargets(dragTask, meId).includes(status)
+        const dropOk = !!dragTask && editableOf(dragTask) && allowedDragTargets(dragTask, meId, wf).includes(status)
         return (
           <div
             key={status}
             onDragOver={dropOk ? over : undefined}
             onDrop={dropOk ? () => { if (dragId) void onStatusChange(dragId, status); setDragId(null) } : undefined}
-            className={`min-h-24 rounded-lg border p-2 ${STATUS_COLUMN_CLASS[status] ?? 'border-border bg-hover/60'}`}
+            className={`min-h-24 rounded-lg border p-2 ${wf.enabled ? 'w-64 shrink-0' : ''} ${STATUS_COLUMN_CLASS[status] ?? 'border-border bg-hover/60'}`}
           >
             <div className="flex items-center gap-1.5 px-1.5 py-1 mb-1.5">
               <span className={`w-2 h-2 rounded-full ${TASK_STATUS_DOT[status]}`} />
