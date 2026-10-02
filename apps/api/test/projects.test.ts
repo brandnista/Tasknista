@@ -342,3 +342,40 @@ describe('§Task ID Format — รหัสโปรเจกต์บังค�
     expect((await patch(owner, first.id, { code: 'ABC' })).status).toBe(200)
   })
 })
+
+describe('§D1 row-read quota (2026-10-02) — "อัปเดตล่าสุด" ของโปรเจกต์เก็บเป็นคอลัมน์ (projects.last_activity_at) อัปเดตโดย writeAudit', () => {
+  const listProjects = async (cookie: string) =>
+    (await (await app.request('/api/projects', { headers: { cookie } }, env)).json()) as { id: string; lastActivityAt: number | null }[]
+
+  it('โปรเจกต์ใหม่ยังไม่มีงาน → null · สร้างงานแล้ว → มีเวลา · มีความเคลื่อนไหวใหม่ → เวลาไม่ย้อนหลัง · โปรเจกต์อื่นไม่ถูกแตะ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const a = (await (await createProject(owner, { name: 'โปรเจกต์ A', type: 'project' })).json()) as { id: string }
+    const b = (await (await createProject(owner, { name: 'โปรเจกต์ B', type: 'project' })).json()) as { id: string }
+
+    const before = await listProjects(owner)
+    expect(before.find((p) => p.id === a.id)?.lastActivityAt).toBeNull()
+
+    const taskRes = await app.request(
+      `/api/projects/${a.id}/tasks`,
+      { method: 'POST', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ title: 'งานใน A' }) },
+      env,
+    )
+    expect(taskRes.status).toBe(201)
+    const task = (await taskRes.json()) as { id: string }
+
+    const afterCreate = await listProjects(owner)
+    const first = afterCreate.find((p) => p.id === a.id)?.lastActivityAt
+    expect(first).toBeTypeOf('number')
+    expect(afterCreate.find((p) => p.id === b.id)?.lastActivityAt).toBeNull()
+
+    await new Promise((r) => setTimeout(r, 5))
+    const patchRes = await app.request(
+      `/api/tasks/${task.id}`,
+      { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ priority: 'high' }) },
+      env,
+    )
+    expect(patchRes.status).toBe(200)
+    const second = (await listProjects(owner)).find((p) => p.id === a.id)?.lastActivityAt
+    expect(second).toBeGreaterThanOrEqual(first as number)
+  })
+})

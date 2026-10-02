@@ -1,4 +1,6 @@
 import { env } from 'cloudflare:test'
+import { createDb, notifications, tasks } from '@seedoffice/db'
+import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { app } from '../src/index'
 import { loginAs, seedUsers } from './helpers'
@@ -263,5 +265,54 @@ describe('X3 — NOTIFICATION_CATEGORIES ต้องครอบคลุมท
     const categorized = new Set(NOTIFICATION_CATEGORIES.flatMap((c) => c.types))
     const missing = NOTIFICATION_TYPES.filter((t) => !categorized.has(t))
     expect(missing).toEqual([])
+  })
+})
+
+describe('§D1 row-read quota (2026-10-02) — GET /api/notifications/stamp (poll แบบเบา แทนดึงรายการทั้งก้อนทุก 30 วินาที)', () => {
+  const stamp = async (cookie: string) =>
+    (await (await app.request('/api/notifications/stamp', { headers: { cookie } }, env)).json()) as { latest: string | null; review: number }
+
+  it('ไม่มีแจ้งเตือน → latest เป็น null · มีแจ้งเตือนใหม่ → latest เปลี่ยน · ของคนอื่นไม่ปน', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const db = createDb(env.DB)
+    await db.delete(notifications)
+    expect((await stamp(pond)).latest).toBeNull()
+
+    await db.insert(notifications).values({ userId: 'u_pond', type: 'meeting_scheduled', message: 'ก' })
+    const first = (await stamp(pond)).latest
+    expect(first).not.toBeNull()
+    expect((await stamp(owner)).latest).toBeNull()
+
+    await new Promise((r) => setTimeout(r, 5))
+    await db.insert(notifications).values({ userId: 'u_pond', type: 'meeting_scheduled', message: 'ข' })
+    expect((await stamp(pond)).latest).not.toBe(first)
+  })
+
+  it('review = จำนวนงานรอตรวจที่ยังไม่เคยเห็น หรือถูกส่งตรวจใหม่หลังเห็นครั้งล่าสุด (นิยามเดียวกับ badge งานรอตรวจเดิม)', async () => {
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const db = createDb(env.DB)
+    const t0 = Date.now() - 60_000
+    const [t] = await db
+      .insert(tasks)
+      .values({ title: 'งานรอตรวจ', status: 'waiting_for_test', reviewerId: 'u_pond', createdBy: 'u_owner', submittedAt: new Date(t0) })
+      .returning()
+    expect((await stamp(pond)).review).toBe(1)
+
+    // เข้าเมนู "งานรอตรวจ" แล้ว → ไม่นับเป็นของใหม่
+    await app.request('/api/tasks/pending-review/seen', { method: 'POST', headers: { cookie: pond } }, env)
+    expect((await stamp(pond)).review).toBe(0)
+
+    // ส่งตรวจรอบใหม่หลังจากเห็นแล้ว → นับใหม่
+    await db.update(tasks).set({ submittedAt: new Date(Date.now() + 60_000) }).where(eq(tasks.id, t!.id))
+    expect((await stamp(pond)).review).toBe(1)
+
+    // งานที่ไม่ได้อยู่สถานะรอตรวจแล้ว ไม่นับ
+    await db.update(tasks).set({ status: 'done' }).where(eq(tasks.id, t!.id))
+    expect((await stamp(pond)).review).toBe(0)
+  })
+
+  it('ไม่ login เรียกไม่ได้ (401)', async () => {
+    expect((await app.request('/api/notifications/stamp', {}, env)).status).toBe(401)
   })
 })
