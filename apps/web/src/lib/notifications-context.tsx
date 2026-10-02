@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router'
 import { api } from './api'
 import type { NotificationLike } from './notification-href'
@@ -49,7 +49,16 @@ const NotificationsContext = createContext<NotificationsValue>({
   markReviewSeen: async () => {},
 })
 
-const POLL_MS = 30_000
+// Pronista §D1 row-read quota (2026-10-02) — เดิมทุกแท็บดึงรายการแจ้งเตือน (50 แถว + join) + รายการงานรอตรวจทุก 30 วินาที แม้แท็บถูกซ่อนอยู่
+// ตอนนี้: ถามแบบเบา (/api/notifications/stamp) ทุก 60 วินาที เฉพาะตอนแท็บมองเห็น · ดึงรายการเต็มก็ต่อเมื่อมีแจ้งเตือนใหม่ หรือครบรอบรีเฟรชเต็ม (กันสถานะอ่านแล้วจากอุปกรณ์อื่นค้าง)
+const POLL_MS = 60_000
+const FULL_REFRESH_MS = 5 * 60_000
+const MIN_GAP_MS = 5_000
+
+interface NotificationStamp {
+  latest: string | null
+  review: number
+}
 
 /**
  * Pronista §Notification overhaul (2026-08-27) — Batch C: จุดโหลด/สถานะแจ้งเตือนกลางจุดเดียวของทั้งแอป
@@ -63,25 +72,40 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Pronista §PRO-DEF-0002 (2026-09-25) — NotificationsProvider ถูก mount อยู่ใต้ Router อยู่แล้ว (เป็นลูกของ Layout) เลยเรียก useLocation() ตรงนี้ได้ ใช้เป็นสัญญาณ "เปลี่ยนหน้า" รีเฟรชเลข badge งานรอตรวจให้สดหลังอนุมัติ/ตีกลับ task แล้วเปลี่ยนหน้า
   const location = useLocation()
 
+  const lastLatest = useRef<string | null>(null)
+  const lastFullAt = useRef(0)
+  const lastRefreshAt = useRef(0)
+
   const reload = useCallback(() => {
     api
       .get<NotificationRow[]>('/api/notifications')
-      .then((data) => { setRows(data); setLoadError(false) })
+      .then((data) => { lastFullAt.current = Date.now(); setRows(data); setLoadError(false) })
       .catch(() => setLoadError(true))
   }, [])
 
-  // Pronista §PRO-DEF-0002 (2026-09-25) — ดึงจาก endpoint เดียวกับ list หน้า "งานรอตรวจ" ตรงๆ (ไม่ใช่นับ unread notification) กันเลข badge เพี้ยนจาก list จริง
+  // Pronista §PRO-DEF-0002 (2026-09-25) — เลข badge งานรอตรวจนับจากงานจริง (ไม่ใช่นับ unread notification) กันเลขเพี้ยนจาก list จริง
   // (2026-09-25 follow-up) นับเฉพาะงานที่ยังไม่เคยเห็นในเมนู "งานรอตรวจ" หรือถูกส่งตรวจใหม่หลังเห็นครั้งล่าสุด — เข้าเมนูแล้ว (markReviewSeen) เลขลดทันที
+  // (2026-10-02) นับที่ server แล้วส่งมาใน /api/notifications/stamp (นิยามเดียวกัน) แทนดึงรายการงานรอตรวจทั้งก้อนมานับเอง
   const reloadReviewCount = useCallback(() => {
     api
-      .get<{ submittedAt: string | null; reviewSeenAt: string | null }[]>('/api/tasks/pending-review')
-      .then((data) =>
-        setReviewCount(
-          data.filter((t) => !t.reviewSeenAt || (t.submittedAt != null && Date.parse(t.submittedAt) > Date.parse(t.reviewSeenAt))).length,
-        ),
-      )
+      .get<NotificationStamp>('/api/notifications/stamp')
+      .then((s) => setReviewCount(s.review))
       .catch(() => {})
   }, [])
+
+  // ถามแบบเบาก่อน — ดึงรายการแจ้งเตือนเต็มเฉพาะเมื่อมีแจ้งเตือนใหม่ (latest เปลี่ยน) / ยังไม่เคยโหลด / ครบรอบรีเฟรชเต็ม
+  const refresh = useCallback(() => {
+    lastRefreshAt.current = Date.now()
+    api
+      .get<NotificationStamp>('/api/notifications/stamp')
+      .then((s) => {
+        setReviewCount(s.review)
+        const changed = s.latest !== lastLatest.current
+        lastLatest.current = s.latest
+        if (changed || lastFullAt.current === 0 || Date.now() - lastFullAt.current > FULL_REFRESH_MS) reload()
+      })
+      .catch(() => setLoadError(true))
+  }, [reload])
 
   const markReviewSeen = useCallback(async () => {
     setReviewCount(0)
@@ -93,11 +117,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [reloadReviewCount])
 
   useEffect(() => {
-    reload()
-    reloadReviewCount()
-    const id = setInterval(() => { reload(); reloadReviewCount() }, POLL_MS)
+    refresh()
+    // แท็บถูกซ่อน (สลับไปแท็บอื่น/ย่อหน้าต่าง) ไม่ต้องถาม — กลับมามองเห็นเมื่อไหร่ค่อยถามทันที (effect ด้านล่าง)
+    const id = setInterval(() => { if (!document.hidden) refresh() }, POLL_MS)
     return () => clearInterval(id)
-  }, [reload, reloadReviewCount])
+  }, [refresh])
 
   // เปลี่ยนหน้า (เช่น อนุมัติ/ตีกลับ task ที่หน้า detail แล้วย้อนกลับ) → รีเฟรชเลขทันที ไม่ต้องรอ poll รอบถัดไป
   useEffect(() => {
@@ -105,10 +129,19 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   }, [location.pathname, reloadReviewCount])
 
   // กลับมาโฟกัสแท็บ/หน้าต่าง (เช่นสลับไปแท็บอื่นอนุมัติ task แล้วกลับมา) → รีเฟรชเลขด้วยเช่นกัน
+  // (2026-10-02) focus + visibilitychange ยิงพร้อมกันได้ในการกลับมาครั้งเดียว — กันถามซ้ำด้วยช่วงห่างขั้นต่ำ 5 วินาที
   useEffect(() => {
-    window.addEventListener('focus', reloadReviewCount)
-    return () => window.removeEventListener('focus', reloadReviewCount)
-  }, [reloadReviewCount])
+    const onBack = () => {
+      if (document.hidden || Date.now() - lastRefreshAt.current < MIN_GAP_MS) return
+      refresh()
+    }
+    window.addEventListener('focus', onBack)
+    document.addEventListener('visibilitychange', onBack)
+    return () => {
+      window.removeEventListener('focus', onBack)
+      document.removeEventListener('visibilitychange', onBack)
+    }
+  }, [refresh])
 
   const markRead = useCallback(async (id: string) => {
     setRows((prev) => prev?.map((r) => (r.id === id ? { ...r, isRead: true } : r)) ?? prev)

@@ -323,6 +323,8 @@ export const projects = sqliteTable(
     description: text('description'), // Pronista — คำโปรยสั้นๆ ใต้ชื่อโปรเจกต์ (การ์ดหัวโปรเจกต์)
     url: text('url'), // Pronista §2.11 — ลิงก์เว็บไซต์จริงของโปรเจกต์/โปรดักต์ (ถ้ามี)
     logo: text('logo'), // emoji
+    // Pronista §D1 row-read quota (2026-10-02) — "อัปเดตล่าสุด" ของโปรเจกต์ เก็บเป็นคอลัมน์เดียว (writeAudit อัปเดตให้ทุกครั้งที่มี audit ของ task ในโปรเจกต์นี้) แทนการให้ GET /projects ไล่อ่าน audit_logs ของ task ทุกแถวทุกครั้งที่เปิดหน้ารายการโปรเจกต์
+    lastActivityAt: integer('last_activity_at', { mode: 'timestamp_ms' }),
     clientId: text('client_id').references(() => clients.id),
     // Pronista §Back to Basic (ต่อยอด) — Project Lead / หัวหน้าโครงการ เลือกได้ 1 คนตอนสร้างโปรเจกต์ (ไม่บังคับ)
     leadId: text('lead_id').references(() => users.id),

@@ -87,6 +87,29 @@ export const notificationRoutes = new Hono<AppEnv>()
     return c.json({ rows, total: totalRow[0]?.n ?? 0 })
   })
 
+  // Pronista §D1 row-read quota (2026-10-02) — poll แบบเบาแทนการดึงรายการแจ้งเตือน 50 แถว + join ทุก 30 วินาทีต่อแท็บ
+  // latest = แจ้งเตือนล่าสุดของฉัน (อ่านแถวเดียวผ่าน index user_id+created_at) · review = จำนวนงานรอตรวจที่ยังไม่เคยเห็น/ถูกส่งตรวจใหม่ (นิยามเดียวกับ badge "งานรอตรวจ" เดิมที่เคยนับฝั่ง client จาก /tasks/pending-review)
+  // client ดึงรายการเต็มก็ต่อเมื่อ latest เปลี่ยน (หรือถึงรอบรีเฟรชเต็ม) — ไม่เปลี่ยนก็ไม่ต้องอ่านอะไรเพิ่ม
+  .get('/notifications/stamp', async (c) => {
+    const db = createDb(c.env.DB)
+    const me = c.get('user')
+    const [latestRow, reviewRows] = await Promise.all([
+      db
+        .select({ id: notifications.id, createdAt: notifications.createdAt })
+        .from(notifications)
+        .where(eq(notifications.userId, me.id))
+        .orderBy(desc(notifications.createdAt))
+        .limit(1),
+      db
+        .select({ submittedAt: tasks.submittedAt, reviewSeenAt: tasks.reviewSeenAt })
+        .from(tasks)
+        .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test'))),
+    ])
+    const latest = latestRow[0] ? `${latestRow[0].createdAt.getTime()}:${latestRow[0].id}` : null
+    const review = reviewRows.filter((t) => !t.reviewSeenAt || (t.submittedAt != null && t.submittedAt.getTime() > t.reviewSeenAt.getTime())).length
+    return c.json({ latest, review })
+  })
+
   .post('/notifications/:id/read', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')

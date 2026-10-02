@@ -265,19 +265,8 @@ export const projectRoutes = new Hono<AppEnv>()
       .orderBy(asc(milestones.sortOrder))
     // Pronista §PM View — Timeline (Gantt) โชว์จุด milestone จริงต่อโปรเจกต์
     const milestonesOf = (projectId: string) => allMilestones.filter((m) => m.projectId === projectId).map(({ name, dueDate, status }) => ({ name, dueDate, status }))
-    // Pronista §โปรเจกต์ Summary — "อัปเดตล่าสุด" จับจากงาน (task) ที่ขยับล่าสุดในโปรเจกต์ (audit_logs entity='task')
-    const activity = await db
-      .select({ projectId: tasks.projectId, at: auditLogs.at })
-      .from(auditLogs)
-      .innerJoin(tasks, eq(auditLogs.entityId, tasks.id))
-      .where(eq(auditLogs.entity, 'task'))
-    const lastActivityOf = new Map<string, number>()
-    for (const a of activity) {
-      if (!a.projectId) continue
-      const at = a.at.getTime()
-      const cur = lastActivityOf.get(a.projectId)
-      if (!cur || at > cur) lastActivityOf.set(a.projectId, at)
-    }
+    // Pronista §โปรเจกต์ Summary — "อัปเดตล่าสุด" = projects.last_activity_at (writeAudit อัปเดตให้ทุกครั้งที่ task ในโปรเจกต์มี audit)
+    // เดิมไล่อ่าน audit_logs ของ task ทุกแถว + join tasks ทุกครั้งที่เปิดหน้ารายการโปรเจกต์ (D1 row-read quota 2026-10-01)
     const me = c.get('user')
     const role = me.role
     const today = bkkDateOf(Date.now())
@@ -311,7 +300,7 @@ export const projectRoutes = new Hono<AppEnv>()
             usagePct: h.usagePct,
             progress: progressOf(r.project.id),
             milestones: milestonesOf(r.project.id),
-            lastActivityAt: lastActivityOf.get(r.project.id) ?? null,
+            lastActivityAt: r.project.lastActivityAt?.getTime() ?? null,
             // Pronista §Subscription Notify — ใกล้/เลยวันหมดอายุบริการแล้ว (ยังไม่ต่ออายุ) ใช้กรองแท็บ "บริการใกล้หมดอายุ"
             nearExpiry: isNearExpiry(r.project.serviceEndDate, r.project.notifyBeforeDays, today),
             serviceTypeName: serviceTypeById(svcTypes, r.project.serviceType)?.name ?? null,
