@@ -540,7 +540,8 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
       // (2026-09-17) — กด "ส่งงาน" แล้วเด้งกลับไปหน้าก่อนหน้าที่เข้ามาทันที (ปกติคือ "งานของฉัน") แทนที่จะค้างอยู่หน้า Task Detail ต่อ — เฉพาะ submit เท่านั้น action อื่น (อนุมัติ/ตีกลับ/ปิดงานเอง ฯลฯ) ยังอยู่หน้าเดิมเหมือนเดิม
       // (2026-09-30) PRO-0039 — หน้างานย่อย (Sub-task) ห้ามเด้งออกหลังกดปุ่ม: อยู่หน้าเดิมต่อเพื่อตรวจ/แก้ต่อได้ (เดิม navigate(-1) พากลับไป Task แม่ทุกครั้งที่กดส่งงาน) — Task ปกติคงพฤติกรรมเดิม
       // งานย่อยเก่าที่ยังไม่มี flag isSubtask ใช้รูปแบบรหัส <รหัสแม่>.N (เช่น PRO-0025.1) ตัดสินแทน
-      const isSubtaskPage = !!t.isSubtask || /\.\d+$/.test(t.code ?? '')
+      // (2026-10-02) PRO-0039 ถูกตีกลับ — QA ทดสอบ "Sub-task ใต้ Story" = Task ที่มีงานแม่ (Story) ซึ่งไม่มี flag isSubtask และรหัสปกติไม่มีจุด (เช่น PRO-0020) กดส่งงานแล้วยังเด้งกลับ → ถือเป็น "หน้างานย่อย" ทุกชิ้นที่มีงานแม่ (t.parent) ด้วย
+      const isSubtaskPage = !!t.isSubtask || !!t.parent || /\.\d+$/.test(t.code ?? '')
       if (workflowAction === 'submit' && !isSubtaskPage) navigate(-1)
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
