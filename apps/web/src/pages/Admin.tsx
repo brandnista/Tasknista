@@ -13,6 +13,9 @@ import { ManhourSettings } from '../components/ManhourSettings'
 import { ProjectStatusSettings } from '../components/ProjectStatusSettings'
 import { api, ApiError } from '../lib/api'
 import { useDialog } from '../components/Dialog'
+import { SaveBar } from '../components/SaveBar'
+import { useToast } from '../components/Toast'
+import { useDraftForm } from '../lib/use-draft-form'
 import { useLoad } from '../lib/useLoad'
 
 interface Config {
@@ -120,15 +123,35 @@ function IcsLinkCard() {
 export function AdminPage() {
   const { data: cfg, reload: reloadCfg } = useLoad<Config>(() => api.get('/api/config'))
   const { alertDialog } = useDialog()
+  const toast = useToast()
+  const [saving, setSaving] = useState(false)
+  // Pronista §Save button (2026-10-02) — ค่าบริษัทแก้ใน draft แล้วกดปุ่ม "บันทึก" (เดิมบันทึกเองตอนคลิกออกจากช่อง มีแจ้งเฉพาะตอนผิดพลาด ไม่มีปุ่ม/แจ้งสำเร็จ)
+  const form = useDraftForm<Config>(cfg)
+  const numberFields: (keyof Config)[] = ['cutoffDay', 'workHourCapMinutes', 'dueSoonDays']
 
-  // Pronista §Admin config error handling fix (2026-09-11) — เดิมไม่ดัก error เลย พิมพ์ค่าที่ validate ไม่ผ่าน (เช่น โดเมนไม่มี @ นำหน้า) แล้ว blur จะไม่เกิดอะไรขึ้นเลย ดูเหมือนบันทึกสำเร็จทั้งที่ค่าเดิมยังคงอยู่
-  const saveCfg = async (patch: Partial<Config>) => {
+  const saveCfg = async () => {
+    const payload: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(form.changes)) {
+      if (numberFields.includes(k as keyof Config)) {
+        if (v === null) {
+          await alertDialog({ title: 'บันทึกไม่ได้', message: 'กรุณากรอกตัวเลข' })
+          return
+        }
+        payload[k] = Number(v)
+      } else {
+        payload[k] = k === 'memberDomain' ? String(v ?? '').toLowerCase() : v
+      }
+    }
+    setSaving(true)
     try {
-      await api.patch('/api/admin/config', patch)
+      await api.patch('/api/admin/config', payload)
       await reloadCfg()
+      form.reset()
+      toast('บันทึกสำเร็จ')
     } catch (e) {
-      await alertDialog({ title: e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ' })
-      await reloadCfg()
+      await alertDialog({ title: 'บันทึกไม่สำเร็จ', message: e instanceof ApiError ? e.message : 'กรุณาลองใหม่อีกครั้ง' })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -146,11 +169,8 @@ export function AdminPage() {
                   type="number"
                   min={1}
                   max={28}
-                  defaultValue={cfg.cutoffDay}
-                  onBlur={(e) => {
-                    const v = Number(e.target.value)
-                    if (v !== cfg.cutoffDay) void saveCfg({ cutoffDay: v })
-                  }}
+                  value={form.value('cutoffDay')}
+                  onChange={(e) => form.set('cutoffDay', e.target.value)}
                   className="w-20 text-sm shadow-xs bg-white rounded-lg px-3 py-2 text-right tabular-nums"
                 />
               </label>
@@ -161,11 +181,8 @@ export function AdminPage() {
                   min={60}
                   max={1440}
                   step={30}
-                  defaultValue={cfg.workHourCapMinutes}
-                  onBlur={(e) => {
-                    const v = Number(e.target.value)
-                    if (v !== cfg.workHourCapMinutes) void saveCfg({ workHourCapMinutes: v })
-                  }}
+                  value={form.value('workHourCapMinutes')}
+                  onChange={(e) => form.set('workHourCapMinutes', e.target.value)}
                   className="w-24 text-sm shadow-xs bg-white rounded-lg px-3 py-2 text-right tabular-nums"
                 />
               </label>
@@ -175,11 +192,8 @@ export function AdminPage() {
                   type="number"
                   min={0}
                   max={30}
-                  defaultValue={cfg.dueSoonDays}
-                  onBlur={(e) => {
-                    const v = Number(e.target.value)
-                    if (v !== cfg.dueSoonDays) void saveCfg({ dueSoonDays: v })
-                  }}
+                  value={form.value('dueSoonDays')}
+                  onChange={(e) => form.set('dueSoonDays', e.target.value)}
                   className="w-20 text-sm shadow-xs bg-white rounded-lg px-3 py-2 text-right tabular-nums"
                 />
               </label>
@@ -188,14 +202,12 @@ export function AdminPage() {
                 <input
                   type="text"
                   placeholder="@example.com"
-                  defaultValue={cfg.memberDomain}
-                  onBlur={(e) => {
-                    const v = e.target.value.trim().toLowerCase()
-                    if (v !== cfg.memberDomain) void saveCfg({ memberDomain: v })
-                  }}
+                  value={form.value('memberDomain')}
+                  onChange={(e) => form.set('memberDomain', e.target.value)}
                   className="w-44 text-sm shadow-xs bg-white rounded-lg px-3 py-2"
                 />
               </label>
+              <SaveBar inline dirty={form.dirty} saving={saving} onSave={() => void saveCfg()} onDiscard={() => form.reset()} />
               <p className="text-[11px] text-muted">
                 ตอนนี้: งวด {cfg.cutoffDay} → {cfg.cutoffDay - 1} · เพดาน{' '}
                 {(cfg.workHourCapMinutes / 60).toFixed(1)} ชม./วัน (ชนเพดาน = timer หยุด + บล็อก) ·

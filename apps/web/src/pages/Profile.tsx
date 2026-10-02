@@ -1,62 +1,97 @@
 /* Hallmark · redesign · genre: modern-minimal · structure: app profile-header (not a landing macrostructure — see redesign note) · theme: existing project tokens (locked, no new palette) */
-import { Check, Loader2, Plug } from 'lucide-react'
+import { selfEditableProfileFields, type SelfEditableProfileField } from '@seedoffice/core'
 import { useState, type ChangeEvent } from 'react'
-import { AccessTokens } from '../components/AccessTokens'
 import { Avatar } from '../components/Avatar'
+import { useDialog } from '../components/Dialog'
 import { GoogleCalendarConnect } from '../components/GoogleCalendarConnect'
 import { PageHeader } from '../components/PageHeader'
+import { SaveBar } from '../components/SaveBar'
 import { useToast } from '../components/Toast'
-import { api } from '../lib/api'
-import { useAuth } from '../lib/auth'
+import { api, ApiError } from '../lib/api'
+import { useAuth, type Me } from '../lib/auth'
 import { ROLE_LABEL } from '../lib/role-label'
+import { useDraftForm } from '../lib/use-draft-form'
+import { CLASSIFICATION_TYPE_LABEL } from './UserSettings'
 
-/** โปรไฟล์ตัวเอง — แก้ ชื่อจริง/นามสกุล/ชื่อเล่น + (owner/member) จัดการ Access Tokens (SPEC §4.1, §4.18) */
+/**
+ * โปรไฟล์ตัวเอง — แก้ ชื่อจริง/นามสกุล/ชื่อเล่น + ข้อมูลส่วนตัวตามกลุ่มผู้ใช้ (SPEC §4.1)
+ * Pronista §Profile fields (2026-10-02) — ข้อมูลส่วนตัวที่กรอกที่นี่คือชุดเดียวกับหน้า จัดการพนักงาน / จัดการพาร์ทเนอร์ (ตาราง users เดียวกัน) ผู้ใช้ไม่เห็นเมนูตั้งค่า เลยกรอกเองที่นี่ แล้วแอดมินเห็นในหน้านั้นอัตโนมัติ
+ * ฟิลด์ที่แอดมิน/HR ดูแล (ตำแหน่ง วันเริ่มงาน รหัสพนักงาน สัญญา ประเภท) แสดงอย่างเดียว · ปุ่ม "บันทึก" + แจ้งผลด้วย toast/popup
+ */
 
 const field = 'w-full text-sm bg-white shadow-xs border border-border-subtle rounded-lg px-3 py-2 transition-colors focus:outline-hidden focus:border-brand-400 focus:ring-3 focus:ring-brand-100'
 const fieldLabel = 'text-xs font-medium text-muted mb-1 block'
+const readOnlyBox = 'w-full text-sm bg-hover text-muted rounded-lg px-3 py-2 min-h-[38px]'
+
+type ProfileForm = Pick<Me, 'firstName' | 'lastName' | 'nickname'> & Record<SelfEditableProfileField, string | null>
+
+const fmtDate = (iso: string | null) => (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : null)
 
 export function ProfilePage() {
   const toast = useToast()
+  const { alertDialog } = useDialog()
   const { user, refresh } = useAuth()
-  const [form, setForm] = useState({
-    firstName: user?.firstName ?? '',
-    lastName: user?.lastName ?? '',
-    nickname: user?.nickname ?? '',
-  })
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
+  const form = useDraftForm<ProfileForm>(user ?? undefined)
 
   if (!user) return null
 
-  const set = (k: keyof typeof form) => (e: ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
+  const editable = selfEditableProfileFields(user.role)
+  const can = (f: SelfEditableProfileField) => editable.includes(f)
+  const isPartner = user.role === 'vendor'
+  const isJuristic = user.classificationType === 'ordinary_juristic' || user.classificationType === 'extraordinary_juristic'
+  const branchType = form.value('branchType')
+
+  const text = (k: keyof ProfileForm) => ({
+    value: form.value(k),
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => form.set(k, e.target.value),
+  })
 
   const save = async () => {
+    const idCard = form.changes.idCardNumber
+    if (typeof idCard === 'string' && !/^\d{13}$/.test(idCard)) {
+      await alertDialog({ title: 'บันทึกไม่ได้', message: `${isPartner && isJuristic ? 'เลขทะเบียนนิติบุคคล (Tax ID)' : 'เลขบัตรประชาชน'} ต้องเป็นตัวเลข 13 หลัก` })
+      return
+    }
+    const branchCode = form.changes.branchCode
+    if (typeof branchCode === 'string' && !/^\d{5}$/.test(branchCode)) {
+      await alertDialog({ title: 'บันทึกไม่ได้', message: 'รหัสสาขาต้องเป็นตัวเลข 5 หลัก' })
+      return
+    }
     setSaving(true)
-    setError('')
-    setSaved(false)
     try {
-      await api.patch('/api/me', form)
+      await api.patch('/api/me', form.changes)
       await refresh()
-      setSaved(true)
+      form.reset()
       toast('บันทึกสำเร็จ')
-      setTimeout(() => setSaved(false), 2000)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')
+      await alertDialog({ title: 'บันทึกไม่สำเร็จ', message: e instanceof ApiError ? e.message : 'กรุณาลองใหม่อีกครั้ง' })
     } finally {
       setSaving(false)
     }
   }
 
-  const inputField = (label: string, k: keyof typeof form) => (
+  const inputField = (label: string, k: keyof ProfileForm, props: { placeholder?: string; maxLength?: number; type?: string } = {}) => (
     <label className="block">
       <span className={fieldLabel}>{label}</span>
-      <input value={form[k]} onChange={set(k)} className={field} />
+      <input {...text(k)} {...props} className={field} />
     </label>
   )
 
   const canToken = user.role === 'owner' || user.role === 'member'
+  const readOnlyRows: { label: string; value: string | null }[] = isPartner
+    ? [
+        { label: 'ประเภท', value: user.classificationType ? CLASSIFICATION_TYPE_LABEL[user.classificationType] : null },
+        { label: 'เงื่อนไขสัญญาจ้าง', value: user.contractType },
+        { label: 'วันหมดสัญญา', value: fmtDate(user.contractExpiryDate) },
+      ]
+    : editable.length > 0
+      ? [
+          { label: 'ตำแหน่ง', value: user.jobTitle },
+          { label: 'วันเริ่มงาน', value: fmtDate(user.startDate) },
+          { label: 'รหัสพนักงาน', value: user.employeeCode },
+        ]
+      : []
 
   return (
     <>
@@ -87,6 +122,9 @@ export function ProfilePage() {
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
           <div className="p-5 border-b border-border-subtle">
             <div className="font-semibold text-ink">ข้อมูลส่วนตัว</div>
+            {editable.length > 0 && (
+              <p className="text-[11px] text-muted mt-0.5">ข้อมูลชุดนี้แอดมินจะเห็นในหน้า {isPartner ? 'จัดการพาร์ทเนอร์' : 'จัดการพนักงาน'} ของคุณอัตโนมัติ</p>
+            )}
           </div>
           <div className="p-5 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -95,26 +133,48 @@ export function ProfilePage() {
             </div>
             {inputField('ชื่อเล่น (ใช้แสดงทั้งแอป ถ้ามี)', 'nickname')}
 
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => void save()}
-                disabled={saving}
-                className="inline-flex items-center gap-2 text-sm bg-brand-600 hover:bg-brand-700 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 text-white px-4 py-2 rounded-lg transition-all focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-brand-200"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> กำลังบันทึก…
-                  </>
-                ) : saved ? (
-                  <>
-                    <Check className="w-4 h-4" /> บันทึกแล้ว
-                  </>
-                ) : (
-                  'บันทึก'
+            {can('businessName') && inputField('ชื่อธุรกิจ', 'businessName')}
+            {editable.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {can('phone') && inputField(isPartner ? 'เบอร์มือถือ' : 'เบอร์โทร', 'phone')}
+                {can('prefix') && !isJuristic && inputField('คำนำหน้า', 'prefix', { placeholder: 'นาย/นาง/นางสาว' })}
+                {can('idCardNumber') && inputField(isPartner && isJuristic ? 'เลขทะเบียนนิติบุคคล (Tax ID)' : 'เลขบัตรประชาชน', 'idCardNumber', { maxLength: 13, placeholder: 'ตัวเลข 13 หลัก' })}
+                {can('specialty') && inputField('ความเชี่ยวชาญ', 'specialty', { placeholder: 'เช่น Frontend, UI/UX, ระบบบัญชี' })}
+                {can('bankAccount') && inputField('บัญชีธนาคาร (สำหรับจ่ายเงิน)', 'bankAccount', { placeholder: 'ธนาคาร + เลขบัญชี' })}
+                {can('branchType') && isJuristic && (
+                  <label className="block">
+                    <span className={fieldLabel}>ประเภทสาขา</span>
+                    <select
+                      value={branchType}
+                      onChange={(e) => {
+                        form.set('branchType', e.target.value || null)
+                        if (e.target.value !== 'branch') form.set('branchCode', null)
+                      }}
+                      className={field}
+                    >
+                      <option value="">— ไม่ระบุ —</option>
+                      <option value="hq">สำนักงานใหญ่</option>
+                      <option value="branch">สาขา</option>
+                    </select>
+                  </label>
                 )}
-              </button>
-              {error && <span className="text-sm text-danger-600">{error}</span>}
-            </div>
+                {can('branchCode') && isJuristic && branchType === 'branch' && inputField('รหัสสาขา', 'branchCode', { maxLength: 5, placeholder: 'ตัวเลข 5 หลัก' })}
+              </div>
+            )}
+            {can('address') && (
+              <label className="block">
+                <span className={fieldLabel}>ที่อยู่</span>
+                <textarea rows={2} {...text('address')} className={field} />
+              </label>
+            )}
+            {can('emergencyContactName') && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {inputField('ผู้ติดต่อฉุกเฉิน (ชื่อ)', 'emergencyContactName')}
+                {inputField('ผู้ติดต่อฉุกเฉิน (เบอร์โทร)', 'emergencyContactPhone')}
+              </div>
+            )}
+
+            <SaveBar inline dirty={form.dirty} saving={saving} onSave={() => void save()} onDiscard={() => form.reset()} />
 
             <p className="text-[11px] text-muted border-t border-divider pt-3">
               อีเมล/role แก้ที่นี่ไม่ได้ — ติดต่อ owner · ชื่อที่แสดงทั้งแอป = ชื่อเล่น (ถ้ามี) ไม่งั้น “ชื่อ นามสกุล”
@@ -122,24 +182,28 @@ export function ProfilePage() {
           </div>
         </div>
 
+        {/* ข้อมูลที่แอดมิน/HR กำหนด — แสดงอย่างเดียว */}
+        {readOnlyRows.length > 0 && (
+          <div className="bg-white rounded-lg shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-border-subtle">
+              <div className="font-semibold text-ink">ข้อมูลที่แอดมินกำหนด</div>
+              <p className="text-[11px] text-muted mt-0.5">แก้ไม่ได้ที่นี่ — ติดต่อ owner</p>
+            </div>
+            <div className="p-5 grid gap-3 sm:grid-cols-2">
+              {readOnlyRows.map((r) => (
+                <div key={r.label}>
+                  <span className={fieldLabel}>{r.label}</span>
+                  <div className={readOnlyBox}>{r.value || '—'}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Pronista §Calendar/Workload (2026-09-18) — เชื่อมต่อ Google Calendar ส่วนตัว (owner+member เท่านั้น ตรงกับ teamOnly ฝั่ง API) */}
         {canToken && <GoogleCalendarConnect userId={user.id} />}
 
-        {/* การเชื่อมต่อขั้นสูง — แยกจากข้อมูลส่วนตัวหลักชัดเจน ไม่ใช่ทุกคนต้องใช้ */}
-        {canToken && (
-          <div className="pt-1">
-            <div className="flex items-start gap-2 mb-2 px-1">
-              <Plug className="w-3.5 h-3.5 text-muted mt-0.5 shrink-0" />
-              <div>
-                <div className="text-xs font-semibold text-muted uppercase tracking-wide">การเชื่อมต่อขั้นสูง</div>
-                <p className="text-[11px] text-muted mt-0.5">
-                  ให้ Claude หรือสคริปต์ภายนอกเรียก API แทนคุณได้ (อ่าน/สร้าง/แก้งาน + เวลา — ไม่แตะข้อมูลการเงิน) ถ้ายังไม่ได้ใช้งานลักษณะนี้ ข้ามส่วนนี้ได้เลย
-                </p>
-              </div>
-            </div>
-            <AccessTokens />
-          </div>
-        )}
+        {/* Pronista (2026-10-02) — ซ่อนส่วน "การเชื่อมต่อขั้นสูง / Access Tokens" จากทุกคน (อาร์มสั่ง กันคำถามจากทีม) — component AccessTokens + API /api/tokens ยังอยู่ครบ ถ้าจะเปิดกลับให้ render <AccessTokens /> ตรงนี้ */}
       </div>
     </>
   )
