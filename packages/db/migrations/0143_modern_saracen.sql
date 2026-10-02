@@ -1,0 +1,1 @@
+ALTER TABLE `company_config` ADD `workflow_config` text;

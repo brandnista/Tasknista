@@ -275,6 +275,13 @@ export const companyConfig = sqliteTable('company_config', {
   taskTypes: text('task_types', { mode: 'json' }).$type<
     { id: string; name: string; sortOrder: number; subTypes: { id: string; name: string; sortOrder: number }[] }[]
   >(),
+  // Pronista §Task status workflow (2026-10-02) — flow สถานะงานแยกตามประเภทงาน (Document / Deployment) + สวิตช์เปิดใช้ (null = ค่าเริ่มต้น ปิดสวิตช์ · ดู packages/core/src/task-workflow.ts)
+  workflowConfig: text('workflow_config', { mode: 'json' }).$type<{
+    enabled: boolean
+    workflows: { id: string; name: string; steps: string[] }[]
+    typeFlows: Record<string, string>
+    defaultWorkflowId: string
+  }>(),
   // Pronista §Workspace — แคตตาล็อกแท็กสีของ Task (bug/urgent/blocked/ฯลฯ) ชุดเดียวทั้งบริษัท (null = ใช้ DEFAULT — resolve ใน core/labels)
   // tasks.labelIds อ้าง id ที่นี่ (array, ไม่มี DB-level FK — เหมือน positions/serviceTypes) · สีใช้ค่าเดียวกับ BOARD_COLOR_KEYS
   labels: text('labels', { mode: 'json' }).$type<{ id: string; name: string; color: string; sortOrder: number }[]>(),
@@ -487,7 +494,8 @@ export const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR', 'API']
 
 // Pronista §2.12 — สถานะ task ตายตัว 4 ค่า (Kanban ทุกโปรเจกต์ ไม่ว่า Product/Project) แทนที่ todo/doing/done เดิม
 // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — เพิ่ม 'rejected'/'cancelled' เป็นสถานะข้อยกเว้น (ไม่ใช่คอลัมน์ Kanban หลัก — ดู StatusKanban.tsx) เข้าถึงได้เฉพาะผ่าน action endpoint เฉพาะ (reject/cancel) ห้ามตั้งตรงผ่าน PATCH ทั่วไป
-export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'done', 'rejected', 'cancelled'] as const
+// Pronista §Task status workflow (2026-10-02) — เพิ่ม testing_stg / ready_for_prd / testing_prd สำหรับ flow Deployment (ใช้งานจริงเมื่อเปิดสวิตช์ workflow ใน company_config · enum ระดับ TS ไม่มี CHECK ใน DB จึงไม่ต้อง migration)
+export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done', 'rejected', 'cancelled'] as const
 // สถานะที่ถือว่า "จบแล้ว ไม่ต้อง action อีก" — ใช้แทน `ne(tasks.status,'done')` ในจุดที่หมายถึง "งานที่ยังต้องทำอยู่" (overdue/my-tasks/search ฯลฯ)
 export const INACTIVE_TASK_STATUSES = ['done', 'rejected', 'cancelled'] as const
 // สถานะที่เลือกได้ตรงๆ ผ่าน dropdown อิสระ (canEditStatusFreely) — ไม่รวม rejected/cancelled เพราะต้องผ่าน action ที่บังคับเหตุผลเท่านั้น (endpoint /reject, /cancel)

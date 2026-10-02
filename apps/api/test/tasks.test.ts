@@ -1217,3 +1217,29 @@ describe('§Epic bulk delete (2026-10-02) — POST /projects/:id/epics/bulk-dele
     expect((await listEpics(owner, p.id)).length).toBe(1)
   })
 })
+
+describe('§Task status workflow (2026-10-02) — สถานะใหม่ของ flow Deployment ยังตั้งตรงๆ ไม่ได้ (สวิตช์ปิดอยู่ จนกว่าเฟส 2 จะมีปุ่มกำกับ)', () => {
+  const NEW_STATUSES = ['testing_stg', 'ready_for_prd', 'testing_prd'] as const
+
+  it('PATCH /tasks/:id ตั้ง testing_stg / ready_for_prd / testing_prd → 400 invalid_status · สถานะเดิมยังตั้งได้ตามปกติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานทดสอบสถานะใหม่' }), env)).json()) as { id: string }
+    for (const status of NEW_STATUSES) {
+      const res = await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ status }) }, env)
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toBe('invalid_status')
+    }
+    const ok = await app.request(`/api/tasks/${t.id}`, { method: 'PATCH', headers: { cookie: owner, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'on_processing' }) }, env)
+    expect(ok.status).toBe(200)
+  })
+
+  it('สร้างงานพร้อมกำหนดสถานะใหม่ตั้งแต่แรกไม่ได้ (POST /projects/:id/tasks → 400)', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { p } = await setupProject(owner)
+    for (const status of NEW_STATUSES) {
+      const res = await app.request(`/api/projects/${p.id}/tasks`, json(owner, { title: 'x', status }), env)
+      expect(res.status).toBe(400)
+    }
+  })
+})

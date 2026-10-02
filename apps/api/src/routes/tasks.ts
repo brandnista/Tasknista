@@ -15,6 +15,7 @@ import {
   taskGroups,
   tasks,
   taskStars,
+  FREE_EDIT_TASK_STATUSES,
   TASK_STATUSES,
   timeEntries,
   timerSessions,
@@ -225,7 +226,7 @@ export const taskRoutes = new Hono<AppEnv>()
       .object({
         title: z.string().min(1),
         description: z.string().max(10000).optional(),
-        status: z.enum(TASK_STATUSES).optional(),
+        status: z.enum(FREE_EDIT_TASK_STATUSES).optional(), // Pronista §Task status workflow (2026-10-02) — สถานะใหม่ของ flow Deployment ตั้งตอนสร้างไม่ได้
         priority: z.enum(['low', 'normal', 'high']).optional(),
         assigneeId: z.string().optional(),
         startDate: isoDate.optional(),
@@ -643,6 +644,9 @@ export const taskRoutes = new Hono<AppEnv>()
     if (!isSelfClaim && !(await canEditTask(db, before, me, permissions))) return c.json({ error: 'forbidden' }, 403)
     // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ห้ามตั้ง status เป็น 'rejected'/'cancelled' ตรงๆ ผ่าน PATCH ทั่วไปเด็ดขาด ต้องผ่าน /tasks/:id/reject (ระบบตั้งเองตอน assignee ปฏิเสธ) หรือ /tasks/:id/cancel (บังคับเหตุผล) เท่านั้น
     // กันย้อนกลับไปเป็นช่องโหว่แบบเดียวกับที่เพิ่งแก้ createdBy — ถ้าปล่อยให้ dropdown อิสระตั้งตรงได้ จะข้ามการบังคับเหตุผลไปเลย
+    // Pronista §Task status workflow (2026-10-02) — testing_stg/ready_for_prd/testing_prd เปลี่ยนได้เฉพาะผ่านปุ่ม action ของ flow Deployment (เฟส 2) · ตอนนี้ยังไม่เปิด
+    if (body.data.status === 'testing_stg' || body.data.status === 'ready_for_prd' || body.data.status === 'testing_prd')
+      return c.json({ error: 'invalid_status', message: 'สถานะนี้ยังไม่เปิดใช้งาน' }, 400)
     if (body.data.status === 'rejected' || body.data.status === 'cancelled')
       return c.json({ error: 'invalid_status', message: 'ตั้งสถานะนี้ตรงๆ ไม่ได้ ต้องใช้ปุ่ม "ยกเลิกงาน" หรือให้ระบบตั้งเองตอนปฏิเสธงาน' }, 400)
     // Pronista §Business Rules Workflow (เฟส C, 2026-09-15) — ก่อนส่งตรวจ/ปิดงาน (waiting_for_test/done) ต้องเช็คงานย่อยให้ครบก่อน
