@@ -416,6 +416,8 @@ export const epics = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    // Pronista §Epic bulk delete (2026-10-02) — soft-delete (กฎโปรเจกต์: ลบ = ตั้ง deleted_at ไม่ลบแถวจริง) · Story ที่เคยอยู่ใต้ Epic นี้ถูกปลดออก (epicId=null) รายการ id เก็บไว้ใน audit_logs (epic.delete) เผื่อกู้คืน
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [index('epics_project_idx').on(t.projectId, t.sortOrder), index('epics_source_doc_idx').on(t.sourceDocId)],
 )

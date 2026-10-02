@@ -275,7 +275,7 @@ export async function loadProjectBacklog(
 export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>, projectId: string): Promise<WorkspaceBacklogItem[]> {
   const dispatcher = alias(users, 'dispatcher')
 
-  const epicRows = await db.select().from(epics).where(eq(epics.projectId, projectId)).orderBy(desc(epics.createdAt))
+  const epicRows = await db.select().from(epics).where(and(eq(epics.projectId, projectId), isNull(epics.deletedAt))).orderBy(desc(epics.createdAt))
 
   // หา parent ของทุก task (ไม่กรอง sprint) แค่พอรู้ depth ของ chain (Story→Task→Subtask) แม้ parent จะถูกลากเข้า sprint ไปแล้วก็ตาม
   const parentLookup = await db
@@ -358,7 +358,7 @@ export async function loadProjectAllBacklogItems(db: ReturnType<typeof createDb>
 export async function loadWorkspaceNativeBacklogItems(db: ReturnType<typeof createDb>, workspaceId: string): Promise<WorkspaceBacklogItem[]> {
   const dispatcher = alias(users, 'dispatcher')
 
-  const epicRows = await db.select().from(epics).where(eq(epics.workspaceId, workspaceId)).orderBy(desc(epics.createdAt))
+  const epicRows = await db.select().from(epics).where(and(eq(epics.workspaceId, workspaceId), isNull(epics.deletedAt))).orderBy(desc(epics.createdAt))
   const epicItems: WorkspaceBacklogItem[] = epicRows.map((e) => ({
     id: e.id,
     code: e.code,
