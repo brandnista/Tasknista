@@ -28,6 +28,24 @@ export interface Me {
   firstName: string | null
   lastName: string | null
   nickname: string | null
+  // Pronista §Profile fields (2026-10-02) — ข้อมูลส่วนตัว (แก้เองได้ ชุดเดียวกับหน้าจัดการพนักงาน/พาร์ทเนอร์) + ข้อมูลที่แอดมินกำหนด (แสดงอย่างเดียว)
+  phone: string | null
+  address: string | null
+  idCardNumber: string | null
+  emergencyContactName: string | null
+  emergencyContactPhone: string | null
+  businessName: string | null
+  specialty: string | null
+  bankAccount: string | null
+  prefix: string | null
+  branchType: 'hq' | 'branch' | null
+  branchCode: string | null
+  jobTitle: string | null
+  employeeCode: string | null
+  startDate: string | null
+  contractType: string | null
+  contractExpiryDate: string | null
+  classificationType: 'ordinary_individual' | 'ordinary_juristic' | 'extraordinary_individual' | 'extraordinary_juristic' | null
   // Pronista §System Requirements Update — เมนู sidebar ที่มองเห็นได้ ผูกกับหมวดผู้ใช้งาน (owner = ทุกเมนู true เสมอ)
   menuVisibility: Record<MenuKey, boolean>
   // Pronista §Import Data — ซ่อนปุ่ม Import Data เฉพาะ production ผ่าน env var (ยังเปิดบน staging/local)

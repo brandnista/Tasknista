@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router'
 import { PageHeader } from '../components/PageHeader'
 import { DateInputTH } from '../components/DateInputTH'
 import { useDialog } from '../components/Dialog'
+import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { ROLE_LABEL, ROLE_BADGE } from '../lib/role-label'
@@ -404,6 +405,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const navigate = useNavigate()
   const { user: me } = useAuth()
   const { confirmDialog, alertDialog } = useDialog()
+  const toast = useToast()
   const isOwner = me?.role === 'owner'
   const { data: usersList, loading, reload } = useLoad<AdminUser[]>(() => api.get('/api/admin/users'))
   const { data: teamsList, reload: reloadTeams } = useLoad<Team[]>(() => api.get('/api/admin/teams'))
@@ -428,6 +430,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
     try {
       await api.patch(`/api/admin/users/${u.id}`, { status: next })
       await reload()
+      toast(next === 'active' ? 'เปิดใช้งานบัญชีแล้ว' : 'ระงับบัญชีแล้ว')
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง' })
     }
@@ -461,6 +464,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
     try {
       await api.patch(`/api/admin/users/${u.id}`, { role })
       await reload()
+      toast('เปลี่ยนสิทธิ์สำเร็จ')
     } catch (e) {
       await alertDialog({ title: e instanceof ApiError ? e.message : 'เปลี่ยนสิทธิ์ไม่สำเร็จ ลองใหม่อีกครั้ง' })
     }
@@ -468,8 +472,14 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
   const saveManager = async (u: AdminUser, managerId: string) => {
     const next = managerId || null
     if (next === u.managerId) return
-    await api.patch(`/api/admin/users/${u.id}`, { managerId: next })
-    await reload()
+    try {
+      await api.patch(`/api/admin/users/${u.id}`, { managerId: next })
+      await reload()
+      toast('บันทึกหัวหน้าโดยตรงสำเร็จ')
+    } catch (e) {
+      await alertDialog({ title: 'บันทึกไม่สำเร็จ', message: e instanceof ApiError ? e.message : 'กรุณาลองใหม่อีกครั้ง' })
+      await reload()
+    }
   }
   const saveEmail = async (u: AdminUser, email: string) => {
     const next = email.trim().toLowerCase()
@@ -478,6 +488,7 @@ export function UserSettingsPage({ tab }: { tab: UserTab }) {
       await api.patch(`/api/admin/users/${u.id}`, { email: next })
       setEmailErrors((prev) => { if (!(u.id in prev)) return prev; const rest = { ...prev }; delete rest[u.id]; return rest })
       await reload()
+      toast('บันทึกอีเมลสำเร็จ')
     } catch (e) {
       setEmailErrors((prev) => ({ ...prev, [u.id]: e instanceof ApiError && e.message === 'email_exists' ? 'อีเมลนี้ถูกใช้แล้ว' : 'อีเมลไม่ถูกต้อง' }))
     }

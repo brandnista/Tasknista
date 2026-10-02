@@ -7,8 +7,10 @@ import { Link, useParams } from 'react-router'
 import { useDialog } from '../components/Dialog'
 import { DateInputTH } from '../components/DateInputTH'
 import { PageHeader } from '../components/PageHeader'
+import { SaveBar } from '../components/SaveBar'
 import { useToast } from '../components/Toast'
 import { api, ApiError } from '../lib/api'
+import { useDraftForm } from '../lib/use-draft-form'
 import { useLoad } from '../lib/useLoad'
 import { CLASSIFICATION_TYPE_LABEL, type ClassificationType } from './UserSettings'
 
@@ -39,25 +41,49 @@ const fmtBaht = (satang: number) => (satang / 100).toLocaleString('th-TH', { min
 export function MemberDetailPage() {
   const toast = useToast()
   const { id } = useParams<{ id: string }>()
-  const { confirmDialog } = useDialog()
+  const { confirmDialog, alertDialog } = useDialog()
   const { data: m, reload } = useLoad<MemberDetail>(() => api.get(`/api/members/${id}`), [id])
   const { data: settings } = useLoad<{ memberOrgSizeTiers: OrgSizeTier[]; membershipFees: { classificationType: ClassificationType; feeSatang: number }[] }>(() => api.get('/api/members/settings'))
   const { data: orders, reload: reloadOrders } = useLoad<MemberOrder[]>(() => api.get('/api/member-orders'), [])
-  const [error, setError] = useState('')
   const [idCardError, setIdCardError] = useState('')
+  const [saving, setSaving] = useState(false)
+  // Pronista §Save button (2026-10-02) — แก้ใน draft แล้วกดปุ่ม "บันทึก" (เดิมบันทึกเองตอนคลิกออกจากช่อง ไม่มีปุ่ม/แจ้งผล)
+  const form = useDraftForm<MemberDetail>(m)
 
   if (!m) return <div className="p-6 text-sm text-muted">กำลังโหลด…</div>
 
   const memberOrders = (orders ?? []).filter((o) => o.memberId === m.id)
   const suggestedFee = settings?.membershipFees.find((f) => f.classificationType === m.classificationType)?.feeSatang ?? 0
 
-  const save = async (patch: Partial<Omit<MemberDetail, 'id' | 'status'>>) => {
-    setError('')
+  const saveAll = async () => {
+    const idCard = form.changes.idCardNumber
+    if (typeof idCard === 'string' && !/^\d{13}$/.test(idCard)) {
+      setIdCardError('ต้องเป็นตัวเลข 13 หลัก')
+      await alertDialog({ title: 'บันทึกไม่ได้', message: 'เลขบัตรประชาชน / Tax ID ต้องเป็นตัวเลข 13 หลัก' })
+      return
+    }
+    const branchCode = form.changes.branchCode
+    if (typeof branchCode === 'string' && !/^\d{5}$/.test(branchCode)) {
+      await alertDialog({ title: 'บันทึกไม่ได้', message: 'รหัสสาขาต้องเป็นตัวเลข 5 หลัก' })
+      return
+    }
+    if (form.changes.name === null) {
+      await alertDialog({ title: 'บันทึกไม่ได้', message: 'ชื่อผู้ติดต่อห้ามว่าง' })
+      return
+    }
+    setIdCardError('')
+    setSaving(true)
     try {
-      await api.patch(`/api/members/${m.id}`, patch)
+      const payload: Record<string, unknown> = { ...form.changes }
+      if ('notifyBeforeDays' in payload) payload.notifyBeforeDays = payload.notifyBeforeDays === null ? null : Number(payload.notifyBeforeDays)
+      await api.patch(`/api/members/${m.id}`, payload)
       await reload()
+      form.reset()
+      toast('บันทึกสำเร็จ')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'บันทึกไม่สำเร็จ')
+      await alertDialog({ title: 'บันทึกไม่สำเร็จ', message: err instanceof ApiError ? err.message : 'กรุณาลองใหม่อีกครั้ง' })
+    } finally {
+      setSaving(false)
     }
   }
   const toggleStatus = async () => {
@@ -71,34 +97,32 @@ export function MemberDetailPage() {
     await reload()
   }
   const createOrder = async () => {
-    await api.post(`/api/members/${m.id}/orders`, { feeSatang: suggestedFee })
-    await reloadOrders()
+    try {
+      await api.post(`/api/members/${m.id}/orders`, { feeSatang: suggestedFee })
+      await reloadOrders()
+      toast('สร้างคำสั่งซื้อสำเร็จ')
+    } catch (err) {
+      await alertDialog({ title: 'สร้างคำสั่งซื้อไม่สำเร็จ', message: err instanceof ApiError ? err.message : 'กรุณาลองใหม่อีกครั้ง' })
+    }
   }
   const recordPayment = async (orderId: string, amountSatang: number) => {
-    await api.post(`/api/member-orders/${orderId}/payments`, { amountSatang })
-    toast('บันทึกสำเร็จ')
-    await reloadOrders()
+    try {
+      await api.post(`/api/member-orders/${orderId}/payments`, { amountSatang })
+      toast('บันทึกสำเร็จ')
+      await reloadOrders()
+    } catch (err) {
+      await alertDialog({ title: 'บันทึกการชำระเงินไม่สำเร็จ', message: err instanceof ApiError ? err.message : 'กรุณาลองใหม่อีกครั้ง' })
+    }
   }
 
   const label = 'text-xs font-medium text-muted mb-1 block'
   const input = 'w-full text-sm bg-white shadow-xs rounded-lg px-3 py-2 focus:outline-hidden focus:border-brand-400'
-  const onBlurText = (field: keyof MemberDetail, current: string | null) => (ev: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const v = ev.target.value.trim()
-    if (v !== (current ?? '')) void save({ [field]: v || null })
-  }
-  const isJuristic = m.classificationType === 'ordinary_juristic' || m.classificationType === 'extraordinary_juristic'
-  const isExtraIndividual = m.classificationType === 'extraordinary_individual'
-  const onBlurIdCard = (ev: React.FocusEvent<HTMLInputElement>) => {
-    const v = ev.target.value.trim()
-    if (v && !/^\d{13}$/.test(v)) { setIdCardError('ต้องเป็นตัวเลข 13 หลัก'); return }
-    setIdCardError('')
-    if (v !== (m.idCardNumber ?? '')) void save({ idCardNumber: v || null })
-  }
-  const onBlurBranchCode = (ev: React.FocusEvent<HTMLInputElement>) => {
-    const v = ev.target.value.trim()
-    if (v && !/^\d{5}$/.test(v)) return
-    if (v !== (m.branchCode ?? '')) void save({ branchCode: v || null })
-  }
+  const text = (k: keyof MemberDetail) => ({ value: form.value(k), onChange: (ev: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => form.set(k, ev.target.value) })
+  const classification = form.value('classificationType')
+  const branchType = form.value('branchType')
+  const membershipMode = form.value('membershipMode')
+  const isJuristic = classification === 'ordinary_juristic' || classification === 'extraordinary_juristic'
+  const isExtraIndividual = classification === 'extraordinary_individual'
 
   return (
     <>
@@ -112,7 +136,6 @@ export function MemberDetailPage() {
       />
       <div className="p-3 sm:p-6 max-w-2xl space-y-4">
         <Link to="/members" className="text-xs text-muted hover:text-brand-700 inline-flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> สมาชิกทั้งหมด</Link>
-        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2">{error}</div>}
         {m.status === 'disabled' && <div className="bg-warning-50 text-warning-700 text-sm rounded-lg px-3 py-2">สมาชิกรายนี้ถูกปิดการใช้งานอยู่</div>}
 
         <div className="bg-white rounded-lg shadow-xs p-5 space-y-3">
@@ -121,16 +144,16 @@ export function MemberDetailPage() {
             <div className="grid grid-cols-2 gap-2 text-sm">
               {(Object.keys(CLASSIFICATION_TYPE_LABEL) as ClassificationType[]).map((t) => (
                 <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="radio" name="classificationType" checked={m.classificationType === t} onChange={() => void save({ classificationType: t, orgSizeTierId: t === 'extraordinary_juristic' ? m.orgSizeTierId : null })} />
+                  <input type="radio" name="classificationType" checked={classification === t} onChange={() => { form.set('classificationType', t); if (t !== 'extraordinary_juristic') form.set('orgSizeTierId', null) }} />
                   {CLASSIFICATION_TYPE_LABEL[t]}
                 </label>
               ))}
             </div>
           </div>
-          {m.classificationType === 'extraordinary_juristic' && (
+          {classification === 'extraordinary_juristic' && (
             <div>
               <label className={label}>ขนาดองค์กร</label>
-              <select value={m.orgSizeTierId ?? ''} onChange={(e) => void save({ orgSizeTierId: e.target.value || null })} className={input}>
+              <select {...text('orgSizeTierId')} className={input}>
                 <option value="">— เลือกขนาดองค์กร —</option>
                 {(settings?.memberOrgSizeTiers ?? []).map((t) => <option key={t.id} value={t.id}>{t.name} ({fmtBaht(t.feeSatang)} บาท)</option>)}
               </select>
@@ -139,29 +162,29 @@ export function MemberDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={label}>ชื่อธุรกิจ</label>
-              <input defaultValue={m.businessName ?? ''} onBlur={onBlurText('businessName', m.businessName)} className={input} />
+              <input {...text('businessName')} className={input} />
             </div>
             <div>
               <label className={label}>ชื่อผู้ติดต่อ</label>
-              <input defaultValue={m.name} onBlur={onBlurText('name', m.name)} className={input} />
+              <input {...text('name')} className={input} />
             </div>
             <div>
               <label className={label}>อีเมล</label>
-              <input type="email" defaultValue={m.email ?? ''} onBlur={onBlurText('email', m.email)} className={input} />
+              <input type="email" {...text('email')} className={input} />
             </div>
             <div>
               <label className={label}>เบอร์มือถือ</label>
-              <input defaultValue={m.phone ?? ''} onBlur={onBlurText('phone', m.phone)} className={input} />
+              <input {...text('phone')} className={input} />
             </div>
             {!isJuristic && (
               <div>
                 <label className={label}>คำนำหน้า</label>
-                <input defaultValue={m.prefix ?? ''} onBlur={onBlurText('prefix', m.prefix)} className={input} placeholder="นาย/นาง/นางสาว" />
+                <input {...text('prefix')} className={input} placeholder="นาย/นาง/นางสาว" />
               </div>
             )}
             <div className={isJuristic ? 'sm:col-span-2' : ''}>
               <label className={label}>{isJuristic ? 'เลขทะเบียนนิติบุคคล (Tax ID)' : 'เลขบัตรประชาชน'}</label>
-              <input defaultValue={m.idCardNumber ?? ''} onBlur={onBlurIdCard} maxLength={13} className={input} placeholder="ตัวเลข 13 หลัก" />
+              <input {...text('idCardNumber')} maxLength={13} className={input} placeholder="ตัวเลข 13 หลัก" />
               {idCardError && <div className="text-[11px] text-danger-600 mt-1">{idCardError}</div>}
             </div>
             {isJuristic && (
@@ -169,8 +192,8 @@ export function MemberDetailPage() {
                 <div>
                   <label className={label}>ประเภทสาขา</label>
                   <select
-                    defaultValue={m.branchType ?? ''}
-                    onChange={(ev) => void save({ branchType: (ev.target.value || null) as MemberDetail['branchType'], branchCode: ev.target.value === 'branch' ? m.branchCode : null })}
+                    value={branchType}
+                    onChange={(ev) => { form.set('branchType', ev.target.value || null); if (ev.target.value !== 'branch') form.set('branchCode', null) }}
                     className={input}
                   >
                     <option value="">— ไม่ระบุ —</option>
@@ -178,10 +201,10 @@ export function MemberDetailPage() {
                     <option value="branch">สาขา</option>
                   </select>
                 </div>
-                {m.branchType === 'branch' && (
+                {branchType === 'branch' && (
                   <div>
                     <label className={label}>รหัสสาขา</label>
-                    <input defaultValue={m.branchCode ?? ''} onBlur={onBlurBranchCode} maxLength={5} className={input} placeholder="ตัวเลข 5 หลัก" />
+                    <input {...text('branchCode')} maxLength={5} className={input} placeholder="ตัวเลข 5 หลัก" />
                   </div>
                 )}
               </>
@@ -189,7 +212,7 @@ export function MemberDetailPage() {
             {isExtraIndividual && (
               <div className="sm:col-span-2">
                 <label className={label}>สังกัดเดิม / ความเชี่ยวชาญพิเศษ / ข้อตกลงพิเศษ</label>
-                <textarea rows={2} defaultValue={m.specialNote ?? ''} onBlur={onBlurText('specialNote', m.specialNote)} className={input} />
+                <textarea rows={2} {...text('specialNote')} className={input} />
               </div>
             )}
           </div>
@@ -200,34 +223,30 @@ export function MemberDetailPage() {
           <div className="flex items-center gap-4 text-sm">
             {(['lifetime', 'dated'] as const).map((mode) => (
               <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" name="membershipMode" checked={m.membershipMode === mode} onChange={() => void save({ membershipMode: mode })} />
+                <input type="radio" name="membershipMode" checked={membershipMode === mode} onChange={() => form.set('membershipMode', mode)} />
                 {mode === 'lifetime' ? 'ตลอดชีพ (Lifetime)' : 'มีอายุ (กำหนดวันที่)'}
               </label>
             ))}
           </div>
-          {m.membershipMode === 'dated' && (
+          {membershipMode === 'dated' && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className={label}>วันเริ่มต้น</label>
-                <DateInputTH defaultValue={m.startDate ?? ''} onBlur={onBlurText('startDate', m.startDate)} className={input} />
+                <DateInputTH value={form.value('startDate')} onChange={(v) => form.set('startDate', v)} className={input} />
               </div>
               <div>
                 <label className={label}>วันหมดอายุ</label>
-                <DateInputTH defaultValue={m.endDate ?? ''} onBlur={onBlurText('endDate', m.endDate)} className={input} />
+                <DateInputTH value={form.value('endDate')} onChange={(v) => form.set('endDate', v)} className={input} />
               </div>
               <div>
                 <label className={label}>แจ้งเตือนล่วงหน้า (วัน)</label>
-                <input
-                  type="number"
-                  min={0}
-                  defaultValue={m.notifyBeforeDays ?? ''}
-                  onBlur={(e) => void save({ notifyBeforeDays: e.target.value ? Number(e.target.value) : null })}
-                  className={input}
-                />
+                <input type="number" min={0} {...text('notifyBeforeDays')} className={input} />
               </div>
             </div>
           )}
         </div>
+
+        <SaveBar dirty={form.dirty} saving={saving} onSave={() => void saveAll()} onDiscard={() => { form.reset(); setIdCardError('') }} />
 
         <div className="bg-white rounded-lg shadow-xs overflow-hidden">
           <div className="px-5 py-3 border-b border-divider flex items-center justify-between">
