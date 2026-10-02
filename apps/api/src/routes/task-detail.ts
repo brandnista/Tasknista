@@ -27,6 +27,7 @@ import { writeAudit } from '../lib/audit'
 import { copyR2DocFile } from '../lib/doc-file'
 import { notifyCommentMentions } from '../lib/comment-mentions'
 import { notifyUser } from '../lib/notify'
+import { actualMinutesFor } from '../lib/workspace-query'
 import { availableActionsFor, flowOfTask, isDeploymentLike, loadWorkflowSettings } from '../lib/workflow'
 import { canEditTask, canEditTaskCollab, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
@@ -128,6 +129,9 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       .leftJoin(users, eq(tasks.assigneeId, users.id))
       .where(eq(tasks.parentId, realTaskId))
       .orderBy(asc(tasks.createdAt))
+    // Pronista §Subtask time rollup (2026-10-02) — เวลาทำจริงของงานย่อยแต่ละชิ้น + ผลรวม (นับแยกจากเวลาที่ลงที่งานนี้เอง จึงไม่นับซ้ำ) ใช้แสดง "รวมงานย่อย" ในหน้างานแม่
+    const subtaskActual = await actualMinutesFor(db, subtasks.map((x) => x.task.id))
+    const subtaskMinutes = [...subtaskActual.values()].reduce((a, b) => a + b, 0)
     const parent = row.task.parentId
       ? (await db.select({ id: tasks.id, title: tasks.title, code: tasks.code }).from(tasks).where(eq(tasks.id, row.task.parentId)).limit(1))[0]
       : null
@@ -241,7 +245,8 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       parent,
       epic,
       siblings,
-      subtasks: subtasks.map((x) => ({ ...x.task, assigneeName: x.assigneeName })),
+      subtasks: subtasks.map((x) => ({ ...x.task, assigneeName: x.assigneeName, actualMinutes: subtaskActual.get(x.task.id) ?? 0 })),
+      subtaskMinutes,
       checklist,
       customFields,
       comments: comments.map((x) => ({ ...x.comment, userName: x.userName, userAvatarUrl: x.userAvatarUrl })),

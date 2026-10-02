@@ -296,7 +296,11 @@ interface Detail {
     assigneeName: string | null
     estimateMinutes: number | null
     originCode: string | null
+    // Pronista §Subtask time rollup (2026-10-02) — เวลาทำจริงที่ลงไว้ที่งานย่อยชิ้นนี้ (นาที)
+    actualMinutes?: number
   }[]
+  // เวลาทำจริงรวมของงานย่อยทุกชิ้น (นาที) — ไม่รวมเวลาที่ลงที่งานนี้เอง
+  subtaskMinutes?: number
   // Pronista §Task Detail redesign — เกณฑ์ว่าเสร็จ แยกจาก description อิสระ
   checklist: { id: string; text: string; done: boolean }[]
   customFields: { id: string; label: string; value: string }[]
@@ -1228,6 +1232,7 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
                     <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${TASK_STATUS_BADGE[s.status]}`}>{TASK_STATUS_LABEL[s.status]}</span>
                     {s.originCode && <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-info-100 text-info-700 shrink-0">{s.originCode}</span>}
                     {s.estimateMinutes != null && <span className="text-[11px] text-muted shrink-0">{minutesToHoursLabel(s.estimateMinutes)} ชม.</span>}
+                    {(s.actualMinutes ?? 0) > 0 && <span className="text-[11px] text-brand-700 shrink-0" title="เวลาทำจริงที่ลงไว้ที่งานย่อยนี้">⏱ {minutesToHoursLabel(s.actualMinutes ?? 0)} ชม.</span>}
                     {s.assigneeName && <span className="text-[11px] text-muted shrink-0">{s.assigneeName}</span>}
                   </div>
                 ))}
@@ -1716,6 +1721,18 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
             {t.status !== 'non_start' && (
               <div className="border-t border-border-subtle pt-4">
                 <TimeSection taskId={t.id} hasProject={t.projectName !== null} rows={timeRows ?? []} reload={reloadTime} canManage={t.myRole === 'owner' || t.myRole === 'editor'} assigneeId={t.assigneeId} assigneeName={t.assigneeName} />
+              </div>
+            )}
+
+            {/* Pronista §Subtask time rollup (2026-10-02) — งานแม่ที่มีงานย่อย: แยกเวลา "ลงที่งานนี้เอง" กับ "งานย่อย" แล้วรวมให้ (ไม่ต้องลงเวลาซ้ำสองที่) */}
+            {t.subtasks.length > 0 && (totalMinutes > 0 || (t.subtaskMinutes ?? 0) > 0) && (
+              <div className="border-t border-border-subtle pt-4" data-testid="time-rollup">
+                <div className="text-xs font-medium text-muted mb-2">เวลาทำจริงรวมงานย่อย</div>
+                <dl className="text-xs space-y-1">
+                  <div className="flex justify-between gap-2"><dt className="text-dim">ลงที่งานนี้เอง</dt><dd className="tabular-nums text-body">{minutesToHoursLabel(totalMinutes)} ชม.</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-dim">รวมจากงานย่อย ({t.subtasks.length} งาน)</dt><dd className="tabular-nums text-body">{minutesToHoursLabel(t.subtaskMinutes ?? 0)} ชม.</dd></div>
+                  <div className="flex justify-between gap-2 border-t border-divider pt-1 font-semibold"><dt className="text-ink">รวมทั้งหมด</dt><dd className="tabular-nums text-ink">{minutesToHoursLabel(totalMinutes + (t.subtaskMinutes ?? 0))} ชม.</dd></div>
+                </dl>
               </div>
             )}
 
