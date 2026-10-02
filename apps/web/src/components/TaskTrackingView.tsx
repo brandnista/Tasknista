@@ -1,5 +1,6 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 · genre: modern-minimal · macrostructure: Workbench · theme: existing Pronista tokens · enrichment: none · designed-as-app */
 import { Columns3, List, Search, X } from 'lucide-react'
+import { sortByRecentActivity } from '@seedoffice/core'
 import { useEffect, useMemo, useState } from 'react'
 import { checklistLabel, dueUrgency, URGENCY_CARD_CLASS } from '../lib/due-urgency'
 import { TASK_STATUS_BADGE, TASK_STATUS_DOT, TASK_STATUS_LABEL, TASK_STATUS_ORDER, type TaskStatus } from '../lib/task-status'
@@ -10,6 +11,13 @@ const ALL = 'all'
 
 export interface TrackingTask extends KanbanTask {
   projectId?: string | null
+  // Pronista §Sort newest first (2026-10-02) — เวลาเหตุการณ์ของงาน (API ส่งมาอยู่แล้ว) ใช้เรียงรายการให้ของที่ขยับล่าสุดอยู่บน
+  createdAt?: string | number | null
+  acceptedAt?: string | number | null
+  submittedAt?: string | number | null
+  bouncedAt?: string | number | null
+  completedAt?: string | number | null
+  lastActivityAt?: string | number | null
 }
 
 interface TaskTrackingViewProps<T extends TrackingTask> {
@@ -57,7 +65,7 @@ export function TaskTrackingView<T extends TrackingTask>({
   const projects = useMemo(() => [...new Set(tasks.map(projectLabel))].sort((a, b) => a.localeCompare(b, 'th')), [tasks])
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('th')
-    return tasks.filter((task) => {
+    return sortByRecentActivity(tasks).filter((task) => {
       if (statusFilter !== ALL && task.status !== statusFilter) return false
       if (assigneeFilter !== ALL && assigneeLabel(task) !== assigneeFilter) return false
       if (projectFilter !== ALL && projectLabel(task) !== projectFilter) return false

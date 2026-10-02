@@ -1,5 +1,5 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 · genre: modern-minimal · macrostructure: Workbench · tone: friendly-readable · designed-as-app */
-import { resolveTaskTypes, type TaskType } from '@seedoffice/core'
+import { resolveTaskTypes, type TaskType, sortByRecentActivity } from '@seedoffice/core'
 import {
   AlertTriangle,
   BriefcaseBusiness,
@@ -227,7 +227,8 @@ function BouncedTasksWidget({ tasks, loading, acceptingTaskId, onOpenTask, onAcc
   const [expanded, setExpanded] = useState(false)
   // Pronista §Bounced Tasks Widget parity (2026-09-29) — เพิ่มตัวกรอง Work Type ให้ครบเหมือน NewlyDispatchedWidget
   const [workTypeFilter, setWorkTypeFilter] = useState<PendingWorkType>('')
-  const bounced = tasks.filter((t) => t.status === 'non_start' && t.bouncedAt != null)
+  // Pronista §Sort newest first (2026-10-02) — งานที่เพิ่งถูกตีกลับ/ขยับล่าสุดอยู่บนสุด (เดิมไม่ได้เรียง ของใหม่ไปอยู่ท้ายรายการ)
+  const bounced = sortByRecentActivity(tasks.filter((t) => t.status === 'non_start' && t.bouncedAt != null))
   const rows = workTypeFilter ? bounced.filter((t) => t.kind === workTypeFilter) : bounced
   return (
     <section className="overflow-hidden rounded-xl border border-danger-100 bg-danger-50/55 shadow-xs" aria-busy={loading}>
