@@ -170,22 +170,24 @@ function NoteShareModal({ note, onClose }: { note: { id: string; title: string |
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-4 space-y-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
+      {/* flex + min-w-0 (ไม่ใช้ grid place-items-center: track ของ grid ขยายตามเนื้อหา ทำให้ป๊อปอัปกว้างเกินจอมือถือเมื่อรายชื่อมีชื่อยาว) */}
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-xl shadow-2xl w-full min-w-0 max-w-sm p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="font-semibold text-ink text-sm">แชร์ "{note.title || 'บันทึกไม่มีหัวข้อ'}"</div>
+          <div className="font-semibold text-ink text-sm truncate">แชร์ "{note.title || 'บันทึกไม่มีหัวข้อ'}"</div>
           <button onClick={onClose} className="p-1 rounded hover:bg-hover text-dim"><X className="w-4 h-4" /></button>
         </div>
         <div className="flex gap-2">
-          <select value={pickUserId} onChange={(e) => setPickUserId(e.target.value)} className="flex-1 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
+          {/* min-w-0 (select กว้างตามชื่อที่ยาวสุดในรายการ หดไม่ลงถ้าไม่ใส่ → ดันปุ่ม "เพิ่ม" ล้นออกนอกกรอบ) · ช่องสิทธิ์/ปุ่มล็อกขนาดไว้ ไม่ให้ถูกบีบ */}
+          <select value={pickUserId} onChange={(e) => setPickUserId(e.target.value)} className="flex-1 min-w-0 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
             <option value="">— เลือกคน —</option>
             {options.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
-          <select value={pickRole} onChange={(e) => setPickRole(e.target.value as 'viewer' | 'editor')} className="text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
+          <select value={pickRole} onChange={(e) => setPickRole(e.target.value as 'viewer' | 'editor')} className="shrink-0 text-sm bg-hover rounded-lg px-2 py-2 focus:outline-hidden">
             <option value="viewer">ดูอย่างเดียว</option>
             <option value="editor">แก้ไขได้</option>
           </select>
-          <button onClick={() => void add()} disabled={!pickUserId} className="text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-2 rounded-lg disabled:opacity-40">เพิ่ม</button>
+          <button onClick={() => void add()} disabled={!pickUserId} className="shrink-0 whitespace-nowrap text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-2 rounded-lg disabled:opacity-40">เพิ่ม</button>
         </div>
         <div className="space-y-1 max-h-48 overflow-y-auto">
           {(members ?? []).length === 0 && <div className="text-xs text-muted text-center py-4">ยังไม่ได้แชร์ให้ใคร</div>}
