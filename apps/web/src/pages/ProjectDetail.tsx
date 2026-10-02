@@ -503,7 +503,8 @@ function ProjectBacklogSection({ projectId, canEdit: canEditProp, permissions, o
       ) : (FIXED_BACKLOG_TABS as readonly BacklogTab[]).includes(tab) ? (
         <>
           {tab === 'epic' && <ProjectEpicTab projectId={projectId} canEdit={canEdit} showCode={showCode} search={search} />}
-          {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} showCode={showCode} search={search} />}
+          {/* Pronista (2026-10-02) — แท็บ Story เปิด checkbox/เลือกทั้งหมด/ย้าย/ลบ/โยนเข้า Sprint เหมือนแท็บ Task/CR (เดิมปิดไว้) */}
+          {tab === 'story' && <ProjectHierarchyTab projectId={projectId} level="story" canEdit={canEdit} onOpenTask={onOpenTask} selectable onSprintChanged={onSprintChanged} showCode={showCode} search={search} />}
           {tab === 'task' && (
             <ProjectHierarchyTab
               projectId={projectId}
@@ -1910,7 +1911,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   // Pronista §Position-based permission — สิทธิ์สร้างละเอียดกว่า canEdit (ใช้เฉพาะ level='task' ตอนนี้ — story/cr ยังใช้ canEdit เดิม)
   canCreate?: boolean
   onOpenTask: (id: string) => void
-  // Pronista §System Requirements Update (ต่อยอด) — เปิด checkbox+filter+โยนเข้า Sprint แบบ batch เฉพาะแท็บ Task/CR (ไม่ใช้กับ Story)
+  // Pronista §System Requirements Update (ต่อยอด) — เปิด checkbox+filter+โยนเข้า Sprint แบบ batch แท็บ Story/Task/CR (2026-10-02 เปิดให้ Story ด้วย)
   selectable?: boolean
   onSprintChanged?: () => void
   showCode?: boolean
@@ -2232,18 +2233,16 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
             <input type="checkbox" checked={sel.filtered.every((t) => sel.selected.has(t.id))} onChange={sel.toggleSelectAll} />
             เลือกทั้งหมด
           </label>
-          {/* Pronista §Bulk actions (2026-09-03) — เฉพาะแท็บ Task/CR (level='story' ไม่มี เพราะเป็นโครงสร้าง hierarchy คนละแนวคิดจาก kind แบน Task/Defect/CR) */}
-          {level !== 'story' && (
-            <BulkKindActions
-              totalCount={sel.filtered.length}
-              selectedCount={sel.selected.size}
-              excludeKind={level}
-              busy={sel.bulkBusy}
-              onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
-              onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
-              onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
-            />
-          )}
+          {/* Pronista §Bulk actions (2026-09-03) — ย้ายประเภท/ลบที่เลือก · (2026-10-02) เปิดให้แท็บ Story ด้วย (excludeKind 'backlog' = Story ย้ายไปเป็น Task/Defect/CR ได้ครบ) */}
+          <BulkKindActions
+            totalCount={sel.filtered.length}
+            selectedCount={sel.selected.size}
+            excludeKind={level === 'story' ? 'backlog' : level}
+            busy={sel.bulkBusy}
+            onDeleteSelected={() => void bulkDeleteConfirm([...sel.selected])}
+            onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
+            onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
+          />
         </div>
       )}
       {sel.filtered.length === 0 ? (
