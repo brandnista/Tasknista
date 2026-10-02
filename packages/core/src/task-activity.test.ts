@@ -24,7 +24,7 @@ describe('sortByRecentActivity — ใหม่สุดอยู่บน', () 
   const a = { id: 'a', dispatchedAt: '2026-09-25T07:27:00.000Z' }
   const b = { id: 'b', dispatchedAt: '2026-09-23T09:18:00.000Z' }
   const c = { id: 'c', dispatchedAt: '2026-09-25T07:27:00.000Z', bouncedAt: '2026-10-02T05:04:00.000Z' }
-  const none = { id: 'none' }
+  const none = { id: 'none', createdAt: null }
 
   it('งานที่เพิ่งถูกตีกลับ/เพิ่งขยับล่าสุดขึ้นบนสุด · ไม่มีเวลาเลยไปอยู่ท้าย', () => {
     expect(sortByRecentActivity([a, b, c, none]).map((t) => t.id)).toEqual(['c', 'a', 'b', 'none'])

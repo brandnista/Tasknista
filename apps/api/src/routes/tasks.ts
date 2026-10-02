@@ -1,4 +1,4 @@
-import { bkkDateOf, hasAnyEditRight, isValidTaskTypePair, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
+import { bkkDateOf, hasAnyEditRight, parentGate, type WorkflowStatus, isValidTaskTypePair, positionById, presetById, resolveLabels, resolvePositions, resolvePresets, VIEW_ONLY_PERMISSIONS } from '@seedoffice/core'
 import {
   companyConfig,
   createDb,
@@ -30,6 +30,7 @@ import { writeAudit } from '../lib/audit'
 import { notifyProjectPmAndBa, notifyUser } from '../lib/notify'
 import { notifyBoard } from '../lib/presence-notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
+import { availableActionsFor, flowOfTask, isDeploymentLike, isQueueItemUnseen, loadWorkflowEnabled, loadWorkflowSettings, queueReasonOf, reviewQueueWhere } from '../lib/workflow'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
 import { actualMinutesFor, checklistCountsFor, loadProjectBacklog } from '../lib/workspace-query'
 import { teamOnly } from '../middleware/roles'
@@ -562,13 +563,15 @@ export const taskRoutes = new Hono<AppEnv>()
   .get('/tasks/pending-review', async (c) => {
     const db = createDb(c.env.DB)
     const me = c.get('user')
+    const workflowEnabled = await loadWorkflowEnabled(db)
     const rows = await db
       .select({ task: tasks, projectName: projects.name, workspaceName: workspaces.name, assigneeName: users.name })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+      // Pronista §Task status workflow phase 2 (2026-10-02) — สวิตช์เปิด: รวมงาน Testing on STG/PRD ที่ต้องให้ผู้ตรวจ/ผู้จ่ายงานทำต่อ (ดู reviewQueueWhere)
+      .where(reviewQueueWhere(me.id, workflowEnabled))
       .orderBy(asc(tasks.submittedAt), asc(tasks.dueDate))
     const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
     return c.json(
@@ -578,6 +581,8 @@ export const taskRoutes = new Hono<AppEnv>()
         assigneeName: r.assigneeName,
         checklistDone: checklistCounts.get(r.task.id)?.done ?? null,
         checklistTotal: checklistCounts.get(r.task.id)?.total ?? null,
+        queueReason: queueReasonOf(r.task),
+        unseen: isQueueItemUnseen(r.task),
       })),
     )
   })
@@ -590,7 +595,7 @@ export const taskRoutes = new Hono<AppEnv>()
     await db
       .update(tasks)
       .set({ reviewSeenAt: new Date() })
-      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+      .where(reviewQueueWhere(me.id, await loadWorkflowEnabled(db)))
     return c.json({ ok: true })
   })
 
@@ -645,6 +650,16 @@ export const taskRoutes = new Hono<AppEnv>()
     // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — ห้ามตั้ง status เป็น 'rejected'/'cancelled' ตรงๆ ผ่าน PATCH ทั่วไปเด็ดขาด ต้องผ่าน /tasks/:id/reject (ระบบตั้งเองตอน assignee ปฏิเสธ) หรือ /tasks/:id/cancel (บังคับเหตุผล) เท่านั้น
     // กันย้อนกลับไปเป็นช่องโหว่แบบเดียวกับที่เพิ่งแก้ createdBy — ถ้าปล่อยให้ dropdown อิสระตั้งตรงได้ จะข้ามการบังคับเหตุผลไปเลย
     // Pronista §Task status workflow (2026-10-02) — testing_stg/ready_for_prd/testing_prd เปลี่ยนได้เฉพาะผ่านปุ่ม action ของ flow Deployment (เฟส 2) · ตอนนี้ยังไม่เปิด
+    // เฟส 2: สวิตช์เปิด + งานเป็น flow Deployment → ขั้น Review/STG/PRD/Done เปลี่ยนได้เฉพาะผ่านปุ่มใน POST /tasks/:id/workflow-action (เจ้าของบริษัทเปิดงานที่ Done กลับมาแก้ได้)
+    if (body.data.status !== undefined && body.data.status !== before.status) {
+      const wf = await loadWorkflowSettings(db)
+      if (wf.config.enabled && isDeploymentLike(await flowOfTask(db, before, wf))) {
+        const locked = ['waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done']
+        const reopening = before.status === 'done' && me.role === 'owner' && body.data.status === 'on_processing'
+        if (!reopening && (locked.includes(body.data.status) || locked.includes(before.status)))
+          return c.json({ error: 'use_workflow_action', message: 'งานประเภทนี้ใช้ flow Deployment — เปลี่ยนสถานะผ่านปุ่มในหน้ารายละเอียดงาน (ส่งทดสอบ/ผ่าน/อนุมัติ/Deploy แล้ว)' }, 400)
+      }
+    }
     if (body.data.status === 'testing_stg' || body.data.status === 'ready_for_prd' || body.data.status === 'testing_prd')
       return c.json({ error: 'invalid_status', message: 'สถานะนี้ยังไม่เปิดใช้งาน' }, 400)
     if (body.data.status === 'rejected' || body.data.status === 'cancelled')
@@ -795,6 +810,8 @@ export const taskRoutes = new Hono<AppEnv>()
       if (before.status !== 'non_start') {
         patch.status = 'non_start'
         patch.completedAt = null
+        patch.stgPassedAt = null
+        patch.stgPassedBy = null
       }
     }
     // Pronista §Defect PRO-Defect-16092026-0004 (2026-09-25) — กด "บันทึกเพื่ออัปเดตข้อมูล" (notifyOnUpdate) แล้วผู้ตรวจงานว่าง → default เป็นผู้จ่ายงาน (หรือคนที่กำลังบันทึกเอง ถ้ายังไม่เคยมีผู้จ่ายงาน)
@@ -1030,6 +1047,108 @@ export const taskRoutes = new Hono<AppEnv>()
       })
     }
     return c.json(updated[0])
+  })
+
+  // Pronista §Task status workflow phase 2 (2026-10-02) — ปุ่ม action ของ flow Deployment: ส่งทดสอบ/ดึงกลับ/ผ่าน STG (QA)/อนุมัติ (BA)/Deploy แล้ว/ผ่าน PRD/ไม่ผ่าน
+  // สิทธิ์ตัดสินจาก actionsFor() ใน core (บทบาท = ผู้รับงาน/ผู้จ่ายงาน/ผู้ตรวจ/owner) · แม่ห้ามล้ำหน้าลูกผ่าน parentGate · optimistic ด้วย version กันกดซ้ำ/ชนกัน
+  .post('/tasks/:id/workflow-action', teamOnly, async (c) => {
+    const body = z
+      .object({
+        action: z.enum(['submit', 'recall', 'stg_pass', 'stg_approve', 'deployed', 'prd_pass', 'fail']),
+        reason: z.string().trim().max(1000).optional(),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const db = createDb(c.env.DB)
+    const before = (await db.select().from(tasks).where(eq(tasks.id, c.req.param('id'))).limit(1))[0]
+    if (!before) return c.json({ error: 'not_found' }, 404)
+    const me = c.get('user')
+    const settings = await loadWorkflowSettings(db)
+    if (!settings.config.enabled) return c.json({ error: 'workflow_disabled', message: 'ยังไม่เปิดใช้ flow สถานะงานแบบใหม่' }, 409)
+    const flow = await flowOfTask(db, before, settings)
+    if (!isDeploymentLike(flow)) return c.json({ error: 'not_deployment_flow', message: 'งานประเภทนี้ใช้ flow Document — ใช้ปุ่มส่งงาน/อนุมัติแบบเดิม' }, 409)
+    if (!before.dispatchedAt) return c.json({ error: 'not_dispatched', message: 'งานนี้ยังไม่ได้จ่ายงาน' }, 400)
+
+    const { action } = body.data
+    const match = availableActionsFor(flow, before, me).find((a) => a.action === action)
+    if (!match) return c.json({ error: 'action_not_allowed', message: 'คุณไม่มีสิทธิ์กดปุ่มนี้ หรือสถานะงานไม่ได้อยู่ในขั้นที่กดได้' }, 403)
+    const reason = body.data.reason || undefined
+    if (match.requiresReason && !reason) return c.json({ error: 'reason_required', message: 'ต้องระบุเหตุผล' }, 400)
+
+    // แม่ห้ามล้ำหน้าลูก — เฉพาะปุ่มที่ "เลื่อนขั้นขึ้น"
+    if (action === 'submit' || action === 'stg_approve' || action === 'deployed' || action === 'prd_pass') {
+      const children = await db.select({ status: tasks.status }).from(tasks).where(eq(tasks.parentId, before.id))
+      const gate = parentGate(flow, match.to, children as { status: WorkflowStatus }[])
+      if (!gate.ok)
+        return c.json({ error: 'subtasks_incomplete', message: `ยังมีงานย่อย ${gate.blocked} ชิ้นที่ยังไม่ถึงขั้นนี้ — งานแม่เลื่อนขั้นก่อนงานย่อยไม่ได้` }, 400)
+    }
+
+    const now = new Date()
+    const patch: Record<string, unknown> = { status: match.to, stageAt: now, version: sql`${tasks.version} + 1` }
+    if (action === 'submit') {
+      Object.assign(patch, { submittedAt: now, testRound: sql`${tasks.testRound} + 1`, stgPassedAt: null, stgPassedBy: null, reviewSeenAt: null, completedAt: null, bouncedAt: null, bouncedBy: null })
+    } else if (action === 'recall') {
+      Object.assign(patch, { stgPassedAt: null, stgPassedBy: null })
+    } else if (action === 'stg_pass') {
+      Object.assign(patch, { stgPassedAt: now, stgPassedBy: me.id, reviewSeenAt: null })
+    } else if (action === 'deployed') {
+      patch.reviewSeenAt = null
+    } else if (action === 'prd_pass') {
+      patch.completedAt = now
+    } else if (action === 'fail') {
+      Object.assign(patch, { stgPassedAt: null, stgPassedBy: null, completedAt: null })
+    }
+
+    const updated = await db
+      .update(tasks)
+      .set(patch)
+      .where(and(eq(tasks.id, before.id), eq(tasks.version, before.version)))
+      .returning()
+    const after = updated[0]
+    if (!after) return c.json({ error: 'stale_version', message: 'มีคนแก้ไขงานนี้ไปพร้อมกัน กรุณารีเฟรชแล้วลองใหม่' }, 409)
+    if (before.sprintId) await notifyBoard(c.env, before.sprintId)
+
+    const dailyMap: Partial<Record<typeof action, string>> = { submit: 'submit', recall: 'recall', stg_approve: 'approve', prd_pass: 'approve', fail: 'bounce' }
+    const hasRole = before.assignedBy === me.id || before.assigneeId === me.id || before.reviewerId === me.id
+    await writeAudit(c.env, {
+      actorId: me.id,
+      action: action === 'stg_pass' ? 'task.test_pass' : 'task.status',
+      entity: 'task',
+      entityId: before.id,
+      meta: {
+        title: before.title,
+        before: { status: before.status, assigneeId: before.assigneeId },
+        after: { status: match.to },
+        workflowAction: action,
+        round: after.testRound,
+        ...(reason ? { reason } : {}),
+        ...(dailyMap[action] && hasRole ? { dailyReportAction: dailyMap[action] } : {}),
+      },
+    })
+
+    // แจ้งเตือน — ข้ามตัวเอง · ไม่ซ้ำคน
+    const notifyEach = async (ids: (string | null | undefined)[], type: Parameters<typeof notifyUser>[1]['type'], message: string) => {
+      for (const userId of new Set(ids.filter((x): x is string => !!x && x !== me.id)))
+        await notifyUser(db, { userId, type, taskId: before.id, projectId: before.projectId, message })
+    }
+    const title = before.title
+    if (action === 'submit') {
+      await notifyEach([before.assignedBy], 'task_submitted', `งาน "${title}" ส่งทดสอบบน STG แล้ว (รอบที่ ${after.testRound})`)
+      await notifyEach(before.reviewerId && before.reviewerId !== before.assignedBy ? [before.reviewerId] : [], 'task_review_requested', `งาน "${title}" ส่งมารอทดสอบบน STG แล้ว`)
+    } else if (action === 'recall') {
+      await notifyEach([before.assignedBy, before.reviewerId], 'task_recalled', `งาน "${title}" ถูกดึงกลับไปแก้ไขเพิ่มเติม`)
+    } else if (action === 'stg_pass') {
+      await notifyEach([before.assignedBy], 'task_test_passed', `งาน "${title}" ทดสอบผ่านบน STG แล้ว รอคุณอนุมัติให้ขึ้น PRD`)
+    } else if (action === 'stg_approve') {
+      await notifyEach([before.assigneeId], 'task_stg_approved', `งาน "${title}" ได้รับอนุมัติให้ขึ้น PRD แล้ว (Ready for PRD)`)
+    } else if (action === 'deployed') {
+      await notifyEach([before.assignedBy, before.reviewerId], 'task_deployed', `งาน "${title}" Deploy ขึ้น PRD แล้ว รอทดสอบบน PRD`)
+    } else if (action === 'fail') {
+      await notifyEach([before.assigneeId], 'task_test_failed', `งาน "${title}" ทดสอบไม่ผ่าน: ${reason}`)
+    } else if (action === 'prd_pass') {
+      await notifyEach([before.assigneeId, before.reviewerId, before.assignedBy], 'task_prd_passed', `งาน "${title}" ทดสอบผ่านบน PRD แล้ว — เสร็จสมบูรณ์`)
+    }
+    return c.json(after)
   })
 
   // Pronista §Back to Basic (ต่อยอด) — เกตจ่ายงาน: ต้องมีผู้รับผิดชอบตั้งไว้แล้ว

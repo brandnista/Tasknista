@@ -27,6 +27,7 @@ import { writeAudit } from '../lib/audit'
 import { copyR2DocFile } from '../lib/doc-file'
 import { notifyCommentMentions } from '../lib/comment-mentions'
 import { notifyUser } from '../lib/notify'
+import { availableActionsFor, flowOfTask, isDeploymentLike, loadWorkflowSettings } from '../lib/workflow'
 import { canEditTask, canEditTaskCollab, getProjectRole, isProjectVisibleToUser } from '../lib/project-role'
 import { nextSubTaskCode } from '../lib/task-code'
 import { parseTaskSlug, taskSlugFor } from '../lib/task-slug'
@@ -201,7 +202,23 @@ export const taskDetailRoutes = new Hono<AppEnv>()
       delete taskFields.costRoleId
     }
 
+    // Pronista §Task status workflow phase 2 (2026-10-02) — flow ของงานนี้ + ปุ่มที่ฉันกดได้ + ผลการทดสอบ (ใช้ในกล่อง "ผลการทดสอบ" เฟส 3)
+    const wf = await loadWorkflowSettings(db)
+    const flow = await flowOfTask(db, row.task, wf)
+    const stgPassedByName = row.task.stgPassedBy ? ((await db.select({ name: users.name }).from(users).where(eq(users.id, row.task.stgPassedBy)).limit(1))[0]?.name ?? null) : null
+    const workflow = {
+      enabled: wf.config.enabled,
+      flowId: flow.id,
+      flowName: flow.name,
+      steps: flow.steps,
+      actions: wf.config.enabled && isDeploymentLike(flow) && row.task.dispatchedAt ? availableActionsFor(flow, row.task, me) : [],
+      testRound: row.task.testRound,
+      stgPassedAt: row.task.stgPassedAt,
+      stgPassedByName,
+    }
+
     return c.json({
+      workflow,
       weeklyMinutes,
       projectMembers: projectMemberOpts,
       sprintActive,

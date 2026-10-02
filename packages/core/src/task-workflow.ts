@@ -69,7 +69,7 @@ const isStep = (v: unknown): v is WorkflowStep => typeof v === 'string' && (WORK
 
 /** อ่านค่าที่เก็บใน company_config → คัดค่าเสีย/ไม่รู้จักทิ้ง · document/deployment ที่ระบบให้มาอยู่เสมอ */
 export function resolveWorkflowConfig(raw: unknown): WorkflowConfig {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return structuredClone(DEFAULT_WORKFLOW_CONFIG)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return JSON.parse(JSON.stringify(DEFAULT_WORKFLOW_CONFIG)) as WorkflowConfig
   const r = raw as Partial<Record<keyof WorkflowConfig, unknown>>
   const byId = new Map<string, WorkflowDef>(DEFAULT_WORKFLOW_CONFIG.workflows.map((w) => [w.id, { ...w, steps: [...w.steps] }]))
   if (Array.isArray(r.workflows)) {

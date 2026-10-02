@@ -18,6 +18,7 @@ import {
   resolveServiceTypes,
   resolveStatuses,
   resolveTaskTypes,
+  resolveWorkflowConfig,
   STATUS_COLOR_KEYS,
   validateCostRoles,
   validateLabels,
@@ -30,7 +31,10 @@ import {
   validateServiceTypes,
   validateStatuses,
   validateTaskTypes,
+  validateWorkflowConfig,
   WEEKDAYS,
+  WORKFLOW_STEP_IDS,
+  workflowForTask,
   type BoardPreset,
   type CeilingPermissions,
   type CostRole,
@@ -46,9 +50,10 @@ import {
   type ProjectStatus,
   type ServiceType,
   type TaskType,
+  type WorkflowConfig,
 } from '@seedoffice/core'
 import { companyConfig, createDb, customerProjects, projectMembers, projects, rates, sprints, tasks, teams, users } from '@seedoffice/db'
-import { asc, desc, eq, getTableColumns, isNotNull, isNull } from 'drizzle-orm'
+import { asc, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
@@ -787,6 +792,76 @@ export const adminRoutes = new Hono<AppEnv>()
       meta: { before: before?.productTypes ?? null, after: productTypesData },
     })
     return c.json({ productTypes: resolveProductTypes(productTypesData) })
+  })
+
+  // Pronista §Task status workflow phase 2 (2026-10-02) — ตั้งค่า flow สถานะงาน (Document/Deployment) + สวิตช์เปิดใช้ + flow ต่อประเภทงาน (owner เท่านั้น)
+  .get('/workflow-config', async (c) => {
+    const db = createDb(c.env.DB)
+    const cfg = (await db.select({ workflowConfig: companyConfig.workflowConfig }).from(companyConfig).limit(1))[0]
+    return c.json({ config: resolveWorkflowConfig(cfg?.workflowConfig) })
+  })
+
+  .put('/workflow-config', async (c) => {
+    const body = z
+      .object({
+        config: z.object({
+          enabled: z.boolean(),
+          workflows: z
+            .array(z.object({ id: z.string(), name: z.string(), steps: z.array(z.enum(WORKFLOW_STEP_IDS)) }))
+            .min(1),
+          typeFlows: z.record(z.string(), z.string()),
+          defaultWorkflowId: z.string(),
+        }),
+      })
+      .safeParse(await c.req.json())
+    if (!body.success) return c.json({ error: 'invalid' }, 400)
+    const next: WorkflowConfig = body.data.config
+    const check = validateWorkflowConfig(next)
+    if (!check.ok) return c.json({ error: 'invalid', message: check.error }, 400)
+
+    const db = createDb(c.env.DB)
+    const row = (await db.select({ workflowConfig: companyConfig.workflowConfig, taskTypes: companyConfig.taskTypes }).from(companyConfig).limit(1))[0]
+    const prev = resolveWorkflowConfig(row?.workflowConfig)
+    const taskTypes = resolveTaskTypes(row?.taskTypes)
+
+    // ปิดสวิตช์ไม่ได้ขณะมีงานค้างอยู่ในขั้นของ Deployment (Testing on STG/Ready for PRD/Testing on PRD) — กันงานหลุดไปสถานะที่ flow เดิมไม่รู้จัก
+    if (prev.enabled && !next.enabled) {
+      const inUse = (
+        await db
+          .select({ n: sql<number>`count(*)` })
+          .from(tasks)
+          .where(inArray(tasks.status, ['testing_stg', 'ready_for_prd', 'testing_prd']))
+      )[0]?.n
+      if (inUse) return c.json({ error: 'workflow_in_use', message: `ปิดไม่ได้ — ยังมีงาน ${inUse} ชิ้นค้างอยู่ที่ Testing on STG / Ready for PRD / Testing on PRD ต้องเคลียร์ให้เสร็จก่อน`, inUse }, 409)
+    }
+
+    // เปิดสวิตช์ครั้งแรก: งาน flow Deployment ที่ค้าง Waiting for Review อยู่ → ย้ายไป Testing on STG (นับเป็นรอบทดสอบที่ 1) ให้ตรงกับ flow ใหม่
+    let migrated = 0
+    if (!prev.enabled && next.enabled) {
+      const waiting = await db
+        .select({ id: tasks.id, taskType: tasks.taskType, parentId: tasks.parentId, submittedAt: tasks.submittedAt, testRound: tasks.testRound })
+        .from(tasks)
+        .where(eq(tasks.status, 'waiting_for_test'))
+      const parentIds = [...new Set(waiting.filter((t) => !t.taskType && t.parentId).map((t) => t.parentId as string))]
+      const parentType = new Map<string, string | null>()
+      for (let i = 0; i < parentIds.length; i += 90) {
+        const rows = await db.select({ id: tasks.id, taskType: tasks.taskType }).from(tasks).where(inArray(tasks.id, parentIds.slice(i, i + 90)))
+        for (const r of rows) parentType.set(r.id, r.taskType)
+      }
+      for (const t of waiting) {
+        const flow = workflowForTask(next, { taskTypeId: t.taskType }, t.parentId ? { taskTypeId: parentType.get(t.parentId) ?? null } : null, taskTypes)
+        if (!flow.steps.includes('testing_stg')) continue
+        await db
+          .update(tasks)
+          .set({ status: 'testing_stg', stageAt: t.submittedAt ?? new Date(), testRound: Math.max(t.testRound, 1), reviewSeenAt: null })
+          .where(eq(tasks.id, t.id))
+        migrated++
+      }
+    }
+
+    await db.update(companyConfig).set({ workflowConfig: next }).where(eq(companyConfig.id, 1))
+    await writeAudit(c.env, { actorId: c.get('user').id, action: 'workflow_config.update', entity: 'company_config', entityId: '1', meta: { enabled: next.enabled, migrated } })
+    return c.json({ config: resolveWorkflowConfig(next), migrated })
   })
 
   // Pronista §System Requirements Update — แคตตาล็อก Task Type/Sub-task Type (BRD/Design/Development/Internal Testing/Debug + ตัวเลือกย่อยของแต่ละอัน)

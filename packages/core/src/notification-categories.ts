@@ -34,6 +34,12 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'task_mentioned',
       // Pronista §My Tasks menu badges (2026-09-18)
       'task_review_requested',
+      // Pronista §Task status workflow phase 2 (2026-10-02)
+      'task_test_passed',
+      'task_stg_approved',
+      'task_deployed',
+      'task_test_failed',
+      'task_prd_passed',
     ],
   },
   { key: 'chat_mention', label: 'มีคนแท็กฉันในแชท', types: ['chat_mention'] },

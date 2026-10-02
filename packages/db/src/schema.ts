@@ -596,6 +596,11 @@ export const tasks = sqliteTable(
     // Pronista §PRO-DEF-0002 follow-up (2026-09-25) — เวลาที่ผู้ตรวจงานกดเข้าเมนู "งานรอตรวจ" ล่าสุด (เห็นงานนี้แล้ว) — badge นับเฉพาะงานที่ยังไม่เคยเห็น
     // หรือถูกส่งตรวจใหม่หลังเห็นครั้งล่าสุด (submittedAt > reviewSeenAt) · ล้างเป็น null เมื่อเปลี่ยนผู้ตรวจงาน (คนใหม่ยังไม่เคยเห็น)
     reviewSeenAt: integer('review_seen_at', { mode: 'timestamp_ms' }),
+    // Pronista §Task status workflow phase 2 (2026-10-02) — flow Deployment: QA ยืนยัน "ผ่าน STG" แล้ว (งานยังอยู่ Testing on STG รอ BA อนุมัติ) · testRound = รอบที่ส่งทดสอบ (นับตอนส่งงานเข้า Testing on STG) · stageAt = เวลาเปลี่ยนขั้นล่าสุดของ flow (ใช้ตัดสินว่าเป็น "ของใหม่" ในคิวงานรอตรวจ)
+    stgPassedAt: integer('stg_passed_at', { mode: 'timestamp_ms' }),
+    stgPassedBy: text('stg_passed_by').references(() => users.id),
+    testRound: integer('test_round').notNull().default(0),
+    stageAt: integer('stage_at', { mode: 'timestamp_ms' }),
     // Pronista §Bounced Tasks Widget signal fix (2026-09-24) — เวลาที่ถูกตีกลับล่าสุด (waiting_for_test → non_start) — สัญญาณถาวรแยกจาก read/unread ของ notification task_bounced (เดิมวิดเจ็ต "งานที่ถูกตีกลับ" พึ่ง notification ยังไม่อ่าน แต่การเข้าเมนู "งานของฉัน" มาร์คอ่านทันที ทำให้วิดเจ็ตหลุดจาก list ทั้งที่งานยังค้างจริง) — null = ไม่ได้ถูกตีกลับค้างอยู่ตอนนี้ (เคลียร์ทุกครั้งที่สถานะขยับ/เปลี่ยนผู้รับผิดชอบ)
     bouncedAt: integer('bounced_at', { mode: 'timestamp_ms' }),
     // Pronista §Bounced Tasks Widget redesign (2026-09-25) — ใครเป็นคนตีกลับล่าสุด ใช้โชว์ avatar/ชื่อในวิดเจ็ต "งานที่ถูกตีกลับ" (mirror assignedBy ที่โชว์ในวิดเจ็ต "งานใหม่ที่รอกดรับ")
@@ -616,6 +621,8 @@ export const tasks = sqliteTable(
     index('tasks_code_idx').on(t.code),
     // Pronista §D1 row-read quota (2026-10-01) — 2 query ที่ไล่อ่านทั้งตาราง tasks ทุกครั้งเพราะไม่มี index: "งานรอตรวจของผู้ตรวจ" (reviewer_id+status — เรียกซ้ำจากตัวเลขแจ้งเตือน/หน้างานรอตรวจ) และ "งานย่อยของงานแม่" (parent_id)
     index('tasks_reviewer_idx').on(t.reviewerId, t.status),
+    // คิว "งานรอตรวจ" ของผู้จ่ายงาน (BA) ใน flow Deployment ค้นด้วย assigned_by + status — ไม่มี index จะไล่อ่านทั้งตารางทุกครั้งที่ poll
+    index('tasks_assigned_by_idx').on(t.assignedBy, t.status),
     index('tasks_parent_idx').on(t.parentId),
   ],
 )
@@ -1945,6 +1952,12 @@ export const NOTIFICATION_TYPES = [
   'task_mentioned',
   // Pronista §My Tasks menu badges (2026-09-18) — แจ้งผู้ตรวจ (reviewerId) โดยเฉพาะตอนงานส่งมารอตรวจ — แยกจาก task_submitted (ไปหาผู้จ่ายงาน) กันตัวเลขแจ้งเตือนของเมนู "งานที่จ่ายให้คนอื่น" กับ "งานรอตรวจ" ปนกัน
   'task_review_requested',
+  // Pronista §Task status workflow phase 2 (2026-10-02) — flow Deployment
+  'task_test_passed',
+  'task_stg_approved',
+  'task_deployed',
+  'task_test_failed',
+  'task_prd_passed',
   // Pronista §Leave Request (2026-09-22, Phase 1)
   'leave_requested',
   'leave_approved',
