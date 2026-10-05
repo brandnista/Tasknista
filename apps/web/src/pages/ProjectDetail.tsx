@@ -2119,6 +2119,27 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
     const failed = await linkManyToStory(ids, storyId)
     if (failed < ids.length) sel.clearSelected()
   }
+  // Pronista §Multi-unlink (2026-10-05) — เลิกผูก Task หลายงานออกจาก Story: Task กลับเป็น "Task ลอย" (convert เป็น task โดยไม่ระบุงานแม่ — กลไกเดียวกับที่ผูกเข้า) · ข้ามงานที่ไม่ได้อยู่ใต้ Story
+  const unlinkSelectedFromStory = async () => {
+    const isStory = (t: ProjectAllTask) => t.kind === 'task' && t.parentId === null && !t.isStandaloneTask
+    const candidates = all.filter((t) => sel.selected.has(t.id) && t.parentId !== null && all.some((p) => p.id === t.parentId && isStory(p)))
+    const skipped = sel.selected.size - candidates.length
+    if (candidates.length === 0) {
+      await alertDialog({ title: 'ไม่มี Task ที่ผูกกับ Story ในรายการที่เลือก', message: 'เลือกเฉพาะ Task ที่อยู่ใต้ Story (แสดงชื่อ Story ที่ต่อท้ายแถว)' })
+      return
+    }
+    if (!(await confirmDialog({
+      title: `เลิกผูก ${candidates.length} Task ออกจาก Story?`,
+      message: `งานจะกลายเป็น Task ลอย (ยังอยู่ในโปรเจกต์ ผูกกลับได้ภายหลัง)${skipped > 0 ? ` · ข้าม ${skipped} งานที่ไม่ได้ผูกกับ Story` : ''}`,
+      confirmLabel: 'เลิกผูก',
+    }))) return
+    const results = await Promise.allSettled(candidates.map((t) => api.post(`/api/tasks/${t.id}/convert`, { to: 'task' })))
+    const failed = results.filter((r) => r.status === 'rejected').length
+    void reload()
+    if (failed < candidates.length) sel.clearSelected()
+    if (failed > 0) await alertDialog({ title: `เลิกผูกสำเร็จ ${candidates.length - failed} งาน, ไม่สำเร็จ ${failed} งาน`, message: 'งานที่ไม่สำเร็จอาจไม่มีสิทธิ์แก้ไข ลองรีเฟรชแล้วทำซ้ำ' })
+    else toast(`เลิกผูก ${candidates.length} งานออกจาก Story แล้ว`)
+  }
   const createStoryForSelected = async (storyTitle: string) => {
     if (!linkManyIds) return
     const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: storyTitle })
@@ -2334,6 +2355,16 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
               className="text-[11px] rounded-lg px-2 py-1 disabled:opacity-40 whitespace-nowrap text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100"
             >
               🔗 เชื่อมที่เลือกกับ Story ({sel.selected.size})
+            </button>
+          )}
+          {level === 'task' && (
+            <button
+              type="button"
+              onClick={() => void unlinkSelectedFromStory()}
+              disabled={sel.bulkBusy || sel.selected.size === 0}
+              className="text-[11px] rounded-lg px-2 py-1 disabled:opacity-40 whitespace-nowrap text-body border border-border bg-white hover:bg-hover"
+            >
+              ✂ เลิกผูกจาก Story ({sel.selected.size})
             </button>
           )}
         </div>
