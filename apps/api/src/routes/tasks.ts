@@ -2,9 +2,17 @@ import { bkkDateOf, hasAnyEditRight, isValidTaskTypePair, positionById, presetBy
 import {
   companyConfig,
   createDb,
+  changelogItemLinks,
+  dailyReportItems,
+  dailyReportPlanItems,
   DEFECT_STATUSES,
   docLinks,
   epics,
+  externalDocumentLogSowTasks,
+  meetingActionItems,
+  releaseNoteItemLinks,
+  taskChecklistItems,
+  taskReferences,
   notifications,
   projectMembers,
   projects,
@@ -21,7 +29,7 @@ import {
   users,
   workspaces,
 } from '@seedoffice/db'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -1307,6 +1315,16 @@ export const taskRoutes = new Hono<AppEnv>()
     if (hasSubtasks.length > 0)
       return c.json({ error: 'has_subtasks', message: 'ลบไม่ได้ เพราะยังมีงานย่อยอยู่ — ลบหรือย้ายงานย่อยออกก่อน' }, 409)
 
+    // Pronista §Task delete fix (2026-10-05) — เดิมลบงานที่มีเกณฑ์ว่าเสร็จ/การเชื่อมโยง ได้ 500 (FK ค้าง) · งานที่ถูกอ้างอิงในรายงาน/Release/Change Log ต้องบอกเหตุผลชัดเจนแทน 500
+    const referencedBy = await Promise.all([
+      db.select({ id: dailyReportItems.id }).from(dailyReportItems).where(eq(dailyReportItems.taskId, before.id)).limit(1),
+      db.select({ id: dailyReportPlanItems.id }).from(dailyReportPlanItems).where(eq(dailyReportPlanItems.taskId, before.id)).limit(1),
+      db.select({ id: releaseNoteItemLinks.id }).from(releaseNoteItemLinks).where(eq(releaseNoteItemLinks.taskId, before.id)).limit(1),
+      db.select({ id: changelogItemLinks.id }).from(changelogItemLinks).where(eq(changelogItemLinks.taskId, before.id)).limit(1),
+    ])
+    if (referencedBy.some((r) => r.length > 0))
+      return c.json({ error: 'referenced', message: 'ลบงานนี้ไม่ได้ เพราะถูกอ้างอิงอยู่ใน Daily Report / Release Note / Change Log — ถอดการอ้างอิงในที่นั้นก่อน' }, 409)
+
     // เมทาดาต้า (ไม่ใช่ข้อมูลการเงิน) — ลบทิ้งได้จริงก่อนลบ task ตัวเอง กัน FK constraint failed
     const attachments = await db.select().from(taskAttachments).where(eq(taskAttachments.taskId, before.id))
     for (const att of attachments) {
@@ -1319,6 +1337,10 @@ export const taskRoutes = new Hono<AppEnv>()
     await db.delete(docLinks).where(eq(docLinks.taskId, before.id))
     await db.delete(timerSessions).where(eq(timerSessions.taskId, before.id))
     await db.delete(notifications).where(eq(notifications.taskId, before.id))
+    await db.delete(taskChecklistItems).where(eq(taskChecklistItems.taskId, before.id))
+    await db.delete(taskReferences).where(or(eq(taskReferences.taskId, before.id), eq(taskReferences.referencesTaskId, before.id)))
+    await db.delete(externalDocumentLogSowTasks).where(eq(externalDocumentLogSowTasks.taskId, before.id))
+    await db.update(meetingActionItems).set({ taskId: null }).where(eq(meetingActionItems.taskId, before.id))
 
     await db.delete(tasks).where(eq(tasks.id, before.id))
     await writeAudit(c.env, {
