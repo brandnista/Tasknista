@@ -665,13 +665,13 @@ export const taskRoutes = new Hono<AppEnv>()
     if (body.data.status !== undefined && body.data.status !== before.status) {
       const wf = await loadWorkflowSettings(db)
       if (wf.config.enabled && isDeploymentLike(await flowOfTask(db, before, wf))) {
-        const locked = ['waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done']
+        const locked = ['waiting_for_test', 'ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done']
         const reopening = before.status === 'done' && me.role === 'owner' && body.data.status === 'on_processing'
         if (!reopening && (locked.includes(body.data.status) || locked.includes(before.status)))
           return c.json({ error: 'use_workflow_action', message: 'งานประเภทนี้ใช้ flow Deployment — เปลี่ยนสถานะผ่านปุ่มในหน้ารายละเอียดงาน (ส่งทดสอบ/ผ่าน/อนุมัติ/Deploy แล้ว)' }, 400)
       }
     }
-    if (body.data.status === 'testing_stg' || body.data.status === 'ready_for_prd' || body.data.status === 'testing_prd')
+    if (body.data.status === 'ready_for_stg' || body.data.status === 'testing_stg' || body.data.status === 'ready_for_prd' || body.data.status === 'testing_prd')
       return c.json({ error: 'invalid_status', message: 'สถานะนี้ยังไม่เปิดใช้งาน' }, 400)
     if (body.data.status === 'rejected' || body.data.status === 'cancelled')
       return c.json({ error: 'invalid_status', message: 'ตั้งสถานะนี้ตรงๆ ไม่ได้ ต้องใช้ปุ่ม "ยกเลิกงาน" หรือให้ระบบตั้งเองตอนปฏิเสธงาน' }, 400)
@@ -1065,8 +1065,10 @@ export const taskRoutes = new Hono<AppEnv>()
   .post('/tasks/:id/workflow-action', teamOnly, async (c) => {
     const body = z
       .object({
-        action: z.enum(['submit', 'recall', 'stg_pass', 'stg_approve', 'deployed', 'prd_pass', 'fail']),
+        action: z.enum(['submit', 'recall', 'stg_accept', 'stg_decline', 'stg_pass', 'stg_approve', 'deployed', 'prd_pass', 'fail']),
         reason: z.string().trim().max(1000).optional(),
+        // Pronista §Ready for STG (2026-10-05) — ผู้ทดสอบที่ผู้รับงานเลือกตอนกด "ส่งงาน" (บันทึกลงช่อง "ผู้ตรวจงาน" เดิม ไม่มีฟิลด์ใหม่)
+        reviewerId: z.string().optional(),
       })
       .safeParse(await c.req.json())
     if (!body.success) return c.json({ error: 'invalid' }, 400)
@@ -1087,18 +1089,31 @@ export const taskRoutes = new Hono<AppEnv>()
     if (match.requiresReason && !reason) return c.json({ error: 'reason_required', message: 'ต้องระบุเหตุผล' }, 400)
 
     // แม่ห้ามล้ำหน้าลูก — เฉพาะปุ่มที่ "เลื่อนขั้นขึ้น"
-    if (action === 'submit' || action === 'stg_approve' || action === 'deployed' || action === 'prd_pass') {
+    if (action === 'submit' || action === 'stg_accept' || action === 'stg_approve' || action === 'deployed' || action === 'prd_pass') {
       const children = await db.select({ status: tasks.status }).from(tasks).where(eq(tasks.parentId, before.id))
       const gate = parentGate(flow, match.to, children as { status: WorkflowStatus }[])
       if (!gate.ok)
         return c.json({ error: 'subtasks_incomplete', message: `ยังมีงานย่อย ${gate.blocked} ชิ้นที่ยังไม่ถึงขั้นนี้ — งานแม่เลื่อนขั้นก่อนงานย่อยไม่ได้` }, 400)
     }
 
+    // Ready for STG: ผู้ทดสอบ (= ช่อง "ผู้ตรวจงาน") ต้องระบุก่อนส่ง — เลือกใหม่ตอนส่งได้ (reviewerId ใน body) ไม่งั้นใช้ค่าเดิมในงาน
+    let newReviewerId: string | null = null
+    if (action === 'submit' && match.to === 'ready_for_stg') {
+      const chosen = body.data.reviewerId || before.reviewerId
+      if (!chosen) return c.json({ error: 'reviewer_required', message: 'ต้องเลือกผู้ทดสอบ (ผู้ตรวจงาน) ก่อนส่งงาน' }, 400)
+      if (chosen !== before.reviewerId) {
+        const target = (await db.select({ status: users.status }).from(users).where(eq(users.id, chosen)).limit(1))[0]
+        if (!target || target.status !== 'active') return c.json({ error: 'reviewer_not_eligible', message: 'ผู้ทดสอบต้องเป็นบัญชีที่ยังใช้งานอยู่' }, 400)
+        newReviewerId = chosen
+      }
+    }
+
     const now = new Date()
     const patch: Record<string, unknown> = { status: match.to, stageAt: now, version: sql`${tasks.version} + 1` }
+    if (newReviewerId) patch.reviewerId = newReviewerId
     if (action === 'submit') {
       Object.assign(patch, { submittedAt: now, testRound: sql`${tasks.testRound} + 1`, stgPassedAt: null, stgPassedBy: null, reviewSeenAt: null, completedAt: null, bouncedAt: null, bouncedBy: null })
-    } else if (action === 'recall') {
+    } else if (action === 'recall' || action === 'stg_decline') {
       Object.assign(patch, { stgPassedAt: null, stgPassedBy: null })
     } else if (action === 'stg_pass') {
       Object.assign(patch, { stgPassedAt: now, stgPassedBy: me.id, reviewSeenAt: null })
@@ -1119,7 +1134,7 @@ export const taskRoutes = new Hono<AppEnv>()
     if (!after) return c.json({ error: 'stale_version', message: 'มีคนแก้ไขงานนี้ไปพร้อมกัน กรุณารีเฟรชแล้วลองใหม่' }, 409)
     if (before.sprintId) await notifyBoard(c.env, before.sprintId)
 
-    const dailyMap: Partial<Record<typeof action, string>> = { submit: 'submit', recall: 'recall', stg_approve: 'approve', prd_pass: 'approve', fail: 'bounce' }
+    const dailyMap: Partial<Record<typeof action, string>> = { submit: 'submit', recall: 'recall', stg_decline: 'bounce', stg_approve: 'approve', prd_pass: 'approve', fail: 'bounce' }
     const hasRole = before.assignedBy === me.id || before.assigneeId === me.id || before.reviewerId === me.id
     await writeAudit(c.env, {
       actorId: me.id,
@@ -1133,6 +1148,7 @@ export const taskRoutes = new Hono<AppEnv>()
         workflowAction: action,
         round: after.testRound,
         ...(reason ? { reason } : {}),
+        ...(newReviewerId ? { reviewerId: newReviewerId } : {}),
         ...(dailyMap[action] && hasRole ? { dailyReportAction: dailyMap[action] } : {}),
       },
     })
@@ -1143,9 +1159,17 @@ export const taskRoutes = new Hono<AppEnv>()
         await notifyUser(db, { userId, type, taskId: before.id, projectId: before.projectId, message })
     }
     const title = before.title
+    const testerId = after.reviewerId ?? after.assignedBy
     if (action === 'submit') {
-      await notifyEach([before.assignedBy], 'task_submitted', `งาน "${title}" ส่งทดสอบบน STG แล้ว (รอบที่ ${after.testRound})`)
-      await notifyEach(before.reviewerId && before.reviewerId !== before.assignedBy ? [before.reviewerId] : [], 'task_review_requested', `งาน "${title}" ส่งมารอทดสอบบน STG แล้ว`)
+      const toReadyForStg = match.to === 'ready_for_stg'
+      await notifyEach([before.assignedBy], 'task_submitted', toReadyForStg ? `งาน "${title}" ส่งเข้า Ready for STG แล้ว (รอบที่ ${after.testRound}) รอผู้ทดสอบรับทดสอบ` : `งาน "${title}" ส่งทดสอบบน STG แล้ว (รอบที่ ${after.testRound})`)
+      await notifyEach(testerId && testerId !== before.assignedBy ? [testerId] : [], 'task_review_requested', toReadyForStg ? `งาน "${title}" ส่งมารอคุณรับทดสอบบน STG` : `งาน "${title}" ส่งมารอทดสอบบน STG แล้ว`)
+    } else if (action === 'stg_accept') {
+      await notifyEach([before.assigneeId], 'task_stg_accepted', `งาน "${title}" มีผู้รับทดสอบบน STG แล้ว (เริ่ม Testing on STG)`)
+      await notifyEach([before.assignedBy], 'task_accepted', `งาน "${title}" ผู้ทดสอบรับทดสอบบน STG แล้ว`)
+    } else if (action === 'stg_decline') {
+      await notifyEach([before.assigneeId], 'task_stg_declined', `งาน "${title}" ผู้ทดสอบไม่รับทดสอบ: ${reason}`)
+      await notifyEach([before.assignedBy], 'task_recalled', `งาน "${title}" ถูกส่งกลับ — ผู้ทดสอบไม่รับทดสอบ: ${reason}`)
     } else if (action === 'recall') {
       await notifyEach([before.assignedBy, before.reviewerId], 'task_recalled', `งาน "${title}" ถูกดึงกลับไปแก้ไขเพิ่มเติม`)
     } else if (action === 'stg_pass') {

@@ -66,8 +66,9 @@ export function availableActionsFor(flow: WorkflowDef, task: TaskRow, me: Workfl
 }
 
 /** ที่ผู้ตรวจ/ผู้จ่ายงานต้องทำต่อ ณ ตอนนี้ — ใช้แสดงป้ายในเมนู "งานรอตรวจ" */
-export type QueueReason = 'review' | 'approve_stg' | 'confirm_prd'
+export type QueueReason = 'accept_stg' | 'review' | 'approve_stg' | 'confirm_prd'
 export function queueReasonOf(task: Pick<TaskRow, 'status' | 'stgPassedAt'>): QueueReason {
+  if (task.status === 'ready_for_stg') return 'accept_stg'
   if (task.status === 'testing_prd') return 'confirm_prd'
   if (task.status === 'testing_stg' && task.stgPassedAt != null) return 'approve_stg'
   return 'review'
@@ -76,14 +77,18 @@ export function queueReasonOf(task: Pick<TaskRow, 'status' | 'stgPassedAt'>): Qu
 /**
  * เงื่อนไขของคิว "งานรอตรวจ" ของผู้ใช้คนหนึ่ง
  * - เดิม (สวิตช์ปิด/งาน Document): ผู้ตรวจ (reviewerId) + Waiting for Review
- * - flow Deployment (สวิตช์เปิด): ผู้ตรวจ + Testing on STG ที่ QA ยังไม่กดผ่าน · ผู้จ่ายงาน + (Testing on STG ที่ผ่านแล้ว รออนุมัติ | Testing on PRD รอยืนยัน)
+ * - flow Deployment (สวิตช์เปิด): ผู้ตรวจ + Ready for STG (รอรับทดสอบ) / Testing on STG ที่ QA ยังไม่กดผ่าน · ผู้จ่ายงาน + (Testing on STG ที่ผ่านแล้ว รออนุมัติ | Testing on PRD รอยืนยัน)
  */
 export function reviewQueueWhere(meId: string, workflowEnabled: boolean) {
   const legacy = and(eq(tasks.reviewerId, meId), eq(tasks.status, 'waiting_for_test'))
   if (!workflowEnabled) return legacy
   return or(
     legacy,
-    and(or(eq(tasks.reviewerId, meId), and(isNull(tasks.reviewerId), eq(tasks.assignedBy, meId))), eq(tasks.status, 'testing_stg'), isNull(tasks.stgPassedAt)),
+    // Ready for STG = รอผู้ทดสอบกดรับ · Testing on STG ที่ยังไม่มีใครกดผ่าน = รอผู้ทดสอบทดสอบ
+    and(
+      or(eq(tasks.reviewerId, meId), and(isNull(tasks.reviewerId), eq(tasks.assignedBy, meId))),
+      or(eq(tasks.status, 'ready_for_stg'), and(eq(tasks.status, 'testing_stg'), isNull(tasks.stgPassedAt))),
+    ),
     and(eq(tasks.assignedBy, meId), or(and(eq(tasks.status, 'testing_stg'), isNotNull(tasks.stgPassedAt)), eq(tasks.status, 'testing_prd'))),
   )!
 }

@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardCheck, RotateCcw, Rocket, Send } from 'lucide-react'
+import { CheckCircle2, ClipboardCheck, FlaskConical, RotateCcw, Rocket, Send, XCircle } from 'lucide-react'
 import { useState } from 'react'
 import { api, ApiError } from '../lib/api'
 import { TASK_STATUS_BADGE, TASK_STATUS_LABEL, type TaskStatus } from '../lib/task-status'
@@ -16,11 +16,14 @@ export interface TaskWorkflowInfo {
   stgPassedAt: string | number | null
   stgPassedByName: string | null
 }
-export type WorkflowActionId = 'accept' | 'reject' | 'submit' | 'recall' | 'stg_pass' | 'stg_approve' | 'deployed' | 'prd_pass' | 'fail' | 'approve' | 'bounce'
+export type WorkflowActionId = 'accept' | 'reject' | 'submit' | 'recall' | 'stg_accept' | 'stg_decline' | 'stg_pass' | 'stg_approve' | 'deployed' | 'prd_pass' | 'fail' | 'approve' | 'bounce'
 
 /** ปุ่มเดี่ยว (ไม่ต้องเลือกผล) */
 const SIMPLE_ACTIONS: Partial<Record<WorkflowActionId, { label: (to: TaskStatus) => string; icon: typeof Send; primary: boolean }>> = {
   submit: { label: (to) => `ส่งเข้า ${TASK_STATUS_LABEL[to]}`, icon: Send, primary: true },
+  // Pronista §Ready for STG (2026-10-05) — ผู้ทดสอบ (ผู้ตรวจงาน) รับทดสอบ / ไม่รับทดสอบ (ต้องใส่เหตุผล)
+  stg_accept: { label: () => 'รับทดสอบบน STG', icon: FlaskConical, primary: true },
+  stg_decline: { label: () => 'ไม่รับทดสอบ', icon: XCircle, primary: false },
   recall: { label: () => 'ดึงงานกลับมาแก้ไข', icon: RotateCcw, primary: false },
   deployed: { label: () => 'Deploy แล้ว (ขึ้น PRD เรียบร้อย)', icon: Rocket, primary: true },
 }
@@ -36,10 +39,12 @@ const RESULT_ORDER: WorkflowActionId[] = ['stg_pass', 'stg_approve', 'prd_pass',
 const fmtWhen = (v: string | number) => new Date(v).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 /** ข้อความบอกสถานะ "ตอนนี้งานอยู่ตรงไหน / รอใคร" */
-function stageMessage(status: TaskStatus, wf: TaskWorkflowInfo): string | null {
+function stageMessage(status: TaskStatus, wf: TaskWorkflowInfo, reviewerName: string | null): string | null {
   switch (status) {
     case 'on_processing':
       return null
+    case 'ready_for_stg':
+      return `ส่งมาแล้ว — รอ ${reviewerName ?? 'ผู้ทดสอบ'} กด "รับทดสอบ" บน STG`
     case 'waiting_for_test':
     case 'testing_stg':
       return wf.stgPassedAt
@@ -64,35 +69,46 @@ export function TaskWorkflowPanel({
   taskId,
   status,
   workflow,
+  reviewerId,
+  reviewerName,
+  testerOptions,
   onChanged,
   onSubmitted,
 }: {
   taskId: string
   status: TaskStatus
   workflow: TaskWorkflowInfo
+  /** ผู้ตรวจงาน (= ผู้ทดสอบ) ปัจจุบันของงาน + ชื่อที่โชว์ + รายชื่อที่เลือกเป็นผู้ทดสอบได้ตอนกดส่งงาน (ไม่มีฟิลด์ใหม่ ใช้ช่อง "ผู้ตรวจงาน" เดิม) */
+  reviewerId: string | null
+  reviewerName: string | null
+  testerOptions: { id: string; name: string }[]
   onChanged: () => Promise<void> | void
   /** เรียกหลังกด "ส่ง" สำเร็จ (ให้หน้าเด้งกลับตามพฤติกรรมเดิมของปุ่มส่งงาน) */
   onSubmitted?: () => void
 }) {
-  const { alertDialog } = useDialog()
+  const { alertDialog, promptDialog } = useDialog()
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<WorkflowActionId | ''>('')
   const [reason, setReason] = useState('')
+  // ส่งงานเข้า Ready for STG: เลือก/ยืนยันผู้ทดสอบก่อนส่ง
+  const [picking, setPicking] = useState(false)
+  const [tester, setTester] = useState(reviewerId ?? '')
 
   const resultActions = RESULT_ORDER.filter((a) => workflow.actions.some((x) => x.action === a))
   const simpleActions = workflow.actions.filter((a) => SIMPLE_ACTIONS[a.action])
   const chosen = workflow.actions.find((a) => a.action === result)
   const effective: TaskStatus = status === 'waiting_for_test' && workflow.steps.includes('testing_stg') ? 'testing_stg' : status
-  const message = stageMessage(status, workflow)
+  const message = stageMessage(status, workflow, reviewerName)
 
-  const run = async (action: WorkflowActionId, withReason?: string) => {
+  const run = async (action: WorkflowActionId, withReason?: string, withReviewerId?: string) => {
     if (busy) return
     setBusy(true)
     try {
-      await api.post(`/api/tasks/${taskId}/workflow-action`, { action, ...(withReason ? { reason: withReason } : {}) })
+      await api.post(`/api/tasks/${taskId}/workflow-action`, { action, ...(withReason ? { reason: withReason } : {}), ...(withReviewerId ? { reviewerId: withReviewerId } : {}) })
       setResult('')
       setReason('')
+      setPicking(false)
       await onChanged()
       toast('บันทึกสำเร็จ')
       if (action === 'submit') onSubmitted?.()
@@ -101,6 +117,22 @@ export function TaskWorkflowPanel({
     } finally {
       setBusy(false)
     }
+  }
+
+  // ปุ่มเดี่ยว: ส่งเข้า Ready for STG ต้องเลือกผู้ทดสอบก่อน · ไม่รับทดสอบต้องใส่เหตุผล · ที่เหลือกดแล้วทำเลย
+  const clickSimple = async (a: { action: WorkflowActionId; to: TaskStatus }) => {
+    if (a.action === 'submit' && a.to === 'ready_for_stg') {
+      setTester(reviewerId ?? '')
+      setPicking(true)
+      return
+    }
+    if (a.action === 'stg_decline') {
+      const why = await promptDialog({ title: 'ไม่รับทดสอบ', message: 'ระบุเหตุผล (ผู้รับงานจะเห็นและนำไปแก้ไข/ส่งใหม่)', placeholder: 'เช่น ไม่ว่างช่วงนี้ / ไม่ใช่งานของฉัน', required: true })
+      if (!why || !why.trim()) return
+      void run('stg_decline', why.trim())
+      return
+    }
+    void run(a.action)
   }
 
   const submitResult = () => {
@@ -129,7 +161,7 @@ export function TaskWorkflowPanel({
       {workflow.testRound > 0 && <div className="text-[11px] text-muted">รอบทดสอบที่ {workflow.testRound}</div>}
       {message && <div className="bg-info-50 text-info-700 text-xs rounded-lg px-3 py-2">{message}</div>}
 
-      {simpleActions.map((a) => {
+      {simpleActions.filter((a) => !(picking && a.action === 'submit')).map((a) => {
         const def = SIMPLE_ACTIONS[a.action]!
         const Icon = def.icon
         return (
@@ -137,7 +169,7 @@ export function TaskWorkflowPanel({
             key={a.action}
             type="button"
             disabled={busy}
-            onClick={() => void run(a.action)}
+            onClick={() => void clickSimple(a)}
             className={
               def.primary
                 ? 'w-full flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium disabled:opacity-40'
@@ -148,6 +180,28 @@ export function TaskWorkflowPanel({
           </button>
         )
       })}
+
+      {picking && (
+        <div className="rounded-lg border border-border-subtle bg-hover/60 p-3 space-y-2" data-testid="tester-picker">
+          <div className="text-sm font-semibold text-ink">เลือกผู้ทดสอบ</div>
+          <p className="text-[11px] text-muted">คนที่จะทดสอบบน STG และกด "รับทดสอบ" (ใช้ช่อง "ผู้ตรวจงาน" ของงานนี้)</p>
+          <select
+            value={tester}
+            onChange={(e) => setTester(e.target.value)}
+            aria-label="ผู้ทดสอบ"
+            className="w-full text-sm border border-border rounded-lg px-2.5 py-2 bg-white focus:outline-hidden focus:ring-2 focus:ring-brand-500/25"
+          >
+            <option value="">— เลือกผู้ทดสอบ —</option>
+            {testerOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <button type="button" disabled={!tester || busy} onClick={() => void run('submit', undefined, tester)} className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-success-600 hover:bg-success-700 text-white px-3 py-2 rounded-lg font-medium disabled:opacity-40">
+              <Send className="w-4 h-4" /> {busy ? 'กำลังส่ง…' : 'ยืนยันส่งงาน'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => setPicking(false)} className="text-sm border border-border-subtle text-dim hover:bg-hover px-3 py-2 rounded-lg">ยกเลิก</button>
+          </div>
+        </div>
+      )}
 
       {resultActions.length > 0 && (
         <div className="rounded-lg border border-border-subtle bg-hover/60 p-3 space-y-2">

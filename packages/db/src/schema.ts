@@ -495,7 +495,7 @@ export const DOC_TYPES = ['MOM', 'BRD', 'SOW', 'SRS', 'PEP', 'UIR', 'CR', 'API']
 // Pronista §2.12 — สถานะ task ตายตัว 4 ค่า (Kanban ทุกโปรเจกต์ ไม่ว่า Product/Project) แทนที่ todo/doing/done เดิม
 // Pronista §Business Rules Workflow (เฟส B, 2026-09-15) — เพิ่ม 'rejected'/'cancelled' เป็นสถานะข้อยกเว้น (ไม่ใช่คอลัมน์ Kanban หลัก — ดู StatusKanban.tsx) เข้าถึงได้เฉพาะผ่าน action endpoint เฉพาะ (reject/cancel) ห้ามตั้งตรงผ่าน PATCH ทั่วไป
 // Pronista §Task status workflow (2026-10-02) — เพิ่ม testing_stg / ready_for_prd / testing_prd สำหรับ flow Deployment (ใช้งานจริงเมื่อเปิดสวิตช์ workflow ใน company_config · enum ระดับ TS ไม่มี CHECK ใน DB จึงไม่ต้อง migration)
-export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done', 'rejected', 'cancelled'] as const
+export const TASK_STATUSES = ['non_start', 'on_processing', 'waiting_for_test', 'ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done', 'rejected', 'cancelled'] as const
 // สถานะที่ถือว่า "จบแล้ว ไม่ต้อง action อีก" — ใช้แทน `ne(tasks.status,'done')` ในจุดที่หมายถึง "งานที่ยังต้องทำอยู่" (overdue/my-tasks/search ฯลฯ)
 export const INACTIVE_TASK_STATUSES = ['done', 'rejected', 'cancelled'] as const
 // สถานะที่เลือกได้ตรงๆ ผ่าน dropdown อิสระ (canEditStatusFreely) — ไม่รวม rejected/cancelled เพราะต้องผ่าน action ที่บังคับเหตุผลเท่านั้น (endpoint /reject, /cancel)
@@ -1958,6 +1958,9 @@ export const NOTIFICATION_TYPES = [
   'task_deployed',
   'task_test_failed',
   'task_prd_passed',
+  // Pronista §Ready for STG (2026-10-05) — ผู้ทดสอบรับทดสอบ / ไม่รับทดสอบ (แจ้งผู้รับงาน)
+  'task_stg_accepted',
+  'task_stg_declined',
   // Pronista §Leave Request (2026-09-22, Phase 1)
   'leave_requested',
   'leave_approved',

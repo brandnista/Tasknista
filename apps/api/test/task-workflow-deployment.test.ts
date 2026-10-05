@@ -119,16 +119,23 @@ describe('workflow-action — เส้นทางหลักครบทุ�
   it('Dev ส่ง → QA ผ่าน STG → BA อนุมัติ → Dev Deploy แล้ว → BA ผ่าน PRD → Done พร้อมแจ้งเตือนทุกขั้น', async () => {
     const t = await makeTask()
 
-    // 1) Dev ส่งงาน → Testing on STG · testRound=1 · แจ้ง QA (reviewer) + BA
+    // 1) Dev ส่งงาน → Ready for STG · testRound=1 · แจ้ง QA (ผู้ทดสอบ) + BA
     let res = await act(dev, t.id, 'submit')
     expect(res.status).toBe(200)
     let row = await getTask(t.id)
-    expect(row.status).toBe('testing_stg')
+    expect(row.status).toBe('ready_for_stg')
     expect(row.testRound).toBe(1)
     expect(row.stageAt).not.toBeNull()
     expect(row.stgPassedAt).toBeNull()
     expect(await notifCount(QA, 'task_review_requested')).toBe(1)
     expect(await notifCount(BA, 'task_submitted')).toBe(1)
+
+    // 1.1) ผู้ทดสอบกด "รับทดสอบ" → Testing on STG · แจ้ง Dev + BA
+    res = await act(qa, t.id, 'stg_accept')
+    expect(res.status).toBe(200)
+    expect((await getTask(t.id)).status).toBe('testing_stg')
+    expect(await notifCount(DEV, 'task_stg_accepted')).toBe(1)
+    expect(await notifCount(BA, 'task_accepted')).toBe(1)
 
     // 2) QA กด "ผ่าน STG" → สถานะเดิม แต่มี stgPassedAt · แจ้ง BA
     res = await act(qa, t.id, 'stg_pass')
@@ -182,11 +189,11 @@ describe('workflow-action — เส้นทางหลักครบทุ�
     expect((await getTask(t.id)).testRound).toBe(2)
   })
 
-  it('Dev ดึงงานกลับ (recall) ได้ก่อน QA กดผ่าน แต่หลังผ่านแล้วดึงไม่ได้', async () => {
-    const t = await makeTask({ status: 'testing_stg', testRound: 1 })
+  it('Dev ดึงงานกลับ (recall) ได้ตราบที่ยังอยู่ Ready for STG (ยังไม่มีใครรับทดสอบ) · รับทดสอบแล้วดึงไม่ได้', async () => {
+    const t = await makeTask({ status: 'ready_for_stg', testRound: 1 })
     expect((await act(dev, t.id, 'recall')).status).toBe(200)
     expect((await getTask(t.id)).status).toBe('on_processing')
-    await createDb(env.DB).update(tasks).set({ status: 'testing_stg', stgPassedAt: new Date(), stgPassedBy: QA }).where(eq(tasks.id, t.id))
+    await createDb(env.DB).update(tasks).set({ status: 'testing_stg' }).where(eq(tasks.id, t.id))
     expect((await act(dev, t.id, 'recall')).status).toBe(403)
   })
 
@@ -233,7 +240,8 @@ describe('workflow-action — งานแม่/งานลูก (แม่�
     const parent = await makeTask()
     const child = await makeTask({ parentId: parent.id, status: 'testing_stg' })
     await makeTask({ parentId: parent.id, status: 'cancelled' })
-    expect((await act(dev, parent.id, 'submit')).status).toBe(200)
+    expect((await act(dev, parent.id, 'submit')).status).toBe(200) // → Ready for STG (ลูกถึง STG แล้ว ≥ Ready for STG)
+    expect((await act(qa, parent.id, 'stg_accept')).status).toBe(200) // ลูกอยู่ Testing on STG แล้ว
     await act(qa, parent.id, 'stg_pass')
     const blocked = await act(ba, parent.id, 'stg_approve')
     expect(blocked.status).toBe(400)
@@ -365,7 +373,7 @@ describe('admin workflow-config', () => {
     expect(((await res.json()) as { config: { enabled: boolean } }).config.enabled).toBe(true)
   })
 
-  it('เปิดสวิตช์ครั้งแรก → งาน Deployment ที่ค้าง Waiting for Review ย้ายไป Testing on STG อัตโนมัติ (Document ไม่ย้าย)', async () => {
+  it('เปิดสวิตช์ครั้งแรก → งาน Deployment ที่ค้าง Waiting for Review ย้ายไป Ready for STG อัตโนมัติ (Document ไม่ย้าย)', async () => {
     await setConfig(false)
     await createDb(env.DB)
       .update(companyConfig)
@@ -381,7 +389,7 @@ describe('admin workflow-config', () => {
     expect(res.status).toBe(200)
     expect(((await res.json()) as { migrated: number }).migrated).toBe(1)
     const depRow = await getTask(dep.id)
-    expect(depRow.status).toBe('testing_stg')
+    expect(depRow.status).toBe('ready_for_stg')
     expect(depRow.testRound).toBe(1)
     expect((await getTask(doc.id)).status).toBe('waiting_for_test')
     await createDb(env.DB).update(companyConfig).set({ taskTypes: null }).where(eq(companyConfig.id, 1))
@@ -463,5 +471,61 @@ describe('admin workflow-config — แก้ flow ขณะมีงานค�
     const row = await getTask(t.id)
     expect(row.status).toBe('done')
     expect(row.completedAt).not.toBeNull()
+  })
+})
+
+describe('Ready for STG — ผู้ทดสอบ = ช่อง "ผู้ตรวจงาน" เดิม', () => {
+  it('ส่งงานโดยไม่มีผู้ตรวจในงาน และไม่ได้เลือกผู้ทดสอบ → 400 reviewer_required', async () => {
+    const t = await makeTask({ reviewerId: null })
+    const res = await act(dev, t.id, 'submit')
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('reviewer_required')
+    expect((await getTask(t.id)).status).toBe('on_processing')
+  })
+
+  it('เลือกผู้ทดสอบตอนส่งงาน → บันทึกลง reviewerId · แจ้งเฉพาะผู้ทดสอบคนใหม่ · ผู้ทดสอบที่ไม่มีอยู่จริง/ปิดใช้งาน → 400', async () => {
+    const t = await makeTask({ reviewerId: null })
+    const bad = await app.request(`/api/tasks/${t.id}/workflow-action`, post(dev, { action: 'submit', reviewerId: 'u_gone' }), env)
+    expect(bad.status).toBe(400)
+    const ok = await app.request(`/api/tasks/${t.id}/workflow-action`, post(dev, { action: 'submit', reviewerId: QA }), env)
+    expect(ok.status).toBe(200)
+    const row = await getTask(t.id)
+    expect(row.reviewerId).toBe(QA)
+    expect(row.status).toBe('ready_for_stg')
+    expect(await notifCount(QA, 'task_review_requested')).toBe(1)
+  })
+
+  it('เฉพาะผู้ทดสอบ (หรือ owner) กดรับทดสอบได้ · Dev/BA กดไม่ได้', async () => {
+    const t = await makeTask({ status: 'ready_for_stg', testRound: 1 })
+    expect((await act(dev, t.id, 'stg_accept')).status).toBe(403)
+    expect((await act(ba, t.id, 'stg_accept')).status).toBe(403)
+    expect((await act(owner, t.id, 'stg_accept')).status).toBe(200)
+  })
+
+  it('ไม่รับทดสอบ: ต้องใส่เหตุผล → กลับ On Processing · แจ้ง Dev พร้อมเหตุผล', async () => {
+    const t = await makeTask({ status: 'ready_for_stg', testRound: 1 })
+    expect((await act(qa, t.id, 'stg_decline')).status).toBe(400)
+    expect((await act(qa, t.id, 'stg_decline', 'ผมไม่ว่างสัปดาห์นี้')).status).toBe(200)
+    expect((await getTask(t.id)).status).toBe('on_processing')
+    const n = await env.DB.prepare('SELECT message FROM notifications WHERE user_id = ? AND type = ?').bind(DEV, 'task_stg_declined').first<{ message: string }>()
+    expect(n?.message).toContain('ผมไม่ว่างสัปดาห์นี้')
+  })
+
+  it('คิวงานรอตรวจ: ผู้ทดสอบเห็น Ready for STG (accept_stg) · PATCH เปลี่ยนสถานะ Ready for STG ตรงๆ ไม่ได้', async () => {
+    const t = await makeTask({ status: 'ready_for_stg', testRound: 1, stageAt: new Date() })
+    const q = (await (await app.request('/api/tasks/pending-review', { headers: { cookie: qa } }, env)).json()) as { id: string; queueReason?: string }[]
+    expect(q.map((r) => [r.id, r.queueReason])).toEqual([[t.id, 'accept_stg']])
+    const res = await app.request(`/api/tasks/${t.id}`, { ...post(owner, { status: 'on_processing' }), method: 'PATCH' }, env)
+    expect(res.status).toBe(400)
+  })
+
+  it('config เก่าที่ไม่มี Ready for STG ถูกอัปเกรดตอนอ่าน · ปิดสวิตช์ไม่ได้ขณะมีงานค้าง Ready for STG', async () => {
+    const legacy = { enabled: true, workflows: [{ id: 'deployment', name: 'Deployment', steps: ['non_start', 'on_processing', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'] }], typeFlows: {}, defaultWorkflowId: 'deployment' }
+    await createDb(env.DB).update(companyConfig).set({ workflowConfig: legacy }).where(eq(companyConfig.id, 1))
+    const cfg = (await (await app.request('/api/admin/workflow-config', { headers: { cookie: owner } }, env)).json()) as { config: { workflows: { id: string; steps: string[] }[] } }
+    expect(cfg.config.workflows.find((w) => w.id === 'deployment')?.steps).toContain('ready_for_stg')
+    await makeTask({ status: 'ready_for_stg' })
+    const res = await app.request('/api/admin/workflow-config', put(owner, { config: { ...DEFAULT_WORKFLOW_CONFIG, enabled: false } }), env)
+    expect(res.status).toBe(409)
   })
 })

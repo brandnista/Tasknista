@@ -151,7 +151,7 @@ export const overviewRoutes = new Hono<AppEnv>()
     const userNameById = new Map(activeUsers.map((u) => [u.id, u.name]))
     const waitingReviewList = allTasks
       // Pronista §Task status workflow phase 3 (2026-10-02) — รวมงานที่ส่งทดสอบบน STG/PRD (flow Deployment) ในรายการ "รอตรวจ" ด้วย
-      .filter((t) => t.status === 'waiting_for_test' || t.status === 'testing_stg' || t.status === 'testing_prd')
+      .filter((t) => t.status === 'waiting_for_test' || t.status === 'ready_for_stg' || t.status === 'testing_stg' || t.status === 'testing_prd')
       .sort((a, b) => Number(a.submittedAt ?? 0) - Number(b.submittedAt ?? 0))
       .slice(0, 12)
       .map((t) => ({

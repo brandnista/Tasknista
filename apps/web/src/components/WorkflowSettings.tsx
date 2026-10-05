@@ -15,7 +15,7 @@ import { useToast } from './Toast'
 
 const LOCKED_STEPS: WorkflowStep[] = ['non_start', 'on_processing', 'done']
 const BUILT_IN_IDS = ['document', 'deployment']
-const DEPLOYMENT_STEPS: WorkflowStep[] = ['testing_stg', 'ready_for_prd', 'testing_prd']
+const DEPLOYMENT_STEPS: WorkflowStep[] = ['ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd']
 const randomFlowId = () => `wf_${Math.random().toString(36).slice(2, 8)}`
 
 /** เรียงตามแคตตาล็อกเสมอ */
@@ -53,9 +53,9 @@ export function WorkflowSettings() {
     // ชนิด flow: Document-like (Waiting for Review) กับ Deployment-like (Testing on STG...) ใช้ปนกันไม่ได้
     if (!has && step === 'waiting_for_test') steps = steps.filter((s) => !DEPLOYMENT_STEPS.includes(s))
     if (!has && DEPLOYMENT_STEPS.includes(step)) steps = steps.filter((s) => s !== 'waiting_for_test')
-    // Ready for PRD / Testing on PRD ต้องมี Testing on STG
-    if (!has && (step === 'ready_for_prd' || step === 'testing_prd') && !steps.includes('testing_stg')) steps = [...steps, 'testing_stg']
-    if (has && step === 'testing_stg') steps = steps.filter((s) => s !== 'ready_for_prd' && s !== 'testing_prd')
+    // Ready for STG / Ready for PRD / Testing on PRD ต้องมี Testing on STG
+    if (!has && (step === 'ready_for_stg' || step === 'ready_for_prd' || step === 'testing_prd') && !steps.includes('testing_stg')) steps = [...steps, 'testing_stg']
+    if (has && step === 'testing_stg') steps = steps.filter((s) => s !== 'ready_for_stg' && s !== 'ready_for_prd' && s !== 'testing_prd')
     updateFlow(flow.id, { steps: sortSteps(steps) })
   }
   const addFlow = () =>
@@ -76,7 +76,7 @@ export function WorkflowSettings() {
     if (turningOn) {
       const ok = await confirmDialog({
         title: 'เปิดใช้ flow สถานะงานแบบใหม่?',
-        message: 'งานที่ค้างอยู่ที่ Waiting for Review และใช้ flow Deployment จะถูกย้ายไป Testing on STG อัตโนมัติ · การเปลี่ยนสถานะของงานกลุ่มนี้ต้องกดปุ่มในหน้ารายละเอียดงาน (ลากบอร์ดข้ามขั้นไม่ได้แล้ว)',
+        message: 'งานที่ค้างอยู่ที่ Waiting for Review และใช้ flow Deployment จะถูกย้ายไป Ready for STG (รอผู้ทดสอบกดรับ) อัตโนมัติ · การเปลี่ยนสถานะของงานกลุ่มนี้ต้องกดปุ่มในหน้ารายละเอียดงาน (ลากบอร์ดข้ามขั้นไม่ได้แล้ว)',
         confirmLabel: 'เปิดใช้งาน',
       })
       if (!ok) return
@@ -89,7 +89,7 @@ export function WorkflowSettings() {
         config: { ...cfg, workflows: cfg.workflows.map((w) => ({ ...w, name: w.name.trim() })) },
       })
       setSaved(true)
-      toast(turningOn && res.migrated > 0 ? `บันทึกสำเร็จ — ย้ายงาน ${res.migrated} ชิ้นไป Testing on STG` : 'บันทึกสำเร็จ')
+      toast(turningOn && res.migrated > 0 ? `บันทึกสำเร็จ — ย้ายงาน ${res.migrated} ชิ้นไป Ready for STG` : 'บันทึกสำเร็จ')
       await reload()
       await refreshWorkflowConfig()
     } catch (e) {
@@ -119,7 +119,7 @@ export function WorkflowSettings() {
           <span className="text-sm">
             <span className="font-medium text-ink">เปิดใช้ flow สถานะงานแบบใหม่</span>
             <span className="block text-xs text-muted mt-0.5">
-              ปิดอยู่ = ทุกงานใช้ Non Start → On Processing → Waiting for Review → Done แบบเดิม · เปิดแล้ว งานประเภทที่ตั้งเป็น Deployment จะมีขั้น Testing on STG / Ready for PRD / Testing on PRD และต้องกดปุ่มผลการทดสอบในหน้ารายละเอียดงาน
+              ปิดอยู่ = ทุกงานใช้ Non Start → On Processing → Waiting for Review → Done แบบเดิม · เปิดแล้ว งานประเภทที่ตั้งเป็น Deployment จะมีขั้น Ready for STG / Testing on STG / Ready for PRD / Testing on PRD และต้องกดปุ่มผลการทดสอบในหน้ารายละเอียดงาน
             </span>
           </span>
         </label>
@@ -170,7 +170,7 @@ export function WorkflowSettings() {
             )
           })}
           <button type="button" onClick={addFlow} className="text-sm text-brand-700 hover:text-brand-800">+ เพิ่ม flow</button>
-          <p className="text-[11px] text-muted">Non Start, On Processing และ Done ต้องมีเสมอ · Waiting for Review ใช้คู่กับ Testing on STG ไม่ได้ · Ready for PRD / Testing on PRD ต้องมี Testing on STG</p>
+          <p className="text-[11px] text-muted">Non Start, On Processing และ Done ต้องมีเสมอ · Waiting for Review ใช้คู่กับ Testing on STG ไม่ได้ · Ready for STG / Ready for PRD / Testing on PRD ต้องมี Testing on STG</p>
         </div>
 
         {/* ประเภทงาน → flow */}

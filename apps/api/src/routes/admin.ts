@@ -830,9 +830,9 @@ export const adminRoutes = new Hono<AppEnv>()
         await db
           .select({ n: sql<number>`count(*)` })
           .from(tasks)
-          .where(inArray(tasks.status, ['testing_stg', 'ready_for_prd', 'testing_prd']))
+          .where(inArray(tasks.status, ['ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd']))
       )[0]?.n
-      if (inUse) return c.json({ error: 'workflow_in_use', message: `ปิดไม่ได้ — ยังมีงาน ${inUse} ชิ้นค้างอยู่ที่ Testing on STG / Ready for PRD / Testing on PRD ต้องเคลียร์ให้เสร็จก่อน`, inUse }, 409)
+      if (inUse) return c.json({ error: 'workflow_in_use', message: `ปิดไม่ได้ — ยังมีงาน ${inUse} ชิ้นค้างอยู่ที่ Ready for STG / Testing on STG / Ready for PRD / Testing on PRD ต้องเคลียร์ให้เสร็จก่อน`, inUse }, 409)
     }
 
     // เปลี่ยน flow ของประเภทงาน/แก้ขั้นของ flow ขณะมีงานค้างอยู่ขั้นทดสอบ/PRD ที่ flow ใหม่ไม่รู้จัก → งานจะค้างไม่มีปุ่มให้กด จึงบล็อกไว้ก่อน
@@ -840,7 +840,7 @@ export const adminRoutes = new Hono<AppEnv>()
       const inFlight = await db
         .select({ id: tasks.id, status: tasks.status, taskType: tasks.taskType, parentId: tasks.parentId })
         .from(tasks)
-        .where(inArray(tasks.status, ['testing_stg', 'ready_for_prd', 'testing_prd']))
+        .where(inArray(tasks.status, ['ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd']))
       const parentIds = [...new Set(inFlight.filter((t) => !t.taskType && t.parentId).map((t) => t.parentId as string))]
       const parentType = new Map<string, string | null>()
       for (let i = 0; i < parentIds.length; i += 90) {
@@ -870,7 +870,8 @@ export const adminRoutes = new Hono<AppEnv>()
         if (!flow.steps.includes('testing_stg')) continue
         await db
           .update(tasks)
-          .set({ status: 'testing_stg', stageAt: t.submittedAt ?? new Date(), testRound: Math.max(t.testRound, 1), reviewSeenAt: null })
+          // งานที่ส่งตรวจค้างอยู่ → flow ที่มี Ready for STG ให้รอผู้ทดสอบกดรับก่อน (ยังไม่มีใครเริ่มทดสอบจริง) · flow ที่ไม่มีขั้นนี้ไป Testing on STG ตรงๆ
+          .set({ status: flow.steps.includes('ready_for_stg') ? 'ready_for_stg' : 'testing_stg', stageAt: t.submittedAt ?? new Date(), testRound: Math.max(t.testRound, 1), reviewSeenAt: null })
           .where(eq(tasks.id, t.id))
         migrated++
       }

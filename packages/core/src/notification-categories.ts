@@ -40,6 +40,9 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = [
       'task_deployed',
       'task_test_failed',
       'task_prd_passed',
+      // Pronista §Ready for STG (2026-10-05)
+      'task_stg_accepted',
+      'task_stg_declined',
     ],
   },
   { key: 'chat_mention', label: 'มีคนแท็กฉันในแชท', types: ['chat_mention'] },

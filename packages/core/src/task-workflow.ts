@@ -2,9 +2,10 @@
  * Pronista §Task status workflow (2026-10-02) — การไหลของสถานะงานแยกตามประเภทงาน (pure — ใช้ทั้ง API + web)
  *
  * - flow "document": Non Start → On Processing → Waiting for Review → Done (ระบบเดิม)
- * - flow "deployment" (ประเภทงานอื่นทั้งหมด + งานไม่เลือกประเภท): Non Start → On Processing → Testing on STG → Ready for PRD → Testing on PRD → Done
+ * - flow "deployment" (ประเภทงานอื่นทั้งหมด + งานไม่เลือกประเภท): Non Start → On Processing → Ready for STG → Testing on STG → Ready for PRD → Testing on PRD → Done
  * - สวิตช์ `enabled` ปิดไว้ก่อน → ทุกงานใช้ flow เดิมของระบบปัจจุบัน (ขึ้น PRD ได้โดยไม่กระทบทีม)
- * - บทบาท: ผู้รับงาน (Dev, assignee) · ผู้จ่ายงาน (BA, assigner) · ผู้ตรวจ (QA, reviewer = reviewerId ?? assigner) · เจ้าของ (owner bypass)
+ * - บทบาท: ผู้รับงาน (Dev, assignee) · ผู้จ่ายงาน (BA, assigner) · ผู้ตรวจ/ผู้ทดสอบ (QA, reviewer = reviewerId ?? assigner) · เจ้าของ (owner bypass)
+ * - Ready for STG (2 ต.ค. 69): Dev ส่งงาน → รอผู้ทดสอบ "รับทดสอบ" → Testing on STG (ผู้ทดสอบ = ช่อง "ผู้ตรวจงาน" เดิม เลือกตอนส่งงาน)
  */
 import type { TaskType } from './task-type'
 
@@ -12,6 +13,7 @@ export const WORKFLOW_STATUS_IDS = [
   'non_start',
   'on_processing',
   'waiting_for_test',
+  'ready_for_stg',
   'testing_stg',
   'ready_for_prd',
   'testing_prd',
@@ -22,13 +24,14 @@ export const WORKFLOW_STATUS_IDS = [
 export type WorkflowStatus = (typeof WORKFLOW_STATUS_IDS)[number]
 
 /** สถานะที่เป็น "ขั้นบนเส้นทางหลัก" ของ flow (ถูกปฏิเสธ/ยกเลิกเป็นทางข้างผ่านปุ่มเฉพาะ ไม่อยู่ใน steps) */
-export const WORKFLOW_STEP_IDS = ['non_start', 'on_processing', 'waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'] as const
+export const WORKFLOW_STEP_IDS = ['non_start', 'on_processing', 'waiting_for_test', 'ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'] as const
 export type WorkflowStep = (typeof WORKFLOW_STEP_IDS)[number]
 
 export const WORKFLOW_STATUS_DEFAULT_LABEL: Record<WorkflowStatus, string> = {
   non_start: 'Non Start',
   on_processing: 'On Processing',
   waiting_for_test: 'Waiting for Review',
+  ready_for_stg: 'Ready for STG',
   testing_stg: 'Testing on STG',
   ready_for_prd: 'Ready for PRD',
   testing_prd: 'Testing on PRD',
@@ -55,8 +58,10 @@ const DOCUMENT_FLOW: WorkflowDef = { id: 'document', name: 'Document', steps: ['
 const DEPLOYMENT_FLOW: WorkflowDef = {
   id: 'deployment',
   name: 'Deployment',
-  steps: ['non_start', 'on_processing', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'],
+  steps: ['non_start', 'on_processing', 'ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'],
 }
+/** ขั้นของ flow Deployment รุ่นก่อนมี Ready for STG — config ที่เก็บไว้ยังเป็นชุดนี้ให้อัปเกรดเป็นชุดใหม่อัตโนมัติ (ไม่ทับ flow ที่ owner ปรับเอง) */
+const LEGACY_DEPLOYMENT_STEPS = ['non_start', 'on_processing', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done']
 
 export const DEFAULT_WORKFLOW_CONFIG: WorkflowConfig = {
   enabled: false,
@@ -80,6 +85,7 @@ export function resolveWorkflowConfig(raw: unknown): WorkflowConfig {
       const steps = [...new Set(Array.isArray(wf.steps) ? (wf.steps as unknown[]).filter(isStep) : [])]
       if (steps.length === 0) continue
       const name = typeof wf.name === 'string' && wf.name.trim() ? wf.name.trim().slice(0, 60) : wf.id
+      if (wf.id === 'deployment' && steps.join() === LEGACY_DEPLOYMENT_STEPS.join()) continue // อัปเกรดเป็นชุดใหม่ (มี Ready for STG)
       byId.set(wf.id, { id: wf.id, name, steps })
     }
   }
@@ -111,7 +117,8 @@ export function validateWorkflowConfig(cfg: WorkflowConfig): { ok: true } | { ok
     const idx = s.map((x) => WORKFLOW_STEP_IDS.indexOf(x))
     if (idx.some((v, i) => i > 0 && v < idx[i - 1]!)) return { ok: false, error: `flow "${w.name}" เรียงสถานะผิดลำดับ` }
     if (s.includes('testing_stg') && s.includes('waiting_for_test')) return { ok: false, error: `flow "${w.name}" ใช้ Waiting for Review คู่กับ Testing on STG ไม่ได้ (เลือกแบบใดแบบหนึ่ง)` }
-    if (!s.includes('testing_stg') && (s.includes('ready_for_prd') || s.includes('testing_prd'))) return { ok: false, error: `flow "${w.name}" ต้องมี Testing on STG ก่อนถึงจะใช้ Ready for PRD / Testing on PRD ได้` }
+    if (!s.includes('testing_stg') && (s.includes('ready_for_stg') || s.includes('ready_for_prd') || s.includes('testing_prd')))
+      return { ok: false, error: `flow "${w.name}" ต้องมี Testing on STG ก่อนถึงจะใช้ Ready for STG / Ready for PRD / Testing on PRD ได้` }
   }
   if (!ids.has(cfg.defaultWorkflowId)) return { ok: false, error: 'flow เริ่มต้นไม่มีอยู่จริง' }
   for (const [typeId, flowId] of Object.entries(cfg.typeFlows)) {
@@ -153,15 +160,17 @@ export function stageRank(status: WorkflowStatus): number | null {
       return 0
     case 'on_processing':
       return 1
+    case 'ready_for_stg':
+      return 2
     case 'waiting_for_test':
     case 'testing_stg':
-      return 2
-    case 'ready_for_prd':
       return 3
-    case 'testing_prd':
+    case 'ready_for_prd':
       return 4
-    case 'done':
+    case 'testing_prd':
       return 5
+    case 'done':
+      return 6
     case 'rejected':
       return -1
     case 'cancelled':
@@ -182,7 +191,7 @@ export interface ActionContext {
   /** ผู้ตรวจเป็นคนเดียวกับผู้จ่ายงาน → ไม่ต้องอนุมัติสองชั้น */
   reviewerIsAssigner: boolean
 }
-export type WorkflowAction = 'accept' | 'reject' | 'submit' | 'recall' | 'stg_pass' | 'stg_approve' | 'deployed' | 'prd_pass' | 'fail' | 'approve' | 'bounce'
+export type WorkflowAction = 'accept' | 'reject' | 'submit' | 'recall' | 'stg_accept' | 'stg_decline' | 'stg_pass' | 'stg_approve' | 'deployed' | 'prd_pass' | 'fail' | 'approve' | 'bounce'
 export interface AvailableAction {
   action: WorkflowAction
   to: WorkflowStatus
@@ -216,11 +225,20 @@ export function actionsFor(flow: WorkflowDef, status: WorkflowStatus, actor: Act
       }
       if (actor.isAssignee || o) out.push({ action: 'recall', to: 'on_processing' })
       break
+    case 'ready_for_stg':
+      // ผู้ทดสอบ (ผู้ตรวจงาน) กดรับทดสอบ หรือไม่รับ (ต้องใส่เหตุผล) · Dev ดึงงานกลับได้ตราบที่ยังไม่มีใครรับ
+      if ((actor.isReviewer || o) && next) {
+        out.push({ action: 'stg_accept', to: next })
+        out.push({ action: 'stg_decline', to: 'on_processing', requiresReason: true })
+      }
+      if (actor.isAssignee || o) out.push({ action: 'recall', to: 'on_processing' })
+      break
     case 'testing_stg':
       if ((actor.isReviewer || o) && !ctx.stgPassed && !ctx.reviewerIsAssigner) out.push({ action: 'stg_pass', to: 'testing_stg' })
       if ((actor.isAssigner || o) && (ctx.stgPassed || ctx.reviewerIsAssigner) && next) out.push({ action: 'stg_approve', to: next })
       if (actor.isReviewer || actor.isAssigner || o) out.push({ action: 'fail', to: 'on_processing', requiresReason: true })
-      if ((actor.isAssignee || o) && !ctx.stgPassed) out.push({ action: 'recall', to: 'on_processing' })
+      // flow ที่มีขั้น Ready for STG: รับทดสอบแล้วดึงกลับไม่ได้ (ต้องให้ผู้ทดสอบตีกลับด้วยผล "ไม่ผ่าน")
+      if ((actor.isAssignee || o) && !ctx.stgPassed && !flow.steps.includes('ready_for_stg')) out.push({ action: 'recall', to: 'on_processing' })
       break
     case 'ready_for_prd':
       if ((actor.isAssignee || actor.isAssigner || o) && next) out.push({ action: 'deployed', to: next })

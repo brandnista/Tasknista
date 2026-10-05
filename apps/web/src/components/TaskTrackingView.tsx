@@ -20,12 +20,12 @@ export interface TrackingTask extends KanbanTask {
   completedAt?: string | number | null
   lastActivityAt?: string | number | null
   // Pronista §Task status workflow phase 3 (2026-10-02) — งานรอตรวจแบบรวมคิว: ฉันต้องทำอะไรกับงานนี้ (review=ทดสอบ · approve_stg=อนุมัติขึ้น PRD · confirm_prd=ยืนยันผล PRD)
-  queueReason?: 'review' | 'approve_stg' | 'confirm_prd'
+  queueReason?: 'accept_stg' | 'review' | 'approve_stg' | 'confirm_prd'
 }
 
-const QUEUE_REASON_LABEL = { review: 'รอคุณทดสอบ', approve_stg: 'QA ผ่านแล้ว · รออนุมัติ', confirm_prd: 'รอยืนยันผล PRD' } as const
+const QUEUE_REASON_LABEL = { accept_stg: 'รอคุณรับทดสอบ', review: 'รอคุณทดสอบ', approve_stg: 'QA ผ่านแล้ว · รออนุมัติ', confirm_prd: 'รอยืนยันผล PRD' } as const
 function QueueReasonChip({ task }: { task: TrackingTask }) {
-  if (!task.queueReason || (task.status !== 'testing_stg' && task.status !== 'testing_prd')) return null
+  if (!task.queueReason || (task.status !== 'ready_for_stg' && task.status !== 'testing_stg' && task.status !== 'testing_prd')) return null
   return <span className="inline-flex whitespace-nowrap rounded-md border border-warning-200 bg-warning-50 px-1.5 py-0.5 text-[10px] font-medium text-warning-700">{QUEUE_REASON_LABEL[task.queueReason]}</span>
 }
 

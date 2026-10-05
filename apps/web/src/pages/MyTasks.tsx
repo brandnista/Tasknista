@@ -196,7 +196,7 @@ function NewlyDispatchedWidget({ tasks, loading, acceptingTaskId, onOpenTask, on
 
 type SummaryKey = 'all' | 'pending' | 'processing' | 'review' | 'overdue'
 // Pronista §Task status workflow phase 3 — งานที่ส่งตรวจ/ทดสอบแล้วและรอผลอยู่ (ตอนเปิด flow ใหม่รวม Testing on STG/PRD ด้วย)
-const isInReviewGroup = (s: TaskStatus, workflowEnabled: boolean) => s === 'waiting_for_test' || (workflowEnabled && (s === 'testing_stg' || s === 'testing_prd'))
+const isInReviewGroup = (s: TaskStatus, workflowEnabled: boolean) => s === 'waiting_for_test' || (workflowEnabled && (s === 'ready_for_stg' || s === 'testing_stg' || s === 'testing_prd'))
 
 function SummaryCards({ cards, selected, loading, onSelect }: {
   cards: { key: SummaryKey; label: string; value: number; icon: typeof BriefcaseBusiness; tone: string }[]
@@ -390,7 +390,7 @@ export function MyTasksPage() {
   const wf = useWorkflowConfig()
   // Pronista §Notification Badge Audit เฟส 6a (2026-09-24) — เข้าเมนู "งานของฉัน" แล้วเคลียร์ badge กลุ่ม assigned ทันที (เดิมไม่เคยเคลียร์เลย ทั้งที่หน้านี้ import useNotifications อยู่แล้ว)
   useEffect(() => {
-    for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder', 'task_stg_approved', 'task_test_failed', 'task_prd_passed'] as const) void markTypeRead(t)
+    for (const t of ['task_dispatched', 'task_bounced', 'task_reassigned', 'task_approved', 'task_updated', 'subtask_assigned', 'task_commented', 'task_overdue_reminder', 'task_stg_approved', 'task_test_failed', 'task_prd_passed', 'task_stg_accepted', 'task_stg_declined'] as const) void markTypeRead(t)
   }, [markTypeRead])
   const tasks = data ?? []
 

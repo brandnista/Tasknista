@@ -908,7 +908,7 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
   // (2026-09-15 fix) — เดิมมี isSelfKeyed อยู่ในเงื่อนไขนี้ด้วย ทำให้คนคีย์งานเองเห็น dropdown อิสระเลือกสถานะอะไรก็ได้แม้จ่ายงานแล้ว (ช่องโหว่ ข้ามเข้าถึง state machine ทั้งหมด) — ตัดออก คนคีย์งานเองใช้ปุ่ม "ปิดงานเอง" (scope เฉพาะ → done) ที่มีอยู่แล้วแทน ไม่ใช่ dropdown เต็มรูปแบบ
   // Pronista §Task status workflow phase 3 (2026-10-02) — งาน flow Deployment (สวิตช์เปิด): ตั้งแต่ On Processing เป็นต้นไปใช้แผงปุ่ม/ผลการทดสอบแทนปุ่มส่งงาน/อนุมัติแบบเดิม · dropdown สถานะอิสระเหลือแค่ Non Start/On Processing
   const wfDeployment = !!t.workflow?.enabled && t.workflow.steps.includes('testing_stg')
-  const useWfPanel = wfDeployment && !!t.dispatchedAt && ['on_processing', 'waiting_for_test', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'].includes(t.status)
+  const useWfPanel = wfDeployment && !!t.dispatchedAt && ['on_processing', 'waiting_for_test', 'ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'].includes(t.status)
   const statusLockedByWorkflow = wfDeployment && t.status !== 'non_start' && t.status !== 'on_processing'
   const canEditStatusFreely = canEdit && (!isAssignee || !t.dispatchedAt) && !statusLockedByWorkflow
   const done = draftVal('status') === 'done'
@@ -1768,6 +1768,9 @@ function TaskDetailContent({ routeTaskId }: { routeTaskId: string | undefined })
                   taskId={t.id}
                   status={t.status}
                   workflow={t.workflow}
+                  reviewerId={t.reviewerId ?? null}
+                  reviewerName={t.reviewerName ?? t.assignedByName ?? null}
+                  testerOptions={assigneeOpts.map((u) => ({ id: u.id, name: u.name }))}
                   onChanged={reload}
                   onSubmitted={() => { if (!(!!t.isSubtask || !!t.parent || /\.\d+$/.test(t.code ?? ''))) navigate(-1) }}
                 />

@@ -1124,7 +1124,7 @@ export function WorkspacePage() {
                   const isDropHovering = dropHoverSprintId === sprint.id
                   const canDrop = sprint.status !== 'completed' && !!dragTaskId
                   // Pronista §Business Rules Workflow (2026-09-15) — badge สรุปนี้โชว์แค่ 4 สถานะหลัก (เหมือน Kanban) เติม rejected/cancelled ไว้กันพัง TS แต่ไม่โชว์ในแถบสรุป
-                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, testing_stg: 0, ready_for_prd: 0, testing_prd: 0, done: 0, rejected: 0, cancelled: 0 }
+                  const counts: Record<TaskStatus, number> = { non_start: 0, on_processing: 0, waiting_for_test: 0, ready_for_stg: 0, testing_stg: 0, ready_for_prd: 0, testing_prd: 0, done: 0, rejected: 0, cancelled: 0 }
                   for (const t of item.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
                   return (
                     <div key={sprint.id} className="bg-white rounded-lg shadow-xs p-4 sm:p-5">

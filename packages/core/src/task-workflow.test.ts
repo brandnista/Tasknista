@@ -11,6 +11,7 @@ import {
   workflowIdForTaskType,
   type Actor,
   type WorkflowConfig,
+  type WorkflowDef,
 } from './task-workflow'
 
 // ประเภทงานบน PRD มี Document + Deployment เพิ่มจากค่าเริ่มต้น
@@ -25,12 +26,19 @@ const actor = (over: Partial<Actor> = {}): Actor => ({ isAssignee: false, isAssi
 const names = (list: ReturnType<typeof actionsFor>) => list.map((a) => a.action).sort()
 
 describe('ค่าเริ่มต้นของ workflow', () => {
-  it('มี 2 flow: document (4 สถานะ) กับ deployment (6 สถานะ) · ปิดสวิตช์ไว้ก่อน · งานไม่มีประเภท = deployment', () => {
+  it('มี 2 flow: document (4 สถานะ) กับ deployment (7 สถานะ รวม Ready for STG) · ปิดสวิตช์ไว้ก่อน · งานไม่มีประเภท = deployment', () => {
     expect(DEFAULT_WORKFLOW_CONFIG.enabled).toBe(false)
     expect(DEFAULT_WORKFLOW_CONFIG.defaultWorkflowId).toBe('deployment')
     const byId = Object.fromEntries(DEFAULT_WORKFLOW_CONFIG.workflows.map((w) => [w.id, w.steps]))
     expect(byId.document).toEqual(['non_start', 'on_processing', 'waiting_for_test', 'done'])
-    expect(byId.deployment).toEqual(['non_start', 'on_processing', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'])
+    expect(byId.deployment).toEqual(['non_start', 'on_processing', 'ready_for_stg', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'])
+  })
+
+  it('config เก่าที่เก็บ deployment แบบไม่มี Ready for STG → อัปเกรดเป็นชุดใหม่ · ที่ owner ปรับเองไม่ถูกทับ', () => {
+    const legacy = resolveWorkflowConfig({ enabled: true, workflows: [{ id: 'deployment', name: 'Deployment', steps: ['non_start', 'on_processing', 'testing_stg', 'ready_for_prd', 'testing_prd', 'done'] }], typeFlows: {}, defaultWorkflowId: 'deployment' })
+    expect(legacy.workflows.find((w) => w.id === 'deployment')?.steps).toContain('ready_for_stg')
+    const custom = resolveWorkflowConfig({ enabled: true, workflows: [{ id: 'deployment', name: 'Deployment', steps: ['non_start', 'on_processing', 'testing_stg', 'done'] }], typeFlows: {}, defaultWorkflowId: 'deployment' })
+    expect(custom.workflows.find((w) => w.id === 'deployment')?.steps).toEqual(['non_start', 'on_processing', 'testing_stg', 'done'])
   })
 })
 
@@ -69,6 +77,8 @@ describe('resolveWorkflowConfig / validateWorkflowConfig', () => {
     expect(bad(['non_start', 'testing_stg', 'on_processing', 'done']).ok).toBe(false)
     expect(bad(['non_start', 'on_processing', 'testing_stg', 'done']).ok).toBe(true)
     expect(bad(['non_start', 'on_processing', 'done']).ok).toBe(true)
+    expect(bad(['non_start', 'on_processing', 'ready_for_stg', 'done']).ok).toBe(false) // Ready for STG ต้องมี Testing on STG
+    expect(bad(['non_start', 'on_processing', 'ready_for_stg', 'testing_stg', 'done']).ok).toBe(true)
     expect(validateWorkflowConfig({ ...DEFAULT_WORKFLOW_CONFIG, defaultWorkflowId: 'zzz' }).ok).toBe(false)
     expect(validateWorkflowConfig({ ...DEFAULT_WORKFLOW_CONFIG, typeFlows: { tt_brd: 'zzz' } }).ok).toBe(false)
   })
@@ -111,6 +121,8 @@ describe('stageRank — ลำดับความคืบหน้าที�
     expect(stageRank('non_start')).toBe(0)
     expect(stageRank('on_processing')).toBe(1)
     expect(stageRank('waiting_for_test')).toBe(stageRank('testing_stg'))
+    expect(stageRank('ready_for_stg')).toBeGreaterThan(stageRank('on_processing')!)
+    expect(stageRank('testing_stg')).toBeGreaterThan(stageRank('ready_for_stg')!)
     expect(stageRank('ready_for_prd')).toBeGreaterThan(stageRank('testing_stg')!)
     expect(stageRank('testing_prd')).toBeGreaterThan(stageRank('ready_for_prd')!)
     expect(stageRank('done')).toBeGreaterThan(stageRank('testing_prd')!)
@@ -128,9 +140,22 @@ describe('actionsFor — flow Deployment: ใครกดอะไรได้�
     expect(actionsFor(dep, 'non_start', actor({ isAssigner: true }), ctx)).toEqual([])
   })
 
-  it('On Processing: ผู้รับงานส่งงาน → Testing on STG', () => {
+  it('On Processing: ผู้รับงานส่งงาน → Ready for STG (flow ที่ไม่มีขั้นนี้ → Testing on STG ตรงๆ)', () => {
     const a = actionsFor(dep, 'on_processing', actor({ isAssignee: true }), ctx)
-    expect(a.find((x) => x.action === 'submit')?.to).toBe('testing_stg')
+    expect(a.find((x) => x.action === 'submit')?.to).toBe('ready_for_stg')
+    const quick = { id: 'quick', name: 'Quick', steps: ['non_start', 'on_processing', 'testing_stg', 'done'] as WorkflowDef['steps'] }
+    expect(actionsFor(quick, 'on_processing', actor({ isAssignee: true }), ctx).find((x) => x.action === 'submit')?.to).toBe('testing_stg')
+  })
+
+  it('Ready for STG: ผู้ทดสอบ (ผู้ตรวจ) รับทดสอบ → Testing on STG หรือไม่รับ (ต้องมีเหตุผล) · ผู้รับงานดึงกลับได้ · BA ไม่มีปุ่ม', () => {
+    const qa = actionsFor(dep, 'ready_for_stg', actor({ isReviewer: true }), ctx)
+    expect(names(qa)).toEqual(['stg_accept', 'stg_decline'])
+    expect(qa.find((x) => x.action === 'stg_accept')?.to).toBe('testing_stg')
+    expect(qa.find((x) => x.action === 'stg_decline')?.to).toBe('on_processing')
+    expect(qa.find((x) => x.action === 'stg_decline')?.requiresReason).toBe(true)
+    expect(names(actionsFor(dep, 'ready_for_stg', actor({ isAssignee: true }), ctx))).toEqual(['recall'])
+    expect(actionsFor(dep, 'ready_for_stg', actor({ isAssigner: true }), ctx)).toEqual([])
+    expect(names(actionsFor(dep, 'ready_for_stg', actor({ isOwner: true }), ctx))).toEqual(['recall', 'stg_accept', 'stg_decline'])
   })
 
   it('Testing on STG: QA (ผู้ตรวจ) กด "ผ่าน STG" (ยังอยู่ช่องเดิม) หรือ "ไม่ผ่าน" · ผู้รับงานดึงกลับได้ถ้ายังไม่ผ่าน · BA อนุมัติยังไม่ได้จนกว่า QA ผ่าน', () => {
@@ -139,7 +164,10 @@ describe('actionsFor — flow Deployment: ใครกดอะไรได้�
     expect(qa.find((x) => x.action === 'stg_pass')?.to).toBe('testing_stg')
     expect(qa.find((x) => x.action === 'fail')?.to).toBe('on_processing')
     expect(qa.find((x) => x.action === 'fail')?.requiresReason).toBe(true)
-    expect(names(actionsFor(dep, 'testing_stg', actor({ isAssignee: true }), ctx))).toEqual(['recall'])
+    // รับทดสอบแล้ว (flow มี Ready for STG) ผู้รับงานดึงกลับไม่ได้ · flow ที่ไม่มีขั้น Ready for STG ยังดึงกลับได้ถ้า QA ยังไม่ผ่าน
+    expect(actionsFor(dep, 'testing_stg', actor({ isAssignee: true }), ctx)).toEqual([])
+    const quick = { id: 'quick', name: 'Quick', steps: ['non_start', 'on_processing', 'testing_stg', 'done'] as WorkflowDef['steps'] }
+    expect(names(actionsFor(quick, 'testing_stg', actor({ isAssignee: true }), ctx))).toEqual(['recall'])
     expect(names(actionsFor(dep, 'testing_stg', actor({ isAssigner: true }), ctx))).toEqual(['fail'])
   })
 
