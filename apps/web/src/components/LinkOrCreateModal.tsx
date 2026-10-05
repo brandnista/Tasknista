@@ -13,6 +13,8 @@ export function LinkOrCreateModal({
   pickItems,
   onCreateNew,
   onPickExisting,
+  multiple,
+  onPickMany,
   onClose,
 }: {
   title: string
@@ -21,8 +23,12 @@ export function LinkOrCreateModal({
   pickItems: PickableTask[]
   onCreateNew: (title: string) => void
   onPickExisting: (item: PickableTask) => void
+  /** Pronista §Multi-link (2026-10-05) — เลือกได้หลายรายการ (ติ๊กแล้วกดปุ่มเชื่อมทีเดียว) แทนการกดทีละรายการ */
+  multiple?: boolean
+  onPickMany?: (items: PickableTask[]) => void
   onClose: () => void
 }) {
+  const [picked, setPicked] = useState<Set<string>>(new Set())
   const [newTitle, setNewTitle] = useState('')
   const [q, setQ] = useState('')
   const filtered = useMemo(() => {
@@ -71,14 +77,33 @@ export function LinkOrCreateModal({
             {filtered.map((t) => (
               <button
                 key={t.id}
-                onClick={() => onPickExisting(t)}
+                onClick={() => {
+                  if (!multiple) return onPickExisting(t)
+                  setPicked((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(t.id)) next.delete(t.id)
+                    else next.add(t.id)
+                    return next
+                  })
+                }}
                 className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-hover flex items-center gap-2"
               >
+                {multiple && <input type="checkbox" readOnly checked={picked.has(t.id)} tabIndex={-1} className="shrink-0 pointer-events-none" />}
                 {t.code && <span className="text-[11px] text-muted shrink-0">{t.code}</span>}
                 <span className="text-sm text-body truncate">{t.title}</span>
               </button>
             ))}
           </div>
+          {multiple && (
+            <button
+              type="button"
+              disabled={picked.size === 0}
+              onClick={() => onPickMany?.(pickItems.filter((t) => picked.has(t.id)))}
+              className="mt-3 w-full text-sm bg-brand-600 text-white px-3 py-2 rounded-lg hover:bg-brand-700 disabled:opacity-40 font-medium"
+            >
+              เชื่อมที่เลือก ({picked.size})
+            </button>
+          )}
         </div>
       </div>
     </div>
