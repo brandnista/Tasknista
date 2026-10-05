@@ -27,6 +27,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { writeAudit } from '../lib/audit'
 import { notifyProjectPmAndBa, notifyUser } from '../lib/notify'
+import { waitingForMyReview } from '../lib/review-queue'
 import { notifyBoard } from '../lib/presence-notify'
 import { canEditProject, canEditTask, getProjectPermissions, getProjectRole, isAssigneeOnlyEditor } from '../lib/project-role'
 import { nextSubTaskCode, nextTaskCode, nextTypedEpicCode, nextTypedTaskCode, sanitizeCodePrefix } from '../lib/task-code'
@@ -565,7 +566,7 @@ export const taskRoutes = new Hono<AppEnv>()
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .leftJoin(workspaces, eq(tasks.workspaceId, workspaces.id))
       .leftJoin(users, eq(tasks.assigneeId, users.id))
-      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+      .where(waitingForMyReview(me.id))
       .orderBy(asc(tasks.submittedAt), asc(tasks.dueDate))
     const checklistCounts = await checklistCountsFor(db, rows.map((r) => r.task.id))
     return c.json(
@@ -587,7 +588,7 @@ export const taskRoutes = new Hono<AppEnv>()
     await db
       .update(tasks)
       .set({ reviewSeenAt: new Date() })
-      .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test')))
+      .where(waitingForMyReview(me.id))
     return c.json({ ok: true })
   })
 

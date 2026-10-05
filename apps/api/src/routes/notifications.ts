@@ -3,6 +3,7 @@ import { createDb, leaveRequests, meetings, notifications, tasks, users, NOTIFIC
 import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { waitingForMyReview } from '../lib/review-queue'
 import type { AppEnv } from '../types'
 
 /**
@@ -103,7 +104,7 @@ export const notificationRoutes = new Hono<AppEnv>()
       db
         .select({ submittedAt: tasks.submittedAt, reviewSeenAt: tasks.reviewSeenAt })
         .from(tasks)
-        .where(and(eq(tasks.reviewerId, me.id), eq(tasks.status, 'waiting_for_test'))),
+        .where(waitingForMyReview(me.id)),
     ])
     const latest = latestRow[0] ? `${latestRow[0].createdAt.getTime()}:${latestRow[0].id}` : null
     const review = reviewRows.filter((t) => !t.reviewSeenAt || (t.submittedAt != null && t.submittedAt.getTime() > t.reviewSeenAt.getTime())).length
