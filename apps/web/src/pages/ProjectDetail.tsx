@@ -1960,6 +1960,7 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   const sel = useBacklogSprintSelect(projectId, items, () => void reload(), onSprintChanged)
   const { confirmDialog, alertDialog } = useDialog()
   const toastAction = useToastAction()
+  const toast = useToast()
   const bulkDeleteConfirm = async (ids: string[]) => {
     if (!(await confirmDialog({ title: `ลบ ${ids.length} รายการ?`, message: 'กู้คืนไม่ได้', danger: true }))) return
     const res = await sel.bulkDelete(ids)
@@ -2056,6 +2057,20 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
     setLinkMode(null)
     void reload()
   }
+  // Pronista §Multi-link (2026-10-05) — เชื่อมหลาย Task เข้ากับ Story เดียวทีเดียว (ใช้ทั้งจากแถว Story "เชื่อมกับ Task" และจากแท็บ Task ที่ติ๊กเลือกหลายแถว)
+  const linkManyToStory = async (taskIds: string[], storyId: string) => {
+    const results = await Promise.allSettled(taskIds.map((id) => api.post(`/api/tasks/${id}/convert`, { to: 'task', targetParentId: storyId })))
+    const failed = results.filter((r) => r.status === 'rejected').length
+    void reload()
+    if (failed > 0) await alertDialog({ title: `เชื่อมสำเร็จ ${taskIds.length - failed} งาน, ไม่สำเร็จ ${failed} งาน`, message: 'งานที่ไม่สำเร็จอาจไม่มีสิทธิ์แก้ไข หรือถูกเปลี่ยนไปแล้ว ลองรีเฟรชแล้วทำซ้ำ' })
+    else toast(`เชื่อม ${taskIds.length} งานกับ Story แล้ว`)
+    return failed
+  }
+  const attachManyChildTasks = async (items: PickableTask[]) => {
+    if (!linkMode) return
+    await linkManyToStory(items.map((i) => i.id), linkMode.storyId)
+    setLinkMode(null)
+  }
   const createChildTask = async (taskTitle: string) => {
     if (!linkMode) return
     const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: taskTitle })
@@ -2065,6 +2080,20 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
   }
   // Pronista §Back to Basic (ต่อยอด) — แท็บ Task: เมนู "..." ต่อแถว "เชื่อมกับ Story" (สำหรับงานที่คีย์ลอยๆ ไว้ก่อน หรือย้ายไป Story อื่น)
   const [linkTaskId, setLinkTaskId] = useState<string | null>(null)
+  // Pronista §Multi-link (2026-10-05) — แท็บ Task: ติ๊กหลาย Task แล้วกด "เชื่อมกับ Story" ทีเดียว
+  const [linkManyIds, setLinkManyIds] = useState<string[] | null>(null)
+  const linkSelectedToStory = async (storyId: string) => {
+    if (!linkManyIds) return
+    const ids = linkManyIds
+    setLinkManyIds(null)
+    const failed = await linkManyToStory(ids, storyId)
+    if (failed < ids.length) sel.clearSelected()
+  }
+  const createStoryForSelected = async (storyTitle: string) => {
+    if (!linkManyIds) return
+    const created = await api.post<{ id: string }>(`/api/projects/${projectId}/backlog`, { title: storyTitle })
+    await linkSelectedToStory(created.id)
+  }
   const linkTaskToStory = async (storyId: string) => {
     if (!linkTaskId) return
     await api.post(`/api/tasks/${linkTaskId}/convert`, { to: 'task', targetParentId: storyId })
@@ -2266,6 +2295,16 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
             onMoveAll={(to) => void bulkMoveConfirm(sel.filtered.map((t) => t.id), to)}
             onMoveSelected={(to) => void bulkMoveConfirm([...sel.selected], to)}
           />
+          {level === 'task' && (
+            <button
+              type="button"
+              onClick={() => setLinkManyIds([...sel.selected])}
+              disabled={sel.bulkBusy || sel.selected.size === 0}
+              className="text-[11px] rounded-lg px-2 py-1 disabled:opacity-40 whitespace-nowrap text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100"
+            >
+              🔗 เชื่อมที่เลือกกับ Story ({sel.selected.size})
+            </button>
+          )}
         </div>
       )}
       {sel.filtered.length === 0 ? (
@@ -2304,9 +2343,22 @@ function ProjectHierarchyTab({ projectId, level, canEdit, canCreate, onOpenTask,
           createPlaceholder="ชื่อ Task ใหม่…"
           pickLabel="หรือเลือก Task ที่มีอยู่แล้ว"
           pickItems={taskPickItems}
+          multiple
+          onPickMany={(items) => void attachManyChildTasks(items)}
           onCreateNew={(t) => void createChildTask(t)}
           onPickExisting={(item) => void attachChildTask(item.id)}
           onClose={() => setLinkMode(null)}
+        />
+      )}
+      {linkManyIds && (
+        <LinkOrCreateModal
+          title={`เชื่อม ${linkManyIds.length} Task กับ Story`}
+          createPlaceholder="ชื่อ Story ใหม่…"
+          pickLabel="หรือเลือก Story ที่มีอยู่แล้ว"
+          pickItems={storyOptions}
+          onCreateNew={(t) => void createStoryForSelected(t)}
+          onPickExisting={(item) => void linkSelectedToStory(item.id)}
+          onClose={() => setLinkManyIds(null)}
         />
       )}
       {linkTaskId && (
