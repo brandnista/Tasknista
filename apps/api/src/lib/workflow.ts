@@ -80,7 +80,8 @@ export function queueReasonOf(task: Pick<TaskRow, 'status' | 'stgPassedAt'>): Qu
  * - flow Deployment (สวิตช์เปิด): ผู้ตรวจ + Ready for STG (รอรับทดสอบ) / Testing on STG ที่ QA ยังไม่กดผ่าน · ผู้จ่ายงาน + (Testing on STG ที่ผ่านแล้ว รออนุมัติ | Testing on PRD รอยืนยัน)
  */
 export function reviewQueueWhere(meId: string, workflowEnabled: boolean) {
-  const legacy = and(eq(tasks.reviewerId, meId), eq(tasks.status, 'waiting_for_test'))
+  // ผู้ตรวจจริง = reviewerId ?? ผู้จ่ายงาน (ตรงกับกฎอนุมัติ/ตีกลับ) — งานที่ส่งตรวจก่อนระบบตั้งผู้ตรวจให้อัตโนมัติ (reviewerId ว่าง) ต้องโผล่ในคิวของผู้จ่ายงานด้วย (แก้ 05/10/69)
+  const legacy = and(or(eq(tasks.reviewerId, meId), and(isNull(tasks.reviewerId), eq(tasks.assignedBy, meId))), eq(tasks.status, 'waiting_for_test'))
   if (!workflowEnabled) return legacy
   return or(
     legacy,

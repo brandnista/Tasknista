@@ -1034,6 +1034,30 @@ describe('§My Tasks reviewer queue — GET /tasks/pending-review', () => {
     expect(afterApprove.some((row) => row.id === t.id)).toBe(false)
   })
 
+  // (2026-10-05) งานที่ส่งตรวจก่อนระบบตั้งผู้ตรวจให้อัตโนมัติ (reviewerId ว่าง) — ผู้จ่ายงานคือผู้ตรวจจริงตามกฎอนุมัติ ต้องเห็นงานในคิว "งานรอตรวจ" และ badge ด้วย
+  it('งานที่ไม่มีผู้ตรวจ (reviewerId ว่าง) โผล่ในคิวของผู้จ่ายงาน · badge นับ · คนอื่นไม่เห็น · งานหายเมื่ออนุมัติ', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const pond = await loginAs(app, 'pond@example-co.test')
+    const { p, g1 } = await setupProject(owner)
+    await app.request(`/api/projects/${p.id}/members`, json(owner, { userId: 'u_pond', positionId: 'pos_full_access' }), env)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานไม่มีผู้ตรวจ', assigneeId: 'u_pond' }), env)).json()) as { id: string }
+    await app.request(`/api/tasks/${t.id}/dispatch`, json(owner, {}), env)
+    await app.request(`/api/tasks/${t.id}/accept`, json(pond, {}), env)
+    expect((await app.request(`/api/tasks/${t.id}`, patchJson(pond, { status: 'waiting_for_test', workflowAction: 'submit' }), env)).status).toBe(200)
+    // จำลองงานเก่า: ผู้ตรวจว่าง (ก่อนระบบตั้งผู้ตรวจให้อัตโนมัติ)
+    await createDb(env.DB).update(tasks).set({ reviewerId: null }).where(eq(tasks.id, t.id))
+
+    const ids = async (cookie: string) =>
+      ((await (await app.request('/api/tasks/pending-review', { headers: { cookie } }, env)).json()) as { id: string }[]).map((r) => r.id)
+    expect(await ids(owner)).toContain(t.id)
+    expect(await ids(pond)).not.toContain(t.id)
+    const stamp = (await (await app.request('/api/notifications/stamp', { headers: { cookie: owner } }, env)).json()) as { review: number }
+    expect(stamp.review).toBeGreaterThanOrEqual(1)
+
+    expect((await app.request(`/api/tasks/${t.id}`, patchJson(owner, { status: 'done', workflowAction: 'approve' }), env)).status).toBe(200)
+    expect(await ids(owner)).not.toContain(t.id)
+  })
+
   // (2026-09-25) badge งานรอตรวจลดทันทีที่เข้าเมนู — POST /tasks/pending-review/seen stamp reviewSeenAt · ส่งตรวจรอบใหม่ (submittedAt ใหม่กว่า) ต้องนับใหม่
   it('POST /tasks/pending-review/seen → stamp reviewSeenAt เฉพาะงานของตัวเอง · ตีกลับแล้วส่งใหม่ submittedAt > reviewSeenAt', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
