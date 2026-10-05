@@ -1000,6 +1000,44 @@ describe('§My Tasks assignee view fix — GET /tasks/mine ต้องเห็
   })
 })
 
+describe('§Task delete fix (2026-10-05) — ลบงานที่มีเกณฑ์ว่าเสร็จ/การเชื่อมโยง', () => {
+  it('งานที่มีเกณฑ์ว่าเสร็จ (checklist) ลบได้ ไม่ 500 · เกณฑ์ว่าเสร็จหายไปด้วย', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'CR มีเกณฑ์ว่าเสร็จ' }), env)).json()) as { id: string }
+    expect((await app.request(`/api/tasks/${t.id}/checklist`, json(owner, { text: 'ผ่านการทดสอบ' }), env)).status).toBe(201)
+    expect((await app.request(`/api/tasks/${t.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
+    const left = await createDb(env.DB).select().from(tasks).where(eq(tasks.id, t.id))
+    expect(left).toHaveLength(0)
+    const orphan = await env.DB.prepare('SELECT COUNT(*) AS n FROM task_checklist_items WHERE task_id = ?').bind(t.id).first<{ n: number }>()
+    expect(orphan?.n).toBe(0)
+  })
+
+  it('งานที่ถูกเชื่อมโยง (task_references) ลบได้ · แถวเชื่อมโยงหายทั้งสองฝั่ง', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const a = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน A' }), env)).json()) as { id: string }
+    const b = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งาน B' }), env)).json()) as { id: string }
+    await env.DB.prepare('INSERT INTO task_references (id, task_id, references_task_id, created_at) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), a.id, b.id, Date.now()).run()
+    expect((await app.request(`/api/tasks/${b.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)).status).toBe(200)
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM task_references WHERE task_id = ? OR references_task_id = ?').bind(b.id, b.id).first<{ n: number }>()
+    expect(n?.n).toBe(0)
+  })
+
+  it('งานที่ถูกอ้างอิงใน Daily Report ลบไม่ได้ → 409 พร้อมข้อความ (ไม่ใช่ 500) และงานยังอยู่', async () => {
+    const owner = await loginAs(app, 'owner@example-co.test')
+    const { g1 } = await setupProject(owner)
+    const t = (await (await app.request(`/api/groups/${g1.id}/tasks`, json(owner, { title: 'งานอยู่ในรายงาน' }), env)).json()) as { id: string }
+    const rid = crypto.randomUUID()
+    await env.DB.prepare("INSERT INTO daily_reports (id, user_id, report_date, status, blocker_has_issue, created_at) VALUES (?, 'u_owner', '2026-10-05', 'draft', 0, ?)").bind(rid, Date.now()).run()
+    await env.DB.prepare('INSERT INTO daily_report_items (id, report_id, task_id, sort_order, created_at) VALUES (?, ?, ?, 0, ?)').bind(crypto.randomUUID(), rid, t.id, Date.now()).run()
+    const res = await app.request(`/api/tasks/${t.id}`, { method: 'DELETE', headers: { cookie: owner } }, env)
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { error: string }).error).toBe('referenced')
+    expect(await createDb(env.DB).select().from(tasks).where(eq(tasks.id, t.id))).toHaveLength(1)
+  })
+})
+
 describe('§My Tasks reviewer queue — GET /tasks/pending-review', () => {
   it('Reviewer เห็นงานที่ส่งตรวจแล้ว แม้ไม่ใช่ Assignee และงานหายจากคิวเมื่ออนุมัติ', async () => {
     const owner = await loginAs(app, 'owner@example-co.test')
